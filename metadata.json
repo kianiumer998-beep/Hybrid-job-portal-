@@ -1,0 +1,6 @@
+{
+  "name": "Hybrid Remote Jobs & CV Builder",
+  "description": "Hybrid Remote Jobs Portal with multi-level region filtering, subscription alerts, interactive automated CV builder, and secret admin dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

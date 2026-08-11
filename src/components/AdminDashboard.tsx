@@ -182,19 +182,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Location helpers
   const formCities = React.useMemo(() => {
-    const p = PAKISTAN_LOCATIONS.find((loc) => loc.province === province);
-    return p ? p.cities : [];
+    const p = (PAKISTAN_LOCATIONS || []).find((loc) => loc && loc.province === province);
+    return p && Array.isArray(p.cities) ? p.cities : [];
   }, [province]);
 
   const formDistricts = React.useMemo(() => {
-    const c = formCities.find((ci) => ci.name === city);
-    return c ? c.districts : [];
+    const c = (formCities || []).find((ci) => ci && ci.name === city);
+    return c && Array.isArray(c.districts) ? c.districts : [];
   }, [city, formCities]);
 
   // Scraper Simulation Handler
   // Scraper Manual / Scheduled Execution Handler
   const handleRunScraper = (specificSourceId?: string) => {
-    const source = specificSourceId ? scraperSources.find(s => s.id === specificSourceId) : null;
+    const source = specificSourceId ? (scraperSources || []).find(s => s && s.id === specificSourceId) : null;
     const targetUrl = source ? source.url : scraperUrl;
     const targetKeyword = source ? source.keywords : scraperKeyword;
     const shouldAutoApprove = source ? source.autoApprove : scraperAutoApprove;
@@ -366,7 +366,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     if (!selectedChatUserId || !adminReplyText.trim()) return;
 
-    const targetUser = users.find((u) => u.id === selectedChatUserId);
+    const targetUser = (users || []).find((u) => u && u.id === selectedChatUserId);
     const userName = targetUser ? targetUser.name : 'User';
 
     onSendMessageToUser(selectedChatUserId, userName, adminReplyText.trim());
@@ -901,7 +901,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div className="md:col-span-8 space-y-4">
             <h4 className="text-xs font-bold uppercase text-slate-400">
-              Chatting with: <span className="text-amber-400 font-bold">{users.find((u) => u.id === selectedChatUserId)?.name || 'Select User'}</span>
+              Chatting with: <span className="text-amber-400 font-bold">{(users || []).find((u) => u && u.id === selectedChatUserId)?.name || 'Select User'}</span>
             </h4>
 
             <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 h-80 overflow-y-auto space-y-3">

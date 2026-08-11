@@ -19,15 +19,15 @@ export const Filters: React.FC<FiltersProps> = ({
   // Compute available Cities based on selected Province
   const availableCities = useMemo(() => {
     if (!filters.province) return [];
-    const provData = PAKISTAN_LOCATIONS.find(p => p.province === filters.province);
-    return provData ? provData.cities : [];
+    const provData = (PAKISTAN_LOCATIONS || []).find(p => p && p.province === filters.province);
+    return provData && Array.isArray(provData.cities) ? provData.cities : [];
   }, [filters.province]);
 
   // Compute available Districts based on selected City
   const availableDistricts = useMemo(() => {
-    if (!filters.city || !availableCities.length) return [];
-    const cityData = availableCities.find(c => c.name === filters.city);
-    return cityData ? cityData.districts : [];
+    if (!filters.city || !availableCities || !availableCities.length) return [];
+    const cityData = (availableCities || []).find(c => c && c.name === filters.city);
+    return cityData && Array.isArray(cityData.districts) ? cityData.districts : [];
   }, [filters.city, availableCities]);
 
   // Handle Region change

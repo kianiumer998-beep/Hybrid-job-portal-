@@ -135,13 +135,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   };
 
   const formCities = React.useMemo(() => {
-    const p = PAKISTAN_LOCATIONS.find((loc) => loc.province === province);
-    return p ? p.cities : [];
+    const p = (PAKISTAN_LOCATIONS || []).find((loc) => loc && loc.province === province);
+    return p && Array.isArray(p.cities) ? p.cities : [];
   }, [province]);
 
   const formDistricts = React.useMemo(() => {
-    const c = formCities.find((ci) => ci.name === city);
-    return c ? c.districts : [];
+    const c = (formCities || []).find((ci) => ci && ci.name === city);
+    return c && Array.isArray(c.districts) ? c.districts : [];
   }, [city, formCities]);
 
   const handleJobSubmitInitiate = (e: React.FormEvent) => {
@@ -755,15 +755,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     value={province}
                     onChange={(e) => {
                       setProvince(e.target.value);
-                      const p = PAKISTAN_LOCATIONS.find((loc) => loc.province === e.target.value);
-                      if (p && p.cities.length) {
+                      const p = (PAKISTAN_LOCATIONS || []).find((loc) => loc && loc.province === e.target.value);
+                      if (p && Array.isArray(p.cities) && p.cities.length) {
                         setCity(p.cities[0].name);
                         setDistrict(p.cities[0].districts[0] || '');
                       }
                     }}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
                   >
-                    {PAKISTAN_LOCATIONS.map((p) => (
+                    {(PAKISTAN_LOCATIONS || []).map((p) => (
                       <option key={p.province} value={p.province}>{p.province}</option>
                     ))}
                   </select>
@@ -775,14 +775,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     value={city}
                     onChange={(e) => {
                       setCity(e.target.value);
-                      const c = formCities.find((ci) => ci.name === e.target.value);
-                      if (c && c.districts.length) {
+                      const c = (formCities || []).find((ci) => ci && ci.name === e.target.value);
+                      if (c && Array.isArray(c.districts) && c.districts.length) {
                         setDistrict(c.districts[0]);
                       }
                     }}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
                   >
-                    {formCities.map((c) => (
+                    {(formCities || []).map((c) => (
                       <option key={c.name} value={c.name}>{c.name}</option>
                     ))}
                   </select>

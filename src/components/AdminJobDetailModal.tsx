@@ -27,7 +27,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   const [showRejectInput, setShowRejectInput] = useState(false);
 
   // Find user who posted the job
-  const posterUser = users.find(u => u.id === job.submittedByUserId) || {
+  const posterUser = (users || []).find(u => u && u.id === job.submittedByUserId) || {
     id: job.submittedByUserId || 'user-unknown',
     name: job.company || 'Job Poster',
     email: 'poster@jobportal.com',
@@ -38,8 +38,8 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   } as UserAccount;
 
   // Find fee log associated with this job title/user
-  const feeLog = feeLogs.find(
-    f => f.jobTitle.toLowerCase() === job.title.toLowerCase() || (f.userId === posterUser.id)
+  const feeLog = (feeLogs || []).find(
+    f => f && f.jobTitle && (f.jobTitle.toLowerCase() === (job.title || '').toLowerCase() || f.userId === posterUser.id)
   );
 
   return (

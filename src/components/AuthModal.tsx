@@ -86,8 +86,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return;
       }
 
-      const found = existingUsers.find(
-        u => (u.email && u.email.toLowerCase() === query) || (u.username && u.username.toLowerCase() === query)
+      const found = (existingUsers || []).find(
+        u => u && ((u.email && u.email.toLowerCase() === query) || (u.username && u.username.toLowerCase() === query))
       );
 
       if (found) {

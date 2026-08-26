@@ -13,19 +13,128 @@ import { AuthModal } from './components/AuthModal';
 import { UserDashboard } from './components/UserDashboard';
 import { Footer } from './components/Footer';
 
+import { TopBannerAd } from './components/ads/TopBannerAd';
+import { PopupAdModal } from './components/ads/PopupAdModal';
+import { ToastNotificationAd } from './components/ads/ToastNotificationAd';
+import { AdNotificationDrawer } from './components/ads/AdNotificationDrawer';
+import { 
+  Advertisement, 
+  INITIAL_ADVERTISEMENTS, 
+  AdPricingConfig, 
+  DEFAULT_AD_PRICING_CONFIG,
+  CampaignCustomizationConfig,
+  DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
+} from './types/ad';
+
 import { Job, JobFilters, Subscriber, UserAccount, ChatMessage, CustomFormField, JobPostingFeeLog, PaymentTransaction, JobApplication } from './types/job';
 import { INITIAL_JOBS } from './data/mockJobs';
-import { Bell, Sparkles, CheckCircle2, Shield, Search } from 'lucide-react';
+import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X } from 'lucide-react';
+import { SiteSeoConfig } from './types/adminSuite';
+import { INITIAL_SITE_SEO_CONFIG } from './data/mockAdminSuiteData';
 
 export default function App() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
   const [showAdminView, setShowAdminView] = useState<boolean>(false);
+  const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
+
+  // Global SEO & Announcement State (Synchronized with Admin Suite)
+  const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
+    try {
+      const saved = localStorage.getItem('career_pak_seo_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_SITE_SEO_CONFIG;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('career_pak_seo_config', JSON.stringify(siteSeoConfig));
+      if (siteSeoConfig.siteTitle) {
+        document.title = siteSeoConfig.siteTitle;
+      }
+    } catch (e) {}
+  }, [siteSeoConfig]);
+
+  // Advertisements State
+  const [advertisements, setAdvertisements] = useState<Advertisement[]>(() => {
+    const saved = localStorage.getItem('hybrid_portal_ads');
+    return saved ? JSON.parse(saved) : INITIAL_ADVERTISEMENTS;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('hybrid_portal_ads', JSON.stringify(advertisements));
+  }, [advertisements]);
+
+  // Pricing Matrix Configuration State
+  const [pricingConfig, setPricingConfig] = useState<AdPricingConfig>(() => {
+    const saved = localStorage.getItem('hybrid_ad_pricing_config');
+    return saved ? JSON.parse(saved) : DEFAULT_AD_PRICING_CONFIG;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('hybrid_ad_pricing_config', JSON.stringify(pricingConfig));
+  }, [pricingConfig]);
+
+  // Campaign Customization & Portal Page Scheduling State
+  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(() => {
+    const saved = localStorage.getItem('hybrid_campaign_customization_config');
+    return saved ? JSON.parse(saved) : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(campaignConfig));
+  }, [campaignConfig]);
+
+  const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
+
+  const handleAdClick = (ad: Advertisement) => {
+    setAdvertisements((prev) =>
+      prev.map((a) => (a.id === ad.id ? { ...a, clicks: (a.clicks || 0) + 1 } : a))
+    );
+  };
+
+  const handleAddAd = (newAd: Advertisement) => {
+    setAdvertisements((prev) => [newAd, ...prev]);
+  };
+
+  const handleUpdateAd = (updatedAd: Advertisement) => {
+    setAdvertisements((prev) =>
+      prev.map((a) => (a.id === updatedAd.id ? updatedAd : a))
+    );
+  };
+
+  const handleDeleteAd = (adId: string) => {
+    setAdvertisements((prev) => prev.filter((a) => a.id !== adId));
+  };
+
+  const handleResetAdMetrics = (adId?: string) => {
+    if (adId) {
+      setAdvertisements((prev) =>
+        prev.map((a) => (a.id === adId ? { ...a, impressions: 0, clicks: 0 } : a))
+      );
+    } else {
+      setAdvertisements((prev) =>
+        prev.map((a) => ({ ...a, impressions: 0, clicks: 0 }))
+      );
+    }
+  };
 
   // Registered Current User State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     const saved = localStorage.getItem('hybrid_current_user');
-    return saved ? JSON.parse(saved) : null;
+    if (saved) {
+      try {
+        const u: UserAccount = JSON.parse(saved);
+        if (u && u.walletBalance === undefined) {
+          u.walletBalance = 25000;
+        }
+        return u;
+      } catch {
+        return null;
+      }
+    }
+    return null;
   });
 
   // User Accounts Directory State
@@ -42,6 +151,7 @@ export default function App() {
         companyName: 'Qwer Solutions',
         phone: '+92 300 1234567',
         plan: 'Premium',
+        walletBalance: 25000,
         activationDate: '2026-07-25 09:00',
         expiryDate: '2026-08-24 09:00',
         renewalCount: 2,
@@ -76,6 +186,7 @@ export default function App() {
         role: 'Unified Member',
         phone: '+92 300 1122334',
         plan: 'Premium',
+        walletBalance: 15000,
         activationDate: '2026-07-20 14:00',
         expiryDate: '2026-08-19 14:00',
         renewalCount: 1,
@@ -97,12 +208,26 @@ export default function App() {
 
     if (!saved) return defaultList;
 
-    const parsed: UserAccount[] = JSON.parse(saved);
-    const hasQwer = parsed.some(u => u.username === 'qwer');
-    if (!hasQwer) {
-      return [...defaultList, ...parsed];
+    try {
+      const parsed: UserAccount[] = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return defaultList;
+
+      const userMap = new Map<string, UserAccount>();
+      defaultList.forEach(u => userMap.set(u.id, u));
+      parsed.forEach(u => {
+        if (u && u.id) {
+          const existing = userMap.get(u.id);
+          const combined = existing ? { ...existing, ...u } : u;
+          if (combined.walletBalance === undefined) {
+            combined.walletBalance = 25000;
+          }
+          userMap.set(u.id, combined);
+        }
+      });
+      return Array.from(userMap.values());
+    } catch {
+      return defaultList;
     }
-    return parsed;
   });
 
   // Per-Job Posting Fee Configuration & Log Sheet
@@ -129,37 +254,194 @@ export default function App() {
     ];
   });
 
+  // Helper to deduplicate jobs by unique ID
+  const deduplicateJobsById = (jobList: Job[]): Job[] => {
+    const seen = new Set<string>();
+    const unique: Job[] = [];
+    jobList.forEach((j) => {
+      if (j && j.id) {
+        if (!seen.has(j.id)) {
+          seen.add(j.id);
+          unique.push(j);
+        }
+      }
+    });
+    return unique;
+  };
+
   // Approved Live Jobs
   const [jobs, setJobs] = useState<Job[]>(() => {
     const saved = localStorage.getItem('hybrid_jobs_list');
-    return saved ? JSON.parse(saved) : INITIAL_JOBS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return deduplicateJobsById(parsed);
+        }
+      } catch {
+        // Fallback to initial
+      }
+    }
+    return INITIAL_JOBS;
   });
 
   // Pending Jobs Queue for Admin Verification
   const [pendingJobs, setPendingJobs] = useState<Job[]>(() => {
     const saved = localStorage.getItem('hybrid_pending_jobs');
-    return saved ? JSON.parse(saved) : [
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return deduplicateJobsById(parsed);
+        }
+      } catch {
+        // Fallback to initial
+      }
+    }
+    return [
       {
-        id: 'job-pending-1',
-        title: 'Senior Python & Django Developer',
-        company: 'Systems Ltd',
-        jobType: 'Remote',
+        id: 'job-pending-sc1-1',
+        title: 'Senior Full Stack React & Node.js Engineer',
+        company: 'DevSinc Pakistan',
+        jobType: 'Hybrid',
         region: 'Pakistan',
         province: 'Punjab',
         city: 'Lahore',
         district: 'Gulberg',
-        salary: 'PKR 300,000 - PKR 450,000 / month',
+        salary: 'PKR 350,000 - PKR 480,000 / month',
         currency: 'PKR',
         experienceLevel: 'Senior',
-        department: 'Engineering',
-        tags: ['Python', 'Django', 'PostgreSQL'],
-        description: 'Building RESTful microservices for healthcare clients in USA.',
-        requirements: ['4+ years Python experience', 'Strong SQL skills'],
-        benefits: ['Health Insurance', 'USD Pegged Bonus'],
-        postedAt: '10 mins ago',
+        department: 'Software Engineering',
+        tags: ['React', 'Node.js', 'TypeScript', 'PostgreSQL', 'Tailwind CSS'],
+        description: 'Seeking a seasoned Full Stack Engineer to lead web platform architecture using React 18, Node.js microservices, and modern cloud deployment pipelines.',
+        requirements: ['4+ years hands-on React and Node.js', 'Experience with PostgreSQL & Redis', 'Agile squad leadership'],
+        benefits: ['Medical Insurance for Family', 'Annual Performance Bonus', 'Hybrid Flexibility'],
+        postedAt: '1 hour ago',
         applicationsCount: 0,
         status: 'Pending',
-        submittedByUserId: 'user-demo-2'
+        sourceUrl: 'https://www.rozee.pk/category/information-technology-jobs',
+        scraperSourceId: 'sc-1',
+        scraperSourceName: 'Rozee.pk Pakistan Tech Jobs'
+      },
+      {
+        id: 'job-pending-sc1-2',
+        title: 'MERN Stack Lead Architect',
+        company: 'NetSol Technologies',
+        jobType: 'On-site',
+        region: 'Pakistan',
+        province: 'Punjab',
+        city: 'Lahore',
+        district: 'Model Town',
+        salary: 'PKR 420,000 - PKR 550,000 / month',
+        currency: 'PKR',
+        experienceLevel: 'Lead',
+        department: 'Product Architecture',
+        tags: ['MongoDB', 'Express', 'React', 'Node', 'Docker'],
+        description: 'Seeking an experienced Lead Architect for our enterprise asset finance SaaS platform. You will direct technical strategy, system resilience, and database scaling.',
+        requirements: ['6+ years MERN stack architecture', 'Docker & Kubernetes orchestration'],
+        benefits: ['In-house Gym & Meals', 'Provident Fund', 'Annual Trips'],
+        postedAt: '2 hours ago',
+        applicationsCount: 0,
+        status: 'Pending',
+        sourceUrl: 'https://www.rozee.pk/category/information-technology-jobs',
+        scraperSourceId: 'sc-1',
+        scraperSourceName: 'Rozee.pk Pakistan Tech Jobs'
+      },
+      {
+        id: 'job-pending-sc2-1',
+        title: 'Assistant Director IT (BPS-17)',
+        company: 'Federal Public Service Commission (FPSC)',
+        jobType: 'On-site',
+        region: 'Pakistan',
+        province: 'Islamabad Capital Territory',
+        city: 'Islamabad',
+        salary: 'PKR 110,000 - PKR 160,000 / month (BPS-17 Pay Scale)',
+        currency: 'PKR',
+        experienceLevel: 'Mid',
+        department: 'National IT Wing',
+        tags: ['Govt Job', 'FPSC', 'BPS-17', 'Federal Govt', 'Public Sector'],
+        description: 'Official Federal Public Service Commission recruitment for Assistant Director IT. Responsible for network infrastructure, cybersecurity governance, and database management across federal ministries.',
+        requirements: ['Master or BS in Computer Science (HEC Recognized)', 'Age Limit: 22 - 30 years (+5 years general relaxation)', 'Domicile: Punjab / Sindh / KPK'],
+        benefits: ['Govt Accommodation / House Rent Allowance', 'Pension Scheme & EOBI', 'Medical Grade 1 Facilities'],
+        postedAt: '3 hours ago',
+        applicationsCount: 0,
+        status: 'Pending',
+        sourceUrl: 'https://fpsc.gov.pk/jobs/announcements',
+        scraperSourceId: 'sc-2',
+        scraperSourceName: 'FPSC & PPSC Federal Govt Jobs Scraper',
+        isGovtJob: true,
+        govtDepartment: 'Federal Public Service Commission',
+        govtScale: 'BPS-17',
+        govtCategory: 'Federal'
+      },
+      {
+        id: 'job-pending-sc3-1',
+        title: 'Urgent Computer Operator & Web Assistant',
+        company: 'Metro Trading Corp',
+        jobType: 'On-site',
+        region: 'Pakistan',
+        province: 'Punjab',
+        city: 'Rawalpindi',
+        district: 'Saddar',
+        salary: 'PKR 75,000 - PKR 105,000 / month',
+        currency: 'PKR',
+        experienceLevel: 'Entry',
+        department: 'Data Management & IT',
+        tags: ['Newspaper Classified', 'Daily Jang', 'Data Entry', 'MS Office'],
+        description: 'Urgent requirement for Computer Operator & Web Assistant in Rawalpindi Saddar. Key duties include database record-keeping, web catalog updates, and office administration.',
+        requirements: ['Typing speed 40+ WPM', 'Basic HTML/WordPress editing', 'Intermediate or Bachelor degree'],
+        benefits: ['Daily Lunch Allowance', 'Overtime Compensation'],
+        postedAt: 'Yesterday',
+        applicationsCount: 0,
+        status: 'Pending',
+        sourceUrl: 'https://e.jang.com.pk/classifieds',
+        scraperSourceId: 'sc-3',
+        scraperSourceName: 'Daily Jang Newspaper Classified Ads',
+        isNewspaperAd: true,
+        newspaperName: 'Daily Jang'
+      },
+      {
+        id: 'job-pending-sc4-1',
+        title: 'Senior AI & LLM Engineer (USD Remote)',
+        company: 'Anthropic Ecosystem Partner',
+        jobType: 'Remote',
+        region: 'Global',
+        salary: '$120,000 - $160,000 / year (USD)',
+        currency: 'USD',
+        experienceLevel: 'Senior',
+        department: 'AI Research & Deployment',
+        tags: ['AI Engineer', 'Python', 'LLM', 'Remote', 'PyTorch'],
+        description: 'We are seeking an AI & LLM Engineer to build agentic workflows, fine-tune open-weights models, and optimize retrieval-augmented generation pipelines across distributed systems.',
+        requirements: ['4+ years Python, PyTorch / LangChain / LlamaIndex', 'Production experience with vector DBs (Pinecone, Qdrant)'],
+        benefits: ['100% Worldwide Remote', 'Equipment Allowance $3,000', 'Unlimited PTO'],
+        postedAt: '4 hours ago',
+        applicationsCount: 0,
+        status: 'Pending',
+        sourceUrl: 'https://www.linkedin.com/jobs/search?keywords=remote+developer',
+        scraperSourceId: 'sc-4',
+        scraperSourceName: 'LinkedIn Global Remote Developer Feed'
+      },
+      {
+        id: 'job-pending-sc5-1',
+        title: 'Senior Cloud Solutions Architect (Dubai / Remote)',
+        company: 'Emirates NBD Tech',
+        jobType: 'Remote',
+        region: 'UAE',
+        city: 'Dubai',
+        salary: 'AED 24,000 - AED 32,000 / month',
+        currency: 'AED',
+        experienceLevel: 'Lead',
+        department: 'Enterprise Cloud Architecture',
+        tags: ['Cloud Architecture', 'AWS', 'Kubernetes', 'Microservices', 'DevOps'],
+        description: 'Seeking an experienced Cloud Solutions Architect to drive enterprise AWS & Azure hybrid cloud infrastructure, container orchestration, and high-availability systems.',
+        requirements: ['7+ years Cloud Infrastructure leadership', 'AWS Certified Solutions Architect Professional'],
+        benefits: ['Tax-free UAE Salary', 'Annual Flight Tickets to Home Country', 'Health Coverage'],
+        postedAt: '5 hours ago',
+        applicationsCount: 0,
+        status: 'Pending',
+        sourceUrl: 'https://www.gulftalent.com/uae/jobs/technology',
+        scraperSourceId: 'sc-5',
+        scraperSourceName: 'GulfTalent UAE & Saudi Opportunities'
       }
     ];
   });
@@ -272,7 +554,7 @@ export default function App() {
     }
   };
 
-  // Filters State
+  // Filters & Pagination State
   const [filters, setFilters] = useState<JobFilters>({
     searchQuery: '',
     jobType: 'All',
@@ -284,6 +566,33 @@ export default function App() {
     salaryMin: 0,
     sortBy: 'latest'
   });
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [postsPerPage, setPostsPerPage] = useState<number>(10);
+
+  const handleFiltersChange = (newFilters: JobFilters) => {
+    setFilters(newFilters);
+    setCurrentPage(1);
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      searchQuery: '',
+      jobType: 'All',
+      region: 'All',
+      province: '',
+      city: '',
+      district: '',
+      experienceLevel: 'All',
+      salaryMin: 0,
+      sortBy: 'latest'
+    });
+    setCurrentPage(1);
+  };
+
+  const handlePostsPerPageChange = (newSize: number) => {
+    setPostsPerPage(newSize);
+    setCurrentPage(1);
+  };
 
   // LocalStorage Persist Effects
   useEffect(() => {
@@ -495,9 +804,114 @@ export default function App() {
     }
   };
 
+  // Admin Ends Unpaid Membership
+  const handleEndUserMembership = (userId: string) => {
+    setUsers(prev => prev.map(u => {
+      if (u.id === userId) {
+        return {
+          ...u,
+          plan: 'Free',
+          membershipStatus: 'Revoked',
+          paymentStatus: 'Unpaid',
+          autoRenew: false,
+          expiryDate: '2020-01-01 00:00'
+        };
+      }
+      return u;
+    }));
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser(prev => prev ? {
+        ...prev,
+        plan: 'Free',
+        membershipStatus: 'Revoked',
+        paymentStatus: 'Unpaid',
+        autoRenew: false,
+        expiryDate: '2020-01-01 00:00'
+      } : null);
+    }
+    alert('User premium membership has been terminated/revoked due to unpaid status.');
+  };
+
+  // Admin Deactivates all jobs posted by a specific user
+  const handleDeactivateUserJobs = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    const userCompanyName = user?.name?.toLowerCase();
+    const userEmail = user?.email?.toLowerCase();
+
+    setJobs(prev => prev.map(j => {
+      const match = j.submittedByUserId === userId || 
+                    (userCompanyName && j.company?.toLowerCase() === userCompanyName) ||
+                    (userEmail && j.company?.toLowerCase() === userEmail);
+      if (match) {
+        return { ...j, status: 'Suspended', isSuspended: true, rejectionReason: 'Suspended: Unpaid Employer Account' };
+      }
+      return j;
+    }));
+
+    setPendingJobs(prev => prev.map(j => {
+      const match = j.submittedByUserId === userId || 
+                    (userCompanyName && j.company?.toLowerCase() === userCompanyName) ||
+                    (userEmail && j.company?.toLowerCase() === userEmail);
+      if (match) {
+        return { ...j, status: 'Rejected', isSuspended: true, rejectionReason: 'Suspended: Unpaid Employer Account' };
+      }
+      return j;
+    }));
+
+    alert(`All posted jobs for user "${user?.name || userId}" have been suspended/deactivated.`);
+  };
+
+  // Admin Ends Both Membership and Deactivates Jobs
+  const handleEndUserMembershipAndJobs = (userId: string) => {
+    handleEndUserMembership(userId);
+    handleDeactivateUserJobs(userId);
+    alert('Terminated membership and deactivated all associated job postings.');
+  };
+
+  // Admin Suspends an individual Job
+  const handleSuspendJob = (jobId: string, reason?: string) => {
+    const suspendReason = reason || 'Suspended by Admin (Unpaid Employer / Terms Violation)';
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Suspended', isSuspended: true, rejectionReason: suspendReason } : j));
+    setPendingJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Rejected', isSuspended: true, rejectionReason: suspendReason } : j));
+    alert(`Job has been suspended.`);
+  };
+
+  // Bulk End All Unpaid Memberships & Deactivate Jobs
+  const handleBulkEndUnpaidMemberships = () => {
+    const unpaidUserIds = users.filter(u => u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now())).map(u => u.id);
+    
+    if (unpaidUserIds.length === 0) {
+      alert('All users currently have active, valid paid memberships.');
+      return;
+    }
+
+    setUsers(prev => prev.map(u => {
+      if (unpaidUserIds.includes(u.id)) {
+        return {
+          ...u,
+          plan: 'Free',
+          membershipStatus: 'Revoked',
+          paymentStatus: 'Unpaid',
+          autoRenew: false,
+          expiryDate: '2020-01-01 00:00'
+        };
+      }
+      return u;
+    }));
+
+    setJobs(prev => prev.map(j => {
+      if (j.submittedByUserId && unpaidUserIds.includes(j.submittedByUserId)) {
+        return { ...j, status: 'Suspended', isSuspended: true, rejectionReason: 'Bulk Action: Suspended due to unpaid employer membership' };
+      }
+      return j;
+    }));
+
+    alert(`Enforced unpaid policy on ${unpaidUserIds.length} user account(s) and suspended their active jobs.`);
+  };
+
   // User submits job for admin verification with optional Fee Payment
   const handleSubmitJobForApproval = (newJob: Job, feePayment?: { amount: number; paymentMethod: string }) => {
-    setPendingJobs(prev => [newJob, ...prev]);
+    setPendingJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)]);
 
     if (feePayment && currentUser) {
       const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
@@ -578,7 +992,7 @@ export default function App() {
     const jobToApprove = pendingJobs.find(j => j.id === jobId);
     if (jobToApprove) {
       const approvedJob: Job = { ...jobToApprove, status: 'Approved' };
-      setJobs(prev => [approvedJob, ...prev]);
+      setJobs(prev => [approvedJob, ...prev.filter(j => j.id !== jobId)]);
       setPendingJobs(prev => prev.filter(j => j.id !== jobId));
       alert(`Job "${approvedJob.title}" is now LIVE on the public portal!`);
     }
@@ -589,7 +1003,7 @@ export default function App() {
     const rejectedJob = pendingJobs.find(j => j.id === jobId);
     if (rejectedJob) {
       const updatedJob: Job = { ...rejectedJob, status: 'Rejected', rejectionReason: reason };
-      setJobs(prev => [updatedJob, ...prev]);
+      setJobs(prev => [updatedJob, ...prev.filter(j => j.id !== jobId)]);
       setPendingJobs(prev => prev.filter(j => j.id !== jobId));
 
       // Push notification message into user's chat thread
@@ -651,6 +1065,200 @@ export default function App() {
     setCustomFormFields(prev => prev.filter(f => f.id !== fieldId));
   };
 
+  // Self-Serve Ad Campaign Submissions & Wallet Management
+  const handleSubmitCampaign = (newAd: Advertisement, cost: number) => {
+    if (!currentUser) return;
+    
+    // Add ad to advertisements with pending_approval status
+    const campaignWithUser: Advertisement = {
+      ...newAd,
+      id: newAd.id || 'ad-camp-' + Date.now(),
+      status: 'pending_approval',
+      submittedByUserId: currentUser.id,
+      submittedByUserName: currentUser.name,
+      submittedByUserEmail: currentUser.email,
+      campaignCostPkr: cost
+    };
+
+    setAdvertisements(prev => [campaignWithUser, ...prev]);
+
+    // Deduct from wallet balance
+    const currentBalance = currentUser.walletBalance ?? 25000;
+    const newBalance = Math.max(0, currentBalance - cost);
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+
+    const newTx: PaymentTransaction = {
+      id: 'tx-ad-camp-' + Date.now(),
+      dateTime: nowStr,
+      amount: cost,
+      currency: 'PKR',
+      type: 'Ad Campaign Fee',
+      status: 'Success',
+      paymentMethod: 'Wallet Balance',
+      jobTitleRef: `Campaign: ${newAd.title}`
+    };
+
+    const updatedUser: UserAccount = {
+      ...currentUser,
+      walletBalance: newBalance,
+      transactions: [newTx, ...(currentUser.transactions || [])]
+    };
+
+    setCurrentUser(updatedUser);
+    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+
+    // Send confirmation message to user chat
+    const confirmMsg: ChatMessage = {
+      id: 'msg-' + Date.now(),
+      userId: currentUser.id,
+      userName: 'Portal Admin',
+      senderRole: 'admin',
+      text: `Your campaign "${newAd.title}" has been submitted for admin approval! Fee deducted: PKR ${cost.toLocaleString()}. Remaining wallet balance: PKR ${newBalance.toLocaleString()}.`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setChatMessages(prev => [...prev, confirmMsg]);
+  };
+
+  // Deposit funds into user wallet
+  const handleDepositFunds = (amount: number, paymentMethod: string) => {
+    if (!currentUser) return;
+
+    const currentBalance = currentUser.walletBalance ?? 0;
+    const newBalance = currentBalance + amount;
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+
+    const newTx: PaymentTransaction = {
+      id: 'tx-dep-' + Date.now(),
+      dateTime: nowStr,
+      amount: amount,
+      currency: 'PKR',
+      type: 'Wallet Deposit',
+      status: 'Success',
+      paymentMethod: (paymentMethod as 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer') || 'JazzCash'
+    };
+
+    const updatedUser: UserAccount = {
+      ...currentUser,
+      walletBalance: newBalance,
+      transactions: [newTx, ...(currentUser.transactions || [])]
+    };
+
+    setCurrentUser(updatedUser);
+    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+
+    alert(`Successfully deposited PKR ${amount.toLocaleString()} via ${paymentMethod}! New Wallet Balance: PKR ${newBalance.toLocaleString()}`);
+  };
+
+  // Admin Approves Ad Campaign
+  const handleApproveAd = (adId: string) => {
+    const adToApprove = advertisements.find(a => a.id === adId);
+    if (!adToApprove) return;
+
+    const now = new Date();
+    const startDateStr = now.toISOString().slice(0, 10);
+    const endDate = new Date(now);
+    if (adToApprove.durationUnit === 'hours') {
+      endDate.setHours(endDate.getHours() + (adToApprove.durationValue || 24));
+    } else if (adToApprove.durationUnit === 'weeks') {
+      endDate.setDate(endDate.getDate() + (adToApprove.durationValue || 1) * 7);
+    } else if (adToApprove.durationUnit === 'months') {
+      endDate.setMonth(endDate.getMonth() + (adToApprove.durationValue || 1));
+    } else {
+      // days
+      endDate.setDate(endDate.getDate() + (adToApprove.durationValue || 1));
+    }
+
+    const updatedAd: Advertisement = {
+      ...adToApprove,
+      status: 'active',
+      startDate: adToApprove.startDate || startDateStr,
+      endDate: adToApprove.endDate || endDate.toISOString().slice(0, 10),
+      rejectionReason: undefined
+    };
+
+    setAdvertisements(prev => prev.map(a => a.id === adId ? updatedAd : a));
+
+    if (adToApprove.submittedByUserId) {
+      const msg: ChatMessage = {
+        id: 'msg-' + Date.now(),
+        userId: adToApprove.submittedByUserId,
+        userName: 'Portal Admin',
+        senderRole: 'admin',
+        text: `🎉 Good news! Your campaign "${adToApprove.title}" has been APPROVED by the portal admin and is now LIVE on the platform!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setChatMessages(prev => [...prev, msg]);
+    }
+
+    alert(`Campaign "${adToApprove.title}" has been approved and activated!`);
+  };
+
+  // Admin Rejects Ad Campaign with Reason & Full Wallet Refund
+  const handleRejectAd = (adId: string, reason: string) => {
+    const adToReject = advertisements.find(a => a.id === adId);
+    if (!adToReject) return;
+
+    const updatedAd: Advertisement = {
+      ...adToReject,
+      status: 'rejected',
+      rejectionReason: reason
+    };
+
+    setAdvertisements(prev => prev.map(a => a.id === adId ? updatedAd : a));
+
+    // Refund wallet balance if user submitted it and paid
+    if (adToReject.submittedByUserId && adToReject.campaignCostPkr && adToReject.campaignCostPkr > 0) {
+      const refundAmount = adToReject.campaignCostPkr;
+      const targetUserId = adToReject.submittedByUserId;
+      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+
+      const refundTx: PaymentTransaction = {
+        id: 'tx-refund-' + Date.now(),
+        dateTime: nowStr,
+        amount: refundAmount,
+        currency: 'PKR',
+        type: 'Refund',
+        status: 'Success',
+        paymentMethod: 'Wallet Balance',
+        jobTitleRef: `Refund for Rejected Campaign: ${adToReject.title}`
+      };
+
+      setUsers(prev => prev.map(u => {
+        if (u.id === targetUserId) {
+          const currentBal = u.walletBalance ?? 0;
+          return {
+            ...u,
+            walletBalance: currentBal + refundAmount,
+            transactions: [refundTx, ...(u.transactions || [])]
+          };
+        }
+        return u;
+      }));
+
+      if (currentUser && currentUser.id === targetUserId) {
+        const currentBal = currentUser.walletBalance ?? 0;
+        setCurrentUser(prev => prev ? {
+          ...prev,
+          walletBalance: currentBal + refundAmount,
+          transactions: [refundTx, ...(prev.transactions || [])]
+        } : null);
+      }
+
+      // Notify in user's chat thread
+      const msg: ChatMessage = {
+        id: 'msg-' + Date.now(),
+        userId: targetUserId,
+        userName: 'Portal Admin',
+        senderRole: 'admin',
+        text: `⚠️ Campaign Update: Your campaign "${adToReject.title}" was not approved. Reason: ${reason}. A 100% refund of PKR ${refundAmount.toLocaleString()} has been credited back to your wallet balance.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setChatMessages(prev => [...prev, msg]);
+    }
+
+    alert(`Campaign rejected. Reason and full refund of PKR ${adToReject.campaignCostPkr?.toLocaleString() || 0} processed to user.`);
+  };
+
   const userJobs = useMemo(() => {
     if (!currentUser) return [];
     return jobs.filter(j => j.submittedByUserId === currentUser.id);
@@ -659,6 +1267,61 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950">
       
+      {/* Dynamic Global Admin Announcement Banner */}
+      {siteSeoConfig.announcementBanner?.enabled && !dismissAnnouncement && (
+        <div
+          id="global-admin-announcement"
+          className={`relative px-4 py-2 text-xs font-semibold flex items-center justify-between transition-all border-b shadow-sm ${
+            siteSeoConfig.announcementBanner.bannerType === 'urgent'
+              ? 'bg-rose-950/90 text-rose-200 border-rose-800/80'
+              : siteSeoConfig.announcementBanner.bannerType === 'warning'
+              ? 'bg-amber-950/90 text-amber-200 border-amber-800/80'
+              : siteSeoConfig.announcementBanner.bannerType === 'success'
+              ? 'bg-emerald-950/90 text-emerald-200 border-emerald-800/80'
+              : 'bg-indigo-950/90 text-indigo-200 border-indigo-800/80'
+          }`}
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-center space-x-2 text-center flex-1">
+            {siteSeoConfig.announcementBanner.bannerType === 'urgent' && <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
+            {siteSeoConfig.announcementBanner.bannerType === 'warning' && <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+            {siteSeoConfig.announcementBanner.bannerType === 'success' && <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+            {siteSeoConfig.announcementBanner.bannerType === 'info' && <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
+            <span>{siteSeoConfig.announcementBanner.text}</span>
+            {siteSeoConfig.announcementBanner.linkText && (
+              <a
+                href={siteSeoConfig.announcementBanner.linkUrl || '#'}
+                onClick={(e) => {
+                  if (siteSeoConfig.announcementBanner.linkUrl?.startsWith('#')) {
+                    e.preventDefault();
+                    setActiveTab('jobs');
+                    document.getElementById('jobs-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
+                className="inline-flex items-center space-x-1 underline font-bold ml-2 hover:opacity-80"
+              >
+                <span>{siteSeoConfig.announcementBanner.linkText}</span>
+                <ArrowRight className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+          <button
+            onClick={() => setDismissAnnouncement(true)}
+            className="p-1 hover:bg-white/10 rounded transition-colors text-slate-400 hover:text-white"
+            title="Dismiss Announcement"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Top Header Sticky Announcement / Banner Ad */}
+      <TopBannerAd
+        ads={advertisements}
+        currentPage={activeTab}
+        onAdClick={handleAdClick}
+        onNavigateTab={setActiveTab}
+      />
+
       {/* Navigation Header */}
       <Header
         activeTab={activeTab}
@@ -677,6 +1340,8 @@ export default function App() {
         isAdminLoggedIn={isAdminLoggedIn}
         onToggleAdminView={() => setShowAdminView(!showAdminView)}
         showAdminView={showAdminView}
+        activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
+        onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
       />
 
       {/* Main View Area */}
@@ -700,15 +1365,32 @@ export default function App() {
             onUpdateUserPassword={handleAdminUpdateUserPassword}
             onApproveJob={handleApproveJob}
             onRejectJob={handleRejectJob}
-            onAddJob={(newJob) => setJobs(prev => [newJob, ...prev])}
+            onAddJob={(newJob) => setJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)])}
+            onAddPendingJob={(newJob) => setPendingJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)])}
             onDeleteJob={(jobId) => setJobs(prev => prev.filter(j => j.id !== jobId))}
             onSendMessageToUser={handleAdminSendMessage}
             onAddCustomField={handleAddCustomField}
             onToggleCustomField={handleToggleCustomField}
             onDeleteCustomField={handleDeleteCustomField}
+            onEndUserMembership={handleEndUserMembership}
+            onDeactivateUserJobs={handleDeactivateUserJobs}
+            onEndUserMembershipAndJobs={handleEndUserMembershipAndJobs}
+            onSuspendJob={handleSuspendJob}
+            onBulkEndUnpaidMemberships={handleBulkEndUnpaidMemberships}
             monthlyFeePkr={monthlyFeePkr}
             onChangeMonthlyFee={setMonthlyFeePkr}
             onExitAdmin={() => setShowAdminView(false)}
+            ads={advertisements}
+            onAddAd={handleAddAd}
+            onUpdateAd={handleUpdateAd}
+            onDeleteAd={handleDeleteAd}
+            onResetAdMetrics={handleResetAdMetrics}
+            pricingConfig={pricingConfig}
+            onUpdatePricingConfig={setPricingConfig}
+            campaignConfig={campaignConfig}
+            onUpdateCampaignConfig={setCampaignConfig}
+            onApproveAd={handleApproveAd}
+            onRejectAd={handleRejectAd}
           />
         ) : (
           <>
@@ -730,24 +1412,14 @@ export default function App() {
                   {/* Filters Bar */}
                   <Filters
                     filters={filters}
-                    onChange={setFilters}
-                    onReset={() =>
-                      setFilters({
-                        searchQuery: '',
-                        jobType: 'All',
-                        region: 'All',
-                        province: '',
-                        city: '',
-                        district: '',
-                        experienceLevel: 'All',
-                        salaryMin: 0,
-                        sortBy: 'latest'
-                      })
-                    }
+                    onChange={handleFiltersChange}
+                    onReset={handleResetFilters}
                     totalResults={filteredJobs.length}
+                    postsPerPage={postsPerPage}
+                    onPostsPerPageChange={handlePostsPerPageChange}
                   />
 
-                  {/* Job Cards Grid */}
+                  {/* Job Cards Grid with Pagination and Inline Ads */}
                   <JobListings
                     jobs={filteredJobs}
                     savedJobIds={savedJobIds}
@@ -755,6 +1427,13 @@ export default function App() {
                     onSelectJob={(job) => setSelectedJob(job)}
                     onApplyClick={handleApplyClick}
                     isSubscribed={isSubscribed}
+                    currentPage={currentPage}
+                    postsPerPage={postsPerPage}
+                    onPageChange={setCurrentPage}
+                    onPostsPerPageChange={handlePostsPerPageChange}
+                    ads={advertisements}
+                    onAdClick={handleAdClick}
+                    onNavigateTab={setActiveTab}
                   />
 
                 </div>
@@ -770,6 +1449,13 @@ export default function App() {
                 jobPostingFeePkr={jobPostingFeePkr}
                 userApplications={allApplications}
                 initialTab={userDashboardInitialTab}
+                userAds={advertisements.filter(a => a.submittedByUserId === currentUser.id)}
+                pricingConfig={pricingConfig}
+                campaignConfig={campaignConfig}
+                onSubmitCampaign={handleSubmitCampaign}
+                onDepositFunds={handleDepositFunds}
+                onDeleteAd={handleDeleteAd}
+                onDuplicateAd={handleAddAd}
                 onToggleAutoRenew={handleToggleAutoRenew}
                 onRenewSubscription={handleRenewSubscription}
                 onSubmitJobForApproval={handleSubmitJobForApproval}
@@ -891,6 +1577,31 @@ export default function App() {
           setIsAdminLoggedIn(true);
           setShowAdminView(true);
         }}
+      />
+
+      {/* Pop-up Lightbox Advertisement Modal */}
+      <PopupAdModal
+        ads={advertisements}
+        currentPage={activeTab}
+        onAdClick={handleAdClick}
+        onNavigateTab={setActiveTab}
+      />
+
+      {/* Floating Bottom-Right Toast Notification Ad */}
+      <ToastNotificationAd
+        ads={advertisements}
+        currentPage={activeTab}
+        onAdClick={handleAdClick}
+        onNavigateTab={setActiveTab}
+      />
+
+      {/* Slide-out Notifications / Announcements Drawer */}
+      <AdNotificationDrawer
+        isOpen={isAdDrawerOpen}
+        onClose={() => setIsAdDrawerOpen(false)}
+        ads={advertisements}
+        onAdClick={handleAdClick}
+        onNavigateTab={setActiveTab}
       />
 
     </div>

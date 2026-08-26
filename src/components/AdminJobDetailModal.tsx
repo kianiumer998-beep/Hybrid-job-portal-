@@ -9,6 +9,7 @@ interface AdminJobDetailModalProps {
   onClose: () => void;
   onApproveJob?: (jobId: string) => void;
   onRejectJob?: (jobId: string, reason: string) => void;
+  onSuspendJob?: (jobId: string, reason?: string) => void;
   onViewUserProfile?: (user: UserAccount) => void;
 }
 
@@ -19,6 +20,7 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   onClose,
   onApproveJob,
   onRejectJob,
+  onSuspendJob,
   onViewUserProfile
 }) => {
   if (!job) return null;
@@ -33,9 +35,14 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
     email: 'poster@jobportal.com',
     role: 'Employer / Unified Member',
     plan: 'Premium',
+    paymentStatus: 'Paid',
+    membershipStatus: 'Active',
     autoRenew: true,
     createdAt: new Date().toISOString()
   } as UserAccount;
+
+  const isEmployerUnpaid = posterUser.paymentStatus === 'Unpaid' || posterUser.membershipStatus === 'Unpaid' || posterUser.membershipStatus === 'Revoked';
+  const isJobSuspended = job.status === 'Suspended' || job.isSuspended;
 
   // Find fee log associated with this job title/user
   const feeLog = (feeLogs || []).find(
@@ -51,13 +58,19 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className={`px-2.5 py-1 rounded border text-xs font-bold uppercase ${
-                job.status === 'Approved'
+                isJobSuspended
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  : job.status === 'Approved'
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                   : job.status === 'Rejected'
                   ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                   : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
               }`}>
-                Status: {job.status || 'Pending Verification'}
+                Status: {isJobSuspended ? 'Suspended (Unpaid Employer)' : job.status || 'Pending Verification'}
+              </span>
+
+              <span className="px-2.5 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold">
+                Category: {job.jobCategory || 'Private Corporate'}
               </span>
 
               <span className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold">
@@ -88,7 +101,42 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
         {/* Modal Body */}
         <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-sm text-slate-300">
           
-          {/* POSTER & USER DETAIL LINK CARD */}
+          {/* SCRAPED SOURCE & HARVEST TIMESTAMP BANNER */}
+          {(job.sourceUrl || job.scrapedSourceDomain || job.scrapedAt) && (
+            <div className="p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center space-x-2 text-xs font-bold text-indigo-300">
+                  <Tag className="w-4 h-4 text-indigo-400" />
+                  <span>Scraper Source Intelligence & Origin Website</span>
+                </div>
+                {job.scrapedAt && (
+                  <div className="text-xs font-mono text-indigo-200 bg-indigo-900/60 px-2.5 py-1 rounded-lg border border-indigo-500/30">
+                    🕒 Scraped Date & Time: <strong>{job.scrapedAt}</strong> {job.scrapedTime ? `(${job.scrapedTime})` : ''}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between flex-wrap gap-2 text-xs pt-1 border-t border-indigo-500/20">
+                <div className="space-y-0.5">
+                  <p className="text-slate-300">
+                    <span className="text-slate-400">Harvest Source:</span> <strong>{job.scraperSourceName || job.scrapedSourceDomain || 'Automated Web Scraper'}</strong>
+                  </p>
+                  {job.sourceUrl && (
+                    <a
+                      href={job.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-400 hover:underline font-mono text-[11px] break-all block"
+                    >
+                      🔗 {job.sourceUrl}
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* POSTER & USER DETAIL LINK CARD WITH PAYMENT STATUS */}
           <div className="p-4 bg-slate-950/90 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 to-emerald-500 p-0.5 flex items-center justify-center">
@@ -98,7 +146,16 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
               </div>
 
               <div>
-                <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider block">Submitted By User</span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Submitted By User</span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    isEmployerUnpaid
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  }`}>
+                    {isEmployerUnpaid ? '⚠️ Unpaid Employer' : '💳 Paid Employer'}
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => onViewUserProfile && onViewUserProfile(posterUser)}
@@ -111,15 +168,17 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
               </div>
             </div>
 
-            {onViewUserProfile && (
-              <button
-                type="button"
-                onClick={() => onViewUserProfile(posterUser)}
-                className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 shadow-lg shadow-amber-500/20 transition-all cursor-pointer shrink-0"
-              >
-                🔍 Inspect Full User Profile
-              </button>
-            )}
+            <div className="flex items-center space-x-2">
+              {onViewUserProfile && (
+                <button
+                  type="button"
+                  onClick={() => onViewUserProfile(posterUser)}
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 shadow-lg shadow-amber-500/20 transition-all cursor-pointer shrink-0"
+                >
+                  🔍 Inspect User Profile
+                </button>
+              )}
+            </div>
           </div>
 
           {/* PER-JOB FEE STATUS */}
@@ -209,6 +268,21 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           </button>
 
           <div className="flex items-center space-x-2">
+            {onSuspendJob && !isJobSuspended && (
+              <button
+                onClick={() => {
+                  if (confirm(`Suspend / End job "${job.title}" for unpaid employer?`)) {
+                    onSuspendJob(job.id, 'Job ended by Admin (Unpaid employer/membership)');
+                    onClose();
+                  }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs border border-rose-500/30 cursor-pointer flex items-center space-x-1"
+              >
+                <Ban className="w-4 h-4" />
+                <span>End Job (Unpaid)</span>
+              </button>
+            )}
+
             {onApproveJob && job.status !== 'Approved' && (
               <button
                 onClick={() => {

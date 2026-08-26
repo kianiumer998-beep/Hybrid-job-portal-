@@ -10,7 +10,11 @@ interface UserDetailModalProps {
   onUpdateUserExpiry?: (userId: string, newExpiryDate: string) => void;
   onToggleUserPlan?: (userId: string) => void;
   onUpdateUserPassword?: (userId: string, newPassword: string) => void;
-  onInspectJob?: (job: Job) => void;
+  onEndUserMembership?: (userId: string) => void;
+  onDeactivateUserJobs?: (userId: string) => void;
+  onEndUserMembershipAndJobs?: (userId: string) => void;
+  onSuspendJob?: (jobId: string, reason?: string) => void;
+  onInspectJob?: (job) => void;
 }
 
 export const UserDetailModal: React.FC<UserDetailModalProps> = ({
@@ -21,6 +25,10 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
   onUpdateUserExpiry,
   onToggleUserPlan,
   onUpdateUserPassword,
+  onEndUserMembership,
+  onDeactivateUserJobs,
+  onEndUserMembershipAndJobs,
+  onSuspendJob,
   onInspectJob
 }) => {
   if (!user) return null;
@@ -222,14 +230,70 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Admin Subscription & Password Overrides */}
+              {/* Admin Subscription, Unpaid Termination & Security Controls */}
               <div className="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-4">
-                <h3 className="text-xs font-bold uppercase text-amber-400 tracking-wider flex items-center space-x-2">
-                  <Shield className="w-4 h-4" />
-                  <span>Admin Security & Subscription Management Controls</span>
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase text-amber-400 tracking-wider flex items-center space-x-2">
+                    <Shield className="w-4 h-4" />
+                    <span>Admin Security & Unpaid Membership Enforcement Controls</span>
+                  </h3>
+                  <div className="flex items-center space-x-2">
+                    <span className={`px-2.5 py-0.5 rounded text-[11px] font-bold ${
+                      user.paymentStatus === 'Unpaid' || user.membershipStatus === 'Unpaid' || user.membershipStatus === 'Revoked'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    }`}>
+                      {user.paymentStatus === 'Unpaid' || user.membershipStatus === 'Unpaid' || user.membershipStatus === 'Revoked' ? '⚠️ Payment: Unpaid / Revoked' : '💳 Payment: Paid Active'}
+                    </span>
+                  </div>
+                </div>
 
                 <div className="flex flex-wrap gap-2.5">
+                  {/* END PREMIUM MEMBERSHIP FOR UNPAID USER */}
+                  {onEndUserMembership && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`End premium membership for ${user.name} and mark as Unpaid?`)) {
+                          onEndUserMembership(user.id);
+                        }
+                      }}
+                      className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-xl border border-rose-500/40 transition-all cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <span>🚫 End Premium (Unpaid)</span>
+                    </button>
+                  )}
+
+                  {/* DEACTIVATE ALL JOBS POSTED BY THIS UNPAID USER */}
+                  {onDeactivateUserJobs && postedJobsList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Deactivate/Suspend all ${postedJobsList.length} jobs posted by ${user.name}?`)) {
+                          onDeactivateUserJobs(user.id);
+                        }
+                      }}
+                      className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold text-xs rounded-xl border border-amber-500/40 transition-all cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <span>📴 Deactivate All Jobs ({postedJobsList.length})</span>
+                    </button>
+                  )}
+
+                  {/* ONE-CLICK END MEMBERSHIP AND JOBS */}
+                  {onEndUserMembershipAndJobs && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`End membership AND deactivate all jobs for unpaid user ${user.name}?`)) {
+                          onEndUserMembershipAndJobs(user.id);
+                        }
+                      }}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-600/20 transition-all cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <span>⚡ End Membership & Deactivate All Jobs</span>
+                    </button>
+                  )}
+
                   {onUpdateUserExpiry && (
                     <>
                       <button
@@ -255,9 +319,9 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
                           onUpdateUserExpiry(user.id, '2020-01-01 00:00');
                           alert(`Subscription for ${user.name} revoked immediately.`);
                         }}
-                        className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-xl border border-rose-500/40 transition-all cursor-pointer"
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs rounded-xl border border-slate-700 transition-all cursor-pointer"
                       >
-                        ⛔ Revoke Subscription
+                        ⛔ Set Expired
                       </button>
                     </>
                   )}
@@ -354,9 +418,23 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
           {/* TAB 3: POSTED JOBS */}
           {activeTab === 'posted-jobs' && (
             <div className="space-y-4">
-              <h3 className="text-xs font-bold uppercase text-amber-400 tracking-wider">
-                Jobs Posted by {user.name}
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase text-amber-400 tracking-wider">
+                  Jobs Posted by {user.name} ({postedJobsList.length})
+                </h3>
+                {onDeactivateUserJobs && postedJobsList.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Deactivate/Suspend all ${postedJobsList.length} jobs posted by ${user.name}?`)) {
+                        onDeactivateUserJobs(user.id);
+                      }
+                    }}
+                    className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white rounded-lg text-xs font-bold border border-rose-500/30 cursor-pointer"
+                  >
+                    📴 Deactivate All ({postedJobsList.length})
+                  </button>
+                )}
+              </div>
 
               {postedJobsList.length === 0 ? (
                 <div className="p-8 text-center bg-slate-950 border border-slate-800 rounded-2xl text-slate-500 italic">
@@ -364,28 +442,71 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {postedJobsList.map((job) => (
-                    <div
-                      key={job.id}
-                      className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between gap-4 hover:border-slate-700 transition-colors"
-                    >
-                      <div>
-                        <h4 className="font-bold text-white text-sm">{job.title}</h4>
-                        <p className="text-xs text-slate-400 font-mono">
-                          {job.jobType} • {job.region} • {job.salary} • Status: <strong className="text-emerald-400">{job.status || 'Approved'}</strong>
-                        </p>
-                      </div>
+                  {postedJobsList.map((job) => {
+                    const isSuspended = job.status === 'Suspended' || job.isSuspended;
+                    return (
+                      <div
+                        key={job.id}
+                        className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:border-slate-700 transition-colors"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold">
+                              {job.jobCategory || 'Private Corporate'}
+                            </span>
+                            {job.scrapedSourceDomain && (
+                              <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">
+                                🌐 {job.scrapedSourceDomain}
+                              </span>
+                            )}
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              isSuspended
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                : job.status === 'Approved'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            }`}>
+                              Status: {isSuspended ? 'Suspended (Unpaid)' : job.status || 'Approved'}
+                            </span>
+                            {job.scrapedAt && (
+                              <span className="text-[10px] font-mono text-slate-400">
+                                🕒 {job.scrapedAt}
+                              </span>
+                            )}
+                          </div>
 
-                      {onInspectJob && (
-                        <button
-                          onClick={() => onInspectJob(job)}
-                          className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold text-xs border border-amber-500/30 transition-all cursor-pointer shrink-0"
-                        >
-                          View Job Details
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                          <h4 className="font-bold text-white text-sm">{job.title}</h4>
+                          <p className="text-xs text-slate-400 font-mono">
+                            {job.jobType} • {job.region} • {job.salary}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center space-x-2 shrink-0">
+                          {onInspectJob && (
+                            <button
+                              onClick={() => onInspectJob(job)}
+                              className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold text-xs border border-amber-500/30 transition-all cursor-pointer"
+                            >
+                              View Details
+                            </button>
+                          )}
+
+                          {onSuspendJob && !isSuspended && (
+                            <button
+                              onClick={() => {
+                                if (confirm(`Suspend / End job "${job.title}" due to unpaid membership?`)) {
+                                  onSuspendJob(job.id, 'Suspended due to unpaid employer account');
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs border border-rose-500/30 transition-all cursor-pointer"
+                            >
+                              📴 End Job
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

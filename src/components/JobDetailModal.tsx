@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, MapPin, Building2, Clock, CheckCircle2, Sparkles, Send, ShieldCheck, Share2, Bookmark } from 'lucide-react';
 import { Job } from '../types/job';
+import { sanitizeJob } from '../utils/jobSanitizer';
 
 interface JobDetailModalProps {
   job: Job | null;
@@ -11,13 +12,15 @@ interface JobDetailModalProps {
 }
 
 export const JobDetailModal: React.FC<JobDetailModalProps> = ({
-  job,
+  job: rawJob,
   onClose,
   onApply,
   isSaved,
   onToggleSave
 }) => {
-  if (!job) return null;
+  if (!rawJob) return null;
+
+  const job = sanitizeJob(rawJob);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
@@ -53,6 +56,38 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
         {/* Modal Body */}
         <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-sm text-slate-300">
           
+          {/* Government Job Banner */}
+          {job.isGovtJob && (
+            <div className="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-2 text-amber-200">
+              <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>Government / Public Sector Position</span>
+              </div>
+              <div className="text-xs space-y-1">
+                <div><strong>Department:</strong> {job.govtDepartment || 'Federal Public Service'}</div>
+                <div><strong>Grade / Pay Scale:</strong> {job.govtScale || 'BPS Scale'}</div>
+                <div><strong>Sector Classification:</strong> {job.govtCategory || 'Federal'} Sector</div>
+              </div>
+            </div>
+          )}
+
+          {/* Newspaper Clipping Image Preview */}
+          {job.isNewspaperAd && job.clippingImageUrl && (
+            <div className="p-4 bg-slate-950/90 border border-teal-500/30 rounded-xl space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-teal-300">
+                <span>📰 Official Newspaper Classified Ad Clipping</span>
+                <span>{job.newspaperName} ({job.newspaperDate || 'Recent Edition'})</span>
+              </div>
+              <div className="rounded-lg overflow-hidden border border-slate-800 bg-black max-h-64 flex justify-center">
+                <img
+                  src={job.clippingImageUrl}
+                  alt="Newspaper Classified Ad Clipping"
+                  className="object-cover max-h-64 w-full hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Detailed Location Breakdown */}
           <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2">
             <h4 className="text-xs uppercase font-bold text-slate-400 tracking-wider">Exact Location Details</h4>

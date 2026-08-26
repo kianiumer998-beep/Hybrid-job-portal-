@@ -13,6 +13,8 @@ interface HeaderProps {
   isAdminLoggedIn: boolean;
   onToggleAdminView: () => void;
   showAdminView: boolean;
+  activeAdsCount?: number;
+  onOpenAdDrawer?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -25,7 +27,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuthModal,
   isAdminLoggedIn,
   onToggleAdminView,
-  showAdminView
+  showAdminView,
+  activeAdsCount = 0,
+  onOpenAdDrawer
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -117,6 +121,20 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Action Controls */}
           <div className="hidden md:flex items-center space-x-3">
+            {/* Live Announcements / Ads Bell */}
+            <button
+              onClick={onOpenAdDrawer}
+              className="relative p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 hover:border-amber-500/40 transition-all cursor-pointer"
+              title="View Live Announcements & Alerts"
+            >
+              <Bell className="w-4 h-4" />
+              {activeAdsCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center animate-pulse shadow-md shadow-rose-500/50">
+                  {activeAdsCount}
+                </span>
+              )}
+            </button>
+
             {/* User Login/Account Button */}
             {currentUser ? (
               <button

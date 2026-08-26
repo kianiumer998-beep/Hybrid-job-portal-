@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication } from '../types/job';
+import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS } from '../types/job';
+import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
+import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3 } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone } from 'lucide-react';
 
 interface UserDashboardProps {
   currentUser: UserAccount;
@@ -9,7 +11,14 @@ interface UserDashboardProps {
   chatMessages: ChatMessage[];
   jobPostingFeePkr: number;
   userApplications?: JobApplication[];
-  initialTab?: 'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat';
+  initialTab?: 'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns';
+  userAds?: Advertisement[];
+  pricingConfig?: AdPricingConfig;
+  campaignConfig?: CampaignCustomizationConfig;
+  onSubmitCampaign?: (ad: Advertisement, cost: number) => void;
+  onDepositFunds?: (amount: number, paymentMethod: string) => void;
+  onDeleteAd?: (adId: string) => void;
+  onDuplicateAd?: (ad: Advertisement) => void;
   onToggleAutoRenew: () => void;
   onRenewSubscription: () => void;
   onSubmitJobForApproval: (job: Job, feePayment?: { amount: number; paymentMethod: string }) => void;
@@ -27,6 +36,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   jobPostingFeePkr,
   userApplications = [],
   initialTab = 'overview',
+  userAds = [],
+  pricingConfig = DEFAULT_AD_PRICING_CONFIG,
+  campaignConfig,
+  onSubmitCampaign,
+  onDepositFunds,
+  onDeleteAd,
+  onDuplicateAd,
   onToggleAutoRenew,
   onRenewSubscription,
   onSubmitJobForApproval,
@@ -36,7 +52,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onLogout,
   onOpenSubscriptionModal
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
 
   useEffect(() => {
     if (initialTab) {
@@ -59,16 +75,41 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   // New Job Post Form State
   const [title, setTitle] = useState('');
   const [company, setCompany] = useState(currentUser.companyName || currentUser.name || '');
+  const [jobCategory, setJobCategory] = useState<'Private Corporate' | 'Government Sector' | 'Newspaper Classified' | 'International Remote'>('Private Corporate');
   const [jobType, setJobType] = useState<JobType>('Remote');
   const [region, setRegion] = useState<Region>('Pakistan');
   const [province, setProvince] = useState('Punjab');
   const [city, setCity] = useState('Lahore');
   const [district, setDistrict] = useState('Gulberg');
   const [salary, setSalary] = useState('PKR 250,000 - PKR 350,000 / month');
+  const [currency, setCurrency] = useState<Currency>('PKR');
+  const [experienceLevel, setExperienceLevel] = useState<'Entry' | 'Mid' | 'Senior' | 'Lead' | 'Executive'>('Mid');
   const [department, setDepartment] = useState('Software Development');
   const [tagsInput, setTagsInput] = useState('React, TypeScript, Remote');
   const [description, setDescription] = useState('');
   const [requirementsInput, setRequirementsInput] = useState('');
+
+  // Extended Government Sector Form Fields (With Manual Entry Support)
+  const [govtDeptPreset, setGovtDeptPreset] = useState(GOVT_DEPT_OPTIONS[0]);
+  const [customGovtDept, setCustomGovtDept] = useState('');
+
+  const [govtScalePreset, setGovtScalePreset] = useState(GOVT_SCALE_OPTIONS[5]); // BPS-17
+  const [customGovtScale, setCustomGovtScale] = useState('');
+
+  const [govtCadrePreset, setGovtCadrePreset] = useState(GOVT_CADRE_OPTIONS[0]);
+  const [customGovtCadre, setCustomGovtCadre] = useState('');
+
+  // Extended Newspaper Classified Ad Form Fields (With Manual Entry Support)
+  const [newspaperPreset, setNewspaperPreset] = useState(NEWSPAPER_OPTIONS[0]);
+  const [customNewspaper, setCustomNewspaper] = useState('');
+  const [clippingImageUrl, setClippingImageUrl] = useState('');
+  const [newspaperDate, setNewspaperDate] = useState('2026-08-11');
+
+  // Extended Contact & Benefits Fields
+  const [selectedBenefits, setSelectedBenefits] = useState<string[]>(['Health Insurance', 'Remote Work Options', 'EOBI Registration']);
+  const [externalApplyUrl, setExternalApplyUrl] = useState('');
+  const [contactEmailOrPhone, setContactEmailOrPhone] = useState('');
+  const [applicationDeadline, setApplicationDeadline] = useState('');
 
   // Per-Job Fee Payment Modal State
   const [showFeeInvoiceModal, setShowFeeInvoiceModal] = useState(false);
@@ -151,6 +192,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       return;
     }
 
+    const isGovt = jobCategory === 'Government Sector';
+    const isNews = jobCategory === 'Newspaper Classified';
+
+    const resolvedGovtDept = govtDeptPreset === 'Other (Manual Entry)' ? (customGovtDept || 'Government Department') : govtDeptPreset;
+    const resolvedGovtScale = govtScalePreset === 'Other (Manual Entry)' ? (customGovtScale || 'BPS Scale') : govtScalePreset;
+    const resolvedGovtCadre = govtCadrePreset === 'Other (Manual Entry)' ? (customGovtCadre || 'Public Sector') : govtCadrePreset;
+    const resolvedNewspaper = newspaperPreset === 'Other (Manual Entry)' ? (customNewspaper || 'Newspaper Classified') : newspaperPreset;
+
     const newJob: Job = {
       id: 'job-user-' + Date.now(),
       title,
@@ -161,17 +210,34 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       city: region === 'Pakistan' ? city : undefined,
       district: region === 'Pakistan' ? district : undefined,
       salary,
-      currency: region === 'Pakistan' ? 'PKR' : 'USD',
-      experienceLevel: 'Mid',
+      currency: currency || (region === 'Pakistan' ? 'PKR' : 'USD'),
+      experienceLevel: experienceLevel || 'Mid',
       department,
       tags: tagsInput.split(',').map((t) => t.trim()).filter(Boolean),
       description,
       requirements: requirementsInput.split('\n').filter(Boolean),
-      benefits: ['Remote Work Options', 'Health Allowance', 'Flexible Working Hours'],
+      benefits: selectedBenefits.length > 0 ? selectedBenefits : ['Health Insurance', 'Remote Flexibility'],
       postedAt: 'Just now',
       applicationsCount: 0,
       status: 'Pending',
-      submittedByUserId: currentUser.id
+      submittedByUserId: currentUser.id,
+
+      // Government Sector Attributes
+      isGovtJob: isGovt,
+      govtDepartment: isGovt ? resolvedGovtDept : undefined,
+      govtScale: isGovt ? resolvedGovtScale : undefined,
+      govtCategory: isGovt ? (resolvedGovtCadre as any) : undefined,
+
+      // Newspaper Classified Ad Attributes
+      isNewspaperAd: isNews,
+      newspaperName: isNews ? resolvedNewspaper : undefined,
+      clippingImageUrl: isNews ? (clippingImageUrl || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=800&auto=format&fit=crop&q=60') : undefined,
+      newspaperDate: isNews ? newspaperDate : undefined,
+
+      // External Details
+      applicationUrl: externalApplyUrl || undefined,
+      contactEmailOrPhone: contactEmailOrPhone || undefined,
+      deadlineDate: applicationDeadline || undefined
     };
 
     if (jobPostingFeePkr > 0) {
@@ -277,6 +343,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           { id: 'applications', label: `My Job Applications (${myApplications.length})`, icon: FileText },
           { id: 'post-job', label: 'Post a New Job', icon: Plus },
           { id: 'my-jobs', label: `My Posted Jobs (${userJobs.length})`, icon: Briefcase },
+          { id: 'campaigns', label: `Self-Serve Ads & Wallet (${userAds.length})`, icon: Megaphone },
           { id: 'chat', label: `Admin Inbox (${myMessages.length})`, icon: MessageSquare }
         ].map((t) => {
           const Icon = t.icon;
@@ -676,162 +743,490 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 4: POST NEW JOB FORM */}
       {activeTab === 'post-job' && (
-        <form onSubmit={handleJobSubmitInitiate} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 text-white max-w-2xl shadow-2xl">
-          <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
+        <form onSubmit={handleJobSubmitInitiate} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6 text-white max-w-4xl shadow-2xl">
+          <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-lg font-black text-white">Create New Job Post</h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Every registered user can post job openings to recruit top remote and localized talent.
+              <h3 className="text-xl font-black text-white flex items-center space-x-2">
+                <Briefcase className="w-5 h-5 text-emerald-400" />
+                <span>Create Detailed Job Post</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Post corporate openings, public sector government positions, or newspaper classified clipping ads.
               </p>
             </div>
             {jobPostingFeePkr > 0 && (
-              <span className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold px-3 py-1 rounded-full">
-                Fee: PKR {jobPostingFeePkr.toLocaleString()}
+              <span className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold px-3.5 py-1.5 rounded-full self-start sm:self-auto">
+                Posting Fee: PKR {jobPostingFeePkr.toLocaleString()}
               </span>
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Job Title</label>
-              <input
-                type="text"
-                required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Remote Senior React Engineer"
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Company / Recruiter Name</label>
-              <input
-                type="text"
-                required
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Job Type</label>
-              <select
-                value={jobType}
-                onChange={(e) => setJobType(e.target.value as any)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
-              >
-                <option value="Remote">100% Remote</option>
-                <option value="Hybrid">Hybrid Office</option>
-                <option value="On-site">On-site</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Target Region</label>
-              <select
-                value={region}
-                onChange={(e) => setRegion(e.target.value as any)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
-              >
-                <option value="Pakistan">Pakistan</option>
-                <option value="Global">Global International</option>
-                <option value="US">United States</option>
-                <option value="UK">United Kingdom</option>
-              </select>
+          {/* SECTION 1: SECTOR & CATEGORY SELECTION */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+              1. Select Job Sector / Category
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                { id: 'Private Corporate', label: 'Corporate / Private', desc: 'Standard company roles', icon: '🏢' },
+                { id: 'Government Sector', label: 'Government / FPSC', desc: 'Public sector & BPS scales', icon: '🏛️' },
+                { id: 'Newspaper Classified', label: 'Newspaper Clipping', desc: 'Classified ad with image', icon: '📰' },
+                { id: 'International Remote', label: 'Global Remote', desc: 'Overseas & relocation', icon: '🌐' }
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    setJobCategory(cat.id as any);
+                    if (cat.id === 'Government Sector') {
+                      setRegion('Pakistan');
+                      setCurrency('PKR');
+                    } else if (cat.id === 'International Remote') {
+                      setRegion('Global');
+                      setCurrency('USD');
+                    }
+                  }}
+                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    jobCategory === cat.id
+                      ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="text-xl mb-1">{cat.icon}</div>
+                  <div className="font-bold text-xs text-white">{cat.label}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{cat.desc}</div>
+                </button>
+              ))}
             </div>
           </div>
 
-          {region === 'Pakistan' && (
-            <div className="p-4 bg-slate-950 rounded-xl border border-emerald-500/30 space-y-3">
-              <span className="text-xs font-bold text-emerald-400 uppercase">Pakistan Location Details</span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* SECTION 2: CONDITIONAL GOVERNMENT SECTOR FIELDS */}
+          {jobCategory === 'Government Sector' && (
+            <div className="p-4 sm:p-5 bg-amber-950/20 border border-amber-500/30 rounded-2xl space-y-4">
+              <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>Government Sector & Public Scale Configuration</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Province</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Ministry / Department</label>
                   <select
-                    value={province}
-                    onChange={(e) => {
-                      setProvince(e.target.value);
-                      const p = (PAKISTAN_LOCATIONS || []).find((loc) => loc && loc.province === e.target.value);
-                      if (p && Array.isArray(p.cities) && p.cities.length) {
-                        setCity(p.cities[0].name);
-                        setDistrict(p.cities[0].districts[0] || '');
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                    value={govtDeptPreset}
+                    onChange={(e) => setGovtDeptPreset(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
                   >
-                    {(PAKISTAN_LOCATIONS || []).map((p) => (
-                      <option key={p.province} value={p.province}>{p.province}</option>
+                    {GOVT_DEPT_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
+                  {govtDeptPreset === 'Other (Manual Entry)' && (
+                    <input
+                      type="text"
+                      required
+                      value={customGovtDept}
+                      onChange={(e) => setCustomGovtDept(e.target.value)}
+                      placeholder="Type custom Ministry / Dept name..."
+                      className="w-full mt-2 px-3 py-2 bg-slate-950 border border-amber-500/50 rounded-lg text-white text-xs placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                    />
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">City</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Pay Scale (BPS Scale)</label>
                   <select
-                    value={city}
-                    onChange={(e) => {
-                      setCity(e.target.value);
-                      const c = (formCities || []).find((ci) => ci && ci.name === e.target.value);
-                      if (c && Array.isArray(c.districts) && c.districts.length) {
-                        setDistrict(c.districts[0]);
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                    value={govtScalePreset}
+                    onChange={(e) => setGovtScalePreset(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
                   >
-                    {(formCities || []).map((c) => (
-                      <option key={c.name} value={c.name}>{c.name}</option>
+                    {GOVT_SCALE_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
+                  {govtScalePreset === 'Other (Manual Entry)' && (
+                    <input
+                      type="text"
+                      required
+                      value={customGovtScale}
+                      onChange={(e) => setCustomGovtScale(e.target.value)}
+                      placeholder="Type custom Pay Scale (e.g. BPS-17 or Contract)..."
+                      className="w-full mt-2 px-3 py-2 bg-slate-950 border border-amber-500/50 rounded-lg text-white text-xs placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                    />
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">District / Area</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Public Sector Cadre</label>
                   <select
-                    value={district}
-                    onChange={(e) => setDistrict(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                    value={govtCadrePreset}
+                    onChange={(e) => setGovtCadrePreset(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
                   >
-                    {formDistricts.map((d) => (
-                      <option key={d} value={d}>{d}</option>
+                    {GOVT_CADRE_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
+                  {govtCadrePreset === 'Other (Manual Entry)' && (
+                    <input
+                      type="text"
+                      required
+                      value={customGovtCadre}
+                      onChange={(e) => setCustomGovtCadre(e.target.value)}
+                      placeholder="Type custom Public Sector Cadre..."
+                      className="w-full mt-2 px-3 py-2 bg-slate-950 border border-amber-500/50 rounded-lg text-white text-xs placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                    />
+                  )}
                 </div>
               </div>
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">Salary Package</label>
-            <input
-              type="text"
-              value={salary}
-              onChange={(e) => setSalary(e.target.value)}
-              placeholder="e.g. PKR 250,000 - 350,000 / month"
-              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
-            />
-          </div>
+          {/* SECTION 3: CONDITIONAL NEWSPAPER AD CLIPPING FIELDS */}
+          {jobCategory === 'Newspaper Classified' && (
+            <div className="p-4 sm:p-5 bg-teal-950/20 border border-teal-500/30 rounded-2xl space-y-4">
+              <div className="flex items-center space-x-2 text-teal-300 font-bold text-xs uppercase tracking-wider">
+                <FileText className="w-4 h-4 text-teal-400" />
+                <span>Newspaper Classified Advertisement Details</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Newspaper Name</label>
+                  <select
+                    value={newspaperPreset}
+                    onChange={(e) => setNewspaperPreset(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                  >
+                    {NEWSPAPER_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                  {newspaperPreset === 'Other (Manual Entry)' && (
+                    <input
+                      type="text"
+                      required
+                      value={customNewspaper}
+                      onChange={(e) => setCustomNewspaper(e.target.value)}
+                      placeholder="Type custom Newspaper name..."
+                      className="w-full mt-2 px-3 py-2 bg-slate-950 border border-teal-500/50 rounded-lg text-white text-xs placeholder-slate-500 focus:outline-none focus:border-teal-400"
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Publication Date</label>
+                  <input
+                    type="date"
+                    value={newspaperDate}
+                    onChange={(e) => setNewspaperDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Clipping Image URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={clippingImageUrl}
+                    onChange={(e) => setClippingImageUrl(e.target.value)}
+                    placeholder="https://... image link"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">Job Description</label>
-            <textarea
-              rows={4}
-              required
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe role responsibilities and requirements..."
-              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
-            />
+          {/* SECTION 4: BASIC JOB INFORMATION */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Job Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Senior Accounts Officer or Full Stack Engineer"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Organization / Company Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                  placeholder="Company or Recruiting Agency"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Job Arrangement</label>
+                <select
+                  value={jobType}
+                  onChange={(e) => setJobType(e.target.value as any)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                >
+                  <option value="Remote">100% Remote Work</option>
+                  <option value="Hybrid">Hybrid (Office + Remote)</option>
+                  <option value="On-site">On-site Office</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Target Region</label>
+                <select
+                  value={region}
+                  onChange={(e) => setRegion(e.target.value as any)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                >
+                  <option value="Pakistan">🇵🇰 Pakistan</option>
+                  <option value="Global">🌐 Global International Remote</option>
+                  <option value="US">🇺🇸 United States</option>
+                  <option value="UK">🇬🇧 United Kingdom</option>
+                  <option value="UAE">🇦🇪 United Arab Emirates</option>
+                  <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
+                  <option value="Canada">🇨🇦 Canada</option>
+                  <option value="Europe">🇪🇺 Europe</option>
+                  <option value="Australia">🇦🇺 Australia</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Department / Discipline</label>
+                <select
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                >
+                  <option value="Software Development">Software & Technology</option>
+                  <option value="Public Administration">Public Administration / Govt</option>
+                  <option value="Finance & Accounts">Finance & Accounts</option>
+                  <option value="Healthcare">Healthcare & Medicine</option>
+                  <option value="Education">Education & Academia</option>
+                  <option value="Operations & Logistics">Operations & Logistics</option>
+                  <option value="Marketing & Sales">Marketing & Digital Media</option>
+                  <option value="Engineering & Construction">Engineering & Construction</option>
+                </select>
+              </div>
+            </div>
+
+            {/* PAKISTAN SUB-DISTRICT UNLOCKED LOCATION SELECTOR */}
+            {region === 'Pakistan' && (
+              <div className="p-4 bg-slate-950 rounded-xl border border-emerald-500/30 space-y-3">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                  🇵🇰 Detailed Location Mapping (Pakistan Sub-Districts)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Province</label>
+                    <select
+                      value={province}
+                      onChange={(e) => {
+                        setProvince(e.target.value);
+                        const p = (PAKISTAN_LOCATIONS || []).find((loc) => loc && loc.province === e.target.value);
+                        if (p && Array.isArray(p.cities) && p.cities.length) {
+                          setCity(p.cities[0].name);
+                          setDistrict(p.cities[0].districts[0] || '');
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                    >
+                      {(PAKISTAN_LOCATIONS || []).map((p) => (
+                        <option key={p.province} value={p.province}>{p.province}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">City</label>
+                    <select
+                      value={city}
+                      onChange={(e) => {
+                        setCity(e.target.value);
+                        const c = (formCities || []).find((ci) => ci && ci.name === e.target.value);
+                        if (c && Array.isArray(c.districts) && c.districts.length) {
+                          setDistrict(c.districts[0]);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                    >
+                      {(formCities || []).map((c) => (
+                        <option key={c.name} value={c.name}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Sub-District / Area</label>
+                    <select
+                      value={district}
+                      onChange={(e) => setDistrict(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                    >
+                      {formDistricts.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SALARY & CURRENCY SELECTION */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Currency</label>
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value as Currency)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold"
+                >
+                  <option value="PKR">PKR (Pakistani Rupee)</option>
+                  <option value="USD">USD ($ United States)</option>
+                  <option value="GBP">GBP (£ United Kingdom)</option>
+                  <option value="EUR">EUR (€ Europe)</option>
+                  <option value="AED">AED (UAE Dirham)</option>
+                  <option value="SAR">SAR (Saudi Riyal)</option>
+                  <option value="CAD">CAD ($ Canada)</option>
+                  <option value="AUD">AUD ($ Australia)</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-300 mb-1">Salary Range / Compensation Package</label>
+                <input
+                  type="text"
+                  value={salary}
+                  onChange={(e) => setSalary(e.target.value)}
+                  placeholder="e.g. PKR 250,000 - PKR 350,000 / month or AED 18,000 / month"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                />
+              </div>
+            </div>
+
+            {/* DESCRIPTION & REQUIREMENTS */}
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">Job Description & Overview *</label>
+              <textarea
+                rows={4}
+                required
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Provide a comprehensive job summary, role expectations, and responsibilities..."
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">Requirements (One requirement per line)</label>
+              <textarea
+                rows={3}
+                value={requirementsInput}
+                onChange={(e) => setRequirementsInput(e.target.value)}
+                placeholder="e.g. 3+ years experience with React & TypeScript&#10;Bachelor's degree in CS or equivalent&#10;Excellent communication skills"
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+              />
+            </div>
+
+            {/* BENEFITS & PERKS MULTI-CHECKBOX */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-300 mb-1">Job Benefits & Perks Offered</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {[
+                  'Health Insurance',
+                  'Pension & Gratuity',
+                  '100% Remote Work',
+                  'Free Medical Cover',
+                  'Relocation Allowance',
+                  'Annual Bonus',
+                  'EOBI Registration',
+                  'Education Stipend'
+                ].map((benefit) => {
+                  const isChecked = selectedBenefits.includes(benefit);
+                  return (
+                    <button
+                      key={benefit}
+                      type="button"
+                      onClick={() => {
+                        if (isChecked) {
+                          setSelectedBenefits(selectedBenefits.filter(b => b !== benefit));
+                        } else {
+                          setSelectedBenefits([...selectedBenefits, benefit]);
+                        }
+                      }}
+                      className={`p-2.5 rounded-lg border text-left flex items-center space-x-2 transition-all cursor-pointer ${
+                        isChecked
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      <input type="checkbox" checked={isChecked} readOnly className="rounded text-emerald-500" />
+                      <span className="font-semibold text-[11px] truncate">{benefit}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* APPLICATION CONTACT & DEADLINE */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">Direct Apply Link (Optional)</label>
+                <input
+                  type="url"
+                  value={externalApplyUrl}
+                  onChange={(e) => setExternalApplyUrl(e.target.value)}
+                  placeholder="https://company.com/careers"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">HR Contact Email or WhatsApp</label>
+                <input
+                  type="text"
+                  value={contactEmailOrPhone}
+                  onChange={(e) => setContactEmailOrPhone(e.target.value)}
+                  placeholder="hr@company.com or +92 300 1234567"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">Application Deadline</label>
+                <input
+                  type="date"
+                  value={applicationDeadline}
+                  onChange={(e) => setApplicationDeadline(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                />
+              </div>
+            </div>
+
+            {/* TAGS INPUT */}
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">Tags / Keywords (Comma separated)</label>
+              <input
+                type="text"
+                value={tagsInput}
+                onChange={(e) => setTagsInput(e.target.value)}
+                placeholder="React, TypeScript, Remote, BPS-17, Tax Free"
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+              />
+            </div>
           </div>
 
           <button
             type="submit"
-            className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 cursor-pointer"
+            className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 cursor-pointer transition-all flex items-center justify-center space-x-2"
           >
-            {jobPostingFeePkr > 0 ? `Proceed to Pay Fee (PKR ${jobPostingFeePkr.toLocaleString()}) & Submit` : 'Submit Job for Admin Approval'}
+            <Send className="w-4 h-4 text-slate-950" />
+            <span>
+              {jobPostingFeePkr > 0 ? `Proceed to Pay Fee (PKR ${jobPostingFeePkr.toLocaleString()}) & Submit Listing` : 'Publish Job Listing for Verification'}
+            </span>
           </button>
         </form>
       )}
@@ -940,6 +1335,36 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </form>
 
         </div>
+      )}
+
+      {/* TAB 7: SELF-SERVE AD CAMPAIGNS & WALLET */}
+      {activeTab === 'campaigns' && (
+        <UserCampaignHub
+          currentUser={currentUser}
+          userAds={userAds}
+          pricingConfig={pricingConfig}
+          campaignConfig={campaignConfig}
+          onSubmitCampaign={(newAd, cost) => {
+            if (onSubmitCampaign) {
+              onSubmitCampaign(newAd, cost);
+            }
+          }}
+          onDepositWallet={(amount, paymentMethod) => {
+            if (onDepositFunds) {
+              onDepositFunds(amount, paymentMethod);
+            }
+          }}
+          onDeleteCampaign={(adId) => {
+            if (onDeleteAd) {
+              onDeleteAd(adId);
+            }
+          }}
+          onDuplicateCampaign={(ad) => {
+            if (onDuplicateAd) {
+              onDuplicateAd(ad);
+            }
+          }}
+        />
       )}
 
       {/* JOB POSTING FEE PAYMENT INVOICE MODAL */}

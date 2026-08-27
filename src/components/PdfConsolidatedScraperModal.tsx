@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Job, ConsolidatedPdfGazette, ScrapedJobAuditEntry, ScraperBatchRun } from '../types/job';
-import { MOCK_CONSOLIDATED_PDF_GAZETTES } from '../data/mockPdfConsolidatedAds';
+import { 
+  MOCK_CONSOLIDATED_PDF_GAZETTES, 
+  generateGazetteFromManualInput,
+  OFFICIAL_GOVT_SCRAPER_PORTALS 
+} from '../data/mockPdfConsolidatedAds';
 import { 
   FileText, 
   X, 
@@ -23,7 +27,10 @@ import {
   Calendar, 
   FileSpreadsheet,
   Clock,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  Trash2,
+  BookmarkPlus
 } from 'lucide-react';
 
 interface PdfConsolidatedScraperModalProps {
@@ -31,52 +38,150 @@ interface PdfConsolidatedScraperModalProps {
   onClose: () => void;
   onBatchImportJobs: (jobs: Job[], autoApprove: boolean, sourceGazetteTitle: string) => void;
   onLogBatchRun: (batchRun: ScraperBatchRun, auditEntries: ScrapedJobAuditEntry[]) => void;
+  gazettes?: ConsolidatedPdfGazette[];
+  onAddGazette?: (newGazette: ConsolidatedPdfGazette) => void;
+  onDeleteGazette?: (gazetteId: string) => void;
+  initialSelectedGazetteId?: string | null;
 }
 
 export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalProps> = ({
   isOpen,
   onClose,
   onBatchImportJobs,
-  onLogBatchRun
+  onLogBatchRun,
+  gazettes = MOCK_CONSOLIDATED_PDF_GAZETTES,
+  onAddGazette,
+  onDeleteGazette,
+  initialSelectedGazetteId
 }) => {
   if (!isOpen) return null;
+
+  const currentGazettes = gazettes && gazettes.length > 0 ? gazettes : MOCK_CONSOLIDATED_PDF_GAZETTES;
 
   // Active sub-views
   const [activeTab, setActiveTab] = useState<'parser' | 'python-code' | 'raw-stream'>('parser');
 
   // Input & Configuration state
-  const [selectedGazetteId, setSelectedGazetteId] = useState<string>(MOCK_CONSOLIDATED_PDF_GAZETTES[0].id);
+  const [selectedGazetteId, setSelectedGazetteId] = useState<string>(() => {
+    if (initialSelectedGazetteId && currentGazettes.some(g => g.id === initialSelectedGazetteId)) {
+      return initialSelectedGazetteId;
+    }
+    return currentGazettes[0]?.id || 'pdf-gazette-fpsc-08-2026';
+  });
+
   const [customPdfUrl, setCustomPdfUrl] = useState<string>('https://fpsc.gov.pk/advertisements/Consolidated_Advt_No_08_2026.pdf');
-  const [inputMode, setInputMode] = useState<'preloaded' | 'url' | 'upload'>('preloaded');
+  const [inputMode, setInputMode] = useState<'preloaded' | 'url' | 'upload' | 'add-manual'>('preloaded');
   const [parserEngine, setParserEngine] = useState<'pdfplumber' | 'PyPDF2' | 'pdfplumber + Regex AI Entity Recognizer'>('pdfplumber');
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+
+  // Manual Gazette Site Input Form State
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualOrg, setManualOrg] = useState('');
+  const [manualUrl, setManualUrl] = useState('');
+  const [manualIssueNo, setManualIssueNo] = useState('');
+  const [manualDeadline, setManualDeadline] = useState('');
+  const [manualPages, setManualPages] = useState(4);
+  const [manualSuccessMsg, setManualSuccessMsg] = useState<string | null>(null);
 
   // Parsing & Processing state
   const [isParsing, setIsParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState(0);
   const [parseLogs, setParseLogs] = useState<string[]>([]);
+
+  // Current active gazette object
+  const activeGazette = currentGazettes.find(g => g.id === selectedGazetteId) || currentGazettes[0];
+
   const [extractedVacancies, setExtractedVacancies] = useState<Job[]>(() => {
-    return MOCK_CONSOLIDATED_PDF_GAZETTES[0].extractedVacancies;
+    return activeGazette?.extractedVacancies || [];
   });
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>(() => {
-    return MOCK_CONSOLIDATED_PDF_GAZETTES[0].extractedVacancies.map(j => j.id);
+    return (activeGazette?.extractedVacancies || []).map(j => j.id);
   });
   const [importedSuccessfully, setImportedSuccessfully] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // Current active gazette object
-  const activeGazette = MOCK_CONSOLIDATED_PDF_GAZETTES.find(g => g.id === selectedGazetteId) || MOCK_CONSOLIDATED_PDF_GAZETTES[0];
+  // Sync when gazette list or initial gazette ID changes
+  useEffect(() => {
+    if (initialSelectedGazetteId && currentGazettes.some(g => g.id === initialSelectedGazetteId)) {
+      setSelectedGazetteId(initialSelectedGazetteId);
+      const g = currentGazettes.find(item => item.id === initialSelectedGazetteId);
+      if (g) {
+        setExtractedVacancies(g.extractedVacancies || []);
+        setSelectedJobIds((g.extractedVacancies || []).map(j => j.id));
+        setCustomPdfUrl(g.pdfUrl);
+      }
+    }
+  }, [initialSelectedGazetteId, currentGazettes]);
 
   // Handle switching preloaded gazettes
   const handleSelectGazette = (gazetteId: string) => {
     setSelectedGazetteId(gazetteId);
-    const gazette = MOCK_CONSOLIDATED_PDF_GAZETTES.find(g => g.id === gazetteId);
+    const gazette = currentGazettes.find(g => g.id === gazetteId);
     if (gazette) {
-      setExtractedVacancies(gazette.extractedVacancies);
-      setSelectedJobIds(gazette.extractedVacancies.map(j => j.id));
+      setExtractedVacancies(gazette.extractedVacancies || []);
+      setSelectedJobIds((gazette.extractedVacancies || []).map(j => j.id));
       setCustomPdfUrl(gazette.pdfUrl);
       setImportedSuccessfully(false);
     }
+  };
+
+  // Handle adding a manual site into the parser library
+  const handleCreateManualGazette = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualUrl.trim()) {
+      alert('Please provide a valid PDF or Gazette URL.');
+      return;
+    }
+
+    const newGazette = generateGazetteFromManualInput({
+      title: manualTitle.trim() || `Official Recruitment Gazette (${manualOrg.trim() || 'Govt Portal'})`,
+      organization: manualOrg.trim() || 'Government & Public Sector Authority',
+      pdfUrl: manualUrl.trim(),
+      gazetteIssueNumber: manualIssueNo.trim() || `Advt. No. ${new Date().getMonth() + 1}/${new Date().getFullYear()}`,
+      closingDeadline: manualDeadline.trim() || '30th November 2026',
+      totalPages: manualPages || 4
+    });
+
+    if (onAddGazette) {
+      onAddGazette(newGazette);
+    }
+
+    setSelectedGazetteId(newGazette.id);
+    setExtractedVacancies(newGazette.extractedVacancies);
+    setSelectedJobIds(newGazette.extractedVacancies.map(j => j.id));
+    setCustomPdfUrl(newGazette.pdfUrl);
+    setInputMode('preloaded');
+    setManualSuccessMsg(`Successfully registered "${newGazette.title}" to PDF Parser!`);
+    setTimeout(() => setManualSuccessMsg(null), 5000);
+
+    // Reset form
+    setManualTitle('');
+    setManualOrg('');
+    setManualUrl('');
+    setManualIssueNo('');
+    setManualDeadline('');
+  };
+
+  // Quick save from direct URL tab
+  const handleSaveDirectUrlAsGazette = () => {
+    if (!customPdfUrl.trim()) return;
+    const domain = new URL(customPdfUrl.startsWith('http') ? customPdfUrl : 'https://' + customPdfUrl).hostname;
+    const newGazette = generateGazetteFromManualInput({
+      title: `Consolidated Gazette from ${domain}`,
+      organization: domain.includes('fpsc') ? 'FPSC' : domain.includes('ppsc') ? 'PPSC' : domain.includes('kppsc') ? 'KPPSC' : domain.includes('spsc') ? 'SPSC' : domain.includes('wapda') ? 'WAPDA' : domain,
+      pdfUrl: customPdfUrl.trim()
+    });
+
+    if (onAddGazette) {
+      onAddGazette(newGazette);
+    }
+
+    setSelectedGazetteId(newGazette.id);
+    setExtractedVacancies(newGazette.extractedVacancies);
+    setSelectedJobIds(newGazette.extractedVacancies.map(j => j.id));
+    setInputMode('preloaded');
+    setManualSuccessMsg(`URL saved as new Gazette: "${newGazette.title}"`);
+    setTimeout(() => setManualSuccessMsg(null), 5000);
   };
 
   // Run simulated extraction pipeline using pdfplumber/PyPDF2 logic
@@ -84,9 +189,12 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     setIsParsing(true);
     setParseProgress(10);
     setImportedSuccessfully(false);
+    const targetSourceUrl = inputMode === 'preloaded' ? activeGazette?.pdfUrl : customPdfUrl;
+    const targetTitle = inputMode === 'preloaded' ? activeGazette?.title : `URL Stream (${customPdfUrl})`;
+
     setParseLogs([
-      `[00:00.1] [HTTP Fetcher] Connecting to PDF stream: ${inputMode === 'preloaded' ? activeGazette.pdfUrl : customPdfUrl}`,
-      `[00:00.3] [Stream Validator] PDF header valid (%PDF-1.7, ${inputMode === 'upload' ? 'Uploaded Local File' : activeGazette.fileSizeFormatted})`
+      `[00:00.1] [HTTP Fetcher] Connecting to PDF stream: ${targetSourceUrl}`,
+      `[00:00.3] [Stream Validator] PDF header valid (%PDF-1.7, ${inputMode === 'upload' ? 'Uploaded Local File' : (activeGazette?.fileSizeFormatted || '2.4 MB')})`
     ]);
 
     setTimeout(() => {
@@ -94,7 +202,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       setParseLogs(prev => [
         ...prev,
         `[00:00.8] [Engine: ${parserEngine}] Spawning Python worker thread. Loading PDF layout coordinate trees...`,
-        `[00:01.2] [pdfplumber] Extracted ${activeGazette.totalPages} pages with multi-column table preservation`
+        `[00:01.2] [pdfplumber] Extracted ${activeGazette?.totalPages || 4} pages with multi-column table preservation`
       ]);
     }, 600);
 
@@ -102,21 +210,31 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       setParseProgress(70);
       setParseLogs(prev => [
         ...prev,
-        `[00:01.6] [Regex Case Engine] Splitting text blocks on Case delimiters: r'(?:Case\\s*No\\.|CASE\\s*NO|Sr\\.\\s*No)'`,
-        `[00:01.9] [Entity Extractor] Detected ${activeGazette.extractedVacancies.length} distinct BPS-16 to BPS-19 positions with Domicile Quota matrices`,
-        `[00:02.1] [Challan Fee Engine] Parsed NBP treasury fee tiers (Rs. 300 to Rs. 1,200)`
+        `[00:01.6] [Regex Case Engine] Splitting text blocks on Case delimiters: r'(?:Case\\s*No\\.|CASE\\s*NO|Sr\\.\\s*No|Case\\s*Ref)'`,
+        `[00:01.9] [Entity Extractor] Detected ${activeGazette?.extractedVacancies?.length || 2} distinct BPS positions with Domicile Quota matrices`,
+        `[00:02.1] [Challan Fee Engine] Parsed treasury challan fee tiers (Rs. 300 to Rs. 1,200)`
       ]);
     }, 1300);
 
     setTimeout(() => {
       setParseProgress(100);
       setIsParsing(false);
-      const gazette = MOCK_CONSOLIDATED_PDF_GAZETTES.find(g => g.id === selectedGazetteId) || MOCK_CONSOLIDATED_PDF_GAZETTES[0];
-      setExtractedVacancies(gazette.extractedVacancies);
-      setSelectedJobIds(gazette.extractedVacancies.map(j => j.id));
+      let loadedVacancies = activeGazette?.extractedVacancies || [];
+      
+      if (inputMode === 'url' && (!activeGazette || activeGazette.pdfUrl !== customPdfUrl)) {
+        const generated = generateGazetteFromManualInput({
+          title: `Direct Extracted Gazette (${new URL(customPdfUrl.startsWith('http') ? customPdfUrl : 'https://' + customPdfUrl).hostname})`,
+          organization: 'Public Sector Recruitment',
+          pdfUrl: customPdfUrl
+        });
+        loadedVacancies = generated.extractedVacancies;
+      }
+
+      setExtractedVacancies(loadedVacancies);
+      setSelectedJobIds(loadedVacancies.map(j => j.id));
       setParseLogs(prev => [
         ...prev,
-        `[00:02.4] [Extraction Complete] Successfully parsed ${gazette.extractedVacancies.length} vacancies ready for ingestion!`
+        `[00:02.4] [Extraction Complete] Successfully parsed ${loadedVacancies.length} vacancies from "${targetTitle}" ready for ingestion!`
       ]);
     }, 2000);
   };
@@ -406,89 +524,331 @@ if __name__ == "__main__":
                     </p>
                   </div>
 
-                  <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+                  <div className="flex flex-wrap items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
                     <button
                       onClick={() => setInputMode('preloaded')}
-                      className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                        inputMode === 'preloaded' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                        inputMode === 'preloaded' ? 'bg-indigo-500 text-white shadow' : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      Preloaded Gazettes
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span>Gazette Library ({currentGazettes.length})</span>
+                    </button>
+                    <button
+                      onClick={() => setInputMode('add-manual')}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                        inputMode === 'add-manual' ? 'bg-amber-500 text-slate-950 font-black shadow' : 'text-amber-400 hover:text-amber-300'
+                      }`}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Manual Site / PDF</span>
                     </button>
                     <button
                       onClick={() => setInputMode('url')}
-                      className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                        inputMode === 'url' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                        inputMode === 'url' ? 'bg-indigo-500 text-white shadow' : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      PDF Direct URL
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>PDF Direct URL</span>
                     </button>
                     <button
                       onClick={() => setInputMode('upload')}
-                      className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                        inputMode === 'upload' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                        inputMode === 'upload' ? 'bg-indigo-500 text-white shadow' : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      Upload .PDF
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload .PDF</span>
                     </button>
                   </div>
                 </div>
 
-                {/* INPUT CONFIGURATIONS */}
-                {inputMode === 'preloaded' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {MOCK_CONSOLIDATED_PDF_GAZETTES.map((gazette) => (
-                      <div
-                        key={gazette.id}
-                        onClick={() => handleSelectGazette(gazette.id)}
-                        className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                          selectedGazetteId === gazette.id
-                            ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/50'
-                            : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-indigo-400">{gazette.organization}</span>
-                            <span className="text-[10px] font-mono bg-slate-800 px-2 py-0.5 rounded text-slate-300">
-                              {gazette.fileSizeFormatted} • {gazette.totalPages} Pages
-                            </span>
-                          </div>
-                          <h4 className="font-bold text-white text-sm">{gazette.title}</h4>
-                          <p className="text-xs text-slate-400">
-                            Issue: <strong className="text-slate-300">{gazette.gazetteIssueNumber}</strong> • Deadline:{' '}
-                            <span className="text-rose-300">{gazette.closingDeadline}</span>
-                          </p>
-                        </div>
-
-                        <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
-                          <span className="text-emerald-400 font-bold">
-                            ✨ {gazette.extractedVacancies.length} Vacancy Cases in this PDF
-                          </span>
-                          <span className="text-slate-500 font-mono text-[11px] truncate max-w-[140px]">
-                            {gazette.pdfFileName}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                {/* SUCCESS FEEDBACK NOTIFICATION */}
+                {manualSuccessMsg && (
+                  <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold flex items-center space-x-2 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    <span>{manualSuccessMsg}</span>
                   </div>
                 )}
 
-                {inputMode === 'url' && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-300">Enter PDF Gazette URL</label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="url"
-                        value={customPdfUrl}
-                        onChange={(e) => setCustomPdfUrl(e.target.value)}
-                        placeholder="https://fpsc.gov.pk/advertisements/Adv-08-2026.pdf"
-                        className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 outline-none"
-                      />
+                {/* INPUT CONFIGURATION: PRELOADED GAZETTE LIST */}
+                {inputMode === 'preloaded' && (
+                  <div className="space-y-3">
+                    {/* QUICK OFFICIAL PORTALS CHIPS */}
+                    <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-300 flex items-center space-x-1.5">
+                          <Globe className="w-3.5 h-3.5 text-rose-400" />
+                          <span>13 Official Portals & Testing Services Quick Filter:</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">Select to switch source</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {OFFICIAL_GOVT_SCRAPER_PORTALS.map(portal => {
+                          const matchedGazette = currentGazettes.find(g => 
+                            g.organization.toLowerCase().includes(portal.shortName.toLowerCase()) ||
+                            g.title.toLowerCase().includes(portal.shortName.toLowerCase()) ||
+                            g.pdfUrl.toLowerCase() === (portal.pdfUrl || portal.portalUrl).toLowerCase()
+                          );
+                          const isCurrent = matchedGazette && selectedGazetteId === matchedGazette.id;
+                          return (
+                            <button
+                              key={portal.id}
+                              type="button"
+                              onClick={() => {
+                                if (matchedGazette) {
+                                  handleSelectGazette(matchedGazette.id);
+                                } else {
+                                  // Create and select
+                                  const newG = generateGazetteFromManualInput({
+                                    title: `${portal.name} Consolidated Advt 2026`,
+                                    organization: portal.organization,
+                                    pdfUrl: portal.pdfUrl || portal.portalUrl,
+                                    gazetteIssueNumber: portal.sampleAdvtNo,
+                                    closingDeadline: portal.defaultDeadline
+                                  });
+                                  if (onAddGazette) onAddGazette(newG);
+                                  setSelectedGazetteId(newG.id);
+                                  setExtractedVacancies(newG.extractedVacancies);
+                                  setSelectedJobIds(newG.extractedVacancies.map(j => j.id));
+                                  setCustomPdfUrl(newG.pdfUrl);
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center space-x-1 border ${
+                                isCurrent
+                                  ? 'bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-500/20'
+                                  : 'bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
+                              }`}
+                            >
+                              <span>{portal.shortName}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <p className="text-[11px] text-slate-400">
-                      Compatible with official PDF links from fpsc.gov.pk, wapda.gov.pk, ppsc.gop.pk, spsc.gos.pk, kppsc.gov.pk, nts.org.pk
-                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
+                      {currentGazettes.map((gazette) => {
+                        const isCustom = gazette.id.startsWith('pdf-gazette-custom');
+                        return (
+                          <div
+                            key={gazette.id}
+                            onClick={() => handleSelectGazette(gazette.id)}
+                            className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between relative group ${
+                              selectedGazetteId === gazette.id
+                                ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/50'
+                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="text-xs font-bold text-indigo-400">{gazette.organization}</span>
+                                  {isCustom && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                      Custom Added
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] font-mono bg-slate-800 px-2 py-0.5 rounded text-slate-300">
+                                  {gazette.fileSizeFormatted} • {gazette.totalPages} Pages
+                                </span>
+                              </div>
+                              <h4 className="font-bold text-white text-sm">{gazette.title}</h4>
+                              <p className="text-xs text-slate-400">
+                                Issue: <strong className="text-slate-300">{gazette.gazetteIssueNumber}</strong> • Deadline:{' '}
+                                <span className="text-rose-300">{gazette.closingDeadline}</span>
+                              </p>
+                            </div>
+
+                            <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
+                              <span className="text-emerald-400 font-bold">
+                                ✨ {gazette.extractedVacancies.length} Vacancy Cases in this PDF
+                              </span>
+                              
+                              <div className="flex items-center space-x-2">
+                                <span className="text-slate-500 font-mono text-[11px] truncate max-w-[120px]">
+                                  {gazette.pdfFileName}
+                                </span>
+                                {isCustom && onDeleteGazette && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (confirm(`Remove "${gazette.title}" from Gazette library?`)) {
+                                        onDeleteGazette(gazette.id);
+                                      }
+                                    }}
+                                    className="p-1 text-slate-500 hover:text-rose-400 rounded hover:bg-rose-500/10 cursor-pointer"
+                                    title="Delete custom gazette"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setInputMode('add-manual')}
+                        className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center space-x-1 cursor-pointer bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Another Manual Site / Gazette Source</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* INPUT CONFIGURATION: MANUAL SITE & GAZETTE REGISTRATION */}
+                {inputMode === 'add-manual' && (
+                  <form onSubmit={handleCreateManualGazette} className="p-4 bg-slate-900/90 border border-amber-500/30 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div>
+                        <h4 className="text-sm font-black text-amber-300 uppercase flex items-center space-x-1.5">
+                          <BookmarkPlus className="w-4 h-4 text-amber-400" />
+                          <span>Register Manual Govt / Gazette Site to PDF Parser</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-400">
+                          Register any new government recruitment portal or official PDF URL for automated multi-column table extraction.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* QUICK PRESETS CHIPS */}
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-bold text-slate-400">Quick Portal Presets:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {OFFICIAL_GOVT_SCRAPER_PORTALS.map((portal) => (
+                          <button
+                            key={portal.id}
+                            type="button"
+                            onClick={() => {
+                              setManualTitle(`${portal.name} Consolidated Advt 2026`);
+                              setManualOrg(portal.organization);
+                              setManualUrl(portal.pdfUrl || portal.portalUrl);
+                              setManualIssueNo(portal.sampleAdvtNo);
+                              setManualDeadline(portal.defaultDeadline);
+                            }}
+                            className="px-2 py-0.5 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg border border-slate-800 cursor-pointer transition-all"
+                          >
+                            <span>{portal.shortName}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-300">Gazette Title / Notice Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={manualTitle}
+                          onChange={(e) => setManualTitle(e.target.value)}
+                          placeholder="e.g. SPSC Consolidated Recruitment Advt No. 04/2026"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-amber-400 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-300">Commission / Department Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={manualOrg}
+                          onChange={(e) => setManualOrg(e.target.value)}
+                          placeholder="e.g. Sindh Public Service Commission (SPSC)"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-amber-400 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-bold text-slate-300">Official PDF URL or Gazette Portal Link *</label>
+                        <input
+                          type="url"
+                          required
+                          value={manualUrl}
+                          onChange={(e) => setManualUrl(e.target.value)}
+                          placeholder="https://spsc.gos.pk/advertisements/Advt_No_04_2026.pdf"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white font-mono placeholder-slate-500 focus:border-amber-400 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-300">Gazette Issue / Case Reference</label>
+                        <input
+                          type="text"
+                          value={manualIssueNo}
+                          onChange={(e) => setManualIssueNo(e.target.value)}
+                          placeholder="e.g. Advt. No. 04/2026"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-amber-400 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-300">Application Deadline</label>
+                        <input
+                          type="text"
+                          value={manualDeadline}
+                          onChange={(e) => setManualDeadline(e.target.value)}
+                          placeholder="e.g. 20th November 2026"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-amber-400 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setInputMode('preloaded')}
+                        className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Register to PDF Parser & Select</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* INPUT CONFIGURATION: DIRECT PDF URL */}
+                {inputMode === 'url' && (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-300">Enter PDF Gazette URL</label>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <input
+                          type="url"
+                          value={customPdfUrl}
+                          onChange={(e) => setCustomPdfUrl(e.target.value)}
+                          placeholder="https://fpsc.gov.pk/advertisements/Adv-08-2026.pdf"
+                          className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:border-indigo-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveDirectUrlAsGazette}
+                          className="px-3.5 py-2 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                          <BookmarkPlus className="w-3.5 h-3.5" />
+                          <span>Save as Gazette Source</span>
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Compatible with official PDF links from fpsc.gov.pk, wapda.gov.pk, ppsc.gop.pk, spsc.gos.pk, kppsc.gov.pk, bpsc.gob.pk, nts.org.pk
+                      </p>
+                    </div>
                   </div>
                 )}
 

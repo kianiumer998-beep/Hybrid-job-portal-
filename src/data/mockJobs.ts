@@ -29,6 +29,8 @@ export const INITIAL_JOBS: Job[] = [
     postedAt: '2 hours ago',
     featured: true,
     urgent: true,
+    isPinnedTop: true,
+    priorityTier: 'vip_bundle',
     applicationsCount: 42,
     jobCategory: 'International Remote',
     sourceUrl: 'https://www.linkedin.com/jobs/view/senior-react-engineer-remote',
@@ -172,6 +174,10 @@ export const INITIAL_JOBS: Job[] = [
     postedAt: 'Just now',
     featured: true,
     urgent: false,
+    isPinnedTop: true,
+    isFutureJob: true,
+    futureIntakeDate: 'Oct 2026 Batch',
+    priorityTier: 'featured_top',
     applicationsCount: 54
   },
   {

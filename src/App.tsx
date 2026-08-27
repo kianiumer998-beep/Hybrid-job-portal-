@@ -26,7 +26,19 @@ import {
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
 } from './types/ad';
 
-import { Job, JobFilters, Subscriber, UserAccount, ChatMessage, CustomFormField, JobPostingFeeLog, PaymentTransaction, JobApplication } from './types/job';
+import { 
+  Job, 
+  JobFilters, 
+  Subscriber, 
+  UserAccount, 
+  ChatMessage, 
+  CustomFormField, 
+  JobPostingFeeLog, 
+  PaymentTransaction, 
+  JobApplication,
+  JobPostingPricingConfig,
+  DEFAULT_JOB_POSTING_PRICING_CONFIG
+} from './types/job';
 import { INITIAL_JOBS } from './data/mockJobs';
 import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X } from 'lucide-react';
 import { SiteSeoConfig } from './types/adminSuite';
@@ -516,6 +528,21 @@ export default function App() {
     return saved ? Number(saved) : 300;
   });
 
+  // Job Posting & Priority Placement Pricing Configuration State
+  const [jobPostingPricing, setJobPostingPricing] = useState<JobPostingPricingConfig>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_job_posting_pricing');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return DEFAULT_JOB_POSTING_PRICING_CONFIG;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hybrid_job_posting_pricing', JSON.stringify(jobPostingPricing));
+    } catch (e) {}
+  }, [jobPostingPricing]);
+
   // All Job Applications Log State
   const [allApplications, setAllApplications] = useState<JobApplication[]>(() => {
     const saved = localStorage.getItem('hybrid_all_applications');
@@ -671,6 +698,27 @@ export default function App() {
 
       return true;
     }).sort((a, b) => {
+      // 1. Primary Ranking: Top Pinned / VIP Bundle / Featured Top / Urgent / Future Opportunity
+      const getPriorityRank = (job: Job): number => {
+        let rank = 0;
+        if (job.isPinnedTop) rank += 1000;
+        if (job.priorityTier === 'vip_bundle') rank += 800;
+        if (job.priorityTier === 'featured_top') rank += 600;
+        if (job.featured) rank += 400;
+        if (job.priorityTier === 'urgent') rank += 300;
+        if (job.urgent) rank += 200;
+        if (job.isFutureJob) rank += 100;
+        return rank;
+      };
+
+      const rankA = getPriorityRank(a);
+      const rankB = getPriorityRank(b);
+
+      if (rankA !== rankB) {
+        return rankB - rankA; // Higher priority pinned items appear at the very top
+      }
+
+      // 2. Secondary Sorting within the same priority tier
       if (filters.sortBy === 'salary-high') return (b.salaryNumericMin || 0) - (a.salaryNumericMin || 0);
       if (filters.sortBy === 'salary-low') return (a.salaryNumericMin || 0) - (b.salaryNumericMin || 0);
       if (filters.sortBy === 'popular') return b.applicationsCount - a.applicationsCount;
@@ -1377,6 +1425,28 @@ export default function App() {
             onEndUserMembershipAndJobs={handleEndUserMembershipAndJobs}
             onSuspendJob={handleSuspendJob}
             onBulkEndUnpaidMemberships={handleBulkEndUnpaidMemberships}
+            onUpdateJob={(updatedJob) => setJobs(prev => prev.map(j => j.id === updatedJob.id ? updatedJob : j))}
+            onBulkDeleteJobs={(jobIds) => setJobs(prev => prev.filter(j => !jobIds.includes(j.id)))}
+            onBulkUpdateJobs={(updatedList) => {
+              const map = new Map(updatedList.map(u => [u.id, u]));
+              setJobs(prev => prev.map(j => map.get(j.id) || j));
+            }}
+            onBulkApprovePendingJobs={(jobIds) => {
+              const toApprove = pendingJobs.filter(j => jobIds.includes(j.id)).map(j => ({ ...j, status: 'Approved' as const }));
+              setPendingJobs(prev => prev.filter(j => !jobIds.includes(j.id)));
+              setJobs(prev => [...toApprove, ...prev]);
+            }}
+            onBulkRejectPendingJobs={(jobIds) => {
+              setPendingJobs(prev => prev.filter(j => !jobIds.includes(j.id)));
+            }}
+            onAddSubscriber={(newSub) => setSubscribers(prev => [newSub, ...prev.filter(s => s.id !== newSub.id)])}
+            onUpdateSubscriber={(updatedSub) => setSubscribers(prev => prev.map(s => s.id === updatedSub.id ? updatedSub : s))}
+            onDeleteSubscriber={(subId) => setSubscribers(prev => prev.filter(s => s.id !== subId))}
+            onBulkDeleteSubscribers={(subIds) => setSubscribers(prev => prev.filter(s => !subIds.includes(s.id)))}
+            onUpdateUser={(updatedUser) => setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u))}
+            onBulkDeleteUsers={(userIds) => setUsers(prev => prev.filter(u => !userIds.includes(u.id)))}
+            onDeleteFeeLog={(logId) => setJobPostingFeeLogs(prev => prev.filter(l => l.id !== logId))}
+            onBulkDeleteFeeLogs={(logIds) => setJobPostingFeeLogs(prev => prev.filter(l => !logIds.includes(l.id)))}
             monthlyFeePkr={monthlyFeePkr}
             onChangeMonthlyFee={setMonthlyFeePkr}
             onExitAdmin={() => setShowAdminView(false)}

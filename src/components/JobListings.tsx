@@ -14,7 +14,11 @@ import {
   ChevronRight, 
   ChevronsLeft, 
   ChevronsRight,
-  Layers
+  Layers,
+  Pin,
+  Flame,
+  Calendar,
+  Zap
 } from 'lucide-react';
 import { Job } from '../types/job';
 import { Advertisement } from '../types/ad';
@@ -200,15 +204,42 @@ export const JobListings: React.FC<JobListingsProps> = ({
           );
           const feedAdToRender = index === 2 && activeFeedAds.length > 0 ? activeFeedAds[0] : null;
 
+          const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';
+
           return (
             <React.Fragment key={job.id ? `${job.id}-${index}` : `job-${index}`}>
               <div
-                className="group relative bg-slate-900/90 border border-slate-800/90 hover:border-emerald-500/50 rounded-2xl p-5 shadow-xl hover:shadow-emerald-500/10 transition-all duration-300 flex flex-col justify-between"
+                className={`group relative rounded-2xl p-5 shadow-xl transition-all duration-300 flex flex-col justify-between ${
+                  isTopPriority
+                    ? 'bg-gradient-to-b from-slate-900 via-slate-900 to-amber-950/20 border-2 border-amber-500/50 shadow-amber-500/10 hover:border-amber-400 hover:shadow-amber-500/20'
+                    : job.urgent
+                    ? 'bg-slate-900/90 border border-rose-500/40 hover:border-rose-500/70 shadow-rose-500/5'
+                    : 'bg-slate-900/90 border border-slate-800/90 hover:border-emerald-500/50 hover:shadow-emerald-500/10'
+                }`}
               >
               <div>
+                {/* TOP PRIORITY / PINNED / FUTURE BANNER TAG */}
+                {isTopPriority && (
+                  <div className="mb-2.5 flex items-center justify-between bg-gradient-to-r from-amber-500/20 via-rose-500/15 to-purple-500/20 px-2.5 py-1 rounded-lg border border-amber-500/40">
+                    <span className="text-[11px] font-black text-amber-300 flex items-center space-x-1.5 uppercase tracking-wider">
+                      <Pin className="w-3 h-3 text-amber-400 fill-amber-400" />
+                      <span>{job.priorityTier === 'vip_bundle' ? '🚀 VIP TOP PRIORITY' : '📌 PINNED TOP OF LIST'}</span>
+                    </span>
+                    <span className="text-[10px] text-amber-400/90 font-bold font-mono">Rank #1 Placement</span>
+                  </div>
+                )}
+
                 {/* Header Badges & Saved Button */}
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="flex flex-wrap gap-1.5">
+                    {/* Future Job Badge */}
+                    {job.isFutureJob && (
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
+                        <Calendar className="w-3 h-3 text-cyan-400" />
+                        <span>Future Opportunity {job.futureIntakeDate ? `(${job.futureIntakeDate})` : ''}</span>
+                      </span>
+                    )}
+
                     {/* Government & Newspaper Badges */}
                     {job.isGovtJob && (
                       <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
@@ -238,14 +269,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
                     {/* Urgent / Featured Badges */}
                     {job.featured && (
-                      <span className="text-xs font-semibold px-2 py-1 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/30 flex items-center space-x-1">
-                        <Sparkles className="w-3 h-3" />
+                      <span className="text-xs font-bold px-2 py-1 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center space-x-1">
+                        <Sparkles className="w-3 h-3 text-purple-400" />
                         <span>Featured</span>
                       </span>
                     )}
                     {job.urgent && (
-                      <span className="text-xs font-semibold px-2 py-1 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/30">
-                        Urgent Hiring
+                      <span className="text-xs font-bold px-2 py-1 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center space-x-1">
+                        <Flame className="w-3 h-3 text-rose-400 fill-rose-400" />
+                        <span>Urgent Hiring</span>
                       </span>
                     )}
                   </div>
@@ -253,7 +285,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   {/* Bookmark Toggle */}
                   <button
                     onClick={() => onToggleSaveJob(job.id)}
-                    className={`p-2 rounded-xl transition-all ${
+                    className={`p-2 rounded-xl transition-all shrink-0 cursor-pointer ${
                       isSaved
                         ? 'bg-emerald-500 text-slate-950 font-bold'
                         : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'

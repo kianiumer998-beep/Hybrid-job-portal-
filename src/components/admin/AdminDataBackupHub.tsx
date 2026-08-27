@@ -41,8 +41,8 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
   batchRuns = [],
   customFormFields = [],
   featureFlags = {} as any,
-  onRestoreSnapshot = () => {},
-  onImportBulkJobs = () => {}
+  onRestoreSnapshot = (_snapshot: SystemSnapshotPayload) => {},
+  onImportBulkJobs = (_importedJobs: Job[]) => {}
 }) => {
   const safeJobs = Array.isArray(jobs) ? jobs : [];
   const safePendingJobs = Array.isArray(pendingJobs) ? pendingJobs : [];

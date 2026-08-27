@@ -114,6 +114,10 @@ export interface Job {
   postedAt: string;
   featured?: boolean;
   urgent?: boolean;
+  isPinnedTop?: boolean; // Pinned at top of all jobs
+  isFutureJob?: boolean; // Future job opportunity
+  futureIntakeDate?: string; // Target start or batch intake date (e.g. '2026-10-01' or 'Fall 2026')
+  priorityTier?: 'standard' | 'urgent' | 'featured_top' | 'vip_bundle';
   applicationsCount: number;
   status?: JobStatus;
   rejectionReason?: string;
@@ -435,4 +439,23 @@ export interface ScraperBatchRun {
   triggerType: 'Scheduled Cron' | 'Manual On-Demand' | 'Deep Crawl' | 'Webhook' | 'Batch Rescrape';
   logTrace: string[];
 }
+
+export interface JobPostingPricingConfig {
+  standardFeePkr: number;       // Base fee for standard job posting (PKR)
+  urgentFeePkr: number;         // Priority surcharge for Urgent Hiring badge & boost (PKR)
+  featuredTopFeePkr: number;    // Priority surcharge for Featured & Pinned Top-of-List placement (PKR)
+  futureJobFeePkr: number;      // Priority surcharge for Advance / Future Job Intake (PKR)
+  vipBundleFeePkr: number;      // VIP All-in-One: Top Pinned + Urgent + Featured + Future Option (PKR)
+  freePostingAllowed: boolean;  // If true and standardFee is 0, base posts are free
+}
+
+export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
+  standardFeePkr: 1000,
+  urgentFeePkr: 500,
+  featuredTopFeePkr: 1500,
+  futureJobFeePkr: 800,
+  vipBundleFeePkr: 2500,
+  freePostingAllowed: true
+};
+
 

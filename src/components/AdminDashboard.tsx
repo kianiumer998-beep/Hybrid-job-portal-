@@ -17,7 +17,10 @@ import {
   NEWSPAPER_OPTIONS,
   ScrapedJobAuditEntry,
   ScraperBatchRun,
-  ScrapedJobAuditAction
+  ScrapedJobAuditAction,
+  ConsolidatedPdfGazette,
+  JobPostingPricingConfig,
+  DEFAULT_JOB_POSTING_PRICING_CONFIG
 } from '../types/job';
 import { Advertisement, AdPricingConfig, CampaignCustomizationConfig } from '../types/ad';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
@@ -53,17 +56,34 @@ import {
   Megaphone,
   History,
   CheckSquare,
+  Square,
   FileSpreadsheet,
   BarChart3,
   Database,
   Coins,
-  BadgeCheck
+  BadgeCheck,
+  BookmarkPlus,
+  Layers,
+  ExternalLink,
+  SlidersHorizontal,
+  Download,
+  Copy,
+  ArrowUpDown
 } from 'lucide-react';
 import { UserDetailModal } from './UserDetailModal';
 import { AdminJobDetailModal } from './AdminJobDetailModal';
 import { AdminAdHub } from './ads/AdminAdHub';
 import { ScrapedJobHistoryModule } from './ScrapedJobHistoryModule';
 import { PdfConsolidatedScraperModal } from './PdfConsolidatedScraperModal';
+import { AdminQuickEditJobModal } from './admin/AdminQuickEditJobModal';
+import { AdminDuplicateCheckerModal, DuplicateCluster } from './admin/AdminDuplicateCheckerModal';
+import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
+import { 
+  MOCK_CONSOLIDATED_PDF_GAZETTES, 
+  generateGazetteFromManualInput,
+  OFFICIAL_GOVT_SCRAPER_PORTALS,
+  OfficialGovtPdfPortal
+} from '../data/mockPdfConsolidatedAds';
 import { INITIAL_SCRAPED_AUDIT_LOGS, INITIAL_SCRAPER_BATCH_RUNS } from '../data/mockScraperHistory';
 
 // Advanced International Admin Suite Modules
@@ -106,6 +126,19 @@ interface AdminDashboardProps {
   onAddJob: (newJob: Job) => void;
   onAddPendingJob?: (newJob: Job) => void;
   onDeleteJob: (jobId: string) => void;
+  onUpdateJob?: (job: Job) => void;
+  onBulkDeleteJobs?: (jobIds: string[]) => void;
+  onBulkUpdateJobs?: (jobs: Job[]) => void;
+  onBulkApprovePendingJobs?: (jobIds: string[]) => void;
+  onBulkRejectPendingJobs?: (jobIds: string[], reason: string) => void;
+  onAddSubscriber?: (subscriber: Subscriber) => void;
+  onUpdateSubscriber?: (subscriber: Subscriber) => void;
+  onDeleteSubscriber?: (subscriberId: string) => void;
+  onBulkDeleteSubscribers?: (subscriberIds: string[]) => void;
+  onUpdateUser?: (user: UserAccount) => void;
+  onBulkDeleteUsers?: (userIds: string[]) => void;
+  onDeleteFeeLog?: (logId: string) => void;
+  onBulkDeleteFeeLogs?: (logIds: string[]) => void;
   onSendMessageToUser: (userId: string, userName: string, text: string) => void;
   onAddCustomField: (field: CustomFormField) => void;
   onToggleCustomField: (fieldId: string) => void;
@@ -132,6 +165,8 @@ interface AdminDashboardProps {
   onUpdateCampaignConfig?: (config: CampaignCustomizationConfig) => void;
   onApproveAd?: (adId: string) => void;
   onRejectAd?: (adId: string, reason: string) => void;
+  jobPostingPricing?: JobPostingPricingConfig;
+  onChangeJobPostingPricing?: (config: JobPostingPricingConfig) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -144,12 +179,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   jobPostingFeePkr,
   onChangeJobPostingFee,
   jobPostingFeeLogs,
+  jobPostingPricing = DEFAULT_JOB_POSTING_PRICING_CONFIG,
+  onChangeJobPostingPricing,
   allApplications = [],
   onApproveJob,
   onRejectJob,
   onAddJob,
   onAddPendingJob,
   onDeleteJob,
+  onUpdateJob,
+  onBulkDeleteJobs,
+  onBulkUpdateJobs,
+  onBulkApprovePendingJobs,
+  onBulkRejectPendingJobs,
+  onAddSubscriber,
+  onUpdateSubscriber,
+  onDeleteSubscriber,
+  onBulkDeleteSubscribers,
+  onUpdateUser,
+  onBulkDeleteUsers,
+  onDeleteFeeLog,
+  onBulkDeleteFeeLogs,
   onSendMessageToUser,
   onAddCustomField,
   onToggleCustomField,
@@ -327,8 +377,191 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [auditUser, setAuditUser] = useState<UserAccount | null>(null);
   const [customExpiryInput, setCustomExpiryInput] = useState('');
 
-  // Search
+  // Global Search State
   const [searchJobQuery, setSearchJobQuery] = useState('');
+
+  // 1. LIVE JOBS TAB SPECIFIC SEARCH, FILTERS, SELECTION & MODALS
+  const [jobsSearchQuery, setJobsSearchQuery] = useState('');
+  const [jobsCategoryFilter, setJobsCategoryFilter] = useState('all');
+  const [jobsScaleFilter, setJobsScaleFilter] = useState('all');
+  const [jobsProvinceFilter, setJobsProvinceFilter] = useState('all');
+  const [jobsStatusFilter, setJobsStatusFilter] = useState('all');
+  const [jobsSortBy, setJobsSortBy] = useState<'newest' | 'oldest' | 'title' | 'salary'>('newest');
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [showJobsDuplicatesOnly, setShowJobsDuplicatesOnly] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [isJobQuickEditOpen, setIsJobQuickEditOpen] = useState(false);
+  const [isBulkJobEditOpen, setIsBulkJobEditOpen] = useState(false);
+  const [isJobDuplicateModalOpen, setIsJobDuplicateModalOpen] = useState(false);
+
+  // 2. PENDING QUEUE TAB SEARCH, FILTERS, BULK SELECTION & MODALS
+  const [pendingSearchQuery, setPendingSearchQuery] = useState('');
+  const [pendingCategoryFilter, setPendingCategoryFilter] = useState('all');
+  const [pendingSourceFilter, setPendingSourceFilter] = useState('all');
+  const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
+  const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
+  const [showPendingDuplicatesOnly, setShowPendingDuplicatesOnly] = useState(false);
+  const [isPendingDuplicateModalOpen, setIsPendingDuplicateModalOpen] = useState(false);
+
+  // 3. SUBSCRIBERS TAB SEARCH, FILTERS, BULK SELECTION & MODALS
+  const [subscriberSearchQuery, setSubscriberSearchQuery] = useState('');
+  const [subscriberPlanFilter, setSubscriberPlanFilter] = useState('all');
+  const [subscriberStatusFilter, setSubscriberStatusFilter] = useState('all');
+  const [subscriberMethodFilter, setSubscriberMethodFilter] = useState('all');
+  const [selectedSubscriberIds, setSelectedSubscriberIds] = useState<string[]>([]);
+  const [showSubscriberDuplicatesOnly, setShowSubscriberDuplicatesOnly] = useState(false);
+  const [editingSubscriber, setEditingSubscriber] = useState<Subscriber | null>(null);
+  const [isSubscriberModalOpen, setIsSubscriberModalOpen] = useState(false);
+  const [isSubscriberDuplicateModalOpen, setIsSubscriberDuplicateModalOpen] = useState(false);
+
+  // 4. USER DIRECTORY & AUDIT TAB SEARCH, FILTERS & SELECTION
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userPaymentFilter, setUserPaymentFilter] = useState<'all' | 'paid' | 'unpaid' | 'overdue'>('all');
+  const [userPlanFilter, setUserPlanFilter] = useState<'all' | 'Free' | 'Premium'>('all');
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [showUserDuplicatesOnly, setShowUserDuplicatesOnly] = useState(false);
+  const [isUserDuplicateModalOpen, setIsUserDuplicateModalOpen] = useState(false);
+
+  // 5. PER-JOB FEE LOGS TAB SEARCH, FILTERS, SELECTION & DUPLICATE CHECK
+  const [feeLogSearchQuery, setFeeLogSearchQuery] = useState('');
+  const [feeLogMethodFilter, setFeeLogMethodFilter] = useState('all');
+  const [feeLogStatusFilter, setFeeLogStatusFilter] = useState('all');
+  const [selectedFeeLogIds, setSelectedFeeLogIds] = useState<string[]>([]);
+  const [showFeeLogDuplicatesOnly, setShowFeeLogDuplicatesOnly] = useState(false);
+  const [isFeeLogDuplicateModalOpen, setIsFeeLogDuplicateModalOpen] = useState(false);
+
+  // 6. SCRAPER TARGETS, PDF SOURCES & INGESTED FEED SEARCH & SELECTION
+  const [scraperTargetSearchQuery, setScraperTargetSearchQuery] = useState('');
+  const [scraperTargetCategoryFilter, setScraperTargetCategoryFilter] = useState('all');
+  const [selectedScraperTargetIds, setSelectedScraperTargetIds] = useState<string[]>([]);
+  const [pdfGazetteSearchQuery, setPdfGazetteSearchQuery] = useState('');
+  const [pdfGazetteOrgFilter, setPdfGazetteOrgFilter] = useState('all');
+  const [selectedPdfGazetteIds, setSelectedPdfGazetteIds] = useState<string[]>([]);
+  const [inspectFeedSearchQuery, setInspectFeedSearchQuery] = useState('');
+  const [inspectFeedCategoryFilter, setInspectFeedCategoryFilter] = useState('all');
+  const [inspectFeedSourceFilter, setInspectFeedSourceFilter] = useState('all');
+  const [selectedFeedJobIds, setSelectedFeedJobIds] = useState<string[]>([]);
+
+  // 7. FORM CUSTOMIZER TAB SEARCH & SELECTION
+  const [formFieldSearchQuery, setFormFieldSearchQuery] = useState('');
+  const [formFieldTypeFilter, setFormFieldTypeFilter] = useState('all');
+  const [selectedFormFieldIds, setSelectedFormFieldIds] = useState<string[]>([]);
+
+  // DUPLICATE RECORD CALCULATION HELPERS
+  const computeJobDuplicateClusters = (jobList: Job[]): DuplicateCluster<Job>[] => {
+    const map = new Map<string, Job[]>();
+    jobList.forEach(job => {
+      const titleKey = `${(job.title || '').trim().toLowerCase()}|${(job.company || '').trim().toLowerCase()}`;
+      if (titleKey !== '|') {
+        if (!map.has(titleKey)) map.set(titleKey, []);
+        map.get(titleKey)!.push(job);
+      }
+      if (job.pdfCaseNumber && job.pdfCaseNumber.trim()) {
+        const caseKey = `case:${job.pdfCaseNumber.trim().toLowerCase()}`;
+        if (!map.has(caseKey)) map.set(caseKey, []);
+        if (!map.get(caseKey)!.some(j => j.id === job.id)) {
+          map.get(caseKey)!.push(job);
+        }
+      }
+    });
+
+    const clusters: DuplicateCluster<Job>[] = [];
+    map.forEach((items, key) => {
+      if (items.length > 1) {
+        const reason = key.startsWith('case:') ? 'Matching Official Gazette Case Number' : 'Identical Job Title & Company/Employer';
+        const matchLabel = key.startsWith('case:') ? key.replace('case:', 'Case: ') : `${items[0].title} (${items[0].company})`;
+        clusters.push({
+          matchKey: matchLabel,
+          reason,
+          items
+        });
+      }
+    });
+    return clusters;
+  };
+
+  const computeSubscriberDuplicateClusters = (subList: Subscriber[]): DuplicateCluster<Subscriber>[] => {
+    const phoneMap = new Map<string, Subscriber[]>();
+    const emailMap = new Map<string, Subscriber[]>();
+
+    subList.forEach(sub => {
+      const rawPhone = (sub.phone || '').replace(/\D/g, '');
+      if (rawPhone.length >= 7) {
+        const cleanPhone = rawPhone.slice(-10);
+        if (!phoneMap.has(cleanPhone)) phoneMap.set(cleanPhone, []);
+        phoneMap.get(cleanPhone)!.push(sub);
+      }
+      if (sub.email && sub.email.includes('@')) {
+        const cleanEmail = sub.email.trim().toLowerCase();
+        if (!emailMap.has(cleanEmail)) emailMap.set(cleanEmail, []);
+        emailMap.get(cleanEmail)!.push(sub);
+      }
+    });
+
+    const clusters: DuplicateCluster<Subscriber>[] = [];
+    phoneMap.forEach((items) => {
+      if (items.length > 1) {
+        clusters.push({
+          matchKey: items[0].phone,
+          reason: 'Duplicate WhatsApp Phone Number',
+          items
+        });
+      }
+    });
+    emailMap.forEach((items, key) => {
+      if (items.length > 1 && !clusters.some(c => c.items.some(i => items.some(it => it.id === i.id)))) {
+        clusters.push({
+          matchKey: key,
+          reason: 'Duplicate Subscriber Email',
+          items
+        });
+      }
+    });
+    return clusters;
+  };
+
+  const computeUserDuplicateClusters = (userList: UserAccount[]): DuplicateCluster<UserAccount>[] => {
+    const emailMap = new Map<string, UserAccount[]>();
+    userList.forEach(u => {
+      if (u.email && u.email.includes('@')) {
+        const cleanEmail = u.email.trim().toLowerCase();
+        if (!emailMap.has(cleanEmail)) emailMap.set(cleanEmail, []);
+        emailMap.get(cleanEmail)!.push(u);
+      }
+    });
+    const clusters: DuplicateCluster<UserAccount>[] = [];
+    emailMap.forEach((items, key) => {
+      if (items.length > 1) {
+        clusters.push({
+          matchKey: key,
+          reason: 'Duplicate Email Account Registration',
+          items
+        });
+      }
+    });
+    return clusters;
+  };
+
+  const computeFeeLogDuplicateClusters = (logs: JobPostingFeeLog[]): DuplicateCluster<JobPostingFeeLog>[] => {
+    const map = new Map<string, JobPostingFeeLog[]>();
+    logs.forEach(l => {
+      const key = `${(l.userName || '').toLowerCase()}|${(l.jobTitle || '').toLowerCase()}|${l.amount}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(l);
+    });
+    const clusters: DuplicateCluster<JobPostingFeeLog>[] = [];
+    map.forEach((items) => {
+      if (items.length > 1) {
+        clusters.push({
+          matchKey: `${items[0].userName} - ${items[0].jobTitle}`,
+          reason: 'Duplicate Posting Fee Record',
+          items
+        });
+      }
+    });
+    return clusters;
+  };
 
   // Administrator Master Feature Flags State
   const [featureFlags, setFeatureFlags] = useState<AdminFeatureFlags>({
@@ -506,6 +739,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   ]);
 
   const [isPdfScraperModalOpen, setIsPdfScraperModalOpen] = useState(false);
+  const [activeSelectedPdfGazetteId, setActiveSelectedPdfGazetteId] = useState<string | null>(null);
+
+  // PDF Consolidated Gazettes Library (FPSC, WAPDA, PPSC, KPPSC & Manually Added Sites)
+  const [pdfGazettes, setPdfGazettes] = useState<ConsolidatedPdfGazette[]>(() => {
+    try {
+      const saved = localStorage.getItem('career_pak_pdf_gazettes');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to load pdf gazettes from localStorage:', e);
+    }
+    return MOCK_CONSOLIDATED_PDF_GAZETTES;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('career_pak_pdf_gazettes', JSON.stringify(pdfGazettes));
+    } catch (e) {
+      console.warn('Failed to save pdf gazettes to localStorage:', e);
+    }
+  }, [pdfGazettes]);
+
   const [newScraperName, setNewScraperName] = useState('');
   const [scraperUrl, setScraperUrl] = useState('https://indeed.com/jobs?q=full+stack+developer');
   const [scraperKeyword, setScraperKeyword] = useState('Full Stack, React, Node.js');
@@ -515,9 +772,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [scraperDepth, setScraperDepth] = useState<'Light (10 Jobs)' | 'Standard (25 Jobs)' | 'Deep Crawl (50+ Jobs)'>('Standard (25 Jobs)');
   const [scraperDeduplication, setScraperDeduplication] = useState(true);
   const [scraperAutoApprove, setScraperAutoApprove] = useState(false);
+  const [alsoRegisterInPdfParser, setAlsoRegisterInPdfParser] = useState(false);
+
+  // Manual Site Entry inside Scraper Controller Tab
+  const [pdfManualTitle, setPdfManualTitle] = useState('');
+  const [pdfManualOrg, setPdfManualOrg] = useState('');
+  const [pdfManualUrl, setPdfManualUrl] = useState('');
+  const [pdfManualIssueNo, setPdfManualIssueNo] = useState('');
+  const [pdfManualDeadline, setPdfManualDeadline] = useState('');
+  const [pdfManualPages, setPdfManualPages] = useState<number>(4);
+
+  // Official Govt Portals (13 Key Portals) Filter & Search State
+  const [portalSearchQuery, setPortalSearchQuery] = useState('');
+  const [portalCategoryFilter, setPortalCategoryFilter] = useState<string>('All');
 
   // Scraper Sub-Tab Navigation State
-  const [scraperSubTab, setScraperSubTab] = useState<'targets' | 'history' | 'add' | 'inspect-feed' | 'logs'>('targets');
+  const [scraperSubTab, setScraperSubTab] = useState<'targets' | 'pdf-sources' | 'history' | 'add' | 'inspect-feed' | 'logs'>('targets');
   const [scrapedSourceFilter, setScrapedSourceFilter] = useState<string>('all');
   const [scrapedSearchQuery, setScrapedSearchQuery] = useState<string>('');
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>('sc-1');
@@ -530,6 +800,138 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     '[2026-08-11 06:00:00] Scheduler triggered: LinkedIn Global Remote Developer Feed. Harvested 6 jobs (Auto-Approved to Live Board).',
     '[2026-08-10 20:15:00] Scheduler triggered: Daily Jang Newspaper Classified Ads. Extracted 2 newspaper clippings.'
   ]);
+
+  // Handle Quick Pre-Filling from Official Portal Cards
+  const handleFillPortalPreset = (portal: OfficialGovtPdfPortal) => {
+    setPdfManualTitle(`${portal.name} Consolidated Advt 2026`);
+    setPdfManualOrg(portal.organization);
+    setPdfManualUrl(portal.pdfUrl || portal.portalUrl);
+    setPdfManualIssueNo(portal.sampleAdvtNo);
+    setPdfManualDeadline(portal.defaultDeadline);
+  };
+
+  // Launch parser directly for an official portal
+  const handleLaunchPortalDirectly = (portal: OfficialGovtPdfPortal) => {
+    const existing = pdfGazettes.find(g => 
+      g.pdfUrl.toLowerCase() === (portal.pdfUrl || portal.portalUrl).toLowerCase() ||
+      g.organization.toLowerCase().includes(portal.shortName.toLowerCase()) ||
+      g.title.toLowerCase().includes(portal.shortName.toLowerCase())
+    );
+
+    if (existing) {
+      setActiveSelectedPdfGazetteId(existing.id);
+      setIsPdfScraperModalOpen(true);
+      return;
+    }
+
+    const newGazette = generateGazetteFromManualInput({
+      title: `${portal.name} Consolidated Recruitment Advt 2026`,
+      organization: portal.organization,
+      pdfUrl: portal.pdfUrl || portal.portalUrl,
+      gazetteIssueNumber: portal.sampleAdvtNo,
+      closingDeadline: portal.defaultDeadline,
+      totalPages: 4
+    });
+
+    handleAddPdfGazette(newGazette, true);
+  };
+
+  // Sync / Reset all 13 Official Pakistani Recruitment Portals
+  const handleSyncAll13OfficialPortals = () => {
+    const existingCustom = pdfGazettes.filter(g => g.id.startsWith('pdf-gazette-custom'));
+    const updated = [...MOCK_CONSOLIDATED_PDF_GAZETTES, ...existingCustom];
+    setPdfGazettes(updated);
+    try {
+      localStorage.setItem('career_pak_pdf_gazettes', JSON.stringify(updated));
+    } catch (e) {
+      console.warn(e);
+    }
+    alert('✅ Successfully refreshed and synced all 13 Official Federal, Defence, Autonomous, Ministry & Testing Agency Portals into the PDF Gazette Library!');
+  };
+
+  // Handle Add PDF Gazette into Library
+  const handleAddPdfGazette = (newGazette: ConsolidatedPdfGazette, openModal = false) => {
+    setPdfGazettes(prev => [newGazette, ...prev.filter(g => g.id !== newGazette.id)]);
+    setActiveSelectedPdfGazetteId(newGazette.id);
+    if (openModal) {
+      setIsPdfScraperModalOpen(true);
+    }
+  };
+
+  const handleDeletePdfGazette = (gazetteId: string) => {
+    setPdfGazettes(prev => prev.filter(g => g.id !== gazetteId));
+  };
+
+  // Convert or Open any Scraper Target directly in PDF Parser
+  const handleOpenSourceInPdfParser = (source: { id: string; name: string; url: string }) => {
+    const existing = pdfGazettes.find(g => 
+      g.pdfUrl.toLowerCase() === source.url.toLowerCase() || 
+      g.title.toLowerCase().includes(source.name.toLowerCase())
+    );
+
+    if (existing) {
+      setActiveSelectedPdfGazetteId(existing.id);
+      setIsPdfScraperModalOpen(true);
+      return;
+    }
+
+    const newGazette = generateGazetteFromManualInput({
+      title: source.name,
+      organization: source.name.split(' ')[0] || 'Govt Portal',
+      pdfUrl: source.url
+    });
+
+    handleAddPdfGazette(newGazette, true);
+  };
+
+  // Direct manual site addition from Scraper Controller tab
+  const handleCreatePdfSiteFromScraperTab = (e: React.FormEvent, launchNow: boolean) => {
+    e.preventDefault();
+    if (!pdfManualUrl.trim()) {
+      alert('Please enter a valid PDF or Gazette URL');
+      return;
+    }
+
+    const newGazette = generateGazetteFromManualInput({
+      title: pdfManualTitle.trim() || `Official Recruitment Portal (${pdfManualOrg.trim() || 'Govt Portal'})`,
+      organization: pdfManualOrg.trim() || 'Government & Public Sector Authority',
+      pdfUrl: pdfManualUrl.trim(),
+      gazetteIssueNumber: pdfManualIssueNo.trim() || `Advt. No. ${new Date().getMonth() + 1}/${new Date().getFullYear()}`,
+      closingDeadline: pdfManualDeadline.trim() || '30th November 2026',
+      totalPages: pdfManualPages || 4
+    });
+
+    handleAddPdfGazette(newGazette, launchNow);
+
+    // Also register as regular scraper target if desired
+    const newScraperTarget = {
+      id: 'sc-pdf-' + Date.now(),
+      name: newGazette.title,
+      url: newGazette.pdfUrl,
+      keywords: newGazette.organization + ', BPS, Gazette',
+      category: 'Government Sector' as const,
+      region: 'Pakistan' as const,
+      depth: 'Deep Crawl (50+ Jobs)' as const,
+      deduplication: true,
+      interval: '24h' as const,
+      autoApprove: false,
+      status: 'Active Scheduled' as const,
+      scrapedCount: newGazette.extractedVacancies.length,
+      successRate: 100
+    };
+    setScraperSources(prev => [newScraperTarget, ...prev]);
+
+    // Reset fields
+    setPdfManualTitle('');
+    setPdfManualOrg('');
+    setPdfManualUrl('');
+    setPdfManualIssueNo('');
+    setPdfManualDeadline('');
+
+    if (!launchNow) {
+      alert(`Successfully registered "${newGazette.title}" to PDF Parser Library and Scraper Scheduler!`);
+    }
+  };
 
   // Handle Add New Custom Scraper Target
   const handleAddScraperSource = (e: React.FormEvent) => {
@@ -556,7 +958,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
 
     setScraperSources(prev => [newSource, ...prev]);
+
+    // If marked or is Govt / PDF, register in PDF Parser
+    if (alsoRegisterInPdfParser || scraperCategory === 'Government Sector' || scraperUrl.endsWith('.pdf')) {
+      const newGazette = generateGazetteFromManualInput({
+        title: newSource.name,
+        organization: newSource.name.split(' ')[0] || 'Govt Department',
+        pdfUrl: newSource.url
+      });
+      handleAddPdfGazette(newGazette, false);
+    }
+
     setNewScraperName('');
+    setAlsoRegisterInPdfParser(false);
     setScraperSubTab('targets');
     alert(`New Scraper Target "${newSource.name}" configured and added to Auto-Scheduler!`);
   };
@@ -622,10 +1036,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [customCity, setCustomCity] = useState('');
   const [customDistrict, setCustomDistrict] = useState('');
   const [customJobStatus, setCustomJobStatus] = useState<'Approved' | 'Pending' | 'Suspended'>('Approved');
-
-  // User Audit search and filter states
-  const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [userPaymentFilter, setUserPaymentFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
 
   // Benefits & Contact details
   const [selectedBenefits, setSelectedBenefits] = useState<string[]>(['Health Insurance', 'Flexible Working Hours']);
@@ -1341,162 +1751,689 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 1: PENDING JOBS APPROVAL QUEUE */}
-      {adminTab === 'pending' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div>
-              <h3 className="text-base font-bold flex items-center space-x-2">
-                <Clock className="w-5 h-5 text-amber-400" />
-                <span>Pending Job Approvals Queue</span>
-              </h3>
-              <p className="text-xs text-slate-400">Approve jobs to push to public live site or reject with custom user feedback.</p>
-            </div>
-            <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-3 py-1 rounded-full border border-amber-500/30">
-              {pendingJobs.length} Items Pending
-            </span>
-          </div>
+      {adminTab === 'pending' && (() => {
+        // Pending jobs duplicate detection
+        const pendingClusters = computeJobDuplicateClusters(pendingJobs);
+        const liveTitleSet = new Set(jobs.map(j => `${(j.title || '').trim().toLowerCase()}|${(j.company || '').trim().toLowerCase()}`));
+        const liveCaseSet = new Set(jobs.filter(j => j.pdfCaseNumber).map(j => j.pdfCaseNumber!.trim().toLowerCase()));
 
-          {pendingJobs.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-xs bg-slate-950 rounded-xl border border-slate-800">
-              No pending jobs in queue right now! All user submissions and scraper outputs are reviewed.
+        // Filter and Search
+        const filteredPending = pendingJobs.filter(pJob => {
+          if (pendingSearchQuery.trim()) {
+            const q = pendingSearchQuery.toLowerCase();
+            const matchesTitle = (pJob.title || '').toLowerCase().includes(q);
+            const matchesComp = (pJob.company || '').toLowerCase().includes(q);
+            const matchesCity = (pJob.city || '').toLowerCase().includes(q);
+            const matchesCase = (pJob.pdfCaseNumber || '').toLowerCase().includes(q);
+            if (!matchesTitle && !matchesComp && !matchesCity && !matchesCase) return false;
+          }
+          if (pendingCategoryFilter !== 'all' && pJob.jobCategory !== pendingCategoryFilter) {
+            return false;
+          }
+          if (pendingSourceFilter === 'scraper' && !pJob.sourceUrl && !pJob.scraperSourceId && !pJob.scrapedSourceDomain && !pJob.id.includes('scraped')) {
+            return false;
+          }
+          if (pendingSourceFilter === 'user' && (pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped'))) {
+            return false;
+          }
+          if (pendingSourceFilter === 'pdf' && !pJob.isPdfScraped && !pJob.pdfCaseNumber) {
+            return false;
+          }
+          if (showPendingDuplicatesOnly) {
+            const isDupOfLive = liveTitleSet.has(`${(pJob.title || '').trim().toLowerCase()}|${(pJob.company || '').trim().toLowerCase()}`) || (pJob.pdfCaseNumber && liveCaseSet.has(pJob.pdfCaseNumber.trim().toLowerCase()));
+            const isDupInPending = pendingClusters.some(c => c.items.some(it => it.id === pJob.id));
+            if (!isDupOfLive && !isDupInPending) return false;
+          }
+          return true;
+        }).sort((a, b) => {
+          if (pendingSortBy === 'title') return a.title.localeCompare(b.title);
+          if (pendingSortBy === 'oldest') return (a.postedAt || '').localeCompare(b.postedAt || '');
+          return (b.postedAt || '').localeCompare(a.postedAt || '');
+        });
+
+        const allSelected = filteredPending.length > 0 && filteredPending.every(j => selectedPendingIds.includes(j.id));
+
+        const handleSelectAllPending = () => {
+          if (allSelected) {
+            setSelectedPendingIds(prev => prev.filter(id => !filteredPending.some(j => j.id === id)));
+          } else {
+            const toAdd = filteredPending.map(j => j.id);
+            setSelectedPendingIds(prev => Array.from(new Set([...prev, ...toAdd])));
+          }
+        };
+
+        const togglePendingSelection = (id: string) => {
+          setSelectedPendingIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+          );
+        };
+
+        const handleBulkApprove = () => {
+          if (selectedPendingIds.length === 0) return;
+          if (onBulkApprovePendingJobs) {
+            onBulkApprovePendingJobs(selectedPendingIds);
+          } else {
+            selectedPendingIds.forEach(id => handleAdminApproveJob(id));
+          }
+          setSelectedPendingIds([]);
+        };
+
+        const handleBulkReject = () => {
+          if (selectedPendingIds.length === 0) return;
+          const reason = prompt(`Enter rejection reason for ${selectedPendingIds.length} selected postings:`, 'Does not meet posting guidelines or duplicate submission') || '';
+          if (reason) {
+            if (onBulkRejectPendingJobs) {
+              onBulkRejectPendingJobs(selectedPendingIds, reason);
+            } else {
+              selectedPendingIds.forEach(id => handleAdminRejectJob(id, reason));
+            }
+            setSelectedPendingIds([]);
+          }
+        };
+
+        const handleBulkDelete = () => {
+          if (selectedPendingIds.length === 0) return;
+          if (confirm(`Permanently delete ${selectedPendingIds.length} selected pending postings from queue?`)) {
+            selectedPendingIds.forEach(id => {
+              if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
+            });
+            setSelectedPendingIds([]);
+          }
+        };
+
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 text-white shadow-xl">
+            {/* HEADER & COUNTER */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-base font-bold flex items-center space-x-2">
+                  <Clock className="w-5 h-5 text-amber-400" />
+                  <span>Pending Job Approvals Queue</span>
+                  <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-3 py-0.5 rounded-full border border-amber-500/30">
+                    {pendingJobs.length} Pending
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Approve submissions to push to public live site, bulk edit attributes, or reject duplicate/invalid entries.
+                </p>
+              </div>
+
+              {/* DUPLICATE CHECK TRIGGER BUTTON */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPendingDuplicateModalOpen(true)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border ${
+                    pendingClusters.length > 0
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500 hover:text-white'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Check Duplicate Submissions</span>
+                  {pendingClusters.length > 0 && (
+                    <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded text-[10px] font-black ml-1">
+                      {pendingClusters.length}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {pendingJobs.map((pJob) => (
-                <div key={pJob.id} className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <h4
-                          onClick={() => setSelectedJobForModal(pJob)}
-                          className="font-bold text-base text-white hover:text-amber-400 cursor-pointer transition-colors"
-                        >
-                          {pJob.title}
-                        </h4>
-                        <span className="bg-amber-500/20 text-amber-400 text-[10px] uppercase font-bold px-2 py-0.5 rounded">
-                          {pJob.jobType}
-                        </span>
+
+            {/* TAB-SPECIFIC SEARCH & FILTER CONTROLLER BAR */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row items-center gap-3">
+                {/* Search Bar */}
+                <div className="relative flex-1 w-full">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={pendingSearchQuery}
+                    onChange={(e) => setPendingSearchQuery(e.target.value)}
+                    placeholder="Search pending jobs by title, company, case number, or city..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
+                  {pendingSearchQuery && (
+                    <button
+                      onClick={() => setPendingSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <select
+                    value={pendingCategoryFilter}
+                    onChange={(e) => setPendingCategoryFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Categories</option>
+                    <option value="Government Sector">Government Sector</option>
+                    <option value="Private Corporate">Private Corporate</option>
+                    <option value="Newspaper Classified">Newspaper Classified</option>
+                    <option value="Tech / IT & Software">Tech / IT & Software</option>
+                    <option value="Banking & Finance">Banking & Finance</option>
+                    <option value="Healthcare & Medical">Healthcare & Medical</option>
+                    <option value="Education & Academic">Education & Academic</option>
+                    <option value="International Remote">International Remote</option>
+                  </select>
+
+                  <select
+                    value={pendingSourceFilter}
+                    onChange={(e) => setPendingSourceFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Ingestion Sources</option>
+                    <option value="user">User / Employer Submitted</option>
+                    <option value="scraper">Web Scraper Harvested</option>
+                    <option value="pdf">FPSC / WAPDA PDF Parser</option>
+                  </select>
+
+                  <select
+                    value={pendingSortBy}
+                    onChange={(e) => setPendingSortBy(e.target.value as any)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="newest">Sort: Newest First</option>
+                    <option value="oldest">Sort: Oldest First</option>
+                    <option value="title">Sort: Job Title (A-Z)</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPendingDuplicatesOnly(!showPendingDuplicatesOnly)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      showPendingDuplicatesOnly
+                        ? 'bg-rose-500 text-white border-rose-400 font-black'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {showPendingDuplicatesOnly ? 'Showing Duplicates Only' : 'Show Duplicates Only'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Selection Summary and Quick Controls */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
+                <div className="flex items-center space-x-3">
+                  <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAllPending}
+                      className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700"
+                    />
+                    <span>Select All Filtered ({filteredPending.length})</span>
+                  </label>
+                  {selectedPendingIds.length > 0 && (
+                    <span className="text-amber-400 font-bold font-mono">
+                      ({selectedPendingIds.length} selected)
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-[11px]">
+                  Showing {filteredPending.length} of {pendingJobs.length} queue items
+                </div>
+              </div>
+            </div>
+
+            {/* BULK ACTIONS FLOATING/TOP BAR */}
+            {selectedPendingIds.length > 0 && (
+              <div className="p-3.5 bg-gradient-to-r from-amber-950/80 to-slate-950 border border-amber-500/40 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xl animate-in fade-in">
+                <div className="flex items-center space-x-2 text-xs font-bold text-amber-300">
+                  <CheckSquare className="w-4 h-4 text-amber-400" />
+                  <span>{selectedPendingIds.length} Pending Job(s) Selected</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBulkApprove}
+                    className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-1"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Bulk Approve ({selectedPendingIds.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleBulkReject}
+                    className="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-xl border border-rose-500/40 cursor-pointer flex items-center space-x-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Bulk Reject</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleBulkDelete}
+                    className="p-1.5 bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white rounded-xl border border-rose-500/30 cursor-pointer"
+                    title="Delete Selected"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPendingIds([])}
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
+                  >
+                    Deselect
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* PENDING ITEMS LIST */}
+            {filteredPending.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 text-xs bg-slate-950 rounded-xl border border-slate-800">
+                {pendingJobs.length === 0
+                  ? 'No pending jobs in queue right now! All user submissions and scraper outputs are reviewed.'
+                  : 'No pending jobs match your current search or filter criteria.'}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredPending.map((pJob) => {
+                  const isSelected = selectedPendingIds.includes(pJob.id);
+                  const isDupOfLive = liveTitleSet.has(`${(pJob.title || '').trim().toLowerCase()}|${(pJob.company || '').trim().toLowerCase()}`);
+                  const isCaseDup = pJob.pdfCaseNumber && liveCaseSet.has(pJob.pdfCaseNumber.trim().toLowerCase());
+
+                  return (
+                    <div
+                      key={pJob.id}
+                      className={`p-5 rounded-xl border transition-all space-y-3 ${
+                        isSelected
+                          ? 'bg-slate-900 border-amber-500 shadow-lg shadow-amber-500/10'
+                          : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* DUPLICATE WARNING BANNER */}
+                      {(isDupOfLive || isCaseDup) && (
+                        <div className="p-2.5 bg-rose-950/40 border border-rose-500/40 rounded-xl flex items-center justify-between text-xs text-rose-300">
+                          <div className="flex items-center space-x-2">
+                            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                            <span>
+                              <strong>Potential Duplicate:</strong> This title or case number matches an active job already live in database.
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRejectPrompt(pJob.id)}
+                            className="px-2.5 py-1 bg-rose-500 hover:bg-rose-400 text-white font-black text-[10px] rounded-lg cursor-pointer"
+                          >
+                            Reject Duplicate
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        <div className="flex items-start space-x-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => togglePendingSelection(pJob.id)}
+                            className="w-4 h-4 mt-1 rounded text-amber-500 bg-slate-900 border-slate-700 cursor-pointer"
+                          />
+
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4
+                                onClick={() => setSelectedJobForModal(pJob)}
+                                className="font-bold text-base text-white hover:text-amber-400 cursor-pointer transition-colors"
+                              >
+                                {pJob.title}
+                              </h4>
+                              <span className="bg-amber-500/20 text-amber-400 text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-amber-500/30">
+                                {pJob.jobType}
+                              </span>
+                              <span className="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-500/30">
+                                {pJob.jobCategory || 'Private Corporate'}
+                              </span>
+                              {pJob.govtScale && (
+                                <span className="bg-indigo-500/20 text-indigo-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded border border-indigo-500/30">
+                                  {pJob.govtScale}
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-slate-400 mt-1">
+                              Company: <span className="text-white font-semibold">{pJob.company}</span> • Location: <span className="text-emerald-400 font-semibold">{pJob.city ? `${pJob.city}, ${pJob.province}` : pJob.region}</span> • Salary: {pJob.salary}
+                            </p>
+
+                            {pJob.pdfCaseNumber && (
+                              <p className="text-[11px] font-mono text-amber-300 mt-0.5">
+                                Case Ref: {pJob.pdfCaseNumber}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 pl-7 md:pl-0">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedJobForModal(pJob)}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl flex items-center space-x-1 border border-amber-500/30 cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Details</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingJob(pJob);
+                              setIsJobQuickEditOpen(true);
+                            }}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs rounded-xl flex items-center space-x-1 border border-indigo-500/30 cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleAdminApproveJob(pJob.id)}
+                            className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1 shadow-lg shadow-emerald-500/20 cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Approve</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRejectPrompt(pJob.id)}
+                            className="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-xl flex items-center space-x-1 border border-rose-500/30 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject</span>
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Company: <span className="text-white font-semibold">{pJob.company}</span> • Location: <span className="text-emerald-400 font-semibold">{pJob.city ? `${pJob.city}, ${pJob.province}` : pJob.region}</span> • Salary: {pJob.salary}
+
+                      <p className="text-xs text-slate-300 bg-slate-900/80 p-3 rounded-lg border border-slate-800/80 pl-4 leading-relaxed">
+                        {pJob.description}
                       </p>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={() => setSelectedJobForModal(pJob)}
-                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl flex items-center space-x-1 border border-amber-500/30 cursor-pointer"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>Job Details</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleAdminApproveJob(pJob.id)}
-                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1 shadow-lg shadow-emerald-500/20 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Approve to Live Site</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleRejectPrompt(pJob.id)}
-                        className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-xl flex items-center space-x-1 border border-rose-500/30 cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                        <span>Reject with Reason</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-300 bg-slate-900 p-3 rounded-lg border border-slate-800/80">
-                    {pJob.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* TAB 2: USER DIRECTORY AUDIT & MANUAL SUBSCRIPTION CONTROL */}
-      {adminTab === 'user-audit' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 text-white shadow-xl">
-          {/* HEADER & TOP CONTROL BAR */}
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
-            <div>
-              <h3 className="text-lg font-black flex items-center space-x-2 text-white">
-                <Users className="w-5 h-5 text-amber-400" />
-                <span>Registered User Directory & Subscription Payment Audit</span>
-              </h3>
-              <p className="text-xs text-slate-400">
-                Audit employer and applicant accounts, enforce payment requirements, and instantly end memberships or jobs for unpaid users.
-              </p>
-            </div>
+      {adminTab === 'user-audit' && (() => {
+        const userClusters = computeUserDuplicateClusters(users);
 
-            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-              <input
-                type="text"
-                value={userSearchQuery}
-                onChange={(e) => setUserSearchQuery(e.target.value)}
-                placeholder="Search user by name or email..."
-                className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 w-full sm:w-64"
-              />
+        const filteredUsers = users.filter((u) => {
+          if (userSearchQuery.trim()) {
+            const q = userSearchQuery.toLowerCase();
+            const matchesName = (u.name || '').toLowerCase().includes(q);
+            const matchesEmail = (u.email || '').toLowerCase().includes(q);
+            const matchesRole = (u.role || '').toLowerCase().includes(q);
+            if (!matchesName && !matchesEmail && !matchesRole) return false;
+          }
 
-              <select
-                value={userPaymentFilter}
-                onChange={(e) => setUserPaymentFilter(e.target.value as any)}
-                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold cursor-pointer"
-              >
-                <option value="all">All Users ({users.length})</option>
-                <option value="paid">Active Paid Accounts</option>
-                <option value="unpaid">⚠️ Unpaid / Expired Accounts</option>
-              </select>
+          const isUnpaid = u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now());
+          if (userPaymentFilter === 'paid' && isUnpaid) return false;
+          if (userPaymentFilter === 'unpaid' && !isUnpaid) return false;
 
-              {onBulkEndUnpaidMemberships && (
-                <button
-                  onClick={onBulkEndUnpaidMemberships}
-                  className="px-3.5 py-2 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center space-x-1.5 shadow-lg shadow-rose-500/10"
-                >
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-                  <span>End All Unpaid Accounts & Jobs</span>
-                </button>
-              )}
-            </div>
-          </div>
+          if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
+          if (userPlanFilter !== 'all' && u.plan !== userPlanFilter) return false;
 
-          {/* TABLE OF USERS */}
-          {(() => {
-            const filteredUsers = users.filter((u) => {
-              if (userSearchQuery.trim()) {
-                const q = userSearchQuery.toLowerCase();
-                const matchesName = u.name.toLowerCase().includes(q);
-                const matchesEmail = u.email.toLowerCase().includes(q);
-                const matchesRole = u.role.toLowerCase().includes(q);
-                if (!matchesName && !matchesEmail && !matchesRole) return false;
-              }
+          if (showUserDuplicatesOnly) {
+            const isDup = userClusters.some(c => c.items.some(it => it.id === u.id));
+            if (!isDup) return false;
+          }
 
-              const isUnpaid = u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now());
-              if (userPaymentFilter === 'paid' && isUnpaid) return false;
-              if (userPaymentFilter === 'unpaid' && !isUnpaid) return false;
+          return true;
+        });
 
-              return true;
-            });
+        const allSelected = filteredUsers.length > 0 && filteredUsers.every(u => selectedUserIds.includes(u.id));
 
-            if (filteredUsers.length === 0) {
-              return (
-                <div className="p-8 text-center bg-slate-950 rounded-xl border border-slate-800 text-slate-400 space-y-2">
-                  <Users className="w-8 h-8 text-slate-600 mx-auto" />
-                  <p className="font-bold text-slate-300 text-sm">No users found matching current filter.</p>
-                </div>
-              );
+        const handleSelectAllUsers = () => {
+          if (allSelected) {
+            setSelectedUserIds(prev => prev.filter(id => !filteredUsers.some(u => u.id === id)));
+          } else {
+            const toAdd = filteredUsers.map(u => u.id);
+            setSelectedUserIds(prev => Array.from(new Set([...prev, ...toAdd])));
+          }
+        };
+
+        const toggleUserSelection = (id: string) => {
+          setSelectedUserIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+          );
+        };
+
+        const handleBulkDeleteSelectedUsers = () => {
+          if (selectedUserIds.length === 0) return;
+          if (confirm(`Permanently delete ${selectedUserIds.length} selected user accounts and clean up their sessions?`)) {
+            if (onBulkDeleteUsers) {
+              onBulkDeleteUsers(selectedUserIds);
+            } else {
+              selectedUserIds.forEach(id => {
+                if (onEndUserMembership) onEndUserMembership(id);
+              });
             }
+            setSelectedUserIds([]);
+          }
+        };
 
-            return (
+        const handleBulkEndMembershipSelected = () => {
+          if (selectedUserIds.length === 0) return;
+          if (confirm(`End membership and revoke premium access for ${selectedUserIds.length} selected users?`)) {
+            selectedUserIds.forEach(id => {
+              if (onEndUserMembership) onEndUserMembership(id);
+            });
+            setSelectedUserIds([]);
+          }
+        };
+
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 text-white shadow-xl">
+            {/* HEADER & TOP CONTROL BAR */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-black flex items-center space-x-2 text-white">
+                  <Users className="w-5 h-5 text-amber-400" />
+                  <span>Registered User Directory & Subscription Payment Audit</span>
+                  <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-3 py-0.5 rounded-full border border-amber-500/30">
+                    {users.length} Users
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Audit employer and applicant accounts, enforce payment requirements, and instantly end memberships or jobs for unpaid users.
+                </p>
+              </div>
+
+              {/* DUPLICATE CHECK TRIGGER */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsUserDuplicateModalOpen(true)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border ${
+                    userClusters.length > 0
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500 hover:text-white'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Check Duplicate Accounts</span>
+                  {userClusters.length > 0 && (
+                    <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded text-[10px] font-black ml-1">
+                      {userClusters.length}
+                    </span>
+                  )}
+                </button>
+
+                {onBulkEndUnpaidMemberships && (
+                  <button
+                    onClick={onBulkEndUnpaidMemberships}
+                    className="px-3.5 py-2 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center space-x-1.5 shadow-lg shadow-rose-500/10"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                    <span>End All Unpaid Accounts</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* SEARCH AND FILTERS CONTROLLER */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    placeholder="Search user by name, email, role, or company..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
+                  {userSearchQuery && (
+                    <button
+                      onClick={() => setUserSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <select
+                    value={userRoleFilter}
+                    onChange={(e) => setUserRoleFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Roles</option>
+                    <option value="Employer">Employer</option>
+                    <option value="JobSeeker">JobSeeker</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+
+                  <select
+                    value={userPlanFilter}
+                    onChange={(e) => setUserPlanFilter(e.target.value as any)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Membership Plans</option>
+                    <option value="Premium">Premium Plan</option>
+                    <option value="Free">Free Plan</option>
+                  </select>
+
+                  <select
+                    value={userPaymentFilter}
+                    onChange={(e) => setUserPaymentFilter(e.target.value as any)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Payment Statuses</option>
+                    <option value="paid">Active Paid Accounts</option>
+                    <option value="unpaid">⚠️ Unpaid / Expired Accounts</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowUserDuplicatesOnly(!showUserDuplicatesOnly)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      showUserDuplicatesOnly
+                        ? 'bg-rose-500 text-white border-rose-400 font-black'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {showUserDuplicatesOnly ? 'Showing Duplicates Only' : 'Show Duplicates Only'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Selection Summary */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
+                <div className="flex items-center space-x-3">
+                  <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAllUsers}
+                      className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700"
+                    />
+                    <span>Select All Filtered ({filteredUsers.length})</span>
+                  </label>
+                  {selectedUserIds.length > 0 && (
+                    <span className="text-amber-400 font-bold font-mono">
+                      ({selectedUserIds.length} selected)
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-[11px]">
+                  Showing {filteredUsers.length} of {users.length} registered accounts
+                </div>
+              </div>
+            </div>
+
+            {/* BULK ACTIONS FLOATING/TOP BAR */}
+            {selectedUserIds.length > 0 && (
+              <div className="p-3.5 bg-gradient-to-r from-indigo-950/80 to-slate-950 border border-indigo-500/40 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xl animate-in fade-in">
+                <div className="flex items-center space-x-2 text-xs font-bold text-indigo-300">
+                  <CheckSquare className="w-4 h-4 text-indigo-400" />
+                  <span>{selectedUserIds.length} User Account(s) Selected</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBulkEndMembershipSelected}
+                    className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold text-xs rounded-xl border border-amber-500/40 cursor-pointer flex items-center space-x-1"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>Bulk End Membership</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteSelectedUsers}
+                    className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-500/20 cursor-pointer flex items-center space-x-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Bulk Delete Accounts ({selectedUserIds.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUserIds([])}
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
+                  >
+                    Deselect
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TABLE OF USERS */}
+            {filteredUsers.length === 0 ? (
+              <div className="p-8 text-center bg-slate-950 rounded-xl border border-slate-800 text-slate-400 space-y-2">
+                <Users className="w-8 h-8 text-slate-600 mx-auto" />
+                <p className="font-bold text-slate-300 text-sm">No users found matching current filter.</p>
+              </div>
+            ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
                     <tr>
+                      <th className="p-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={handleSelectAllUsers}
+                          className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700 cursor-pointer"
+                        />
+                      </th>
                       <th className="p-3">User & Account</th>
                       <th className="p-3">Role</th>
                       <th className="p-3">Plan</th>
@@ -1508,6 +2445,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {filteredUsers.map((u) => {
+                      const isSelected = selectedUserIds.includes(u.id);
                       const userPostedJobs = [...jobs, ...pendingJobs].filter(j => 
                         j.submittedByUserId === u.id || 
                         (u.name && j.company?.toLowerCase() === u.name.toLowerCase()) ||
@@ -1516,7 +2454,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       const isUnpaidOrRevoked = u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now());
 
                       return (
-                        <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
+                        <tr
+                          key={u.id}
+                          className={`transition-colors ${
+                            isSelected ? 'bg-indigo-950/30' : 'hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <td className="p-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleUserSelection(u.id)}
+                              className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700 cursor-pointer"
+                            />
+                          </td>
                           <td className="p-3">
                             <div
                               onClick={() => setSelectedUserForModal(u)}
@@ -1582,7 +2533,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   className="px-2 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-[11px] border border-rose-500/30 transition-all cursor-pointer"
                                   title="Deactivate and suspend all posted jobs by this user"
                                 >
-                                  Deactivate Jobs ({userPostedJobs.length})
+                                  Deactivate ({userPostedJobs.length})
                                 </button>
                               )}
                             </div>
@@ -1593,70 +2544,299 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </tbody>
                 </table>
               </div>
-            );
-          })()}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
 
       {/* TAB 3: PER-JOB FEE PAYMENT LOG SHEET */}
-      {adminTab === 'fee-logs' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div>
-              <h3 className="text-base font-bold flex items-center space-x-2">
-                <Receipt className="w-5 h-5 text-emerald-400" />
-                <span>Per-Job Fee Payment Log Sheet</span>
-              </h3>
-              <p className="text-xs text-slate-400">Complete audit trail of all job posting fees collected by the system.</p>
-            </div>
-            <span className="bg-emerald-500/20 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full border border-emerald-500/30">
-              Total Logged: {jobPostingFeeLogs.length}
-            </span>
-          </div>
+      {adminTab === 'fee-logs' && (() => {
+        const feeLogClusters = computeFeeLogDuplicateClusters(jobPostingFeeLogs);
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
-                <tr>
-                  <th className="p-3">Date & Time</th>
-                  <th className="p-3">User</th>
-                  <th className="p-3">Job Title</th>
-                  <th className="p-3">Amount Paid</th>
-                  <th className="p-3">Method</th>
-                  <th className="p-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {jobPostingFeeLogs.length === 0 ? (
+        const filteredFeeLogs = jobPostingFeeLogs.filter(log => {
+          if (feeLogSearchQuery.trim()) {
+            const q = feeLogSearchQuery.toLowerCase();
+            const matchesUser = (log.userName || '').toLowerCase().includes(q);
+            const matchesEmail = (log.userEmail || '').toLowerCase().includes(q);
+            const matchesJob = (log.jobTitle || '').toLowerCase().includes(q);
+            const matchesMethod = (log.paymentMethod || '').toLowerCase().includes(q);
+            if (!matchesUser && !matchesEmail && !matchesJob && !matchesMethod) return false;
+          }
+          if (feeLogMethodFilter !== 'all' && log.paymentMethod !== feeLogMethodFilter) {
+            return false;
+          }
+          if (feeLogStatusFilter !== 'all' && log.status !== feeLogStatusFilter) {
+            return false;
+          }
+          if (showFeeLogDuplicatesOnly) {
+            const isDup = feeLogClusters.some(c => c.items.some(it => it.id === log.id));
+            if (!isDup) return false;
+          }
+          return true;
+        });
+
+        const allSelected = filteredFeeLogs.length > 0 && filteredFeeLogs.every(l => selectedFeeLogIds.includes(l.id));
+
+        const handleSelectAllFeeLogs = () => {
+          if (allSelected) {
+            setSelectedFeeLogIds(prev => prev.filter(id => !filteredFeeLogs.some(l => l.id === id)));
+          } else {
+            const toAdd = filteredFeeLogs.map(l => l.id);
+            setSelectedFeeLogIds(prev => Array.from(new Set([...prev, ...toAdd])));
+          }
+        };
+
+        const toggleFeeLogSelection = (id: string) => {
+          setSelectedFeeLogIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+          );
+        };
+
+        const handleBulkDeleteFeeLogs = () => {
+          if (selectedFeeLogIds.length === 0) return;
+          if (confirm(`Permanently delete ${selectedFeeLogIds.length} selected fee log entries?`)) {
+            if (onBulkDeleteFeeLogs) {
+              onBulkDeleteFeeLogs(selectedFeeLogIds);
+            }
+            setSelectedFeeLogIds([]);
+          }
+        };
+
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 text-white shadow-xl">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-base font-bold flex items-center space-x-2">
+                  <Receipt className="w-5 h-5 text-emerald-400" />
+                  <span>Per-Job Fee Payment Log Sheet</span>
+                  <span className="bg-emerald-500/20 text-emerald-400 text-xs font-bold px-3 py-0.5 rounded-full border border-emerald-500/30">
+                    Total: {jobPostingFeeLogs.length}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">Complete audit trail of all job posting fees collected by the system.</p>
+              </div>
+
+              {/* DUPLICATE PAYMENT CLAIM SCANNER */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsFeeLogDuplicateModalOpen(true)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border ${
+                    feeLogClusters.length > 0
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500 hover:text-white'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Check Duplicate Slips / IDs</span>
+                  {feeLogClusters.length > 0 && (
+                    <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded text-[10px] font-black ml-1">
+                      {feeLogClusters.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* SEARCH & FILTERS */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={feeLogSearchQuery}
+                    onChange={(e) => setFeeLogSearchQuery(e.target.value)}
+                    placeholder="Search logs by user, email, job title, or method..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
+                  {feeLogSearchQuery && (
+                    <button
+                      onClick={() => setFeeLogSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <select
+                    value={feeLogMethodFilter}
+                    onChange={(e) => setFeeLogMethodFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Payment Methods</option>
+                    <option value="Easypaisa">Easypaisa</option>
+                    <option value="JazzCash">JazzCash</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Credit / Debit Card">Credit / Debit Card</option>
+                  </select>
+
+                  <select
+                    value={feeLogStatusFilter}
+                    onChange={(e) => setFeeLogStatusFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="Paid">Paid</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Refunded">Refunded</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowFeeLogDuplicatesOnly(!showFeeLogDuplicatesOnly)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      showFeeLogDuplicatesOnly
+                        ? 'bg-rose-500 text-white border-rose-400 font-black'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {showFeeLogDuplicatesOnly ? 'Showing Duplicates Only' : 'Show Duplicates Only'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Selection Summary */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
+                <div className="flex items-center space-x-3">
+                  <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAllFeeLogs}
+                      className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700"
+                    />
+                    <span>Select All Filtered ({filteredFeeLogs.length})</span>
+                  </label>
+                  {selectedFeeLogIds.length > 0 && (
+                    <span className="text-amber-400 font-bold font-mono">
+                      ({selectedFeeLogIds.length} selected)
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-[11px]">
+                  Showing {filteredFeeLogs.length} of {jobPostingFeeLogs.length} records
+                </div>
+              </div>
+            </div>
+
+            {/* BULK ACTIONS BAR */}
+            {selectedFeeLogIds.length > 0 && (
+              <div className="p-3.5 bg-gradient-to-r from-emerald-950/80 to-slate-950 border border-emerald-500/40 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xl animate-in fade-in">
+                <div className="flex items-center space-x-2 text-xs font-bold text-emerald-300">
+                  <CheckSquare className="w-4 h-4 text-emerald-400" />
+                  <span>{selectedFeeLogIds.length} Payment Log(s) Selected</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteFeeLogs}
+                    className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-500/20 cursor-pointer flex items-center space-x-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Selected ({selectedFeeLogIds.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFeeLogIds([])}
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
+                  >
+                    Deselect
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TABLE */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-500 italic">
-                      No per-job posting fees logged yet. (Set Per-Job Fee in Global Settings to enable requirement).
-                    </td>
+                    <th className="p-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={handleSelectAllFeeLogs}
+                        className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700 cursor-pointer"
+                      />
+                    </th>
+                    <th className="p-3">Date & Time</th>
+                    <th className="p-3">User</th>
+                    <th className="p-3">Job Title</th>
+                    <th className="p-3">Amount Paid</th>
+                    <th className="p-3">Method</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Actions</th>
                   </tr>
-                ) : (
-                  jobPostingFeeLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-800/40 font-mono">
-                      <td className="p-3 font-semibold text-slate-200">{log.dateTime}</td>
-                      <td className="p-3 font-sans">
-                        <div className="font-bold text-white">{log.userName}</div>
-                        <div className="text-slate-400 text-[10px]">{log.userEmail}</div>
-                      </td>
-                      <td className="p-3 font-sans font-bold text-emerald-300">{log.jobTitle}</td>
-                      <td className="p-3 font-bold text-white">{log.currency} {log.amount.toLocaleString()}</td>
-                      <td className="p-3 font-sans font-medium text-slate-300">{log.paymentMethod}</td>
-                      <td className="p-3 font-sans">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {log.status}
-                        </span>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {filteredFeeLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-slate-500 italic">
+                        No per-job posting fees logged matching your criteria.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    filteredFeeLogs.map((log) => {
+                      const isSelected = selectedFeeLogIds.includes(log.id);
+
+                      return (
+                        <tr
+                          key={log.id}
+                          className={`font-mono transition-colors ${
+                            isSelected ? 'bg-emerald-950/30' : 'hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <td className="p-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleFeeLogSelection(log.id)}
+                              className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-3 font-semibold text-slate-200">{log.dateTime}</td>
+                          <td className="p-3 font-sans">
+                            <div className="font-bold text-white">{log.userName}</div>
+                            <div className="text-slate-400 text-[10px]">{log.userEmail}</div>
+                          </td>
+                          <td className="p-3 font-sans font-bold text-emerald-300">{log.jobTitle}</td>
+                          <td className="p-3 font-bold text-white">{log.currency} {log.amount.toLocaleString()}</td>
+                          <td className="p-3 font-sans font-medium text-slate-300">{log.paymentMethod}</td>
+                          <td className="p-3 font-sans">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              {log.status}
+                            </span>
+                          </td>
+                          <td className="p-3 font-sans text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`Delete fee log entry for "${log.jobTitle}"?`)) {
+                                  if (onDeleteFeeLog) onDeleteFeeLog(log.id);
+                                }
+                              }}
+                              className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-500/20 rounded-lg cursor-pointer transition-all"
+                              title="Delete Fee Record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 4: AUTOMATED SCRAPER & CRON SCHEDULER CONTROLLER */}
       {adminTab === 'scraper' && (
@@ -1777,6 +2957,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             >
               <Globe className="w-3.5 h-3.5" />
               <span>Configured Scraper Portals ({scraperSources.length})</span>
+            </button>
+
+            <button
+              onClick={() => setScraperSubTab('pdf-sources')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                scraperSubTab === 'pdf-sources'
+                  ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20 font-black'
+                  : 'bg-slate-900 text-rose-300 hover:text-white border border-slate-800'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-rose-400" />
+              <span>📄 FPSC/WAPDA PDF Gazette Sources ({pdfGazettes.length})</span>
             </button>
 
             <button
@@ -1914,6 +3106,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
                         >
                           {source.status === 'Active Scheduled' ? 'Pause' : 'Resume'}
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenSourceInPdfParser(source)}
+                          className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold text-xs cursor-pointer flex items-center space-x-1"
+                          title="Open this portal in FPSC/WAPDA PDF Parser"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-rose-400" />
+                          <span>PDF Parser</span>
                         </button>
 
                         <button
@@ -2259,6 +3460,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </label>
                 </div>
 
+                <div className="lg:col-span-12 p-3.5 bg-slate-950/80 border border-rose-500/30 rounded-xl space-y-1">
+                  <label className="flex items-center space-x-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={alsoRegisterInPdfParser}
+                      onChange={(e) => setAlsoRegisterInPdfParser(e.target.checked)}
+                      className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-rose-500"
+                    />
+                    <span className="font-bold text-rose-300 flex items-center space-x-1.5">
+                      <FileText className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Also register this portal into 📄 FPSC & WAPDA PDF Parser (pdfplumber) Gazette library</span>
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 pl-6">
+                    Allows you to extract multi-column table gazettes, BPS scale quotas, and challan fees directly via Python pdfplumber stream parser.
+                  </p>
+                </div>
+
                 <div className="lg:col-span-12 pt-2">
                   <button
                     type="submit"
@@ -2269,6 +3488,470 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
               </form>
+            </div>
+          )}
+
+          {/* SUB-TAB: PDF PARSER GAZETTE SOURCES LIBRARY & MANUAL SITE INGESTION */}
+          {scraperSubTab === 'pdf-sources' && (
+            <div className="space-y-6">
+              {/* HEADER BANNER */}
+              <div className="p-6 bg-gradient-to-r from-slate-900 via-rose-950/30 to-slate-900 border border-rose-500/30 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xl">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white uppercase tracking-wider">
+                      📄 AI PDF Parser & Gazette Reader
+                    </span>
+                    <span className="text-xs text-rose-300 font-bold">Simple Official Jobs Importer</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      13 Official Pakistan Portals Ready
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-black text-white flex items-center space-x-2">
+                    <FileText className="w-5 h-5 text-rose-400" />
+                    <span>Government & Testing Service Job Scanner</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 max-w-3xl">
+                    Easily extract all job openings from FPSC, WAPDA, Pakistan Army, Railways, and testing services (NTS, OTS, STS, CTSP). No coding or complex setup needed!
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={handleSyncAll13OfficialPortals}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold rounded-xl border border-slate-700 flex items-center space-x-1.5 cursor-pointer transition-all"
+                    title="Reload all 13 official Pakistani recruitment websites"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Refresh 13 Portals</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveSelectedPdfGazetteId(pdfGazettes[0]?.id || null);
+                      setIsPdfScraperModalOpen(true);
+                    }}
+                    className="px-4 py-2 bg-rose-500 hover:bg-rose-400 text-white font-black text-xs rounded-xl shadow-lg shadow-rose-500/25 flex items-center space-x-2 cursor-pointer transition-all"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>Open Full PDF Reader Screen</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* EASY 3-STEP ADMIN GUIDE */}
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl">
+                <div className="flex items-center space-x-2">
+                  <span className="p-1 bg-amber-500/20 text-amber-400 rounded-lg">
+                    <Sparkles className="w-4 h-4" />
+                  </span>
+                  <h4 className="text-sm font-black text-white">
+                    🌟 Easy 3-Step Guide for Admins (How It Works)
+                  </h4>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
+                    <div className="flex items-center space-x-2 text-rose-300 font-bold">
+                      <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-[11px] font-black border border-rose-500/40">1</span>
+                      <span>Choose a Website or PDF</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Pick any of the 13 verified portals below (like FPSC, WAPDA, Army, or NTS) or paste your own government PDF link.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
+                    <div className="flex items-center space-x-2 text-amber-300 font-bold">
+                      <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[11px] font-black border border-amber-500/40">2</span>
+                      <span>Click "Scan & Read Jobs"</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Our system reads the file, detects BPS scales, job titles, seat quotas, and deadlines automatically in seconds.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
+                    <div className="flex items-center space-x-2 text-emerald-300 font-bold">
+                      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[11px] font-black border border-emerald-500/40">3</span>
+                      <span>Approve & Publish</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Quickly review the list of detected jobs and click "Approve" to publish them straight to your public job board.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 13 OFFICIAL PAKISTAN JOB & TESTING PORTALS SECTION */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        Verified Pakistani Job Portals
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">13 Portals Ready to Scan</span>
+                    </div>
+                    <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2 mt-1">
+                      <Globe className="w-4 h-4 text-rose-400" />
+                      <span>Federal, Defence, Railway & Testing Agency Websites</span>
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Click <strong className="text-rose-300">"Scan & Read Jobs"</strong> to start reading job vacancies immediately, or <strong className="text-amber-300">"Fill Form Below"</strong> to edit details first.
+                    </p>
+                  </div>
+
+                  {/* SEARCH & CATEGORY FILTER */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={portalSearchQuery}
+                        onChange={(e) => setPortalSearchQuery(e.target.value)}
+                        placeholder="Search portals (e.g. NJP, Army, NTS, WAPDA)..."
+                        className="pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 font-medium focus:border-rose-400 outline-none w-56 sm:w-64"
+                      />
+                    </div>
+
+                    <select
+                      value={portalCategoryFilter}
+                      onChange={(e) => setPortalCategoryFilter(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold focus:border-rose-400 outline-none"
+                    >
+                      <option value="All">All Categories (13)</option>
+                      <option value="National / Federal Portal">National / Federal</option>
+                      <option value="Public Service Commission">Public Service Commission</option>
+                      <option value="Defence & Armed Forces">Defence & Armed Forces</option>
+                      <option value="Autonomous / Public Sector">Autonomous / WAPDA / Rail</option>
+                      <option value="Federal Ministry">Federal Ministries (MoD / Railways)</option>
+                      <option value="Testing & Assessment Service">Testing Services (NTS / OTS / STS / CTSP)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 13 PORTALS CARDS GRID */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {OFFICIAL_GOVT_SCRAPER_PORTALS
+                    .filter((portal) => {
+                      const matchesCategory = portalCategoryFilter === 'All' || portal.category === portalCategoryFilter;
+                      const q = portalSearchQuery.toLowerCase().trim();
+                      const matchesQuery = !q || 
+                        portal.name.toLowerCase().includes(q) || 
+                        portal.shortName.toLowerCase().includes(q) || 
+                        portal.portalUrl.toLowerCase().includes(q) || 
+                        portal.organization.toLowerCase().includes(q) ||
+                        portal.typicalScales.toLowerCase().includes(q);
+                      return matchesCategory && matchesQuery;
+                    })
+                    .map((portal) => (
+                      <div
+                        key={portal.id}
+                        className="p-4 bg-slate-950/80 border border-slate-800/90 hover:border-rose-500/40 rounded-2xl flex flex-col justify-between space-y-3 transition-all group shadow-md"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                              {portal.badge}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                              {portal.typicalScales}
+                            </span>
+                          </div>
+
+                          <div>
+                            <h5 className="font-bold text-white text-sm leading-snug group-hover:text-rose-300 transition-colors">
+                              {portal.name}
+                            </h5>
+                            <a
+                              href={portal.portalUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs font-mono text-indigo-400 hover:underline flex items-center space-x-1 mt-0.5 truncate"
+                            >
+                              <span>{portal.portalUrl}</span>
+                              <ExternalLink className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                            </a>
+                          </div>
+
+                          <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                            {portal.description}
+                          </p>
+
+                          <div className="text-[10px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300 space-y-0.5">
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Sample Notice:</span>
+                              <span className="font-mono text-slate-300 font-bold">{portal.sampleAdvtNo}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Typical Deadline:</span>
+                              <span className="text-rose-300 font-bold">{portal.defaultDeadline}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ACTION BUTTONS */}
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleFillPortalPreset(portal)}
+                            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 text-[11px] font-bold rounded-lg border border-slate-700 cursor-pointer flex items-center space-x-1 transition-all"
+                            title="Fill details in the custom form below"
+                          >
+                            <BookmarkPlus className="w-3 h-3 text-amber-400" />
+                            <span>Fill Form Below</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleLaunchPortalDirectly(portal)}
+                            className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white text-[11px] font-black rounded-lg shadow-md shadow-rose-500/20 cursor-pointer flex items-center space-x-1 transition-all"
+                          >
+                            <Sparkles className="w-3 h-3 text-amber-300" />
+                            <span>Scan & Read Jobs</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* MANUAL SITE ENTRY CARD WITH QUICK PRESET CHIPS */}
+              <div className="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                  <div>
+                    <h4 className="text-sm font-black uppercase text-rose-300 flex items-center space-x-2">
+                      <BookmarkPlus className="w-4 h-4 text-rose-400" />
+                      <span>Add Any Custom Government Website or PDF File</span>
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Enter any Pakistani Government Department or PDF Gazette link to scan it, or click a portal button to fill in the form quickly.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-mono bg-slate-950 px-2.5 py-1 rounded-lg text-slate-400 border border-slate-800 self-start sm:self-auto">
+                    Auto-Reads Job Openings
+                  </span>
+                </div>
+
+                {/* QUICK PRESET CHIPS */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-400">Quick Portal Fill Buttons:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {OFFICIAL_GOVT_SCRAPER_PORTALS.map((portal) => (
+                      <button
+                        key={portal.id}
+                        type="button"
+                        onClick={() => handleFillPortalPreset(portal)}
+                        className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white text-[11px] font-bold rounded-lg border border-slate-800 cursor-pointer transition-all flex items-center space-x-1"
+                      >
+                        <span>{portal.shortName}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <form className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 text-xs pt-1">
+                  <div className="lg:col-span-4 space-y-1">
+                    <label className="block font-bold text-slate-300">Job Notice / Advertisement Title *</label>
+                    <input
+                      type="text"
+                      required
+                      value={pdfManualTitle}
+                      onChange={(e) => setPdfManualTitle(e.target.value)}
+                      placeholder="e.g. SPSC Consolidated Recruitment Advt No. 04/2026"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 font-medium focus:border-rose-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="lg:col-span-4 space-y-1">
+                    <label className="block font-bold text-slate-300">Department or Commission Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={pdfManualOrg}
+                      onChange={(e) => setPdfManualOrg(e.target.value)}
+                      placeholder="e.g. Sindh Public Service Commission (SPSC)"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 font-medium focus:border-rose-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="lg:col-span-4 space-y-1">
+                    <label className="block font-bold text-slate-300">Notice Issue Number (Optional)</label>
+                    <input
+                      type="text"
+                      value={pdfManualIssueNo}
+                      onChange={(e) => setPdfManualIssueNo(e.target.value)}
+                      placeholder="e.g. Advt. No. 04/2026"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 font-medium focus:border-rose-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="lg:col-span-6 space-y-1">
+                    <label className="block font-bold text-slate-300">Official Website or PDF Link *</label>
+                    <input
+                      type="url"
+                      required
+                      value={pdfManualUrl}
+                      onChange={(e) => setPdfManualUrl(e.target.value)}
+                      placeholder="https://spsc.gos.pk/advertisements/Advt_No_04_2026.pdf"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono placeholder-slate-500 focus:border-rose-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="lg:col-span-3 space-y-1">
+                    <label className="block font-bold text-slate-300">Last Date to Apply</label>
+                    <input
+                      type="text"
+                      value={pdfManualDeadline}
+                      onChange={(e) => setPdfManualDeadline(e.target.value)}
+                      placeholder="e.g. 20th November 2026"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 font-medium focus:border-rose-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="lg:col-span-3 space-y-1">
+                    <label className="block font-bold text-slate-300">Document Size</label>
+                    <select
+                      value={pdfManualPages}
+                      onChange={(e) => setPdfManualPages(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold focus:border-rose-400 outline-none"
+                    >
+                      <option value={2}>2 Pages (Short Notice)</option>
+                      <option value={4}>4 Pages (Standard Gazette)</option>
+                      <option value={8}>8 Pages (Consolidated Mega Advt)</option>
+                      <option value={16}>16+ Pages (Annual Federal Gazette)</option>
+                    </select>
+                  </div>
+
+                  <div className="lg:col-span-12 flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={(e) => handleCreatePdfSiteFromScraperTab(e, false)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <BookmarkPlus className="w-3 h-3 text-rose-400" />
+                      <span>Save for Later</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleCreatePdfSiteFromScraperTab(e, true)}
+                      className="px-5 py-2 bg-rose-500 hover:bg-rose-400 text-white text-xs font-black rounded-xl shadow-lg shadow-rose-500/20 cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-300" />
+                      <span>Save & Read Jobs Now</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* GAZETTE SOURCES GRID */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-rose-400" />
+                    <span>Registered PDF Gazette Sources ({pdfGazettes.length})</span>
+                  </h4>
+                  <span className="text-xs text-slate-400">
+                    Total Detected Vacancies: <strong className="text-emerald-400">{pdfGazettes.reduce((acc, curr) => acc + (curr.extractedVacancies?.length || 0), 0)} positions</strong>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {pdfGazettes.map((gazette) => {
+                    const isCustom = gazette.id.startsWith('pdf-gazette-custom');
+                    return (
+                      <div
+                        key={gazette.id}
+                        className="p-5 bg-slate-900 border border-slate-800 hover:border-rose-500/40 rounded-2xl space-y-4 transition-all shadow-lg flex flex-col justify-between"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
+                                {gazette.organization}
+                              </span>
+                              {isCustom && (
+                                <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  Manually Added
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                              {gazette.fileSizeFormatted} • {gazette.totalPages} Pages
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-bold text-white leading-snug">{gazette.title}</h4>
+
+                          <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                            <div>
+                              <span className="text-slate-500 block">Gazette Issue:</span>
+                              <span className="text-slate-200 font-mono font-bold">{gazette.gazetteIssueNumber}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block">Closing Deadline:</span>
+                              <span className="text-rose-300 font-bold">{gazette.closingDeadline}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs pt-1">
+                            <span className="text-emerald-400 font-bold flex items-center space-x-1">
+                              <span>✨</span>
+                              <span>{gazette.extractedVacancies?.length || 0} Vacancies Ready for Extraction</span>
+                            </span>
+                            <span className="text-slate-500 font-mono text-[11px] truncate max-w-[150px]">
+                              {gazette.pdfFileName}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-3 border-t border-slate-800/80 gap-2">
+                          <a
+                            href={gazette.pdfUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs font-bold rounded-xl border border-slate-800 flex items-center space-x-1.5 transition-all"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                            <span>View PDF Link</span>
+                          </a>
+
+                          <div className="flex items-center space-x-2">
+                            {isCustom && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Remove "${gazette.title}" from PDF sources?`)) {
+                                    handleDeletePdfGazette(gazette.id);
+                                  }
+                                }}
+                                className="p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl cursor-pointer"
+                                title="Delete custom gazette"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveSelectedPdfGazetteId(gazette.id);
+                                setIsPdfScraperModalOpen(true);
+                              }}
+                              className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-400 text-white text-xs font-black rounded-xl shadow-md shadow-rose-500/20 flex items-center space-x-1.5 cursor-pointer transition-all"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                              <span>Launch Parser</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
@@ -3241,59 +4924,750 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 8: LIVE LISTINGS */}
-      {adminTab === 'jobs' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-white">
-          <h3 className="text-base font-bold">Active Live Listings ({jobs.length})</h3>
-          <div className="divide-y divide-slate-800">
-            {jobs.map((j) => (
-              <div key={j.id} className="py-3 flex justify-between items-center text-xs">
-                <div>
-                  <div
-                    onClick={() => setSelectedJobForModal(j)}
-                    className="font-bold text-white hover:text-amber-400 cursor-pointer transition-colors"
-                  >
-                    {j.title}
-                  </div>
-                  <div className="text-slate-400">{j.company} • {j.salary}</div>
+      {adminTab === 'jobs' && (() => {
+        const liveJobClusters = computeJobDuplicateClusters(jobs);
+
+        const filteredLiveJobs = jobs.filter(job => {
+          if (jobsSearchQuery.trim()) {
+            const q = jobsSearchQuery.toLowerCase();
+            const matchesTitle = (job.title || '').toLowerCase().includes(q);
+            const matchesCompany = (job.company || '').toLowerCase().includes(q);
+            const matchesCity = (job.city || '').toLowerCase().includes(q);
+            const matchesDept = (job.department || '').toLowerCase().includes(q);
+            const matchesCase = (job.pdfCaseNumber || '').toLowerCase().includes(q);
+            const matchesTag = (job.tags || []).some(t => t.toLowerCase().includes(q));
+            if (!matchesTitle && !matchesCompany && !matchesCity && !matchesDept && !matchesCase && !matchesTag) return false;
+          }
+
+          if (jobsCategoryFilter !== 'all' && job.jobCategory !== jobsCategoryFilter) return false;
+          if (jobsScaleFilter !== 'all' && job.govtScale !== jobsScaleFilter) return false;
+          if (jobsProvinceFilter !== 'all' && job.province !== jobsProvinceFilter) return false;
+          if (jobsStatusFilter !== 'all' && (job.status || 'Approved') !== jobsStatusFilter) return false;
+
+          if (showJobsDuplicatesOnly) {
+            const isDup = liveJobClusters.some(c => c.items.some(it => it.id === job.id));
+            if (!isDup) return false;
+          }
+
+          return true;
+        }).sort((a, b) => {
+          if (jobsSortBy === 'newest') {
+            return new Date(b.postedAt || 0).getTime() - new Date(a.postedAt || 0).getTime();
+          }
+          if (jobsSortBy === 'oldest') {
+            return new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime();
+          }
+          if (jobsSortBy === 'title') {
+            return (a.title || '').localeCompare(b.title || '');
+          }
+          return 0;
+        });
+
+        const allSelected = filteredLiveJobs.length > 0 && filteredLiveJobs.every(j => selectedJobIds.includes(j.id));
+
+        const handleSelectAllLiveJobs = () => {
+          if (allSelected) {
+            setSelectedJobIds(prev => prev.filter(id => !filteredLiveJobs.some(j => j.id === id)));
+          } else {
+            const toAdd = filteredLiveJobs.map(j => j.id);
+            setSelectedJobIds(prev => Array.from(new Set([...prev, ...toAdd])));
+          }
+        };
+
+        const toggleLiveJobSelection = (id: string) => {
+          setSelectedJobIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+          );
+        };
+
+        const handleBulkDeleteSelectedLiveJobs = () => {
+          if (selectedJobIds.length === 0) return;
+          if (confirm(`Permanently delete ${selectedJobIds.length} selected live job listings?`)) {
+            if (onBulkDeleteJobs) {
+              onBulkDeleteJobs(selectedJobIds);
+            } else {
+              selectedJobIds.forEach(id => onDeleteJob(id));
+            }
+            setSelectedJobIds([]);
+          }
+        };
+
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 text-white shadow-xl">
+            {/* TOP HEADER */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-black flex items-center space-x-2 text-white">
+                  <Briefcase className="w-5 h-5 text-amber-400" />
+                  <span>Active Live Portal Job Listings</span>
+                  <span className="bg-emerald-500/20 text-emerald-400 text-xs font-bold px-3 py-0.5 rounded-full border border-emerald-500/30">
+                    {jobs.length} Live
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Manage published job vacancies, edit attributes, purge duplicates, or apply bulk updates.
+                </p>
+              </div>
+
+              {/* ACTION BUTTONS */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsJobDuplicateModalOpen(true)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border ${
+                    liveJobClusters.length > 0
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500 hover:text-white'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Check Duplicate Live Jobs</span>
+                  {liveJobClusters.length > 0 && (
+                    <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded text-[10px] font-black ml-1">
+                      {liveJobClusters.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAdminTab('add-job')}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all cursor-pointer flex items-center space-x-1.5 shadow-lg shadow-amber-500/10"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Post New Job</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SEARCH AND FILTERS CONTROLLER */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={jobsSearchQuery}
+                    onChange={(e) => setJobsSearchQuery(e.target.value)}
+                    placeholder="Search by title, organization, city, department, BPS scale, or tags..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
+                  {jobsSearchQuery && (
+                    <button
+                      onClick={() => setJobsSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setSelectedJobForModal(j)}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-lg flex items-center space-x-1 border border-amber-500/30 cursor-pointer"
+
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <select
+                    value={jobsCategoryFilter}
+                    onChange={(e) => setJobsCategoryFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
                   >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Detail</span>
-                  </button>
-                  <button
-                    onClick={() => onDeleteJob(j.id)}
-                    className="p-2 bg-rose-500/20 text-rose-400 rounded-lg hover:bg-rose-500 hover:text-white cursor-pointer"
+                    <option value="all">All Categories</option>
+                    <option value="Government Sector">🏛️ Government Sector</option>
+                    <option value="Private Corporate">🏢 Private Corporate</option>
+                    <option value="Newspaper Classified">📰 Newspaper Clipping</option>
+                    <option value="Tech / IT & Software">💻 Tech / IT</option>
+                    <option value="Banking & Finance">💳 Banking & Finance</option>
+                    <option value="Healthcare & Medical">🏥 Healthcare</option>
+                    <option value="Education & Academic">🎓 Education</option>
+                    <option value="International Remote">🌐 Global Remote</option>
+                  </select>
+
+                  <select
+                    value={jobsProvinceFilter}
+                    onChange={(e) => setJobsProvinceFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <option value="all">All Provinces</option>
+                    <option value="Punjab">Punjab</option>
+                    <option value="Sindh">Sindh</option>
+                    <option value="Khyber Pakhtunkhwa">Khyber Pakhtunkhwa</option>
+                    <option value="Balochistan">Balochistan</option>
+                    <option value="Islamabad Capital Territory">Islamabad</option>
+                    <option value="Azad Kashmir">Azad Kashmir</option>
+                    <option value="Gilgit-Baltistan">Gilgit-Baltistan</option>
+                    <option value="Global">Global / Remote</option>
+                  </select>
+
+                  <select
+                    value={jobsScaleFilter}
+                    onChange={(e) => setJobsScaleFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All BPS Scales</option>
+                    {['BPS-01', 'BPS-05', 'BPS-07', 'BPS-09', 'BPS-11', 'BPS-14', 'BPS-16', 'BPS-17', 'BPS-18', 'BPS-19', 'BPS-20', 'BPS-21', 'BPS-22'].map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={jobsSortBy}
+                    onChange={(e) => setJobsSortBy(e.target.value as any)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="newest">📅 Newest First</option>
+                    <option value="oldest">📅 Oldest First</option>
+                    <option value="title">🔤 Title (A-Z)</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowJobsDuplicatesOnly(!showJobsDuplicatesOnly)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      showJobsDuplicatesOnly
+                        ? 'bg-rose-500 text-white border-rose-400 font-black'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {showJobsDuplicatesOnly ? 'Showing Duplicates Only' : 'Show Duplicates Only'}
                   </button>
                 </div>
               </div>
-            ))}
+
+              {/* Selection Summary */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
+                <div className="flex items-center space-x-3">
+                  <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAllLiveJobs}
+                      className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700"
+                    />
+                    <span>Select All Filtered ({filteredLiveJobs.length})</span>
+                  </label>
+                  {selectedJobIds.length > 0 && (
+                    <span className="text-amber-400 font-bold font-mono">
+                      ({selectedJobIds.length} selected)
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-[11px]">
+                  Showing {filteredLiveJobs.length} of {jobs.length} live jobs
+                </div>
+              </div>
+            </div>
+
+            {/* FLOATING / TOP BULK ACTIONS CONTROLLER */}
+            {selectedJobIds.length > 0 && (
+              <div className="p-3.5 bg-gradient-to-r from-amber-950/80 to-slate-950 border border-amber-500/40 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xl animate-in fade-in">
+                <div className="flex items-center space-x-2 text-xs font-bold text-amber-300">
+                  <CheckSquare className="w-4 h-4 text-amber-400" />
+                  <span>{selectedJobIds.length} Live Job(s) Selected</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkJobEditOpen(true)}
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/20 cursor-pointer flex items-center space-x-1"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Bulk Edit Attributes ({selectedJobIds.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteSelectedLiveJobs}
+                    className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-500/20 cursor-pointer flex items-center space-x-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Bulk Delete ({selectedJobIds.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedJobIds([])}
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
+                  >
+                    Deselect
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* LISTINGS TABLE */}
+            {filteredLiveJobs.length === 0 ? (
+              <div className="p-12 text-center bg-slate-950 rounded-2xl border border-slate-800 text-slate-400 space-y-2">
+                <Briefcase className="w-10 h-10 text-slate-600 mx-auto" />
+                <p className="font-bold text-slate-300">No active live jobs match your current search and filter criteria.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
+                    <tr>
+                      <th className="p-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={handleSelectAllLiveJobs}
+                          className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700 cursor-pointer"
+                        />
+                      </th>
+                      <th className="p-3">Job Title & Sector</th>
+                      <th className="p-3">Company / Org</th>
+                      <th className="p-3">Location / Scale</th>
+                      <th className="p-3">Salary / Pay</th>
+                      <th className="p-3">Deadline</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {filteredLiveJobs.map((j) => {
+                      const isSelected = selectedJobIds.includes(j.id);
+
+                      return (
+                        <tr
+                          key={j.id}
+                          className={`transition-colors ${
+                            isSelected ? 'bg-amber-950/30' : 'hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <td className="p-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleLiveJobSelection(j.id)}
+                              className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-700 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <div
+                              onClick={() => setSelectedJobForModal(j)}
+                              className="font-bold text-white hover:text-amber-400 cursor-pointer transition-colors flex items-center space-x-1.5"
+                            >
+                              <span>{j.title}</span>
+                              <Eye className="w-3.5 h-3.5 text-amber-400 opacity-80" />
+                            </div>
+                            <div className="flex items-center space-x-2 mt-0.5">
+                              <span className="text-[10px] text-slate-400">{j.jobCategory || 'Corporate'}</span>
+                              {j.featured && (
+                                <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[9px] font-bold">
+                                  ⭐ Featured
+                                </span>
+                              )}
+                              {j.urgent && (
+                                <span className="px-1.5 py-0.2 bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded text-[9px] font-bold">
+                                  🔥 Urgent
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3 font-semibold text-slate-200">{j.company}</td>
+                          <td className="p-3">
+                            <div className="text-slate-300">{j.city || j.province || j.region}</div>
+                            {j.govtScale && (
+                              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-black font-mono">
+                                {j.govtScale}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 font-mono text-emerald-300 font-bold">{j.salary}</td>
+                          <td className="p-3 font-mono text-slate-400">{j.deadlineDate || 'Open'}</td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              {j.status || 'Approved'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedJobForModal(j)}
+                                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg cursor-pointer transition-all"
+                                title="Inspect Job Details"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingJob(j);
+                                  setIsJobQuickEditOpen(true);
+                                }}
+                                className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-lg border border-indigo-500/30 cursor-pointer transition-all"
+                                title="Quick Edit Job"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Permanently delete "${j.title}" from live listings?`)) {
+                                    onDeleteJob(j.id);
+                                  }
+                                }}
+                                className="p-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white rounded-lg cursor-pointer transition-all"
+                                title="Delete Job"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 9: SUBSCRIBERS */}
-      {adminTab === 'subscribers' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4">
-          <h3 className="text-base font-bold">WhatsApp Alert Subscribers ({subscribers.length})</h3>
-          <div className="divide-y divide-slate-800 text-xs">
-            {subscribers.map((s) => (
-              <div key={s.id} className="py-3 flex justify-between">
-                <div>
-                  <div className="font-bold">{s.name} ({s.phone})</div>
-                  <div className="text-slate-400">{s.email}</div>
-                </div>
-                <div className="text-emerald-400 font-bold">PKR {s.amountPaid}</div>
+      {adminTab === 'subscribers' && (() => {
+        const subClusters = computeSubscriberDuplicateClusters(subscribers);
+
+        const filteredSubscribers = subscribers.filter(sub => {
+          if (subscriberSearchQuery.trim()) {
+            const q = subscriberSearchQuery.toLowerCase();
+            const matchesName = (sub.name || '').toLowerCase().includes(q);
+            const matchesPhone = (sub.phone || '').toLowerCase().includes(q);
+            const matchesEmail = (sub.email || '').toLowerCase().includes(q);
+            const matchesPlan = (sub.plan || '').toLowerCase().includes(q);
+            if (!matchesName && !matchesPhone && !matchesEmail && !matchesPlan) return false;
+          }
+
+          if (subscriberPlanFilter !== 'all' && sub.plan !== subscriberPlanFilter) return false;
+          if (subscriberStatusFilter !== 'all' && sub.status !== subscriberStatusFilter) return false;
+          if (subscriberMethodFilter !== 'all' && sub.paymentMethod !== subscriberMethodFilter) return false;
+
+          if (showSubscriberDuplicatesOnly) {
+            const isDup = subClusters.some(c => c.items.some(it => it.id === sub.id));
+            if (!isDup) return false;
+          }
+
+          return true;
+        });
+
+        const allSelected = filteredSubscribers.length > 0 && filteredSubscribers.every(s => selectedSubscriberIds.includes(s.id));
+
+        const handleSelectAllSubscribers = () => {
+          if (allSelected) {
+            setSelectedSubscriberIds(prev => prev.filter(id => !filteredSubscribers.some(s => s.id === id)));
+          } else {
+            const toAdd = filteredSubscribers.map(s => s.id);
+            setSelectedSubscriberIds(prev => Array.from(new Set([...prev, ...toAdd])));
+          }
+        };
+
+        const toggleSubscriberSelection = (id: string) => {
+          setSelectedSubscriberIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+          );
+        };
+
+        const handleBulkDeleteSubscribers = () => {
+          if (selectedSubscriberIds.length === 0) return;
+          if (confirm(`Permanently delete ${selectedSubscriberIds.length} selected alert subscribers?`)) {
+            if (onBulkDeleteSubscribers) {
+              onBulkDeleteSubscribers(selectedSubscriberIds);
+            } else if (onDeleteSubscriber) {
+              selectedSubscriberIds.forEach(id => onDeleteSubscriber(id));
+            }
+            setSelectedSubscriberIds([]);
+          }
+        };
+
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 text-white shadow-xl">
+            {/* HEADER */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-black flex items-center space-x-2 text-white">
+                  <MessageSquare className="w-5 h-5 text-emerald-400" />
+                  <span>WhatsApp & SMS Alert Subscribers</span>
+                  <span className="bg-emerald-500/20 text-emerald-400 text-xs font-bold px-3 py-0.5 rounded-full border border-emerald-500/30">
+                    {subscribers.length} Subscribers
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Manage active subscribers receiving instant WhatsApp daily job alerts and membership notifications.
+                </p>
               </div>
-            ))}
+
+              {/* TOP CONTROLS */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSubscriberDuplicateModalOpen(true)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border ${
+                    subClusters.length > 0
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500 hover:text-white'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Check Duplicate Subscribers</span>
+                  {subClusters.length > 0 && (
+                    <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded text-[10px] font-black ml-1">
+                      {subClusters.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingSubscriber(null);
+                    setIsSubscriberModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add New Subscriber</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SEARCH AND FILTERS CONTROLLER */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={subscriberSearchQuery}
+                    onChange={(e) => setSubscriberSearchQuery(e.target.value)}
+                    placeholder="Search subscriber by name, WhatsApp phone number, email, or plan..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                  />
+                  {subscriberSearchQuery && (
+                    <button
+                      onClick={() => setSubscriberSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <select
+                    value={subscriberPlanFilter}
+                    onChange={(e) => setSubscriberPlanFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Alert Plans</option>
+                    <option value="Basic">Basic Alerts</option>
+                    <option value="Pro Alerts">Pro Alerts (SMS + WhatsApp)</option>
+                    <option value="VIP Jobseeker">VIP Jobseeker</option>
+                  </select>
+
+                  <select
+                    value={subscriberStatusFilter}
+                    onChange={(e) => setSubscriberStatusFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="Active">Active Paid</option>
+                    <option value="Pending">Pending Verification</option>
+                  </select>
+
+                  <select
+                    value={subscriberMethodFilter}
+                    onChange={(e) => setSubscriberMethodFilter(e.target.value)}
+                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Payment Gateways</option>
+                    <option value="Easypaisa">Easypaisa</option>
+                    <option value="JazzCash">JazzCash</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Card">Card</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSubscriberDuplicatesOnly(!showSubscriberDuplicatesOnly)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      showSubscriberDuplicatesOnly
+                        ? 'bg-rose-500 text-white border-rose-400 font-black'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {showSubscriberDuplicatesOnly ? 'Showing Duplicates Only' : 'Show Duplicates Only'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Selection Summary */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400">
+                <div className="flex items-center space-x-3">
+                  <label className="flex items-center space-x-2 cursor-pointer font-bold text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAllSubscribers}
+                      className="w-4 h-4 rounded text-emerald-500 bg-slate-900 border-slate-700"
+                    />
+                    <span>Select All Filtered ({filteredSubscribers.length})</span>
+                  </label>
+                  {selectedSubscriberIds.length > 0 && (
+                    <span className="text-emerald-400 font-bold font-mono">
+                      ({selectedSubscriberIds.length} selected)
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-[11px]">
+                  Showing {filteredSubscribers.length} of {subscribers.length} subscribers
+                </div>
+              </div>
+            </div>
+
+            {/* FLOATING / TOP BULK ACTIONS CONTROLLER */}
+            {selectedSubscriberIds.length > 0 && (
+              <div className="p-3.5 bg-gradient-to-r from-emerald-950/80 to-slate-950 border border-emerald-500/40 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xl animate-in fade-in">
+                <div className="flex items-center space-x-2 text-xs font-bold text-emerald-300">
+                  <CheckSquare className="w-4 h-4 text-emerald-400" />
+                  <span>{selectedSubscriberIds.length} Subscriber(s) Selected</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteSubscribers}
+                    className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-500/20 cursor-pointer flex items-center space-x-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Bulk Delete Subscribers ({selectedSubscriberIds.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSubscriberIds([])}
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
+                  >
+                    Deselect
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* SUBSCRIBERS TABLE */}
+            {filteredSubscribers.length === 0 ? (
+              <div className="p-12 text-center bg-slate-950 rounded-2xl border border-slate-800 text-slate-400 space-y-2">
+                <MessageSquare className="w-10 h-10 text-slate-600 mx-auto" />
+                <p className="font-bold text-slate-300">No subscribers found matching current filter.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
+                    <tr>
+                      <th className="p-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={handleSelectAllSubscribers}
+                          className="w-4 h-4 rounded text-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+                        />
+                      </th>
+                      <th className="p-3">Subscriber</th>
+                      <th className="p-3">WhatsApp Phone</th>
+                      <th className="p-3">Alert Plan</th>
+                      <th className="p-3">Payment</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Subscribed Date</th>
+                      <th className="p-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {filteredSubscribers.map((s) => {
+                      const isSelected = selectedSubscriberIds.includes(s.id);
+
+                      return (
+                        <tr
+                          key={s.id}
+                          className={`transition-colors ${
+                            isSelected ? 'bg-emerald-950/30' : 'hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <td className="p-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSubscriberSelection(s.id)}
+                              className="w-4 h-4 rounded text-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <strong className="text-white block">{s.name}</strong>
+                            <span className="text-[11px] text-slate-400 font-mono">{s.email || 'No email provided'}</span>
+                          </td>
+                          <td className="p-3 font-mono font-bold text-emerald-300 flex items-center space-x-1">
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{s.phone}</span>
+                          </td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-bold text-[10px] border border-amber-500/20">
+                              {s.plan}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <div className="font-bold text-white font-mono">PKR {s.amountPaid}</div>
+                            <div className="text-[10px] text-slate-400">{s.paymentMethod}</div>
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              s.status === 'Active'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            }`}>
+                              {s.status}
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono text-slate-400">{s.subscribedAt || 'Recent'}</td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingSubscriber(s);
+                                  setIsSubscriberModalOpen(true);
+                                }}
+                                className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-lg border border-indigo-500/30 cursor-pointer transition-all"
+                                title="Edit Subscriber"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Delete subscriber ${s.name}?`)) {
+                                    if (onDeleteSubscriber) onDeleteSubscriber(s.id);
+                                  }
+                                }}
+                                className="p-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white rounded-lg cursor-pointer transition-all"
+                                title="Delete Subscriber"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 10: SETTINGS (MONTHLY SUBSCRIPTION & PER-JOB POSTING FEE) */}
       {adminTab === 'settings' && (
@@ -3318,25 +5692,248 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </p>
           </div>
 
-          {/* PER-JOB POSTING FEE CONTROLLER */}
+          {/* PER-JOB POSTING & PRIORITY PLACEMENT FEE CONTROLLER */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4 shadow-xl">
-            <h3 className="text-base font-bold border-b border-slate-800 pb-2 flex items-center space-x-2">
-              <Receipt className="w-5 h-5 text-amber-400" />
-              <span>Set Per-Job Posting Fee Controller</span>
+            <h3 className="text-base font-bold border-b border-slate-800 pb-2 flex items-center justify-between">
+              <span className="flex items-center space-x-2">
+                <Receipt className="w-5 h-5 text-amber-400" />
+                <span>Base Per-Job Posting Fee</span>
+              </span>
+              <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold">
+                {jobPostingPricing.standardFeePkr > 0 ? `PKR ${jobPostingPricing.standardFeePkr.toLocaleString()}` : 'Free'}
+              </span>
             </h3>
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1">Per-Job Fee Amount (PKR) [Set to 0 for Free]</label>
+              <label className="block text-xs font-bold text-slate-400 mb-1">Standard Job Posting Fee (PKR) [Set to 0 for Free]</label>
               <input
                 type="number"
-                value={jobPostingFeePkr}
-                onChange={(e) => onChangeJobPostingFee(Number(e.target.value))}
+                value={jobPostingPricing.standardFeePkr}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  onChangeJobPostingFee(val);
+                  if (onChangeJobPostingPricing) {
+                    onChangeJobPostingPricing({
+                      ...jobPostingPricing,
+                      standardFeePkr: val
+                    });
+                  }
+                }}
                 placeholder="1000"
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold"
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold focus:border-amber-400 outline-none"
               />
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              When set &gt; 0, users who click "Post a Job" will be prompted with a payment invoice of PKR {jobPostingFeePkr.toLocaleString()} before their job enters Admin Pending Queue.
+              When set &gt; 0, employers posting regular standard jobs will be invoiced PKR {jobPostingPricing.standardFeePkr.toLocaleString()} before their job listing is reviewed and published.
             </p>
+          </div>
+
+          {/* PRIORITY PLACEMENT & URGENT / FUTURE JOB FEES CONFIGURATION */}
+          <div className="md:col-span-2 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/40 border border-indigo-500/40 rounded-2xl p-6 text-white space-y-6 shadow-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Priority Monetization & Tier Placements
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">Live Pricing Engine</span>
+                </div>
+                <h3 className="text-lg font-black text-white flex items-center space-x-2 mt-1">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
+                  <span>Urgent, Pinned Top, Future Jobs & VIP Fee Management</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Set the priority upgrade fees for employers who want their jobs to appear at the very top of all listings, feature urgent hiring badges, or announce upcoming advance intakes.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onChangeJobPostingPricing) {
+                      onChangeJobPostingPricing(DEFAULT_JOB_POSTING_PRICING_CONFIG);
+                    }
+                    onChangeJobPostingFee(DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr);
+                  }}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer transition-all"
+                >
+                  Reset Defaults
+                </button>
+              </div>
+            </div>
+
+            {/* 4 TIER FEE CONTROLS GRID */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+              {/* TIER 1: URGENT HIRING */}
+              <div className="p-4 bg-slate-950/80 border border-rose-500/30 rounded-2xl space-y-3 shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    🔥 Urgent Hiring
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">+Surcharge</span>
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm">Urgent Placement Fee</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Flashing badge & ranks above regular jobs</div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
+                    <input
+                      type="number"
+                      value={jobPostingPricing.urgentFeePkr}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            urgentFeePkr: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-bold font-mono focus:border-rose-400 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
+                  Total Employer Cost: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.urgentFeePkr).toLocaleString()}</strong>
+                </div>
+              </div>
+
+              {/* TIER 2: FEATURED & PINNED TOP */}
+              <div className="p-4 bg-slate-950/80 border border-amber-500/30 rounded-2xl space-y-3 shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    ⭐ Featured Top-of-List
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">+Surcharge</span>
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm">Pinned Top Placement Fee</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Locks position at top of search & cards</div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
+                    <input
+                      type="number"
+                      value={jobPostingPricing.featuredTopFeePkr}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            featuredTopFeePkr: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-bold font-mono focus:border-amber-400 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
+                  Total Employer Cost: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.featuredTopFeePkr).toLocaleString()}</strong>
+                </div>
+              </div>
+
+              {/* TIER 3: FUTURE JOB / ADVANCE INTAKE */}
+              <div className="p-4 bg-slate-950/80 border border-indigo-500/30 rounded-2xl space-y-3 shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    🚀 Future Job / Advance Intake
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">+Surcharge</span>
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm">Future Intake Placement</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Collect pre-registrations ahead of intake</div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
+                    <input
+                      type="number"
+                      value={jobPostingPricing.futureJobFeePkr}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            futureJobFeePkr: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-bold font-mono focus:border-indigo-400 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
+                  Total Employer Cost: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.futureJobFeePkr).toLocaleString()}</strong>
+                </div>
+              </div>
+
+              {/* TIER 4: VIP ALL-IN-ONE BUNDLE */}
+              <div className="p-4 bg-slate-950/80 border border-purple-500/30 rounded-2xl space-y-3 shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    👑 VIP All-in-One Top Bundle
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Flat Package</span>
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm">VIP Ultimate Priority Package</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Top Pinned + Urgent + Featured + Future Tag</div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Flat Package Price (PKR)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
+                    <input
+                      type="number"
+                      value={jobPostingPricing.vipBundleFeePkr}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            vipBundleFeePkr: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-bold font-mono focus:border-purple-400 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
+                  Total Employer Cost: <strong className="text-purple-300 font-mono font-bold">PKR {jobPostingPricing.vipBundleFeePkr.toLocaleString()}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* LIVE PRIORITY RANKING EXPLANATION */}
+            <div className="p-4 bg-slate-950/90 border border-slate-800 rounded-xl space-y-2 text-xs">
+              <div className="font-bold text-white flex items-center space-x-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>How the Priority Algorithm Sorts Jobs on the Public Board:</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-[11px] text-slate-300">
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-purple-300 block mb-1">1st: VIP & Pinned Top</strong>
+                  Jobs with Pinned Top & VIP bundle always display first above all listings.
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-amber-300 block mb-1">2nd: Featured Posts</strong>
+                  Highlighted in warm gold border and displayed right after top pinned jobs.
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-rose-300 block mb-1">3rd: Urgent Hiring</strong>
+                  Shows blinking fire badge and sits ahead of general regular listings.
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
+                  <strong className="text-indigo-300 block mb-1">4th: Future & Standard</strong>
+                  Future jobs show advance countdown; standard listings sort by recency.
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* MASTER FEATURE SWITCHES PANEL */}
@@ -3685,12 +6282,150 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       )}
 
-      {/* PDF CONSOLIDATED SCRAPER MODAL (FPSC / WAPDA / PPSC) */}
+      {/* PDF CONSOLIDATED SCRAPER MODAL (FPSC / WAPDA / PPSC / KPPSC / SPSC / CUSTOM SITES) */}
       <PdfConsolidatedScraperModal
         isOpen={isPdfScraperModalOpen}
         onClose={() => setIsPdfScraperModalOpen(false)}
         onBatchImportJobs={handleBatchImportPdfJobs}
         onLogBatchRun={handleLogPdfBatchRun}
+        gazettes={pdfGazettes}
+        onAddGazette={(g) => handleAddPdfGazette(g, false)}
+        onDeleteGazette={handleDeletePdfGazette}
+        initialSelectedGazetteId={activeSelectedPdfGazetteId}
+      />
+
+      {/* QUICK EDIT / BULK EDIT JOB MODAL */}
+      <AdminQuickEditJobModal
+        isOpen={isJobQuickEditOpen || isBulkJobEditOpen}
+        job={isBulkJobEditOpen ? null : editingJob}
+        selectedJobs={isBulkJobEditOpen ? jobs.concat(pendingJobs).filter(j => selectedJobIds.includes(j.id) || selectedPendingIds.includes(j.id)) : []}
+        onClose={() => {
+          setIsJobQuickEditOpen(false);
+          setIsBulkJobEditOpen(false);
+          setEditingJob(null);
+        }}
+        onSaveJob={(updatedJob) => {
+          if (onUpdateJob) onUpdateJob(updatedJob);
+          setIsJobQuickEditOpen(false);
+          setEditingJob(null);
+        }}
+        onBulkSaveJobs={(updatedJobs) => {
+          if (onBulkUpdateJobs) {
+            onBulkUpdateJobs(updatedJobs);
+          } else if (onUpdateJob) {
+            updatedJobs.forEach(j => onUpdateJob(j));
+          }
+          setSelectedJobIds([]);
+          setSelectedPendingIds([]);
+          setIsBulkJobEditOpen(false);
+        }}
+      />
+
+      {/* LIVE JOBS DUPLICATE CHECKER MODAL */}
+      <AdminDuplicateCheckerModal
+        isOpen={isJobDuplicateModalOpen}
+        onClose={() => setIsJobDuplicateModalOpen(false)}
+        entityType="jobs"
+        jobClusters={computeJobDuplicateClusters(jobs)}
+        onResolveJobDuplicates={(keepId, deleteIds) => {
+          if (onBulkDeleteJobs) {
+            onBulkDeleteJobs(deleteIds);
+          } else {
+            deleteIds.forEach(id => onDeleteJob(id));
+          }
+          setIsJobDuplicateModalOpen(false);
+        }}
+        onBulkSelectDuplicateIds={(ids) => {
+          setSelectedJobIds(ids);
+          setIsJobDuplicateModalOpen(false);
+        }}
+      />
+
+      {/* PENDING JOBS DUPLICATE CHECKER MODAL */}
+      <AdminDuplicateCheckerModal
+        isOpen={isPendingDuplicateModalOpen}
+        onClose={() => setIsPendingDuplicateModalOpen(false)}
+        entityType="pending"
+        jobClusters={computeJobDuplicateClusters(pendingJobs)}
+        onResolveJobDuplicates={(keepId, deleteIds) => {
+          if (onBulkRejectPendingJobs) {
+            onBulkRejectPendingJobs(deleteIds, 'Duplicate job submission detected in moderation queue');
+          } else {
+            deleteIds.forEach(id => onRejectJob(id, 'Duplicate job submission detected'));
+          }
+          setIsPendingDuplicateModalOpen(false);
+        }}
+        onBulkSelectDuplicateIds={(ids) => {
+          setSelectedPendingIds(ids);
+          setIsPendingDuplicateModalOpen(false);
+        }}
+      />
+
+      {/* SUBSCRIBERS DUPLICATE CHECKER MODAL */}
+      <AdminDuplicateCheckerModal
+        isOpen={isSubscriberDuplicateModalOpen}
+        onClose={() => setIsSubscriberDuplicateModalOpen(false)}
+        entityType="subscribers"
+        subscriberClusters={computeSubscriberDuplicateClusters(subscribers)}
+        onResolveSubscriberDuplicates={(keepId, deleteIds) => {
+          if (onBulkDeleteSubscribers) {
+            onBulkDeleteSubscribers(deleteIds);
+          } else if (onDeleteSubscriber) {
+            deleteIds.forEach(id => onDeleteSubscriber(id));
+          }
+          setIsSubscriberDuplicateModalOpen(false);
+        }}
+        onBulkSelectDuplicateIds={(ids) => {
+          setSelectedSubscriberIds(ids);
+          setIsSubscriberDuplicateModalOpen(false);
+        }}
+      />
+
+      {/* USERS DUPLICATE CHECKER MODAL */}
+      <AdminDuplicateCheckerModal
+        isOpen={isUserDuplicateModalOpen}
+        onClose={() => setIsUserDuplicateModalOpen(false)}
+        entityType="users"
+        userClusters={computeUserDuplicateClusters(users)}
+        onBulkSelectDuplicateIds={(ids) => {
+          setSelectedUserIds(ids);
+          setIsUserDuplicateModalOpen(false);
+        }}
+      />
+
+      {/* FEE LOGS DUPLICATE CHECKER MODAL */}
+      <AdminDuplicateCheckerModal
+        isOpen={isFeeLogDuplicateModalOpen}
+        onClose={() => setIsFeeLogDuplicateModalOpen(false)}
+        entityType="fee-logs"
+        feeLogClusters={computeFeeLogDuplicateClusters(jobPostingFeeLogs)}
+        onBulkSelectDuplicateIds={(ids) => {
+          setSelectedFeeLogIds(ids);
+          setIsFeeLogDuplicateModalOpen(false);
+        }}
+      />
+
+      {/* ADMIN SUBSCRIBER ADD / EDIT MODAL */}
+      <AdminSubscriberModal
+        isOpen={isSubscriberModalOpen}
+        subscriber={editingSubscriber}
+        onClose={() => {
+          setIsSubscriberModalOpen(false);
+          setEditingSubscriber(null);
+        }}
+        onSave={(sub) => {
+          if (editingSubscriber) {
+            if (onUpdateSubscriber) {
+              onUpdateSubscriber(sub);
+            }
+          } else {
+            if (onAddSubscriber) {
+              onAddSubscriber(sub);
+            }
+          }
+          setIsSubscriberModalOpen(false);
+          setEditingSubscriber(null);
+        }}
       />
 
     </div>

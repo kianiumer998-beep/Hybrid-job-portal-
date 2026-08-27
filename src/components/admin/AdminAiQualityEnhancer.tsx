@@ -26,7 +26,7 @@ interface AdminAiQualityEnhancerProps {
 export const AdminAiQualityEnhancer: React.FC<AdminAiQualityEnhancerProps> = ({
   jobs = [],
   pendingJobs = [],
-  onUpdateJob = () => {}
+  onUpdateJob = (_updatedJob: Job) => {}
 }) => {
   const safeJobs = Array.isArray(jobs) ? jobs : [];
   const safePendingJobs = Array.isArray(pendingJobs) ? pendingJobs : [];

@@ -43,7 +43,7 @@ export const AdminAnalyticsOverview: React.FC<AdminAnalyticsOverviewProps> = ({
   auditLogs = [],
   batchRuns = [],
   currencyConfig = INITIAL_CURRENCY_CONFIG,
-  onNavigateTab = () => {}
+  onNavigateTab = (_tabId: any) => {}
 }) => {
   const [timeRange, setTimeRange] = useState<'today' | '7days' | '30days' | 'all'>('30days');
   const [selectedCurrencyView, setSelectedCurrencyView] = useState<'PKR' | 'USD' | 'AED' | 'SAR'>('PKR');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Job, ConsolidatedPdfGazette, ScrapedJobAuditEntry, ScraperBatchRun } from '../types/job';
 import { 
   MOCK_CONSOLIDATED_PDF_GAZETTES, 
@@ -30,7 +30,14 @@ import {
   ExternalLink,
   Plus,
   Trash2,
-  BookmarkPlus
+  BookmarkPlus,
+  HelpCircle,
+  Play,
+  RefreshCw,
+  CheckSquare,
+  Square,
+  AlertTriangle,
+  FileCheck
 } from 'lucide-react';
 
 interface PdfConsolidatedScraperModalProps {
@@ -42,6 +49,62 @@ interface PdfConsolidatedScraperModalProps {
   onAddGazette?: (newGazette: ConsolidatedPdfGazette) => void;
   onDeleteGazette?: (gazetteId: string) => void;
   initialSelectedGazetteId?: string | null;
+  existingJobs?: Job[];
+}
+
+// DUPLICATE DETECTION HELPER
+function checkJobDuplicate(candidate: Job, existingList: Job[] = []): { isDuplicate: boolean; duplicateScore: number; matchedJob?: Job } {
+  if (!existingList || existingList.length === 0) {
+    return { isDuplicate: false, duplicateScore: 0 };
+  }
+
+  const cleanCandTitle = candidate.title.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+  const cleanCandCompany = (candidate.company || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+  const cleanCandCase = (candidate.pdfCaseNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+
+  let maxScore = 0;
+  let bestMatch: Job | undefined = undefined;
+
+  for (const existing of existingList) {
+    if (existing.id === candidate.id) continue;
+
+    const cleanExistTitle = existing.title.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+    const cleanExistCompany = (existing.company || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+    const cleanExistCase = (existing.pdfCaseNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+
+    // 1. Exact Case Number Match (e.g. Case No. F.4-118/2026-R)
+    if (cleanCandCase && cleanExistCase && cleanCandCase === cleanExistCase) {
+      return { isDuplicate: true, duplicateScore: 100, matchedJob: existing };
+    }
+
+    // 2. Exact Title + Same Company Match
+    if (cleanCandTitle && cleanCandTitle === cleanExistTitle && (cleanCandCompany.includes(cleanExistCompany) || cleanExistCompany.includes(cleanCandCompany))) {
+      return { isDuplicate: true, duplicateScore: 98, matchedJob: existing };
+    }
+
+    // 3. High similarity token overlap
+    const candTokens = cleanCandTitle.split(/\s+/).filter(t => t.length > 3);
+    const existTokens = new Set(cleanExistTitle.split(/\s+/).filter(t => t.length > 3));
+    if (candTokens.length > 0 && existTokens.size > 0) {
+      let matchedTokens = 0;
+      candTokens.forEach(t => { if (existTokens.has(t)) matchedTokens++; });
+      const tokenRatio = (matchedTokens * 2) / (candTokens.length + existTokens.size);
+      
+      const companyOverlap = cleanCandCompany && cleanExistCompany && (cleanCandCompany.includes(cleanExistCompany) || cleanExistCompany.includes(cleanCandCompany));
+      
+      const calculatedScore = Math.round(tokenRatio * (companyOverlap ? 95 : 75));
+      if (calculatedScore > maxScore) {
+        maxScore = calculatedScore;
+        bestMatch = existing;
+      }
+    }
+  }
+
+  if (maxScore >= 70 && bestMatch) {
+    return { isDuplicate: true, duplicateScore: maxScore, matchedJob: bestMatch };
+  }
+
+  return { isDuplicate: false, duplicateScore: maxScore, matchedJob: bestMatch };
 }
 
 export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalProps> = ({
@@ -52,14 +115,19 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
   gazettes = MOCK_CONSOLIDATED_PDF_GAZETTES,
   onAddGazette,
   onDeleteGazette,
-  initialSelectedGazetteId
+  initialSelectedGazetteId,
+  existingJobs = []
 }) => {
   if (!isOpen) return null;
 
   const currentGazettes = gazettes && gazettes.length > 0 ? gazettes : MOCK_CONSOLIDATED_PDF_GAZETTES;
 
-  // Active sub-views
-  const [activeTab, setActiveTab] = useState<'parser' | 'python-code' | 'raw-stream'>('parser');
+  // Active sub-views: easy-extractor (default), python-code, raw-stream
+  const [activeTab, setActiveTab] = useState<'easy-extractor' | 'python-code' | 'raw-stream'>('easy-extractor');
+
+  // Search filter across gazettes and portals
+  const [portalSearch, setPortalSearch] = useState('');
+  const [portalRegionFilter, setPortalRegionFilter] = useState<'all' | 'federal' | 'punjab' | 'sindh' | 'kpk' | 'balochistan' | 'defense' | 'railways' | 'health'>('all');
 
   // Input & Configuration state
   const [selectedGazetteId, setSelectedGazetteId] = useState<string>(() => {
@@ -67,6 +135,11 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       return initialSelectedGazetteId;
     }
     return currentGazettes[0]?.id || 'pdf-gazette-fpsc-08-2026';
+  });
+
+  // Bulk Multi-Select Gazette IDs State
+  const [selectedGazetteIdsForBulk, setSelectedGazetteIdsForBulk] = useState<string[]>(() => {
+    return currentGazettes.slice(0, 3).map(g => g.id);
   });
 
   const [customPdfUrl, setCustomPdfUrl] = useState<string>('https://fpsc.gov.pk/advertisements/Consolidated_Advt_No_08_2026.pdf');
@@ -85,20 +158,65 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
 
   // Parsing & Processing state
   const [isParsing, setIsParsing] = useState(false);
+  const [isBulkParsing, setIsBulkParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState(0);
   const [parseLogs, setParseLogs] = useState<string[]>([]);
+  const [showHelperGuide, setShowHelperGuide] = useState(false);
 
   // Current active gazette object
   const activeGazette = currentGazettes.find(g => g.id === selectedGazetteId) || currentGazettes[0];
 
+  // Raw extracted vacancies before filter
   const [extractedVacancies, setExtractedVacancies] = useState<Job[]>(() => {
-    return activeGazette?.extractedVacancies || [];
+    const initialJobs = (activeGazette?.extractedVacancies || []).map(job => {
+      const dup = checkJobDuplicate(job, existingJobs);
+      return {
+        ...job,
+        extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+        isDuplicate: dup.isDuplicate,
+        duplicateScore: dup.duplicateScore,
+        duplicateOfJobTitle: dup.matchedJob?.title,
+        duplicateOfJobId: dup.matchedJob?.id
+      };
+    });
+    return initialJobs;
   });
+
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>(() => {
     return (activeGazette?.extractedVacancies || []).map(j => j.id);
   });
+
+  // Vacancy view filter: all, pdf_only, web_only, duplicates_only, unique_only
+  const [vacancyFilter, setVacancyFilter] = useState<'all' | 'pdf_only' | 'web_only' | 'duplicates_only' | 'unique_only'>('all');
+
   const [importedSuccessfully, setImportedSuccessfully] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Filtered portals
+  const filteredPortals = useMemo(() => {
+    return OFFICIAL_GOVT_SCRAPER_PORTALS.filter(portal => {
+      const q = portalSearch.toLowerCase().trim();
+      const matchesSearch = !q || 
+        portal.name.toLowerCase().includes(q) || 
+        portal.shortName.toLowerCase().includes(q) || 
+        portal.organization.toLowerCase().includes(q);
+
+      if (!matchesSearch) return false;
+
+      if (portalRegionFilter === 'all') return true;
+      const lowerOrg = (portal.organization + ' ' + portal.name + ' ' + portal.shortName).toLowerCase();
+      if (portalRegionFilter === 'federal') return lowerOrg.includes('federal') || lowerOrg.includes('fpsc') || lowerOrg.includes('njp') || lowerOrg.includes('cda') || lowerOrg.includes('hec') || lowerOrg.includes('jobs.gov.pk');
+      if (portalRegionFilter === 'punjab') return lowerOrg.includes('punjab') || lowerOrg.includes('ppsc');
+      if (portalRegionFilter === 'sindh') return lowerOrg.includes('sindh') || lowerOrg.includes('spsc');
+      if (portalRegionFilter === 'kpk') return lowerOrg.includes('khyber') || lowerOrg.includes('kp') || lowerOrg.includes('kppsc') || lowerOrg.includes('kmc') || lowerOrg.includes('kcd') || lowerOrg.includes('kmu');
+      if (portalRegionFilter === 'balochistan') return lowerOrg.includes('balochistan') || lowerOrg.includes('bpsc');
+      if (portalRegionFilter === 'defense') return lowerOrg.includes('army') || lowerOrg.includes('mes') || lowerOrg.includes('mod') || lowerOrg.includes('defense') || lowerOrg.includes('military');
+      if (portalRegionFilter === 'railways') return lowerOrg.includes('rail') || lowerOrg.includes('railways');
+      if (portalRegionFilter === 'health') return lowerOrg.includes('health') || lowerOrg.includes('medical') || lowerOrg.includes('hospital');
+
+      return true;
+    });
+  }, [portalSearch, portalRegionFilter]);
 
   // Sync when gazette list or initial gazette ID changes
   useEffect(() => {
@@ -106,22 +224,60 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       setSelectedGazetteId(initialSelectedGazetteId);
       const g = currentGazettes.find(item => item.id === initialSelectedGazetteId);
       if (g) {
-        setExtractedVacancies(g.extractedVacancies || []);
-        setSelectedJobIds((g.extractedVacancies || []).map(j => j.id));
+        const enriched = (g.extractedVacancies || []).map(job => {
+          const dup = checkJobDuplicate(job, existingJobs);
+          return {
+            ...job,
+            extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+            isDuplicate: dup.isDuplicate,
+            duplicateScore: dup.duplicateScore,
+            duplicateOfJobTitle: dup.matchedJob?.title,
+            duplicateOfJobId: dup.matchedJob?.id
+          };
+        });
+        setExtractedVacancies(enriched);
+        setSelectedJobIds(enriched.map(j => j.id));
         setCustomPdfUrl(g.pdfUrl);
       }
     }
-  }, [initialSelectedGazetteId, currentGazettes]);
+  }, [initialSelectedGazetteId, currentGazettes, existingJobs]);
 
   // Handle switching preloaded gazettes
   const handleSelectGazette = (gazetteId: string) => {
     setSelectedGazetteId(gazetteId);
     const gazette = currentGazettes.find(g => g.id === gazetteId);
     if (gazette) {
-      setExtractedVacancies(gazette.extractedVacancies || []);
-      setSelectedJobIds((gazette.extractedVacancies || []).map(j => j.id));
+      const enriched = (gazette.extractedVacancies || []).map(job => {
+        const dup = checkJobDuplicate(job, existingJobs);
+        return {
+          ...job,
+          extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+          isDuplicate: dup.isDuplicate,
+          duplicateScore: dup.duplicateScore,
+          duplicateOfJobTitle: dup.matchedJob?.title,
+          duplicateOfJobId: dup.matchedJob?.id
+        };
+      });
+      setExtractedVacancies(enriched);
+      setSelectedJobIds(enriched.map(j => j.id));
       setCustomPdfUrl(gazette.pdfUrl);
       setImportedSuccessfully(false);
+    }
+  };
+
+  // Toggle Gazette in Bulk Selection
+  const handleToggleBulkGazette = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedGazetteIdsForBulk(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllBulkGazettes = () => {
+    if (selectedGazetteIdsForBulk.length === currentGazettes.length) {
+      setSelectedGazetteIdsForBulk([]);
+    } else {
+      setSelectedGazetteIdsForBulk(currentGazettes.map(g => g.id));
     }
   };
 
@@ -147,29 +303,48 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     }
 
     setSelectedGazetteId(newGazette.id);
-    setExtractedVacancies(newGazette.extractedVacancies);
-    setSelectedJobIds(newGazette.extractedVacancies.map(j => j.id));
+    setSelectedGazetteIdsForBulk(prev => [...prev, newGazette.id]);
+    
+    const enriched = (newGazette.extractedVacancies || []).map(job => {
+      const dup = checkJobDuplicate(job, existingJobs);
+      return {
+        ...job,
+        extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+        isDuplicate: dup.isDuplicate,
+        duplicateScore: dup.duplicateScore,
+        duplicateOfJobTitle: dup.matchedJob?.title,
+        duplicateOfJobId: dup.matchedJob?.id
+      };
+    });
+
+    setExtractedVacancies(enriched);
+    setSelectedJobIds(enriched.map(j => j.id));
     setCustomPdfUrl(newGazette.pdfUrl);
     setInputMode('preloaded');
-    setManualSuccessMsg(`Successfully registered "${newGazette.title}" to PDF Parser!`);
-    setTimeout(() => setManualSuccessMsg(null), 5000);
-
-    // Reset form
-    setManualTitle('');
-    setManualOrg('');
-    setManualUrl('');
-    setManualIssueNo('');
-    setManualDeadline('');
+    setManualSuccessMsg(`Registered "${newGazette.title}"! All job openings extracted automatically.`);
+    setTimeout(() => setManualSuccessMsg(null), 4000);
   };
 
-  // Quick save from direct URL tab
+  // Quick save direct URL as gazette
   const handleSaveDirectUrlAsGazette = () => {
-    if (!customPdfUrl.trim()) return;
-    const domain = new URL(customPdfUrl.startsWith('http') ? customPdfUrl : 'https://' + customPdfUrl).hostname;
+    if (!customPdfUrl.trim()) {
+      alert('Please enter a URL first');
+      return;
+    }
+    let domain = 'Govt Portal';
+    try {
+      domain = new URL(customPdfUrl.startsWith('http') ? customPdfUrl : 'https://' + customPdfUrl).hostname;
+    } catch {
+      domain = 'Govt Portal';
+    }
+
     const newGazette = generateGazetteFromManualInput({
-      title: `Consolidated Gazette from ${domain}`,
-      organization: domain.includes('fpsc') ? 'FPSC' : domain.includes('ppsc') ? 'PPSC' : domain.includes('kppsc') ? 'KPPSC' : domain.includes('spsc') ? 'SPSC' : domain.includes('wapda') ? 'WAPDA' : domain,
-      pdfUrl: customPdfUrl.trim()
+      title: `Consolidated Recruitment Advertisement (${domain})`,
+      organization: domain.toUpperCase(),
+      pdfUrl: customPdfUrl.trim(),
+      gazetteIssueNumber: `Advt. ${new Date().getFullYear()}`,
+      closingDeadline: '30 Days from Publication',
+      totalPages: 4
     });
 
     if (onAddGazette) {
@@ -177,44 +352,59 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     }
 
     setSelectedGazetteId(newGazette.id);
-    setExtractedVacancies(newGazette.extractedVacancies);
-    setSelectedJobIds(newGazette.extractedVacancies.map(j => j.id));
+    setSelectedGazetteIdsForBulk(prev => [...prev, newGazette.id]);
+
+    const enriched = (newGazette.extractedVacancies || []).map(job => {
+      const dup = checkJobDuplicate(job, existingJobs);
+      return {
+        ...job,
+        extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+        isDuplicate: dup.isDuplicate,
+        duplicateScore: dup.duplicateScore,
+        duplicateOfJobTitle: dup.matchedJob?.title,
+        duplicateOfJobId: dup.matchedJob?.id
+      };
+    });
+
+    setExtractedVacancies(enriched);
+    setSelectedJobIds(enriched.map(j => j.id));
     setInputMode('preloaded');
-    setManualSuccessMsg(`URL saved as new Gazette: "${newGazette.title}"`);
-    setTimeout(() => setManualSuccessMsg(null), 5000);
+    setManualSuccessMsg(`Saved "${domain}" into your Gazette Library.`);
+    setTimeout(() => setManualSuccessMsg(null), 4000);
   };
 
-  // Run simulated extraction pipeline using pdfplumber/PyPDF2 logic
+  // Run Single Gazette Extraction Process
   const handleRunPdfExtraction = () => {
     setIsParsing(true);
     setParseProgress(10);
     setImportedSuccessfully(false);
-    const targetSourceUrl = inputMode === 'preloaded' ? activeGazette?.pdfUrl : customPdfUrl;
-    const targetTitle = inputMode === 'preloaded' ? activeGazette?.title : `URL Stream (${customPdfUrl})`;
+    
+    const targetTitle = inputMode === 'upload' && uploadedFileName 
+      ? uploadedFileName 
+      : (inputMode === 'url' ? customPdfUrl : activeGazette?.title || 'Consolidated PDF Gazette');
 
     setParseLogs([
-      `[00:00.1] [HTTP Fetcher] Connecting to PDF stream: ${targetSourceUrl}`,
-      `[00:00.3] [Stream Validator] PDF header valid (%PDF-1.7, ${inputMode === 'upload' ? 'Uploaded Local File' : (activeGazette?.fileSizeFormatted || '2.4 MB')})`
+      `[00:00.1] Reading PDF advertisement: "${targetTitle}"...`,
+      `[00:00.3] Checking multi-column tables, provincial quotas, and scale information...`
     ]);
 
     setTimeout(() => {
-      setParseProgress(35);
+      setParseProgress(45);
       setParseLogs(prev => [
         ...prev,
-        `[00:00.8] [Engine: ${parserEngine}] Spawning Python worker thread. Loading PDF layout coordinate trees...`,
-        `[00:01.2] [pdfplumber] Extracted ${activeGazette?.totalPages || 4} pages with multi-column table preservation`
+        `[00:00.8] Reading pages and preserving position titles & pay scales...`,
+        `[00:01.2] Found official government departments, domicile quotas, and application deadlines.`
       ]);
-    }, 600);
+    }, 500);
 
     setTimeout(() => {
-      setParseProgress(70);
+      setParseProgress(80);
       setParseLogs(prev => [
         ...prev,
-        `[00:01.6] [Regex Case Engine] Splitting text blocks on Case delimiters: r'(?:Case\\s*No\\.|CASE\\s*NO|Sr\\.\\s*No|Case\\s*Ref)'`,
-        `[00:01.9] [Entity Extractor] Detected ${activeGazette?.extractedVacancies?.length || 2} distinct BPS positions with Domicile Quota matrices`,
-        `[00:02.1] [Challan Fee Engine] Parsed treasury challan fee tiers (Rs. 300 to Rs. 1,200)`
+        `[00:01.6] Extracting vacancy details, age relaxation rules, and fee challans...`,
+        `[00:01.9] Done! Cross-referencing duplicate status with active live jobs database...`
       ]);
-    }, 1300);
+    }, 1100);
 
     setTimeout(() => {
       setParseProgress(100);
@@ -230,16 +420,95 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
         loadedVacancies = generated.extractedVacancies;
       }
 
-      setExtractedVacancies(loadedVacancies);
-      setSelectedJobIds(loadedVacancies.map(j => j.id));
+      // Enrich with duplicate detection & source typing
+      const enriched = loadedVacancies.map(job => {
+        const dup = checkJobDuplicate(job, existingJobs);
+        return {
+          ...job,
+          extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+          isDuplicate: dup.isDuplicate,
+          duplicateScore: dup.duplicateScore,
+          duplicateOfJobTitle: dup.matchedJob?.title,
+          duplicateOfJobId: dup.matchedJob?.id
+        };
+      });
+
+      setExtractedVacancies(enriched);
+      setSelectedJobIds(enriched.map(j => j.id));
       setParseLogs(prev => [
         ...prev,
-        `[00:02.4] [Extraction Complete] Successfully parsed ${loadedVacancies.length} vacancies from "${targetTitle}" ready for ingestion!`
+        `[00:02.3] Extracted ${enriched.length} job openings successfully! (${enriched.filter(j => j.isDuplicate).length} duplicates flagged)`
       ]);
-    }, 2000);
+    }, 1600);
   };
 
-  // Toggle selection
+  // Run BULK Multi-PDF Scraping Process across all selected gazettes
+  const handleRunBulkScraping = () => {
+    if (selectedGazetteIdsForBulk.length === 0) {
+      alert('Please select at least 1 PDF Gazette / portal to scrape.');
+      return;
+    }
+
+    setIsBulkParsing(true);
+    setParseProgress(5);
+    setImportedSuccessfully(false);
+
+    const targetGazettes = currentGazettes.filter(g => selectedGazetteIdsForBulk.includes(g.id));
+    setParseLogs([
+      `[00:00.1] Starting Bulk Batch Scraper for ${targetGazettes.length} selected portals...`,
+      `[00:00.3] Queueing: ${targetGazettes.map(g => g.organization).join(', ')}...`
+    ]);
+
+    let step = 0;
+    const totalSteps = targetGazettes.length;
+
+    const interval = setInterval(() => {
+      step++;
+      const currentG = targetGazettes[step - 1];
+      const percent = Math.min(95, Math.round((step / totalSteps) * 90));
+      setParseProgress(percent);
+
+      if (currentG) {
+        setParseLogs(prev => [
+          ...prev,
+          `[00:0${step}.${step * 2}] [${step}/${totalSteps}] Processing "${currentG.organization}" (${currentG.pdfFileName})... Extracted ${currentG.extractedVacancies?.length || 4} vacancies.`
+        ]);
+      }
+
+      if (step >= totalSteps) {
+        clearInterval(interval);
+        setTimeout(() => {
+          setParseProgress(100);
+          setIsBulkParsing(false);
+
+          // Aggregate all vacancies
+          const allAggregatedJobs: Job[] = [];
+          targetGazettes.forEach((g) => {
+            (g.extractedVacancies || []).forEach((job) => {
+              const dup = checkJobDuplicate(job, existingJobs);
+              allAggregatedJobs.push({
+                ...job,
+                extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+                isDuplicate: dup.isDuplicate,
+                duplicateScore: dup.duplicateScore,
+                duplicateOfJobTitle: dup.matchedJob?.title,
+                duplicateOfJobId: dup.matchedJob?.id
+              });
+            });
+          });
+
+          setExtractedVacancies(allAggregatedJobs);
+          setSelectedJobIds(allAggregatedJobs.map(j => j.id));
+          setParseLogs(prev => [
+            ...prev,
+            `[00:03.4] Bulk Batch Finished! Total ${allAggregatedJobs.length} vacancies consolidated across ${targetGazettes.length} sources.`
+          ]);
+        }, 500);
+      }
+    }, 400);
+  };
+
+  // Toggle Job Selection
   const handleToggleSelectJob = (id: string) => {
     setSelectedJobIds(prev => 
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
@@ -254,11 +523,71 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     }
   };
 
-  // Perform Batch Ingestion into Live Jobs or Pending Queue with Audit History
+  // Deselect All Flagged Duplicates
+  const handleDeselectAllDuplicates = () => {
+    const nonDuplicateIds = extractedVacancies.filter(j => !j.isDuplicate).map(j => j.id);
+    setSelectedJobIds(nonDuplicateIds);
+  };
+
+  // Mark Duplicate as Approved Override
+  const handleToggleDuplicateOverride = (jobId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExtractedVacancies(prev => prev.map(j => {
+      if (j.id === jobId) {
+        const nextOverride = !j.isDuplicateOverride;
+        return {
+          ...j,
+          isDuplicateOverride: nextOverride,
+          duplicateOverrideNote: nextOverride ? 'Approved Duplicate / Re-announced Vacancy' : undefined
+        };
+      }
+      return j;
+    }));
+  };
+
+  // Mark All Duplicates as Approved Override
+  const handleApproveAllDuplicatesWithOverride = () => {
+    setExtractedVacancies(prev => prev.map(j => {
+      if (j.isDuplicate) {
+        return {
+          ...j,
+          isDuplicateOverride: true,
+          duplicateOverrideNote: 'Approved Duplicate / Re-announced Vacancy'
+        };
+      }
+      return j;
+    }));
+    // Also ensure they are selected
+    setSelectedJobIds(extractedVacancies.map(j => j.id));
+  };
+
+  // Filtered Vacancies for display
+  const displayedVacancies = useMemo(() => {
+    return extractedVacancies.filter(job => {
+      if (vacancyFilter === 'pdf_only' && job.extractionSourceType !== 'pdf_gazette' && !job.isPdfScraped) return false;
+      if (vacancyFilter === 'web_only' && (job.extractionSourceType === 'pdf_gazette' || job.isPdfScraped)) return false;
+      if (vacancyFilter === 'duplicates_only' && !job.isDuplicate) return false;
+      if (vacancyFilter === 'unique_only' && job.isDuplicate) return false;
+      return true;
+    });
+  }, [extractedVacancies, vacancyFilter]);
+
+  // Statistics
+  const stats = useMemo(() => {
+    const total = extractedVacancies.length;
+    const pdfCount = extractedVacancies.filter(j => j.extractionSourceType === 'pdf_gazette' || j.isPdfScraped).length;
+    const webCount = extractedVacancies.filter(j => j.extractionSourceType === 'web_html' || (!j.isPdfScraped && !j.pdfCaseNumber)).length;
+    const duplicateCount = extractedVacancies.filter(j => j.isDuplicate).length;
+    const uniqueCount = total - duplicateCount;
+    const overrideCount = extractedVacancies.filter(j => j.isDuplicateOverride).length;
+    return { total, pdfCount, webCount, duplicateCount, uniqueCount, overrideCount };
+  }, [extractedVacancies]);
+
+  // Perform Ingestion into Live Jobs or Pending Queue
   const handleIngest = (autoApprove: boolean) => {
     const jobsToImport = extractedVacancies.filter(j => selectedJobIds.includes(j.id));
     if (jobsToImport.length === 0) {
-      alert('Please select at least 1 extracted vacancy to ingest.');
+      alert('Please select at least 1 job opening to publish or save.');
       return;
     }
 
@@ -279,20 +608,20 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       scrapedTimezone: 'PKT (UTC+5)',
       sourcePortalName: activeGazette.organization,
       sourceUrl: activeGazette.pdfUrl,
-      sourceDomain: activeGazette.organization.includes('FPSC') ? 'fpsc.gov.pk' : 'wapda.gov.pk',
+      sourceDomain: activeGazette.organization.includes('FPSC') ? 'fpsc.gov.pk' : (activeGazette.organization.includes('WAPDA') ? 'wapda.gov.pk' : 'jobs.gov.pk'),
       category: 'Government Sector',
       region: 'Pakistan',
       currency: 'PKR',
       salaryText: job.salary,
       status: autoApprove ? 'Auto-Approved' : 'Pending Review',
-      deduplicationScore: 99.1,
+      deduplicationScore: job.isDuplicate ? (100 - (job.duplicateScore || 90)) : 99.1,
       crawlLatencyMs: 420,
       extractedTags: job.tags || [],
       requirementsCount: job.requirements?.length || 0,
       isGovtJob: true,
       govtScale: job.govtScale,
       govtDepartment: job.govtDepartment,
-      isPdfScraped: true,
+      isPdfScraped: job.isPdfScraped ?? true,
       pdfFileName: activeGazette.pdfFileName,
       pdfCaseNumber: job.pdfCaseNumber,
       pdfTotalVacanciesInCase: job.pdfTotalVacanciesInCase,
@@ -300,31 +629,45 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       challanFee: job.challanFee,
       ageRelaxationNote: job.ageRelaxationNote,
       pdfParserEngine: parserEngine.includes('pdfplumber') ? 'pdfplumber' : 'PyPDF2',
+      extractionSourceType: job.extractionSourceType || 'pdf_gazette',
+      isDuplicate: job.isDuplicate,
+      duplicateOfJobTitle: job.duplicateOfJobTitle,
+      duplicateOfJobId: job.duplicateOfJobId,
+      isDuplicateOverride: job.isDuplicateOverride,
+      duplicateOverrideNote: job.duplicateOverrideNote,
       reviewTimeline: [
         {
           id: 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
           timestamp,
           relativeTime: 'Just now',
           action: 'Scraped',
-          performedBy: 'Cron Scraper Engine',
-          notes: `Parsed from consolidated PDF gazette (${activeGazette.pdfFileName}) via ${parserEngine}.`
+          performedBy: 'PDF Parser Engine',
+          notes: `Parsed from official PDF advertisement (${activeGazette.pdfFileName}). Source: ${job.extractionSourceType === 'pdf_gazette' ? 'PDF Gazette' : 'Direct Web Post'}.`
         },
+        job.isDuplicateOverride ? {
+          id: 'act-' + Date.now() + '-dup-override',
+          timestamp,
+          relativeTime: 'Just now',
+          action: 'Duplicate Flagged',
+          performedBy: 'Deduplication Guard',
+          notes: `Flagged as Duplicate (${job.duplicateScore}% match with "${job.duplicateOfJobTitle}"), approved with Admin Override as Re-advertised Vacancy.`
+        } : (null as any),
         autoApprove ? {
           id: 'act-' + Date.now() + '-app',
           timestamp,
           relativeTime: 'Just now',
           action: 'Auto-Approved',
-          performedBy: 'Cron Scraper Engine',
-          notes: 'Auto-Approve rule applied. Ingested directly into Live Job Listings.'
+          performedBy: 'Admin Fast Publish',
+          notes: 'Published directly to Live Job Board.'
         } : {
           id: 'act-' + Date.now() + '-pend',
           timestamp,
           relativeTime: 'Just now',
-          action: 'Re-queued',
-          performedBy: 'System Deduplicator',
-          notes: 'Queued into Admin Pending Review table for verification.'
+          action: 'Queued',
+          performedBy: 'Admin Staging',
+          notes: 'Saved into Admin Review list for checking before publishing.'
         }
-      ],
+      ].filter(Boolean),
       snapshot: {
         description: job.description,
         requirements: job.requirements,
@@ -338,7 +681,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       startTime: timestamp,
       endTime: new Date(Date.now() + 2100).toISOString().replace('T', ' ').substring(0, 19),
       sourceId: activeGazette.id,
-      sourceName: `${activeGazette.organization} (PDF Gazette)`,
+      sourceName: `${activeGazette.organization} (PDF Gazette & Web)`,
       sourceUrl: activeGazette.pdfUrl,
       region: 'Pakistan',
       category: 'Government Sector',
@@ -346,7 +689,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       totalExtracted: jobsToImport.length,
       approvedCount: autoApprove ? jobsToImport.length : 0,
       pendingCount: autoApprove ? 0 : jobsToImport.length,
-      duplicatesSkipped: 0,
+      duplicatesSkipped: stats.duplicateCount - stats.overrideCount,
       rejectionCount: 0,
       executionDurationMs: 2100,
       httpStatusCode: 200,
@@ -432,51 +775,113 @@ if __name__ == "__main__":
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-6xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden">
         
         {/* MODAL HEADER */}
-        <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="p-4 sm:p-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
           <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/30 to-amber-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0">
               <FileSpreadsheet className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <h2 className="text-xl font-black text-white">FPSC & WAPDA Consolidated PDF Scraper Engine</h2>
+              <div className="flex items-center space-x-2 flex-wrap">
+                <h2 className="text-lg sm:text-xl font-black text-white">Consolidated PDF & Hybrid Scraper Engine</h2>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  pdfplumber + PyPDF2
+                  Bulk Batch Mode
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  Multi-Vacancy Split
+                  Auto Duplicate Guard
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                  {currentGazettes.length} Portals
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Parse consolidated recruitment advertisements where multiple gazetted case numbers are packed inside a single official PDF file.
+                Batch-scrape multiple gazettes at once, extract both PDF and Web postings, and automatically flag duplicates against live database.
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setShowHelperGuide(!showHelperGuide)}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center space-x-1.5 cursor-pointer border border-slate-700"
+              title="How to use this tool"
+            >
+              <HelpCircle className="w-4 h-4 text-amber-400" />
+              <span className="hidden sm:inline">How It Works</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {/* 3-STEP VISUAL PROGRESS BAR */}
+        <div className="px-6 py-2.5 bg-slate-950/80 border-b border-slate-800 grid grid-cols-3 gap-2 text-xs">
+          <div className="flex items-center space-x-2 bg-indigo-950/40 border border-indigo-500/30 p-2 rounded-xl text-indigo-300 font-bold">
+            <span className="w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">1</span>
+            <span className="truncate">Select Single or Bulk PDFs</span>
+          </div>
+          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 p-2 rounded-xl text-slate-300 font-bold">
+            <span className="w-5 h-5 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center text-[10px] font-black shrink-0">2</span>
+            <span className="truncate">Hybrid Extraction & Dup-Check</span>
+          </div>
+          <div className="flex items-center space-x-2 bg-emerald-950/40 border border-emerald-500/30 p-2 rounded-xl text-emerald-300 font-bold">
+            <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center text-[10px] font-black shrink-0">3</span>
+            <span className="truncate">Publish / Override & Post</span>
+          </div>
+        </div>
+
+        {/* HELPER GUIDE ACCORDION */}
+        {showHelperGuide && (
+          <div className="mx-6 mt-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-200 space-y-2 animate-in fade-in">
+            <div className="flex items-center justify-between">
+              <strong className="text-amber-300 font-black text-sm flex items-center space-x-1.5">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Bulk PDF Scraping & Duplicate Guard Instructions:</span>
+              </strong>
+              <button
+                onClick={() => setShowHelperGuide(false)}
+                className="text-amber-400 hover:text-white text-xs cursor-pointer"
+              >
+                Close Guide ✕
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-slate-300">
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-amber-400 font-black block mb-1">1. Bulk PDF Selection:</span>
+                <p className="text-[11px] text-slate-400">Select multiple PDF gazettes using checkboxes or click "Select All" to harvest dozens of newspapers/sites in one click.</p>
+              </div>
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-indigo-400 font-black block mb-1">2. Hybrid Extraction:</span>
+                <p className="text-[11px] text-slate-400">Extracts both PDF gazette vacancy blocks (BPS scales, quota, challan fee) and direct web HTML postings with clear source tags.</p>
+              </div>
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-emerald-400 font-black block mb-1">3. Duplicate Auto-Check:</span>
+                <p className="text-[11px] text-slate-400">Compares against active jobs. If a duplicate is found, choose to exclude it or approve with "Duplicate Override (Re-advertised)".</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* NAVIGATION TABS */}
         <div className="px-6 py-2 border-b border-slate-800 bg-slate-950/40 flex items-center space-x-2 overflow-x-auto text-xs font-bold">
           <button
-            onClick={() => setActiveTab('parser')}
+            onClick={() => setActiveTab('easy-extractor')}
             className={`px-4 py-2 rounded-xl transition-all flex items-center space-x-2 cursor-pointer ${
-              activeTab === 'parser'
+              activeTab === 'easy-extractor'
                 ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Interactive PDF Parser & Ingestor</span>
+            <span>🚀 Easy Scraper & Bulk Parser (Active)</span>
           </button>
 
           <button
@@ -488,7 +893,7 @@ if __name__ == "__main__":
             }`}
           >
             <Code className="w-3.5 h-3.5" />
-            <span>Python Scraper Code (`pdfplumber` & `PyPDF2`)</span>
+            <span>💻 Python Script Code (`pdfplumber`)</span>
           </button>
 
           <button
@@ -500,27 +905,27 @@ if __name__ == "__main__":
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span>Raw PDF Gazette Stream & Regex Matcher</span>
+            <span>📄 Raw Document Text Stream</span>
           </button>
         </div>
 
         {/* MODAL BODY */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
           
-          {/* TAB 1: PARSER & BATCH INGESTOR */}
-          {activeTab === 'parser' && (
+          {/* TAB 1: EASY EXTRACTOR */}
+          {activeTab === 'easy-extractor' && (
             <div className="space-y-6">
               
-              {/* INPUT CONTROLLER SECTION */}
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4">
+              {/* STEP 1: CHOOSE SOURCE SECTION */}
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
                     <h3 className="text-sm font-black uppercase text-white flex items-center space-x-2">
-                      <FileText className="w-4 h-4 text-indigo-400" />
-                      <span>Select Consolidated PDF Advertisement</span>
+                      <span className="w-5 h-5 rounded-full bg-indigo-500 text-white text-[11px] font-black flex items-center justify-center">1</span>
+                      <span>Target PDF Sources & Bulk Multi-Select Engine</span>
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Choose an official Pakistani Federal / Provincial Gazette or input an external PDF URL.
+                      Select individual or multiple gazettes to scrape simultaneously in a unified batch run.
                     </p>
                   </div>
 
@@ -532,7 +937,7 @@ if __name__ == "__main__":
                       }`}
                     >
                       <Building2 className="w-3.5 h-3.5" />
-                      <span>Gazette Library ({currentGazettes.length})</span>
+                      <span>Official Portals ({currentGazettes.length})</span>
                     </button>
                     <button
                       onClick={() => setInputMode('add-manual')}
@@ -541,7 +946,7 @@ if __name__ == "__main__":
                       }`}
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>+ Add Manual Site / PDF</span>
+                      <span>+ Add New Source</span>
                     </button>
                     <button
                       onClick={() => setInputMode('url')}
@@ -550,7 +955,7 @@ if __name__ == "__main__":
                       }`}
                     >
                       <Globe className="w-3.5 h-3.5" />
-                      <span>PDF Direct URL</span>
+                      <span>Paste Direct PDF Link</span>
                     </button>
                     <button
                       onClick={() => setInputMode('upload')}
@@ -559,7 +964,7 @@ if __name__ == "__main__":
                       }`}
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      <span>Upload .PDF</span>
+                      <span>Upload Local PDF</span>
                     </button>
                   </div>
                 </div>
@@ -572,120 +977,114 @@ if __name__ == "__main__":
                   </div>
                 )}
 
-                {/* INPUT CONFIGURATION: PRELOADED GAZETTE LIST */}
+                {/* INPUT CONFIGURATION: PRELOADED GAZETTE LIST WITH BULK CHECKBOXES */}
                 {inputMode === 'preloaded' && (
                   <div className="space-y-3">
-                    {/* QUICK OFFICIAL PORTALS CHIPS */}
-                    <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-300 flex items-center space-x-1.5">
-                          <Globe className="w-3.5 h-3.5 text-rose-400" />
-                          <span>13 Official Portals & Testing Services Quick Filter:</span>
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-mono">Select to switch source</span>
+                    
+                    {/* QUICK SEARCH & REGION FILTERS */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          value={portalSearch}
+                          onChange={(e) => setPortalSearch(e.target.value)}
+                          placeholder="Search FPSC, WAPDA, PPSC, Railways, NJP, MES, Health..."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 outline-none"
+                        />
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {OFFICIAL_GOVT_SCRAPER_PORTALS.map(portal => {
-                          const matchedGazette = currentGazettes.find(g => 
-                            g.organization.toLowerCase().includes(portal.shortName.toLowerCase()) ||
-                            g.title.toLowerCase().includes(portal.shortName.toLowerCase()) ||
-                            g.pdfUrl.toLowerCase() === (portal.pdfUrl || portal.portalUrl).toLowerCase()
-                          );
-                          const isCurrent = matchedGazette && selectedGazetteId === matchedGazette.id;
-                          return (
-                            <button
-                              key={portal.id}
-                              type="button"
-                              onClick={() => {
-                                if (matchedGazette) {
-                                  handleSelectGazette(matchedGazette.id);
-                                } else {
-                                  // Create and select
-                                  const newG = generateGazetteFromManualInput({
-                                    title: `${portal.name} Consolidated Advt 2026`,
-                                    organization: portal.organization,
-                                    pdfUrl: portal.pdfUrl || portal.portalUrl,
-                                    gazetteIssueNumber: portal.sampleAdvtNo,
-                                    closingDeadline: portal.defaultDeadline
-                                  });
-                                  if (onAddGazette) onAddGazette(newG);
-                                  setSelectedGazetteId(newG.id);
-                                  setExtractedVacancies(newG.extractedVacancies);
-                                  setSelectedJobIds(newG.extractedVacancies.map(j => j.id));
-                                  setCustomPdfUrl(newG.pdfUrl);
-                                }
-                              }}
-                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center space-x-1 border ${
-                                isCurrent
-                                  ? 'bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-500/20'
-                                  : 'bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800'
-                              }`}
-                            >
-                              <span>{portal.shortName}</span>
-                            </button>
-                          );
-                        })}
+
+                      <div className="flex items-center space-x-1 overflow-x-auto pb-1 text-xs">
+                        {(['all', 'federal', 'punjab', 'sindh', 'kpk', 'balochistan', 'defense', 'railways', 'health'] as const).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setPortalRegionFilter(r)}
+                            className={`px-2.5 py-1 rounded-lg font-bold text-[11px] capitalize cursor-pointer transition-all whitespace-nowrap ${
+                              portalRegionFilter === r 
+                                ? 'bg-indigo-500 text-white' 
+                                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                            }`}
+                          >
+                            {r}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
+                    {/* BULK MULTI-SELECTION CONTROL BAR */}
+                    <div className="p-3 bg-slate-900/90 rounded-2xl border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="flex items-center space-x-3">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllBulkGazettes}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer flex items-center space-x-1.5"
+                        >
+                          {selectedGazetteIdsForBulk.length === currentGazettes.length ? (
+                            <>
+                              <CheckSquare className="w-4 h-4 text-emerald-400" />
+                              <span>Deselect All Portals</span>
+                            </>
+                          ) : (
+                            <>
+                              <Square className="w-4 h-4 text-indigo-400" />
+                              <span>Select All ({currentGazettes.length})</span>
+                            </>
+                          )}
+                        </button>
+
+                        <div className="text-xs text-slate-300">
+                          <span className="font-bold text-amber-400">{selectedGazetteIdsForBulk.length}</span> of <span className="font-bold text-white">{currentGazettes.length}</span> Portals Selected for Bulk Scrape
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleRunBulkScraping}
+                        disabled={isBulkParsing || selectedGazetteIdsForBulk.length === 0}
+                        className="px-4 py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-slate-950 hover:text-white font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer transition-all active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
+                      >
+                        <Sparkles className="w-4 h-4 text-slate-950 animate-spin" />
+                        <span>{isBulkParsing ? 'Bulk Scraping in Progress...' : `⚡ Bulk Scrape All Selected (${selectedGazetteIdsForBulk.length}) Sources`}</span>
+                      </button>
+                    </div>
+
+                    {/* GAZETTE PORTALS GRID WITH INDIVIDUAL CHECKBOXES */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto pr-1">
                       {currentGazettes.map((gazette) => {
-                        const isCustom = gazette.id.startsWith('pdf-gazette-custom');
+                        const isBulkSelected = selectedGazetteIdsForBulk.includes(gazette.id);
+                        const isCurrentActive = selectedGazetteId === gazette.id;
+
                         return (
                           <div
                             key={gazette.id}
                             onClick={() => handleSelectGazette(gazette.id)}
-                            className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between relative group ${
-                              selectedGazetteId === gazette.id
-                                ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/50'
-                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start space-x-2.5 ${
+                              isCurrentActive
+                                ? 'bg-indigo-950/70 border-indigo-500/80 shadow-md ring-1 ring-indigo-500/40'
+                                : 'bg-slate-900/60 hover:bg-slate-900 border-slate-800'
                             }`}
                           >
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-1.5">
-                                  <span className="text-xs font-bold text-indigo-400">{gazette.organization}</span>
-                                  {isCustom && (
-                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                      Custom Added
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-[10px] font-mono bg-slate-800 px-2 py-0.5 rounded text-slate-300">
-                                  {gazette.fileSizeFormatted} • {gazette.totalPages} Pages
-                                </span>
-                              </div>
-                              <h4 className="font-bold text-white text-sm">{gazette.title}</h4>
-                              <p className="text-xs text-slate-400">
-                                Issue: <strong className="text-slate-300">{gazette.gazetteIssueNumber}</strong> • Deadline:{' '}
-                                <span className="text-rose-300">{gazette.closingDeadline}</span>
-                              </p>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleToggleBulkGazette(gazette.id, e)}
+                              className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                                isBulkSelected ? 'bg-amber-500 border-amber-400 text-slate-950' : 'border-slate-700 bg-slate-950'
+                              }`}
+                            >
+                              {isBulkSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                            </button>
 
-                            <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
-                              <span className="text-emerald-400 font-bold">
-                                ✨ {gazette.extractedVacancies.length} Vacancy Cases in this PDF
-                              </span>
-                              
-                              <div className="flex items-center space-x-2">
-                                <span className="text-slate-500 font-mono text-[11px] truncate max-w-[120px]">
-                                  {gazette.pdfFileName}
-                                </span>
-                                {isCustom && onDeleteGazette && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (confirm(`Remove "${gazette.title}" from Gazette library?`)) {
-                                        onDeleteGazette(gazette.id);
-                                      }
-                                    }}
-                                    className="p-1 text-slate-500 hover:text-rose-400 rounded hover:bg-rose-500/10 cursor-pointer"
-                                    title="Delete custom gazette"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-indigo-300 truncate">{gazette.organization}</span>
+                                <span className="text-[9px] font-mono text-slate-400">{gazette.gazetteIssueNumber}</span>
+                              </div>
+                              <h5 className="font-bold text-white text-xs truncate mt-0.5">{gazette.title}</h5>
+                              <div className="flex items-center space-x-2 text-[10px] text-slate-400 mt-1">
+                                <span>{gazette.extractedVacancies?.length || 4} Vacancies</span>
+                                <span>•</span>
+                                <span className="text-rose-300 font-semibold">{gazette.closingDeadline}</span>
                               </div>
                             </div>
                           </div>
@@ -693,16 +1092,35 @@ if __name__ == "__main__":
                       })}
                     </div>
 
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setInputMode('add-manual')}
-                        className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center space-x-1 cursor-pointer bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Another Manual Site / Gazette Source</span>
-                      </button>
+                    {/* CURRENTLY ACTIVE GAZETTE DETAILS */}
+                    <div className="p-4 bg-indigo-950/40 border border-indigo-500/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-indigo-500 text-white">
+                            Active Preview Source
+                          </span>
+                          <span className="text-xs font-bold text-indigo-300">{activeGazette.organization}</span>
+                        </div>
+                        <h4 className="font-black text-white text-sm">{activeGazette.title}</h4>
+                        <p className="text-xs text-slate-400">
+                          Issue No: <strong className="text-slate-300">{activeGazette.gazetteIssueNumber}</strong> • Last Date to Apply:{' '}
+                          <span className="text-rose-300 font-bold">{activeGazette.closingDeadline}</span> • PDF: <code className="text-[11px] text-slate-300 font-mono">{activeGazette.pdfFileName}</code>
+                        </p>
+                      </div>
+
+                      <div className="shrink-0 flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={handleRunPdfExtraction}
+                          disabled={isParsing}
+                          className="px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-black rounded-xl shadow-lg shadow-indigo-500/20 cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                          <span>{isParsing ? 'Parsing Active PDF...' : '⚡ Extract Active PDF'}</span>
+                        </button>
+                      </div>
                     </div>
+
                   </div>
                 )}
 
@@ -713,40 +1131,17 @@ if __name__ == "__main__":
                       <div>
                         <h4 className="text-sm font-black text-amber-300 uppercase flex items-center space-x-1.5">
                           <BookmarkPlus className="w-4 h-4 text-amber-400" />
-                          <span>Register Manual Govt / Gazette Site to PDF Parser</span>
+                          <span>Add Custom Government Website or PDF Advertisement</span>
                         </h4>
                         <p className="text-[11px] text-slate-400">
-                          Register any new government recruitment portal or official PDF URL for automated multi-column table extraction.
+                          Register any new government recruitment portal or direct PDF link. It will automatically extract both PDF and Web postings.
                         </p>
-                      </div>
-                    </div>
-
-                    {/* QUICK PRESETS CHIPS */}
-                    <div className="space-y-1.5">
-                      <span className="text-[11px] font-bold text-slate-400">Quick Portal Presets:</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {OFFICIAL_GOVT_SCRAPER_PORTALS.map((portal) => (
-                          <button
-                            key={portal.id}
-                            type="button"
-                            onClick={() => {
-                              setManualTitle(`${portal.name} Consolidated Advt 2026`);
-                              setManualOrg(portal.organization);
-                              setManualUrl(portal.pdfUrl || portal.portalUrl);
-                              setManualIssueNo(portal.sampleAdvtNo);
-                              setManualDeadline(portal.defaultDeadline);
-                            }}
-                            className="px-2 py-0.5 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white text-[10px] font-bold rounded-lg border border-slate-800 cursor-pointer transition-all"
-                          >
-                            <span>{portal.shortName}</span>
-                          </button>
-                        ))}
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-300">Gazette Title / Notice Name *</label>
+                        <label className="text-xs font-bold text-slate-300">Advertisement Title *</label>
                         <input
                           type="text"
                           required
@@ -758,7 +1153,7 @@ if __name__ == "__main__":
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-300">Commission / Department Name *</label>
+                        <label className="text-xs font-bold text-slate-300">Department / Commission Name *</label>
                         <input
                           type="text"
                           required
@@ -770,7 +1165,7 @@ if __name__ == "__main__":
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-bold text-slate-300">Official PDF URL or Gazette Portal Link *</label>
+                        <label className="text-xs font-bold text-slate-300">PDF Web Link or Portal URL *</label>
                         <input
                           type="url"
                           required
@@ -782,7 +1177,7 @@ if __name__ == "__main__":
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-300">Gazette Issue / Case Reference</label>
+                        <label className="text-xs font-bold text-slate-300">Advertisement Issue / Case Number</label>
                         <input
                           type="text"
                           value={manualIssueNo}
@@ -793,7 +1188,7 @@ if __name__ == "__main__":
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-300">Application Deadline</label>
+                        <label className="text-xs font-bold text-slate-300">Last Date to Apply (Deadline)</label>
                         <input
                           type="text"
                           value={manualDeadline}
@@ -817,7 +1212,7 @@ if __name__ == "__main__":
                         className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-1.5"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
-                        <span>Register to PDF Parser & Select</span>
+                        <span>Save & Add to Scraper Portals</span>
                       </button>
                     </div>
                   </form>
@@ -827,7 +1222,7 @@ if __name__ == "__main__":
                 {inputMode === 'url' && (
                   <div className="space-y-3">
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-300">Enter PDF Gazette URL</label>
+                      <label className="text-xs font-bold text-slate-300">Paste Official PDF Web Link</label>
                       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         <input
                           type="url"
@@ -842,11 +1237,11 @@ if __name__ == "__main__":
                           className="px-3.5 py-2 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 cursor-pointer whitespace-nowrap"
                         >
                           <BookmarkPlus className="w-3.5 h-3.5" />
-                          <span>Save as Gazette Source</span>
+                          <span>Save Source</span>
                         </button>
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        Compatible with official PDF links from fpsc.gov.pk, wapda.gov.pk, ppsc.gop.pk, spsc.gos.pk, kppsc.gov.pk, bpsc.gob.pk, nts.org.pk
+                        Supports all official government PDF files and direct recruitment announcements.
                       </p>
                     </div>
                   </div>
@@ -859,9 +1254,9 @@ if __name__ == "__main__":
                     </div>
                     <div>
                       <p className="text-sm font-bold text-white">
-                        {uploadedFileName ? uploadedFileName : 'Drag & Drop your Consolidated Advertisement PDF'}
+                        {uploadedFileName ? uploadedFileName : 'Drag & Drop your Official Advertisement PDF'}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">Supports multi-page official gazette PDFs up to 50 MB</p>
+                      <p className="text-xs text-slate-400 mt-1">Supports all official advertisement PDFs up to 50 MB</p>
                     </div>
                     <label className="inline-block px-4 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer">
                       Browse Computer Files
@@ -879,53 +1274,31 @@ if __name__ == "__main__":
                   </div>
                 )}
 
-                {/* PARSER ENGINE SETTINGS & EXECUTION BAR */}
-                <div className="pt-3 border-t border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="flex items-center space-x-3 text-xs">
-                    <span className="text-slate-400 font-bold">Python Engine:</span>
-                    <select
-                      value={parserEngine}
-                      onChange={(e: any) => setParserEngine(e.target.value)}
-                      className="bg-slate-900 border border-slate-800 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                      <option value="pdfplumber">pdfplumber (Visual Layout & Table Parser - Recommended)</option>
-                      <option value="PyPDF2">PyPDF2 (Linear Text Stream Extractor)</option>
-                      <option value="pdfplumber + Regex AI Entity Recognizer">pdfplumber + Regex AI Entity Recognizer</option>
-                    </select>
-                  </div>
-
-                  <button
-                    onClick={handleRunPdfExtraction}
-                    disabled={isParsing}
-                    className="w-full md:w-auto px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black text-xs rounded-xl flex items-center justify-center space-x-2 shadow-xl shadow-indigo-500/20 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                    <span>{isParsing ? 'Parsing Gazette PDF...' : `Parse & Extract Vacancies (${parserEngine.includes('pdfplumber') ? 'pdfplumber' : 'PyPDF2'})`}</span>
-                  </button>
-                </div>
-
                 {/* PARSE PROGRESS INDICATOR */}
-                {isParsing && (
+                {(isParsing || isBulkParsing) && (
                   <div className="space-y-2 pt-2">
                     <div className="flex justify-between text-xs font-bold">
-                      <span className="text-indigo-400">Processing PDF Coordinates & Table Blocks...</span>
-                      <span className="text-slate-400">{parseProgress}%</span>
+                      <span className="text-indigo-400 flex items-center space-x-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                        <span>{isBulkParsing ? 'Bulk Scraping all selected PDF Gazettes...' : 'Reading PDF and checking duplicate status...'}</span>
+                      </span>
+                      <span className="text-amber-400 font-mono">{parseProgress}%</span>
                     </div>
                     <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
                       <div
-                        className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-2 transition-all duration-300"
+                        className="bg-gradient-to-r from-amber-500 via-indigo-500 to-emerald-500 h-2 transition-all duration-300"
                         style={{ width: `${parseProgress}%` }}
                       />
                     </div>
                   </div>
                 )}
 
-                {/* EXECUTION LOGS TRACE */}
+                {/* FRIENDLY STATUS LOGS */}
                 {parseLogs.length > 0 && (
                   <div className="bg-slate-950 p-3 rounded-xl border border-slate-900 font-mono text-[11px] space-y-1 text-slate-300 max-h-28 overflow-y-auto">
                     {parseLogs.map((log, idx) => (
                       <div key={idx} className="flex items-start space-x-2">
-                        <span className="text-indigo-500 select-none">&gt;</span>
+                        <span className="text-emerald-400 select-none">✓</span>
                         <span>{log}</span>
                       </div>
                     ))}
@@ -933,45 +1306,134 @@ if __name__ == "__main__":
                 )}
               </div>
 
-              {/* EXTRACTED VACANCIES CARDS GRID */}
+              {/* STEP 3: EXTRACTED VACANCIES & PUBLISH ACTIONS */}
               <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-950/80 p-4 rounded-2xl border border-slate-800">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h3 className="text-base font-black text-white">Extracted Vacancies from PDF</h3>
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        {extractedVacancies.length} Discrete Posts Discovered
-                      </span>
+                
+                {/* TOOLBAR WITH FILTERS AND DUPLICATE CONTROLS */}
+                <div className="bg-slate-950/90 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 text-[11px] font-black flex items-center justify-center">3</span>
+                        <h3 className="text-base font-black text-white">Extracted Vacancies Queue ({extractedVacancies.length})</h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          {selectedJobIds.length} Selected
+                        </span>
+                        {stats.duplicateCount > 0 && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center space-x-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-400" />
+                            <span>{stats.duplicateCount} Duplicates Auto-Flagged</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Review vacancies, verify source origins (PDF vs Web HTML), and resolve duplicate warnings.
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Each post was automatically segmented from {activeGazette.pdfFileName} with scale and quota breakdown.
-                    </p>
+
+                    {/* BATCH PUBLISH / SAVE BUTTONS */}
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                      <button
+                        onClick={() => handleIngest(true)}
+                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer transition-all active:scale-95"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>🚀 Direct Publish ({selectedJobIds.length}) to Live Board</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleIngest(false)}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-amber-500/20 cursor-pointer transition-all active:scale-95"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>🛡️ Save ({selectedJobIds.length}) for Admin Review</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* BATCH ACTION CONTROLS */}
-                  <div className="flex items-center space-x-2 flex-wrap gap-y-2">
-                    <button
-                      onClick={handleToggleSelectAll}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer"
-                    >
-                      {selectedJobIds.length === extractedVacancies.length ? 'Deselect All' : `Select All (${extractedVacancies.length})`}
-                    </button>
+                  {/* SUB-FILTER PILLS: SOURCE ORIGIN & DUPLICATE STATUS */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <button
+                        onClick={() => setVacancyFilter('all')}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                          vacancyFilter === 'all' ? 'bg-indigo-500 text-white' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        All Vacancies ({stats.total})
+                      </button>
 
-                    <button
-                      onClick={() => handleIngest(true)}
-                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Direct Publish Selected ({selectedJobIds.length}) to Live Board</span>
-                    </button>
+                      <button
+                        onClick={() => setVacancyFilter('pdf_only')}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center space-x-1 ${
+                          vacancyFilter === 'pdf_only' ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-indigo-300 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        <FileText className="w-3 h-3 text-indigo-400" />
+                        <span>📄 PDF Gazette Ads ({stats.pdfCount})</span>
+                      </button>
 
-                    <button
-                      onClick={() => handleIngest(false)}
-                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-amber-500/20 cursor-pointer"
-                    >
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>Queue Selected ({selectedJobIds.length}) for Admin Review</span>
-                    </button>
+                      <button
+                        onClick={() => setVacancyFilter('web_only')}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center space-x-1 ${
+                          vacancyFilter === 'web_only' ? 'bg-teal-600 text-slate-950 font-black' : 'bg-slate-900 text-teal-300 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        <Globe className="w-3 h-3 text-teal-400" />
+                        <span>🌐 Web HTML Postings ({stats.webCount})</span>
+                      </button>
+
+                      <button
+                        onClick={() => setVacancyFilter('duplicates_only')}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center space-x-1 ${
+                          vacancyFilter === 'duplicates_only' ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-900 text-amber-300 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3 h-3 text-amber-400" />
+                        <span>⚠️ Duplicates Flagged ({stats.duplicateCount})</span>
+                      </button>
+
+                      <button
+                        onClick={() => setVacancyFilter('unique_only')}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center space-x-1 ${
+                          vacancyFilter === 'unique_only' ? 'bg-emerald-600 text-white font-black' : 'bg-slate-900 text-emerald-300 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        <span>✨ New Unique Only ({stats.uniqueCount})</span>
+                      </button>
+                    </div>
+
+                    {/* DUPLICATE BULK ACTIONS */}
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={handleToggleSelectAll}
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 cursor-pointer"
+                      >
+                        {selectedJobIds.length === extractedVacancies.length ? 'Deselect All' : 'Select All'}
+                      </button>
+
+                      {stats.duplicateCount > 0 && (
+                        <>
+                          <button
+                            onClick={handleDeselectAllDuplicates}
+                            className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-bold rounded-lg border border-amber-500/40 cursor-pointer flex items-center space-x-1"
+                            title="Deselect duplicate postings so they won't be imported"
+                          >
+                            <span>Deselect Duplicates</span>
+                          </button>
+
+                          <button
+                            onClick={handleApproveAllDuplicatesWithOverride}
+                            className="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-xs font-bold rounded-lg border border-indigo-500/40 cursor-pointer flex items-center space-x-1"
+                            title="Mark all duplicate vacancies as Approved Re-advertised Posts"
+                          >
+                            <FileCheck className="w-3 h-3 text-indigo-400" />
+                            <span>Override All Duplicates</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -980,98 +1442,159 @@ if __name__ == "__main__":
                     <div className="flex items-center space-x-2">
                       <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                       <div>
-                        <strong className="text-white text-sm">Vacancies Ingested Successfully!</strong>
-                        <p className="text-emerald-200">The selected PDF positions have been integrated into your portal and logged into the Scraped Job Audit Ledger.</p>
+                        <strong className="text-white text-sm">Jobs Ingested Successfully!</strong>
+                        <p className="text-emerald-200">The selected job openings (including any approved duplicate overrides) are now available in your job portal database.</p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* VACANCY CARDS */}
-                <div className="grid grid-cols-1 gap-4">
-                  {extractedVacancies.map((vacancy, vIdx) => {
-                    const isSelected = selectedJobIds.includes(vacancy.id);
-                    return (
-                      <div
-                        key={vacancy.id ? `${vacancy.id}-${vIdx}` : `vac-${vIdx}`}
-                        onClick={() => handleToggleSelectJob(vacancy.id)}
-                        className={`p-5 rounded-2xl border transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-slate-950 border-indigo-500/60 shadow-xl shadow-indigo-500/10 ring-1 ring-indigo-500/30'
-                            : 'bg-slate-950/40 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex items-start space-x-3">
-                            <div className={`mt-1 w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
-                              isSelected ? 'bg-indigo-500 border-indigo-400 text-white' : 'border-slate-700 bg-slate-900'
-                            }`}>
-                              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                            </div>
+                {/* VACANCY CARDS LIST */}
+                <div className="grid grid-cols-1 gap-3">
+                  {displayedVacancies.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-950/60 rounded-2xl border border-slate-800 text-slate-400 space-y-2">
+                      <Bot className="w-8 h-8 text-indigo-400 mx-auto animate-pulse" />
+                      <p className="font-bold text-white text-sm">No vacancies match the selected filter ({vacancyFilter})</p>
+                      <p className="text-xs">Click "All Vacancies" above to see all extracted jobs.</p>
+                    </div>
+                  ) : (
+                    displayedVacancies.map((vacancy, vIdx) => {
+                      const isSelected = selectedJobIds.includes(vacancy.id);
+                      const isDup = vacancy.isDuplicate;
 
-                            <div className="space-y-1.5">
-                              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                                {vacancy.pdfCaseNumber && (
-                                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
-                                    📋 {vacancy.pdfCaseNumber}
-                                  </span>
-                                )}
-                                <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                  {vacancy.govtScale || 'BPS-17'}
-                                </span>
-                                <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-slate-800 text-slate-300">
-                                  {vacancy.pdfTotalVacanciesInCase ? `${vacancy.pdfTotalVacanciesInCase} Vacancies` : 'Multi-Seat'}
-                                </span>
-                                <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-emerald-500/20 text-emerald-300">
-                                  {vacancy.challanFee || 'Challan Rs. 300/-'}
-                                </span>
+                      return (
+                        <div
+                          key={vacancy.id ? `${vacancy.id}-${vIdx}` : `vac-${vIdx}`}
+                          onClick={() => handleToggleSelectJob(vacancy.id)}
+                          className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer ${
+                            isDup && !vacancy.isDuplicateOverride
+                              ? 'bg-amber-950/20 border-amber-500/40 ring-1 ring-amber-500/20'
+                              : isSelected
+                              ? 'bg-slate-950 border-indigo-500/60 shadow-xl shadow-indigo-500/10 ring-1 ring-indigo-500/30'
+                              : 'bg-slate-950/40 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start space-x-3">
+                              <div className={`mt-1 w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
+                                isSelected ? 'bg-indigo-500 border-indigo-400 text-white' : 'border-slate-700 bg-slate-900'
+                              }`}>
+                                {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                               </div>
 
-                              <h4 className="text-base font-black text-white">{vacancy.title}</h4>
-                              <p className="text-xs text-slate-300 font-semibold flex items-center space-x-1.5">
-                                <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                                <span>{vacancy.company}</span>
-                              </p>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                  {/* SOURCE ORIGIN BADGE */}
+                                  {vacancy.extractionSourceType === 'pdf_gazette' || vacancy.isPdfScraped ? (
+                                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 flex items-center space-x-1">
+                                      <FileText className="w-3 h-3 text-indigo-400" />
+                                      <span>📄 PDF Gazette Scraped</span>
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-teal-500/20 text-teal-300 border border-teal-500/35 flex items-center space-x-1">
+                                      <Globe className="w-3 h-3 text-teal-400" />
+                                      <span>🌐 Direct Web/HTML Post</span>
+                                    </span>
+                                  )}
+
+                                  {vacancy.pdfCaseNumber && (
+                                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                                      📋 {vacancy.pdfCaseNumber}
+                                    </span>
+                                  )}
+                                  
+                                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    {vacancy.govtScale || 'BPS-17'}
+                                  </span>
+
+                                  <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-slate-800 text-slate-300">
+                                    {vacancy.pdfTotalVacanciesInCase ? `${vacancy.pdfTotalVacanciesInCase} Vacancies` : 'Multi-Seat'}
+                                  </span>
+
+                                  {/* DUPLICATE OVERRIDE BADGE */}
+                                  {vacancy.isDuplicateOverride && (
+                                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                      <span>✅ Duplicate Override (Re-advertised)</span>
+                                    </span>
+                                  )}
+                                </div>
+
+                                <h4 className="text-base font-black text-white">{vacancy.title}</h4>
+                                <p className="text-xs text-slate-300 font-semibold flex items-center space-x-1.5">
+                                  <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>{vacancy.company}</span>
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="text-xs font-mono font-bold text-emerald-400 block">{vacancy.salary}</span>
+                              <span className="text-[11px] text-slate-400 mt-1 block">Deadline: {vacancy.deadlineDate || '22nd Sep'}</span>
                             </div>
                           </div>
 
-                          <div className="text-right shrink-0">
-                            <span className="text-xs font-mono font-bold text-emerald-400 block">{vacancy.salary}</span>
-                            <span className="text-[11px] text-slate-400 mt-1 block">Deadline: {vacancy.deadlineDate || '22nd Sep'}</span>
+                          {/* DUPLICATE WARNING CALLOUT */}
+                          {isDup && (
+                            <div className="mt-3 p-3 bg-amber-500/15 border border-amber-500/40 rounded-xl text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                              <div className="flex items-start space-x-2">
+                                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold text-amber-300">
+                                    Duplicate Detected ({vacancy.duplicateScore}% match):
+                                  </span>
+                                  <span className="text-slate-300 ml-1">
+                                    Matches active listing <strong>"{vacancy.duplicateOfJobTitle}"</strong> in database.
+                                  </span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => handleToggleDuplicateOverride(vacancy.id, e)}
+                                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1 ${
+                                  vacancy.isDuplicateOverride
+                                    ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
+                                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-md'
+                                }`}
+                              >
+                                <span>{vacancy.isDuplicateOverride ? '✓ Duplicate Overridden' : 'Approve with Override ("Duplicate but Posted")'}</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {/* DOMICILE & QUOTA SPLIT BADGES */}
+                          {vacancy.domicileQuota && (
+                            <div className="mt-3 p-2.5 bg-slate-900/80 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
+                                Provincial Quota Allocation:
+                              </span>
+                              <p className="font-mono text-indigo-300 text-[11px] font-semibold">{vacancy.domicileQuota}</p>
+                            </div>
+                          )}
+
+                          {/* QUALIFICATIONS & AGE */}
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-300">
+                            <div className="bg-slate-900/50 p-2 rounded-xl border border-slate-800/60">
+                              <span className="text-slate-500 block text-[10px] font-bold uppercase">Eligibility:</span>
+                              <span className="line-clamp-2">{vacancy.requirements ? vacancy.requirements[0] : 'Bachelor / Master in relevant field'}</span>
+                            </div>
+                            <div className="bg-slate-900/50 p-2 rounded-xl border border-slate-800/60">
+                              <span className="text-slate-500 block text-[10px] font-bold uppercase">Age Limits & Relaxation:</span>
+                              <span>{vacancy.ageRelaxationNote || '22-30 Years (+ 5 Years General Relaxation)'}</span>
+                            </div>
                           </div>
                         </div>
-
-                        {/* DOMICILE & QUOTA SPLIT BADGES */}
-                        {vacancy.domicileQuota && (
-                          <div className="mt-3 p-2.5 bg-slate-900/80 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
-                              Provincial Domicile & Quota Allocation (Extracted via pdfplumber table parser):
-                            </span>
-                            <p className="font-mono text-indigo-300 text-[11px] font-semibold">{vacancy.domicileQuota}</p>
-                          </div>
-                        )}
-
-                        {/* QUALIFICATIONS & AGE */}
-                        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-300">
-                          <div className="bg-slate-900/50 p-2 rounded-xl border border-slate-800/60">
-                            <span className="text-slate-500 block text-[10px] font-bold uppercase">Eligibility:</span>
-                            <span className="line-clamp-2">{vacancy.requirements[0]}</span>
-                          </div>
-                          <div className="bg-slate-900/50 p-2 rounded-xl border border-slate-800/60">
-                            <span className="text-slate-500 block text-[10px] font-bold uppercase">Age Limits & Relaxation:</span>
-                            <span>{vacancy.ageRelaxationNote || '22-30 Years (+ 5 Years General Relaxation)'}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
             </div>
           )}
 
-          {/* TAB 2: PYTHON SCRAPER CODE & CLI INSTRUCTIONS */}
+          {/* TAB 2: PYTHON SCRAPER CODE */}
           {activeTab === 'python-code' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between bg-slate-950 p-4 rounded-2xl border border-slate-800">
@@ -1100,42 +1623,16 @@ if __name__ == "__main__":
                   {pythonScriptCode}
                 </pre>
               </div>
-
-              {/* CLI EXPLANATION */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                  <h4 className="text-xs font-bold uppercase text-white flex items-center space-x-1.5">
-                    <Terminal className="w-4 h-4 text-indigo-400" />
-                    <span>Why `pdfplumber` for FPSC & WAPDA?</span>
-                  </h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    FPSC Consolidated Gazettes and WAPDA recruitment notices use <strong>multi-column newspaper layouts and complex quota matrices</strong>. Standard text extractors often blend adjacent columns into incomprehensible streams. <code>pdfplumber</code> retains word spatial coordinates (<code>layout=True</code>), isolating individual case blocks cleanly.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                  <h4 className="text-xs font-bold uppercase text-white flex items-center space-x-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>Installation Command</span>
-                  </h4>
-                  <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 font-mono text-xs text-amber-300">
-                    pip install pdfplumber PyPDF2 requests
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Runs on Linux, macOS, and Windows server worker containers.
-                  </p>
-                </div>
-              </div>
             </div>
           )}
 
-          {/* TAB 3: RAW PDF GAZETTE STREAM & REGEX MATCHER */}
+          {/* TAB 3: RAW PDF GAZETTE STREAM */}
           {activeTab === 'raw-stream' && (
             <div className="space-y-4">
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
                 <h3 className="text-sm font-black text-white uppercase">Raw Text Stream for: {activeGazette.title}</h3>
                 <p className="text-xs text-slate-400">
-                  Inspect the direct text coordinates extracted by <code>pdfplumber.extract_text(layout=True)</code> from {activeGazette.pdfFileName}.
+                  Inspect the direct text coordinates extracted from {activeGazette.pdfFileName}.
                 </p>
               </div>
 
@@ -1151,7 +1648,7 @@ if __name__ == "__main__":
         <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
           <div className="flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>PDF Consolidated Parser Ready • {extractedVacancies.length} positions ready for import</span>
+            <span>Bulk PDF Scraper Ready • {selectedJobIds.length} of {extractedVacancies.length} positions selected</span>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -1166,7 +1663,7 @@ if __name__ == "__main__":
               className="px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-black rounded-xl shadow-lg shadow-indigo-500/20 cursor-pointer flex items-center space-x-1.5"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>Ingest {selectedJobIds.length} Selected Vacancies</span>
+              <span>Publish {selectedJobIds.length} Selected Jobs</span>
             </button>
           </div>
         </div>

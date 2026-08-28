@@ -985,6 +985,150 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleDeleteScraperSource = (id: string) => {
     setScraperSources(prev => prev.filter(s => s.id !== id));
+    setSelectedScraperTargetIds(prev => prev.filter(item => item !== id));
+  };
+
+  // Bulk Actions for Scraper Controller
+  const handleToggleSelectScraperTarget = (id: string) => {
+    setSelectedScraperTargetIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllScraperTargets = (filteredSources: any[]) => {
+    if (selectedScraperTargetIds.length === filteredSources.length) {
+      setSelectedScraperTargetIds([]);
+    } else {
+      setSelectedScraperTargetIds(filteredSources.map(s => s.id));
+    }
+  };
+
+  const handleBulkPauseScraperTargets = () => {
+    if (selectedScraperTargetIds.length === 0) return;
+    setScraperSources(prev => prev.map(s => selectedScraperTargetIds.includes(s.id) ? { ...s, status: 'Paused' } : s));
+    alert(`Paused ${selectedScraperTargetIds.length} scraper sources.`);
+  };
+
+  const handleBulkResumeScraperTargets = () => {
+    if (selectedScraperTargetIds.length === 0) return;
+    setScraperSources(prev => prev.map(s => selectedScraperTargetIds.includes(s.id) ? { ...s, status: 'Active Scheduled' } : s));
+    alert(`Activated ${selectedScraperTargetIds.length} scraper sources.`);
+  };
+
+  const handleBulkToggleAutoApproveTargets = (enable: boolean) => {
+    if (selectedScraperTargetIds.length === 0) return;
+    setScraperSources(prev => prev.map(s => selectedScraperTargetIds.includes(s.id) ? { ...s, autoApprove: enable } : s));
+    alert(`Auto-Approve set to ${enable ? 'ON' : 'OFF'} for ${selectedScraperTargetIds.length} sources.`);
+  };
+
+  const handleBulkSetIntervalTargets = (interval: ScraperFrequency) => {
+    if (selectedScraperTargetIds.length === 0) return;
+    setScraperSources(prev => prev.map(s => selectedScraperTargetIds.includes(s.id) ? { ...s, interval } : s));
+    alert(`Updated cron schedule to "${interval}" for ${selectedScraperTargetIds.length} sources.`);
+  };
+
+  const handleBulkDeleteScraperTargets = () => {
+    if (selectedScraperTargetIds.length === 0) return;
+    if (confirm(`Are you sure you want to delete ${selectedScraperTargetIds.length} selected scraper sources?`)) {
+      setScraperSources(prev => prev.filter(s => !selectedScraperTargetIds.includes(s.id)));
+      setSelectedScraperTargetIds([]);
+    }
+  };
+
+  const handleBulkRunSelectedScraperTargets = () => {
+    if (selectedScraperTargetIds.length === 0) return;
+    const count = selectedScraperTargetIds.length;
+    setIsScraping(true);
+    setScrapeProgress(10);
+
+    const intervalTimer = setInterval(() => {
+      setScrapeProgress((prev) => {
+        if (prev >= 90) {
+          clearInterval(intervalTimer);
+          return 90;
+        }
+        return prev + 20;
+      });
+    }, 400);
+
+    setTimeout(() => {
+      clearInterval(intervalTimer);
+      setIsScraping(false);
+      setScrapeProgress(100);
+
+      const now = new Date();
+      const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+
+      setScraperSources(prev => prev.map(s => {
+        if (selectedScraperTargetIds.includes(s.id)) {
+          return {
+            ...s,
+            lastRun: timestamp.substring(0, 16),
+            scrapedCount: s.scrapedCount + 2
+          };
+        }
+        return s;
+      }));
+
+      // Generate batch runs and jobs
+      selectedScraperTargetIds.forEach((sourceId, idx) => {
+        const source = scraperSources.find(s => s.id === sourceId);
+        if (!source) return;
+        const batchId = 'BATCH-BULK-' + Date.now().toString(36) + '-' + idx;
+        const job1: Job = {
+          id: `job-bulk-${source.id}-${Date.now()}-1`,
+          title: `Senior Officer (${source.keywords.split(',')[0]?.trim() || 'Operations'})`,
+          company: `${source.name.split(' ')[0]} Enterprise`,
+          jobType: source.category === 'International Remote' ? 'Remote' : 'Hybrid',
+          region: source.region,
+          salary: source.region === 'Pakistan' ? 'PKR 180,000 - PKR 260,000 / month' : '$3,500 - $5,000 / month',
+          currency: source.region === 'Pakistan' ? 'PKR' : 'USD',
+          experienceLevel: 'Senior',
+          department: 'Executive Operations',
+          tags: [source.category, source.region, 'Full Time', 'Bulk Scraped'],
+          description: `Extracted via bulk scraper execution from ${source.url}.\nKey requirements include domain leadership, team management, and operations reporting.`,
+          requirements: ['3+ years domain experience', 'Strong communication skills', 'Bachelor\'s degree in relevant discipline'],
+          benefits: ['Health coverage', 'Performance bonus'],
+          postedAt: 'Just now',
+          applicationsCount: 0,
+          status: source.autoApprove ? 'Approved' : 'Pending',
+          sourceUrl: source.url,
+          scraperSourceId: source.id,
+          scraperSourceName: source.name,
+          scrapedSourceDomain: source.url.replace('https://', '').replace('http://', '').split('/')[0],
+          scrapedAt: timestamp,
+          jobCategory: source.category,
+          isGovtJob: source.category === 'Government Sector',
+          govtScale: source.category === 'Government Sector' ? 'BPS-17' : undefined,
+          isNewspaperAd: source.category === 'Newspaper Classified'
+        };
+        onAddJob(job1);
+
+        const newBatch: ScraperBatchRun = {
+          batchId,
+          startTime: timestamp,
+          endTime: timestamp,
+          sourceId: source.id,
+          sourceName: source.name,
+          sourceUrl: source.url,
+          region: source.region,
+          category: source.category,
+          status: 'Completed',
+          totalExtracted: 1,
+          approvedCount: source.autoApprove ? 1 : 0,
+          pendingCount: source.autoApprove ? 0 : 1,
+          duplicatesSkipped: 0,
+          rejectionCount: 0,
+          executionDurationMs: 1800,
+          httpStatusCode: 200,
+          triggerType: 'Bulk Batch Trigger',
+          logTrace: [`[${timestamp}] Bulk multi-source crawl finished for ${source.name}`]
+        };
+        setScraperBatchRuns(prev => [newBatch, ...prev]);
+      });
+
+      alert(`Successfully executed bulk crawl across ${count} selected scraper sources! New jobs added to database.`);
+    }, 2000);
   };
 
   // Chat Hub Selected User
@@ -3041,40 +3185,222 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {scraperSubTab === 'targets' && (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-3">
-                <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2">
-                  <span>Active Scraper Feeds & Schedule Rules</span>
-                </h4>
-                <div className="text-xs text-slate-400">
-                  Auto-judges job titles, company names, BPS scale, newspaper clipping URL, and location mappings.
+                <div>
+                  <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2">
+                    <Bot className="w-4 h-4 text-indigo-400" />
+                    <span>Active Scraper Feeds & Schedule Rules ({scraperSources.length})</span>
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Manage automated scraper portals, configure cron frequencies, toggle auto-approval, and run bulk operations.
+                  </p>
+                </div>
+
+                {/* SEARCH & CATEGORY FILTER */}
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={scraperTargetSearchQuery}
+                      onChange={(e) => setScraperTargetSearchQuery(e.target.value)}
+                      placeholder="Search targets..."
+                      className="pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:border-indigo-500 outline-none w-48 sm:w-56"
+                    />
+                  </div>
+
+                  <select
+                    value={scraperTargetCategoryFilter}
+                    onChange={(e) => setScraperTargetCategoryFilter(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold focus:border-indigo-500 outline-none"
+                  >
+                    <option value="all">All Categories</option>
+                    <option value="Private Corporate">Corporate</option>
+                    <option value="Government Sector">Government</option>
+                    <option value="Newspaper Classified">Newspaper</option>
+                    <option value="International Remote">Remote</option>
+                  </select>
                 </div>
               </div>
 
-              <div className="space-y-4">
-                {scraperSources.map((source) => (
-                  <div key={source.id} className="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-4 hover:border-indigo-500/40 transition-all">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                          <h5 className="font-black text-white text-base">{source.name}</h5>
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            source.status === 'Active Scheduled' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
-                          }`}>
-                            {source.status}
+              {/* BULK ACTIONS TOOLBAR */}
+              {(() => {
+                const filteredSources = scraperSources.filter((source) => {
+                  const matchesCat = scraperTargetCategoryFilter === 'all' || source.category === scraperTargetCategoryFilter;
+                  const q = scraperTargetSearchQuery.toLowerCase().trim();
+                  const matchesQ = !q || source.name.toLowerCase().includes(q) || source.url.toLowerCase().includes(q) || source.keywords.toLowerCase().includes(q);
+                  return matchesCat && matchesQ;
+                });
+                const allSelected = filteredSources.length > 0 && filteredSources.every(s => selectedScraperTargetIds.includes(s.id));
+                const someSelected = selectedScraperTargetIds.length > 0;
+
+                return (
+                  <>
+                    <div className="p-3.5 bg-slate-950 border border-indigo-500/30 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-inner">
+                      <div className="flex items-center space-x-3">
+                        <label className="flex items-center space-x-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={() => handleSelectAllScraperTargets(filteredSources)}
+                            className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-200">
+                            {allSelected ? 'Deselect All' : 'Select All'} ({filteredSources.length})
                           </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                            {source.interval} Cron Schedule
+                        </label>
+
+                        {someSelected && (
+                          <span className="px-2.5 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 rounded-full text-[11px] font-black">
+                            {selectedScraperTargetIds.length} Selected
                           </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                            {source.category}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">
-                            📍 {source.region}
-                          </span>
-                        </div>
-                        <a href={source.url} target="_blank" rel="noreferrer" className="text-xs font-mono text-indigo-400 hover:underline flex items-center space-x-1 truncate max-w-xl">
-                          <span>{source.url}</span>
-                        </a>
+                        )}
                       </div>
+
+                      {/* BULK ACTION BUTTONS */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleBulkRunSelectedScraperTargets}
+                          disabled={!someSelected || isScraping}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+                            someSelected
+                              ? 'bg-indigo-500 hover:bg-indigo-400 text-white shadow-md shadow-indigo-500/20 cursor-pointer'
+                              : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                          }`}
+                          title="Trigger crawl on all selected portals simultaneously"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Bulk Run ({selectedScraperTargetIds.length})</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleBulkPauseScraperTargets}
+                          disabled={!someSelected}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-all ${
+                            someSelected
+                              ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 cursor-pointer'
+                              : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                          }`}
+                        >
+                          <span>⏸️ Pause Selected</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleBulkResumeScraperTargets}
+                          disabled={!someSelected}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-all ${
+                            someSelected
+                              ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 cursor-pointer'
+                              : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                          }`}
+                        >
+                          <span>▶️ Resume Selected</span>
+                        </button>
+
+                        <div className="relative inline-block">
+                          <select
+                            disabled={!someSelected}
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleBulkSetIntervalTargets(e.target.value as any);
+                                e.target.value = '';
+                              }
+                            }}
+                            defaultValue=""
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                              someSelected
+                                ? 'bg-slate-900 border-slate-700 text-slate-200 cursor-pointer'
+                                : 'bg-slate-800 border-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                            }`}
+                          >
+                            <option value="" disabled>⏱️ Set Frequency...</option>
+                            <option value="15m">Every 15 Minutes</option>
+                            <option value="30m">Every 30 Minutes</option>
+                            <option value="1h">Hourly (1 Hour)</option>
+                            <option value="6h">Every 6 Hours</option>
+                            <option value="24h">Daily (24 Hours)</option>
+                            <option value="7d">Weekly (7 Days)</option>
+                          </select>
+                        </div>
+
+                        <div className="relative inline-block">
+                          <select
+                            disabled={!someSelected}
+                            onChange={(e) => {
+                              if (e.target.value !== '') {
+                                handleBulkToggleAutoApproveTargets(e.target.value === 'true');
+                                e.target.value = '';
+                              }
+                            }}
+                            defaultValue=""
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                              someSelected
+                                ? 'bg-slate-900 border-slate-700 text-slate-200 cursor-pointer'
+                                : 'bg-slate-800 border-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                            }`}
+                          >
+                            <option value="" disabled>🛡️ Auto-Approve...</option>
+                            <option value="true">Enable Auto-Approve (ON)</option>
+                            <option value="false">Require Admin Review (OFF)</option>
+                          </select>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleBulkDeleteScraperTargets}
+                          disabled={!someSelected}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-all ${
+                            someSelected
+                              ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 cursor-pointer'
+                              : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                          }`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      {filteredSources.map((source) => {
+                        const isSelected = selectedScraperTargetIds.includes(source.id);
+                        return (
+                        <div key={source.id} className={`p-5 bg-slate-950 border rounded-2xl space-y-4 transition-all ${
+                          isSelected ? 'border-indigo-500 shadow-lg shadow-indigo-500/10 bg-slate-950/95' : 'border-slate-800 hover:border-indigo-500/40'
+                        }`}>
+                          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                            <div className="flex items-start space-x-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelectScraperTarget(source.id)}
+                                className="w-4 h-4 mt-1 rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                              />
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                  <h5 className="font-black text-white text-base">{source.name}</h5>
+                                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                    source.status === 'Active Scheduled' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                                  }`}>
+                                    {source.status}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                    {source.interval} Cron Schedule
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                    {source.category}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">
+                                    📍 {source.region}
+                                  </span>
+                                </div>
+                                <a href={source.url} target="_blank" rel="noreferrer" className="text-xs font-mono text-indigo-400 hover:underline flex items-center space-x-1 truncate max-w-xl">
+                                  <span>{source.url}</span>
+                                </a>
+                              </div>
+                            </div>
 
                       {/* QUICK ACTION CONTROLS */}
                       <div className="flex flex-wrap items-center gap-2">
@@ -3321,10 +3647,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          )}
+          </>
+        );
+      })()}
+    </div>
+  )}
 
           {/* SUB-TAB 2: CONFIGURE NEW TARGET PORTAL FORM */}
           {scraperSubTab === 'add' && (
@@ -6292,6 +6622,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         onAddGazette={(g) => handleAddPdfGazette(g, false)}
         onDeleteGazette={handleDeletePdfGazette}
         initialSelectedGazetteId={activeSelectedPdfGazetteId}
+        existingJobs={[...jobs, ...pendingJobs]}
       />
 
       {/* QUICK EDIT / BULK EDIT JOB MODAL */}

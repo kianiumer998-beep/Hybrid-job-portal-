@@ -1461,6 +1461,8 @@ export default function App() {
             onUpdateCampaignConfig={setCampaignConfig}
             onApproveAd={handleApproveAd}
             onRejectAd={handleRejectAd}
+            jobPostingPricing={jobPostingPricing}
+            onChangeJobPostingPricing={setJobPostingPricing}
           />
         ) : (
           <>
@@ -1522,6 +1524,7 @@ export default function App() {
                 userAds={advertisements.filter(a => a.submittedByUserId === currentUser.id)}
                 pricingConfig={pricingConfig}
                 campaignConfig={campaignConfig}
+                jobPostingPricing={jobPostingPricing}
                 onSubmitCampaign={handleSubmitCampaign}
                 onDepositFunds={handleDepositFunds}
                 onDeleteAd={handleDeleteAd}

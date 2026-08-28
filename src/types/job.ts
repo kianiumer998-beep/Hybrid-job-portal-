@@ -166,6 +166,17 @@ export interface Job {
   challanFee?: string; // e.g. 'Rs. 300/- for BPS-16/17 (Payable at NBP)'
   ageRelaxationNote?: string; // e.g. '22-30 years plus 5 years general age relaxation'
   pdfParserEngine?: 'pdfplumber' | 'PyPDF2' | 'OCR-PyTesseract' | 'Camelot-Table-Extractor';
+
+  // Hybrid Extraction & Duplicate Detection & Override Attributes
+  extractionSourceType?: 'pdf_gazette' | 'web_html' | 'hybrid_feed';
+  isDuplicate?: boolean;
+  duplicateScore?: number;
+  duplicateOfJobId?: string;
+  duplicateOfJobTitle?: string;
+  duplicateMatchedCompany?: string;
+  isDuplicateOverride?: boolean;
+  duplicateOverrideNote?: string;
+  duplicateDetectedAt?: string;
 }
 
 export interface ChatMessage {
@@ -394,6 +405,12 @@ export interface ScrapedJobAuditEntry {
   challanFee?: string;
   ageRelaxationNote?: string;
   pdfParserEngine?: 'pdfplumber' | 'PyPDF2' | 'OCR-PyTesseract' | 'Camelot-Table-Extractor';
+  extractionSourceType?: 'pdf_gazette' | 'web_html' | 'hybrid_feed';
+  isDuplicate?: boolean;
+  duplicateOfJobId?: string;
+  duplicateOfJobTitle?: string;
+  isDuplicateOverride?: boolean;
+  duplicateOverrideNote?: string;
   reviewTimeline: ScrapedJobAuditAction[];
   snapshot: {
     description: string;

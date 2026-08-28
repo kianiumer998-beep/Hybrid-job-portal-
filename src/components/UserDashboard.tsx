@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS } from '../types/job';
+import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS, JobPostingPricingConfig, DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../types/job';
 import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown } from 'lucide-react';
 
 interface UserDashboardProps {
   currentUser: UserAccount;
@@ -15,6 +15,7 @@ interface UserDashboardProps {
   userAds?: Advertisement[];
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
+  jobPostingPricing?: JobPostingPricingConfig;
   onSubmitCampaign?: (ad: Advertisement, cost: number) => void;
   onDepositFunds?: (amount: number, paymentMethod: string) => void;
   onDeleteAd?: (adId: string) => void;
@@ -39,6 +40,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   userAds = [],
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
   campaignConfig,
+  jobPostingPricing = DEFAULT_JOB_POSTING_PRICING_CONFIG,
   onSubmitCampaign,
   onDepositFunds,
   onDeleteAd,
@@ -89,6 +91,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [description, setDescription] = useState('');
   const [requirementsInput, setRequirementsInput] = useState('');
 
+  // Priority & Placement Boost Options
+  const [priorityTier, setPriorityTier] = useState<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'>('standard');
+  const [futureIntakeDate, setFutureIntakeDate] = useState('2026-11-01');
+
   // Extended Government Sector Form Fields (With Manual Entry Support)
   const [govtDeptPreset, setGovtDeptPreset] = useState(GOVT_DEPT_OPTIONS[0]);
   const [customGovtDept, setCustomGovtDept] = useState('');
@@ -114,10 +120,34 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   // Per-Job Fee Payment Modal State
   const [showFeeInvoiceModal, setShowFeeInvoiceModal] = useState(false);
   const [pendingJobData, setPendingJobData] = useState<Job | null>(null);
+  const [calculatedPostingFee, setCalculatedPostingFee] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer'>('JazzCash');
 
   // Chat message input state
   const [newMessageText, setNewMessageText] = useState('');
+
+  // Pricing calculation helper
+  const computeJobPostingCost = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): number => {
+    const baseStandardFee = jobPostingPricing?.standardFeePkr ?? jobPostingFeePkr ?? 1000;
+    if (tier === 'vip_bundle') {
+      return jobPostingPricing?.vipBundleFeePkr ?? 2500;
+    }
+    if (tier === 'featured_top') {
+      return baseStandardFee + (jobPostingPricing?.featuredTopFeePkr ?? 1500);
+    }
+    if (tier === 'urgent') {
+      return baseStandardFee + (jobPostingPricing?.urgentFeePkr ?? 500);
+    }
+    if (tier === 'future_job') {
+      return baseStandardFee + (jobPostingPricing?.futureJobFeePkr ?? 800);
+    }
+    if (jobPostingPricing?.freePostingAllowed && baseStandardFee === 0) {
+      return 0;
+    }
+    return baseStandardFee;
+  };
+
+  const currentTotalFee = computeJobPostingCost(priorityTier);
 
   const myApplications = currentUser.appliedJobs && currentUser.appliedJobs.length > 0
     ? currentUser.appliedJobs
@@ -200,6 +230,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     const resolvedGovtCadre = govtCadrePreset === 'Other (Manual Entry)' ? (customGovtCadre || 'Public Sector') : govtCadrePreset;
     const resolvedNewspaper = newspaperPreset === 'Other (Manual Entry)' ? (customNewspaper || 'Newspaper Classified') : newspaperPreset;
 
+    const isPinnedTop = priorityTier === 'featured_top' || priorityTier === 'vip_bundle';
+    const isUrgent = priorityTier === 'urgent' || priorityTier === 'vip_bundle';
+    const isFeatured = priorityTier === 'featured_top' || priorityTier === 'vip_bundle';
+    const isFuture = priorityTier === 'future_job' || priorityTier === 'vip_bundle';
+
+    const totalCalculatedFee = computeJobPostingCost(priorityTier);
+    setCalculatedPostingFee(totalCalculatedFee);
+
     const newJob: Job = {
       id: 'job-user-' + Date.now(),
       title,
@@ -222,6 +260,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       status: 'Pending',
       submittedByUserId: currentUser.id,
 
+      // Priority & Placement Options
+      priorityTier,
+      isPinnedTop,
+      urgent: isUrgent,
+      featured: isFeatured,
+      isFutureJob: isFuture,
+      futureIntakeDate: isFuture ? futureIntakeDate : undefined,
+
       // Government Sector Attributes
       isGovtJob: isGovt,
       govtDepartment: isGovt ? resolvedGovtDept : undefined,
@@ -240,7 +286,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       deadlineDate: applicationDeadline || undefined
     };
 
-    if (jobPostingFeePkr > 0) {
+    if (totalCalculatedFee > 0) {
       // Require fee payment step
       setPendingJobData(newJob);
       setShowFeeInvoiceModal(true);
@@ -255,12 +301,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const handleConfirmFeePayment = () => {
     if (!pendingJobData) return;
 
+    const feeToPay = calculatedPostingFee > 0 ? calculatedPostingFee : computeJobPostingCost(priorityTier);
+
     onSubmitJobForApproval(pendingJobData, {
-      amount: jobPostingFeePkr,
+      amount: feeToPay,
       paymentMethod
     });
 
-    alert(`Payment of PKR ${jobPostingFeePkr.toLocaleString()} via ${paymentMethod} received! Job "${pendingJobData.title}" submitted to Admin queue for verification.`);
+    alert(`Payment of PKR ${feeToPay.toLocaleString()} via ${paymentMethod} received for plan "${pendingJobData.priorityTier?.toUpperCase() || 'STANDARD'}"! Job "${pendingJobData.title}" submitted to Admin queue for verification.`);
     
     setShowFeeInvoiceModal(false);
     setPendingJobData(null);
@@ -1206,6 +1254,181 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </div>
 
+            {/* SECTION 5: PRIORITY & TOP-OF-BOARD PLACEMENT BOOSTS */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-slate-800 rounded-2xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Crown className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <h4 className="font-bold text-sm text-white">Priority & Top-of-Board Placement Options</h4>
+                    <p className="text-[11px] text-slate-400">Choose how and where your job opening appears on the public job board</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-400">Total Posting Fee:</span>
+                  <div className="text-base font-black text-emerald-400 font-mono">
+                    {currentTotalFee === 0 ? 'FREE' : `PKR ${currentTotalFee.toLocaleString()}`}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                {/* 1. Standard Option */}
+                <button
+                  type="button"
+                  onClick={() => setPriorityTier('standard')}
+                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    priorityTier === 'standard'
+                      ? 'bg-slate-800 border-slate-400 text-white shadow-lg'
+                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-white flex items-center space-x-1.5">
+                        <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Standard Listing</span>
+                      </span>
+                      <span className="font-mono font-bold text-slate-300">
+                        {computeJobPostingCost('standard') === 0 ? 'Free' : `PKR ${computeJobPostingCost('standard').toLocaleString()}`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      Regular chronological placement. Standard listing on the public board.
+                    </p>
+                  </div>
+                </button>
+
+                {/* 2. Urgent Hiring Boost */}
+                <button
+                  type="button"
+                  onClick={() => setPriorityTier('urgent')}
+                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    priorityTier === 'urgent'
+                      ? 'bg-rose-500/20 border-rose-500 text-white shadow-lg shadow-rose-500/10'
+                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-rose-500/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-rose-300 flex items-center space-x-1.5">
+                        <Flame className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
+                        <span>🔥 Urgent Hiring</span>
+                      </span>
+                      <span className="font-mono font-bold text-rose-300">
+                        PKR {computeJobPostingCost('urgent').toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      Shows glowing Urgent Flame badge & ranks above regular jobs for instant applicant attention.
+                    </p>
+                  </div>
+                </button>
+
+                {/* 3. Pinned Top of Board */}
+                <button
+                  type="button"
+                  onClick={() => setPriorityTier('featured_top')}
+                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    priorityTier === 'featured_top'
+                      ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-amber-500/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-amber-300 flex items-center space-x-1.5">
+                        <Pin className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                        <span>📌 Pinned Top of Board</span>
+                      </span>
+                      <span className="font-mono font-bold text-amber-300">
+                        PKR {computeJobPostingCost('featured_top').toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      Pinned at the very top of all jobs first! Premium gold border & maximum impressions.
+                    </p>
+                  </div>
+                </button>
+
+                {/* 4. Future Job Opportunity */}
+                <button
+                  type="button"
+                  onClick={() => setPriorityTier('future_job')}
+                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    priorityTier === 'future_job'
+                      ? 'bg-cyan-500/20 border-cyan-500 text-white shadow-lg shadow-cyan-500/10'
+                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-cyan-500/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-cyan-300 flex items-center space-x-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>📅 Future Job Intake</span>
+                      </span>
+                      <span className="font-mono font-bold text-cyan-300">
+                        PKR {computeJobPostingCost('future_job').toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      Post upcoming & future openings in advance with batch date countdown. Priority placement above standard listings.
+                    </p>
+                  </div>
+                </button>
+
+                {/* 5. VIP All-in-One Bundle */}
+                <button
+                  type="button"
+                  onClick={() => setPriorityTier('vip_bundle')}
+                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between sm:col-span-2 ${
+                    priorityTier === 'vip_bundle'
+                      ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10'
+                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-purple-500/40'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-purple-300 flex items-center space-x-1.5">
+                        <Crown className="w-3.5 h-3.5 text-purple-400 fill-purple-400" />
+                        <span>👑 VIP All-in-One Power Bundle</span>
+                      </span>
+                      <span className="font-mono font-bold text-purple-300">
+                        PKR {computeJobPostingCost('vip_bundle').toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      All privileges included: Pinned Top #1 + Urgent Flame Badge + Featured Gold Styling + Advance Intake options.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              {/* Conditional Future Job Date Input */}
+              {(priorityTier === 'future_job' || priorityTier === 'vip_bundle') && (
+                <div className="p-3.5 bg-cyan-950/20 border border-cyan-500/30 rounded-xl space-y-2">
+                  <div className="flex items-center space-x-2 text-cyan-300 font-bold text-xs">
+                    <Calendar className="w-4 h-4 text-cyan-400" />
+                    <span>Expected Future Intake / Joining Date</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] text-slate-300 mb-1">Estimated Intake Date or Month</label>
+                      <input
+                        type="date"
+                        value={futureIntakeDate}
+                        onChange={(e) => setFutureIntakeDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-cyan-500/40 rounded-lg text-white text-xs"
+                      />
+                    </div>
+                    <div className="text-[11px] text-slate-400 flex items-center">
+                      Candidates can view and register their early interest for your upcoming hiring batch.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* TAGS INPUT */}
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-1">Tags / Keywords (Comma separated)</label>
@@ -1225,7 +1448,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           >
             <Send className="w-4 h-4 text-slate-950" />
             <span>
-              {jobPostingFeePkr > 0 ? `Proceed to Pay Fee (PKR ${jobPostingFeePkr.toLocaleString()}) & Submit Listing` : 'Publish Job Listing for Verification'}
+              {currentTotalFee > 0
+                ? `Proceed to Pay Fee (PKR ${currentTotalFee.toLocaleString()}) & Submit Listing`
+                : 'Publish Job Listing for Verification'}
             </span>
           </button>
         </form>
@@ -1389,18 +1614,32 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2 text-xs">
+            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5 text-xs">
               <div className="flex justify-between text-slate-400">
-                <span>Job Title:</span>
-                <span className="font-bold text-white">{pendingJobData.title}</span>
+                <span>Job Opening:</span>
+                <span className="font-bold text-white text-right line-clamp-1">{pendingJobData.title}</span>
               </div>
               <div className="flex justify-between text-slate-400">
-                <span>Company:</span>
+                <span>Employer / Company:</span>
                 <span className="font-bold text-white">{pendingJobData.company}</span>
               </div>
               <div className="flex justify-between text-slate-400">
-                <span>Posting Fee Amount:</span>
-                <span className="font-black text-emerald-400 font-mono text-sm">PKR {jobPostingFeePkr.toLocaleString()}</span>
+                <span>Selected Placement:</span>
+                <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                  {pendingJobData.priorityTier ? pendingJobData.priorityTier.replace('_', ' ') : 'Standard Listing'}
+                </span>
+              </div>
+              {pendingJobData.isFutureJob && (
+                <div className="flex justify-between text-slate-400">
+                  <span>Intake Target:</span>
+                  <span className="font-bold text-cyan-300">{pendingJobData.futureIntakeDate || 'Advance Batch'}</span>
+                </div>
+              )}
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                <span className="font-bold text-slate-300">Total Posting Fee:</span>
+                <span className="font-black text-emerald-400 font-mono text-base">
+                  PKR {(calculatedPostingFee || computeJobPostingCost(priorityTier)).toLocaleString()}
+                </span>
               </div>
             </div>
 
@@ -1430,7 +1669,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 onClick={handleConfirmFeePayment}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs shadow-xl shadow-emerald-500/20 cursor-pointer"
               >
-                Pay PKR {jobPostingFeePkr.toLocaleString()} & Submit Job
+                Pay PKR {(calculatedPostingFee || computeJobPostingCost(priorityTier)).toLocaleString()} & Submit Job
               </button>
             </div>
 

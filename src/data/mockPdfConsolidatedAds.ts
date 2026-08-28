@@ -7,7 +7,7 @@ export interface OfficialGovtPdfPortal {
   portalUrl: string;
   pdfUrl?: string;
   organization: string;
-  category: 'National / Federal Portal' | 'Public Service Commission' | 'Defence & Armed Forces' | 'Autonomous / Public Sector' | 'Federal Ministry' | 'Testing & Assessment Service';
+  category: 'National / Federal Portal' | 'Public Service Commission' | 'Defence & Armed Forces' | 'Autonomous / Public Sector' | 'Federal Ministry' | 'Provincial Govt & Development' | 'Healthcare & Medical Cadres' | 'Higher Education & Universities' | 'Testing & Assessment Service';
   badge: string;
   description: string;
   typicalScales: string;
@@ -16,12 +16,13 @@ export interface OfficialGovtPdfPortal {
 }
 
 export const OFFICIAL_GOVT_SCRAPER_PORTALS: OfficialGovtPdfPortal[] = [
+  // --- 1. National & Federal Portals ---
   {
     id: 'portal-njp',
     name: 'National Job Portal (NJP)',
     shortName: 'NJP',
-    portalUrl: 'https://njp.gov.pk',
-    pdfUrl: 'https://njp.gov.pk/advertisements/NJP_Federal_Ministries_Consolidated_2026.pdf',
+    portalUrl: 'https://www.njp.gov.pk/',
+    pdfUrl: 'https://www.njp.gov.pk/advertisements/NJP_Federal_Ministries_Consolidated_2026.pdf',
     organization: 'National Information Technology Board (NITB) / Federal Government',
     category: 'National / Federal Portal',
     badge: '🏛️ Central Federal Portal',
@@ -30,6 +31,50 @@ export const OFFICIAL_GOVT_SCRAPER_PORTALS: OfficialGovtPdfPortal[] = [
     defaultDeadline: '15th November 2026',
     sampleAdvtNo: 'NJP-FED-2026/09'
   },
+  {
+    id: 'portal-neet-jobs-gov',
+    name: 'National Employment Exchange Tool (NEET)',
+    shortName: 'jobs.gov.pk',
+    portalUrl: 'https://jobs.gov.pk',
+    pdfUrl: 'https://jobs.gov.pk/gazettes/NEET_National_Employment_Exchange_Notice_2026.pdf',
+    organization: 'Ministry of Overseas Pakistanis & Human Resource Development',
+    category: 'National / Federal Portal',
+    badge: '🌐 National Employment Pool',
+    description: 'Centralized government job exchange platform connecting Pakistani citizens with public sector, overseas, and bilateral workforce opportunities.',
+    typicalScales: 'BPS-09 to BPS-19 / Special Contract',
+    defaultDeadline: '30th November 2026',
+    sampleAdvtNo: 'NEET-MOPHRD-2026/11'
+  },
+  {
+    id: 'portal-pda',
+    name: 'Pakistan Digital Authority (PDA)',
+    shortName: 'PDA Careers',
+    portalUrl: 'https://pda.gov.pk/careers.php',
+    pdfUrl: 'https://pda.gov.pk/careers/PDA_Digital_Transformation_Cadre_Advt_2026.pdf',
+    organization: 'Pakistan Digital Authority (Ministry of IT & Telecom)',
+    category: 'National / Federal Portal',
+    badge: '💻 Digital Pakistan Wing',
+    description: 'Specialized technology recruitment for cloud architects, AI engineers, cyber intelligence analysts, and e-governance program directors.',
+    typicalScales: 'PPS-07 to PPS-11 / MP-Scale',
+    defaultDeadline: '25th November 2026',
+    sampleAdvtNo: 'PDA-IT-2026/03'
+  },
+  {
+    id: 'portal-sti',
+    name: 'Secretariat Training Institute (STI)',
+    shortName: 'STI Islamabad',
+    portalUrl: 'https://sti.gov.pk/',
+    pdfUrl: 'https://sti.gov.pk/careers/STI_Faculty_and_Admin_Recruitment_2026.pdf',
+    organization: 'Establishment Division (Government of Pakistan)',
+    category: 'National / Federal Portal',
+    badge: '🏛️ Federal Secretariat Wing',
+    description: 'Recruitment of faculty, research associates, training officers, and administrative staff for civil servant capacity-building institutes.',
+    typicalScales: 'BPS-14 to BPS-19',
+    defaultDeadline: '10th December 2026',
+    sampleAdvtNo: 'STI-ESTB-2026/04'
+  },
+
+  // --- 2. Public Service Commissions (Federal & 4 Provinces) ---
   {
     id: 'portal-fpsc',
     name: 'Federal Public Service Commission (FPSC)',
@@ -44,6 +89,64 @@ export const OFFICIAL_GOVT_SCRAPER_PORTALS: OfficialGovtPdfPortal[] = [
     defaultDeadline: '22nd September 2026',
     sampleAdvtNo: 'Consolidated Advt. No. 08/2026'
   },
+  {
+    id: 'portal-ppsc',
+    name: 'Punjab Public Service Commission (PPSC)',
+    shortName: 'PPSC',
+    portalUrl: 'https://ppsc.gop.pk',
+    pdfUrl: 'https://ppsc.gop.pk/advertisements/PPSC_Consolidated_Advt_No_18_2026.pdf',
+    organization: 'Punjab Public Service Commission (Government of the Punjab)',
+    category: 'Public Service Commission',
+    badge: '📜 Punjab Constitutional Body',
+    description: 'Provincial recruitment board conducting exams for Assistant Commissioners, Tehsildars, Lecturers, Medical Officers, and PMS Officers.',
+    typicalScales: 'BPS-16 to BPS-19 Gazetted',
+    defaultDeadline: '14th October 2026',
+    sampleAdvtNo: 'PPSC Advt. No. 18/2026'
+  },
+  {
+    id: 'portal-spsc',
+    name: 'Sindh Public Service Commission (SPSC)',
+    shortName: 'SPSC',
+    portalUrl: 'https://spsc.gos.pk',
+    pdfUrl: 'https://spsc.gos.pk/advertisements/SPSC_Consolidated_Combined_Advt_06_2026.pdf',
+    organization: 'Sindh Public Service Commission (Government of Sindh)',
+    category: 'Public Service Commission',
+    badge: '📜 Sindh Constitutional Body',
+    description: 'Recruitment for CCE Sindh, Assistant Commissioners, Mukhtiarkar, Town Officers, Doctors, and Municipal Administrative Cadres.',
+    typicalScales: 'BPS-16 to BPS-18 Gazetted',
+    defaultDeadline: '20th October 2026',
+    sampleAdvtNo: 'SPSC Advt. No. 06/2026'
+  },
+  {
+    id: 'portal-kppsc',
+    name: 'Khyber Pakhtunkhwa Public Service Commission (KPPSC)',
+    shortName: 'KPPSC',
+    portalUrl: 'https://kppsc.gov.pk',
+    pdfUrl: 'https://kppsc.gov.pk/advertisements/KPPSC_Consolidated_Advt_No_09_2026.pdf',
+    organization: 'Khyber Pakhtunkhwa Public Service Commission (Peshawar)',
+    category: 'Public Service Commission',
+    badge: '📜 KP Constitutional Body',
+    description: 'Provincial recruitment commission handling Provincial Management Service (PMS), Assistant Directors, Subject Specialists, and Forest Officers.',
+    typicalScales: 'BPS-16 to BPS-18 Gazetted',
+    defaultDeadline: '18th October 2026',
+    sampleAdvtNo: 'KPPSC Advt. No. 09/2026'
+  },
+  {
+    id: 'portal-bpsc',
+    name: 'Balochistan Public Service Commission (BPSC)',
+    shortName: 'BPSC',
+    portalUrl: 'https://bpsc.gob.pk',
+    pdfUrl: 'https://bpsc.gob.pk/advertisements/BPSC_Consolidated_Advt_No_07_2026.pdf',
+    organization: 'Balochistan Public Service Commission (Quetta)',
+    category: 'Public Service Commission',
+    badge: '📜 Balochistan Body',
+    description: 'Constitutional recruitment board for Balochistan Civil Service (BCS), Assistant Commissioners, Section Officers, and Collegiate Staff.',
+    typicalScales: 'BPS-16 to BPS-18 Gazetted',
+    defaultDeadline: '28th October 2026',
+    sampleAdvtNo: 'BPSC Advt. No. 07/2026'
+  },
+
+  // --- 3. Defence & Armed Forces ---
   {
     id: 'portal-pakarmy',
     name: 'Join Pak Army Portal',
@@ -73,48 +176,6 @@ export const OFFICIAL_GOVT_SCRAPER_PORTALS: OfficialGovtPdfPortal[] = [
     sampleAdvtNo: 'MES/E-in-C/2026-Recruit'
   },
   {
-    id: 'portal-wapda',
-    name: 'WAPDA Careers',
-    shortName: 'WAPDA',
-    portalUrl: 'https://wapda.gov.pk',
-    pdfUrl: 'https://wapda.gov.pk/careers/Adv_WAPDA_Phase_II_2026.pdf',
-    organization: 'Water & Power Development Authority (WAPDA)',
-    category: 'Autonomous / Public Sector',
-    badge: '⚡ Hydel Power & Water Wing',
-    description: 'Mega hydroelectric dams and water reservoir engineering, financial audit, and operational staff recruitment notices.',
-    typicalScales: 'BPS-14 to BPS-19',
-    defaultDeadline: '30th September 2026',
-    sampleAdvtNo: 'WAPDA/PR/2026/04'
-  },
-  {
-    id: 'portal-pakrail',
-    name: 'Pakistan Railways',
-    shortName: 'Pak Railways',
-    portalUrl: 'https://pakrail.gov.pk',
-    pdfUrl: 'https://pakrail.gov.pk/careers/Pakistan_Railways_Operational_Staff_Advt_2026.pdf',
-    organization: 'Pakistan Railways (Headquarters Office Lahore)',
-    category: 'Autonomous / Public Sector',
-    badge: '🚆 Railway Operations & Fleet',
-    description: 'Locomotive engineers, station masters, traffic officers, track civil supervisors, and train electrical engineers.',
-    typicalScales: 'BPS-11 to BPS-17',
-    defaultDeadline: '18th November 2026',
-    sampleAdvtNo: 'PR-HQ-LHR-2026/07'
-  },
-  {
-    id: 'portal-railways-mod',
-    name: 'Ministry of Railways',
-    shortName: 'Ministry Railways',
-    portalUrl: 'https://railways.gov.pk',
-    pdfUrl: 'https://railways.gov.pk/vacancies/Ministry_of_Railways_Project_Staff_2026.pdf',
-    organization: 'Ministry of Railways (Government of Pakistan, Islamabad)',
-    category: 'Federal Ministry',
-    badge: '🏛️ Federal Secretariat Ministry',
-    description: 'Federal policy, infrastructure planning, track upgrading (ML-1 project management unit), and legal advisory positions.',
-    typicalScales: 'BPS-17 to BPS-20 / MP-II & MP-III',
-    defaultDeadline: '20th November 2026',
-    sampleAdvtNo: 'MoR-FED-PMU-2026/02'
-  },
-  {
     id: 'portal-mod',
     name: 'Ministry of Defence (MoD)',
     shortName: 'MoD',
@@ -128,6 +189,226 @@ export const OFFICIAL_GOVT_SCRAPER_PORTALS: OfficialGovtPdfPortal[] = [
     defaultDeadline: '28th October 2026',
     sampleAdvtNo: 'MoD-ADMIN-2026/05'
   },
+
+  // --- 4. Autonomous & Power / Railways Sectors ---
+  {
+    id: 'portal-wapda',
+    name: 'WAPDA Careers Directory',
+    shortName: 'WAPDA',
+    portalUrl: 'https://wapda.gov.pk',
+    pdfUrl: 'https://wapda.gov.pk/careers/Adv_WAPDA_Phase_II_2026.pdf',
+    organization: 'Water & Power Development Authority (WAPDA)',
+    category: 'Autonomous / Public Sector',
+    badge: '⚡ Hydel Power & Water Wing',
+    description: 'Mega hydroelectric dams and water reservoir engineering, financial audit, and operational staff recruitment notices.',
+    typicalScales: 'BPS-14 to BPS-19',
+    defaultDeadline: '30th September 2026',
+    sampleAdvtNo: 'WAPDA/PR/2026/04'
+  },
+  {
+    id: 'portal-pakrail',
+    name: 'Pakistan Railways (Operations)',
+    shortName: 'Pak Railways',
+    portalUrl: 'https://pakrail.gov.pk',
+    pdfUrl: 'https://pakrail.gov.pk/careers/Pakistan_Railways_Operational_Staff_Advt_2026.pdf',
+    organization: 'Pakistan Railways (Headquarters Office Lahore)',
+    category: 'Autonomous / Public Sector',
+    badge: '🚆 Railway Operations & Fleet',
+    description: 'Locomotive engineers, station masters, traffic officers, track civil supervisors, and train electrical engineers.',
+    typicalScales: 'BPS-11 to BPS-17',
+    defaultDeadline: '18th November 2026',
+    sampleAdvtNo: 'PR-HQ-LHR-2026/07'
+  },
+  {
+    id: 'portal-railways-mod',
+    name: 'Ministry of Railways (HQ)',
+    shortName: 'Ministry Railways',
+    portalUrl: 'https://railways.gov.pk',
+    pdfUrl: 'https://railways.gov.pk/vacancies/Ministry_of_Railways_Project_Staff_2026.pdf',
+    organization: 'Ministry of Railways (Government of Pakistan, Islamabad)',
+    category: 'Federal Ministry',
+    badge: '🏛️ Federal Secretariat Ministry',
+    description: 'Federal policy, infrastructure planning, track upgrading (ML-1 project management unit), and legal advisory positions.',
+    typicalScales: 'BPS-17 to BPS-20 / MP-II & MP-III',
+    defaultDeadline: '20th November 2026',
+    sampleAdvtNo: 'MoR-FED-PMU-2026/02'
+  },
+
+  // --- 5. Provincial Portals & Capital Development ---
+  {
+    id: 'portal-punjab-jobs',
+    name: 'Punjab Job Portal (GoP)',
+    shortName: 'Punjab Jobs',
+    portalUrl: 'https://jobs.punjab.gov.pk/',
+    pdfUrl: 'https://jobs.punjab.gov.pk/assets/Consolidated_Punjab_Govt_Departments_2026.pdf',
+    organization: 'Punjab Information Technology Board (PITB) / Government of the Punjab',
+    category: 'Provincial Govt & Development',
+    badge: '🌾 Punjab Provincial Portal',
+    description: 'Official digital portal for recruitment across all Punjab provincial ministries, project management units (PMUs), and authorities.',
+    typicalScales: 'BPS-11 to BPS-20 / Contract Pay Scales',
+    defaultDeadline: '30th November 2026',
+    sampleAdvtNo: 'PITB-GOP-2026/10'
+  },
+  {
+    id: 'portal-kp-jobs',
+    name: 'Khyber Pakhtunkhwa Jobs Directory',
+    shortName: 'KP Jobs',
+    portalUrl: 'https://kp.gov.pk',
+    pdfUrl: 'https://kp.gov.pk/careers/KPK_Provincial_Development_Cadre_2026.pdf',
+    organization: 'Government of Khyber Pakhtunkhwa (Civil Secretariat Peshawar)',
+    category: 'Provincial Govt & Development',
+    badge: '⛰️ KP Provincial Directory',
+    description: 'Comprehensive directory of vacancies in KP Planning & Development, Revenue, Irrigation, Local Government, and Administrative projects.',
+    typicalScales: 'BPS-12 to BPS-19',
+    defaultDeadline: '24th November 2026',
+    sampleAdvtNo: 'KP-DIR-RECRUIT-2026/08'
+  },
+  {
+    id: 'portal-cda',
+    name: 'Capital Development Authority (CDA Islamabad)',
+    shortName: 'CDA Islamabad',
+    portalUrl: 'https://cda.gov.pk',
+    pdfUrl: 'https://cda.gov.pk/careers/CDA_Engineering_Town_Planning_Advt_2026.pdf',
+    organization: 'Capital Development Authority (Islamabad Administration)',
+    category: 'Provincial Govt & Development',
+    badge: '🏙️ Federal Capital Authority',
+    description: 'Urban planning, environmental engineering, architecture, sanitation, emergency rescue, and civic management careers in Islamabad.',
+    typicalScales: 'BPS-11 to BPS-19',
+    defaultDeadline: '15th December 2026',
+    sampleAdvtNo: 'CDA-ESTB-2026/06'
+  },
+
+  // --- 6. Healthcare, Medical Colleges & Commissions ---
+  {
+    id: 'portal-punjab-health-active',
+    name: 'Punjab Specialized Healthcare (Active Ads)',
+    shortName: 'Punjab Health Ads',
+    portalUrl: 'http://health.punjab.gov.pk/Jobs.aspx',
+    pdfUrl: 'http://health.punjab.gov.pk/uploads/Specialized_Healthcare_Consultants_Advt_2026.pdf',
+    organization: 'Specialized Healthcare & Medical Education Department (Punjab)',
+    category: 'Healthcare & Medical Cadres',
+    badge: '🏥 Teaching Hospitals & Med',
+    description: 'Clinical professorships, senior registrars, medical officers, nursing superintendents, and specialized consultants in tertiary hospitals.',
+    typicalScales: 'BPS-17 to BPS-20 / Health Special Pay',
+    defaultDeadline: '20th November 2026',
+    sampleAdvtNo: 'SHC&MED-RECRUIT-2026/12'
+  },
+  {
+    id: 'portal-health-tms',
+    name: 'Punjab Health Online Application Engine (TMS)',
+    shortName: 'Health TMS Punjab',
+    portalUrl: 'https://healthtms.punjab.gov.pk/',
+    pdfUrl: 'https://healthtms.punjab.gov.pk/notices/TMS_Induction_Drive_Medical_Officers_2026.pdf',
+    organization: 'Punjab Primary & Secondary Healthcare TMS Cell',
+    category: 'Healthcare & Medical Cadres',
+    badge: '💉 Medical Induction Portal',
+    description: 'Automated transfer & merit induction system for Medical Officers (MO), Women Medical Officers (WMO), and Dental Surgeons.',
+    typicalScales: 'BPS-17 to BPS-18',
+    defaultDeadline: '10th November 2026',
+    sampleAdvtNo: 'TMS-INDUCT-2026/04'
+  },
+  {
+    id: 'portal-phc',
+    name: 'Punjab Healthcare Commission (PHC)',
+    shortName: 'PHC Portal',
+    portalUrl: 'https://os.phc.org.pk/job_new_list.aspx?jobType=2',
+    pdfUrl: 'https://os.phc.org.pk/careers/PHC_Clinical_Auditors_and_Quality_Inspectors_2026.pdf',
+    organization: 'Punjab Healthcare Commission (Statutory Regulatory Body)',
+    category: 'Healthcare & Medical Cadres',
+    badge: '🩺 Regulatory Healthcare Body',
+    description: 'Clinical quality inspectors, medical malpractice investigators, licensing officers, and legal compliance advisors.',
+    typicalScales: 'Grade 06 to Grade 09 (PHC Pay Scale)',
+    defaultDeadline: '26th November 2026',
+    sampleAdvtNo: 'PHC-JOB-2026/05'
+  },
+  {
+    id: 'portal-pshealth-punjab',
+    name: 'Punjab Primary & Secondary Healthcare Portal',
+    shortName: 'P&SHD Punjab',
+    portalUrl: 'https://job.pshealthpunjab.gov.pk',
+    pdfUrl: 'https://job.pshealthpunjab.gov.pk/notices/P&SHD_District_DHQ_THQ_Doctors_Advt_2026.pdf',
+    organization: 'Primary & Secondary Healthcare Department (Government of the Punjab)',
+    category: 'Healthcare & Medical Cadres',
+    badge: '🏥 District & Tehsil DHQ/THQ',
+    description: 'Recruitment of doctors, pharmacists, bio-medical engineers, radiographers, and emergency medical technicians across 36 districts.',
+    typicalScales: 'BPS-14 to BPS-18',
+    defaultDeadline: '18th November 2026',
+    sampleAdvtNo: 'P&SHD-GOP-2026/15'
+  },
+  {
+    id: 'portal-health-kp',
+    name: 'Khyber Pakhtunkhwa Health Department',
+    shortName: 'KP Health',
+    portalUrl: 'https://healthkp.gov.pk',
+    pdfUrl: 'https://healthkp.gov.pk/careers/KP_Health_District_Specialists_Advt_2026.pdf',
+    organization: 'Department of Health (Government of Khyber Pakhtunkhwa)',
+    category: 'Healthcare & Medical Cadres',
+    badge: '🏥 KP Health Directorate',
+    description: 'District specialists, anaesthetists, pediatricians, lady health supervisors, and basic health unit (BHU) medical teams.',
+    typicalScales: 'BPS-16 to BPS-18',
+    defaultDeadline: '22nd November 2026',
+    sampleAdvtNo: 'HEALTH-KP-2026/09'
+  },
+  {
+    id: 'portal-kmc',
+    name: 'Khyber Medical College (KMC Peshawar)',
+    shortName: 'KMC Peshawar',
+    portalUrl: 'https://kmc.edu.pk',
+    pdfUrl: 'https://kmc.edu.pk/careers/KMC_Faculty_and_Clinical_Registrars_2026.pdf',
+    organization: 'Khyber Teaching Hospital (MTI) / KMC Peshawar',
+    category: 'Healthcare & Medical Cadres',
+    badge: '🎓 Medical Teaching Institute',
+    description: 'Assistant & Associate Professors, clinical tutors, lab technologists, and hospital administrative managers.',
+    typicalScales: 'MTI Pay Scale 07 to 11 / BPS Equivalent',
+    defaultDeadline: '12th December 2026',
+    sampleAdvtNo: 'KMC-MTI-2026/02'
+  },
+  {
+    id: 'portal-kcd',
+    name: 'Khyber College of Dentistry (KCD)',
+    shortName: 'KCD Peshawar',
+    portalUrl: 'https://kcd.edu.pk',
+    pdfUrl: 'https://kcd.edu.pk/careers/KCD_Dental_Surgeons_Faculty_Advt_2026.pdf',
+    organization: 'Khyber College of Dentistry (MTI Peshawar)',
+    category: 'Healthcare & Medical Cadres',
+    badge: '🦷 Dental Institute & MTI',
+    description: 'Maxillofacial surgeons, orthodontists, prosthodontics faculty, dental demonstrators, and clinical staff.',
+    typicalScales: 'BPS-17 to BPS-19 / MTI Scale',
+    defaultDeadline: '15th December 2026',
+    sampleAdvtNo: 'KCD-MTI-2026/01'
+  },
+
+  // --- 7. Higher Education & Universities ---
+  {
+    id: 'portal-hec',
+    name: 'Higher Education Commission (HEC)',
+    shortName: 'HEC Pakistan',
+    portalUrl: 'https://hec.gov.pk',
+    pdfUrl: 'https://hec.gov.pk/careers/HEC_National_Project_Directors_and_Advisors_2026.pdf',
+    organization: 'Higher Education Commission (Islamabad)',
+    category: 'Higher Education & Universities',
+    badge: '🎓 National Higher Education',
+    description: 'National curriculum advisors, research evaluation directors, quality assurance inspectors, and scholarship program managers.',
+    typicalScales: 'BPS-17 to BPS-21 / MP-I, MP-II, MP-III',
+    defaultDeadline: '5th December 2026',
+    sampleAdvtNo: 'HEC-HRM-2026/08'
+  },
+  {
+    id: 'portal-kmu',
+    name: 'Khyber Medical University (KMU)',
+    shortName: 'KMU Peshawar',
+    portalUrl: 'https://kmu.edu.pk',
+    pdfUrl: 'https://kmu.edu.pk/careers/KMU_Postgraduate_Faculty_and_Researchers_2026.pdf',
+    organization: 'Khyber Medical University (Peshawar)',
+    category: 'Higher Education & Universities',
+    badge: '🎓 Health Sciences University',
+    description: 'Medical researchers, public health professors, epidemiologists, nursing institute faculty, and allied health directors.',
+    typicalScales: 'TTS (Tenure Track System) / BPS-17 to BPS-21',
+    defaultDeadline: '8th December 2026',
+    sampleAdvtNo: 'KMU-ADVT-2026/04'
+  },
+
+  // --- 8. Testing & Assessment Services ---
   {
     id: 'portal-nts',
     name: 'National Testing Service (NTS)',

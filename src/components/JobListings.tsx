@@ -18,7 +18,9 @@ import {
   Pin,
   Flame,
   Calendar,
-  Zap
+  Zap,
+  FileText,
+  RefreshCw
 } from 'lucide-react';
 import { Job } from '../types/job';
 import { Advertisement } from '../types/ad';
@@ -240,6 +242,22 @@ export const JobListings: React.FC<JobListingsProps> = ({
                       </span>
                     )}
 
+                    {/* PDF Scraped Gazette Badge */}
+                    {job.isPdfScraped && (
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 flex items-center space-x-1">
+                        <FileText className="w-3 h-3 text-indigo-400" />
+                        <span>PDF Gazette</span>
+                      </span>
+                    )}
+
+                    {/* Duplicate Override / Re-announced Posting Badge */}
+                    {job.isDuplicateOverride && (
+                      <span className="text-xs font-bold px-2 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center space-x-1" title="Approved as Re-advertised Vacancy">
+                        <RefreshCw className="w-3 h-3 text-amber-400" />
+                        <span>Re-announced</span>
+                      </span>
+                    )}
+
                     {/* Government & Newspaper Badges */}
                     {job.isGovtJob && (
                       <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
@@ -357,6 +375,21 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Brief Job Description & Overview Excerpt on Front Card */}
+                {job.description && (
+                  <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 mb-3 group-hover:border-slate-700/80 transition-colors">
+                    <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed font-normal">
+                      {job.description.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()}
+                    </p>
+                    {job.domicileQuota && (
+                      <div className="mt-1.5 pt-1.5 border-t border-slate-800/80 text-[10px] text-amber-300 font-medium truncate flex items-center space-x-1">
+                        <span className="font-bold text-amber-400">Quota:</span>
+                        <span className="truncate">{job.domicileQuota}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Tags */}
                 <div className="flex flex-wrap gap-1.5 mb-4">

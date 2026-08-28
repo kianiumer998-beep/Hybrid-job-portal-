@@ -1,36 +1,110 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Advertisement, AdTargetPage } from '../../types/ad';
-import { X, Sparkles, ExternalLink, ArrowRight, Megaphone } from 'lucide-react';
+import { 
+  X, 
+  Sparkles, 
+  ExternalLink, 
+  ArrowRight, 
+  Megaphone, 
+  ChevronLeft, 
+  ChevronRight, 
+  Play, 
+  Pause, 
+  Flame, 
+  Crown 
+} from 'lucide-react';
 
 interface TopBannerAdProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
   onAdClick: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  autoPlayIntervalMs?: number;
+  showDemoCardIfEmpty?: boolean;
 }
 
 export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   ads,
   currentPage,
   onAdClick,
-  onNavigateTab
+  onNavigateTab,
+  autoPlayIntervalMs = 6000,
+  showDemoCardIfEmpty = true
 }) => {
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
-  // Find the highest priority active top banner ad for this page
-  const activeBanner = ads.find(
+  // Demo fallback ad if no active banner is available
+  const demoBannerAd: Advertisement = {
+    id: 'demo-your-ad-here',
+    title: 'Your Ad Here Commercial Banner',
+    type: 'banner',
+    targetPages: ['all'],
+    placement: 'top-header',
+    status: 'active',
+    approvalStatus: 'Approved',
+    submittedByUserId: 'system-demo',
+    submittedByUserName: 'Platform Promotion',
+    headline: '🌟 Your Ad / Job Notice Here! Reach 250,000+ Verified Candidates & Employers Daily',
+    bodyText: 'Place your urgent hiring campaigns, corporate hiring drives, or commercial services at the top of all pages.',
+    badgeText: '👑 Advertise Here',
+    ctaText: 'Post Banner Campaign',
+    ctaUrl: '#dashboard',
+    theme: 'amber',
+    dismissable: true,
+    impressions: 15420,
+    clicks: 890,
+    createdAt: '2026-08-20',
+    durationUnit: 'days',
+    durationValue: 30
+  };
+
+  // Find all active banners matching the current page
+  const matchingBanners = ads.filter(
     (ad) =>
       ad.status === 'active' &&
-      (ad.placement === 'top-header' || ad.type === 'banner' && ad.placement === 'top-header') &&
+      (ad.placement === 'top-header' || (ad.type === 'banner' && ad.placement === 'top-header')) &&
       (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
       !dismissedIds.includes(ad.id)
   );
+
+  // If no matching banners and showDemoCard is true, show the demo ad
+  const activeBannerList = matchingBanners.length > 0 
+    ? matchingBanners 
+    : (showDemoCardIfEmpty && !dismissedIds.includes('demo-your-ad-here') ? [demoBannerAd] : []);
+
+  // Ensure index is within range
+  const activeCount = activeBannerList.length;
+  const safeIndex = activeCount > 0 ? (currentIndex % activeCount) : 0;
+  const activeBanner = activeBannerList[safeIndex];
+
+  // Auto-play timer
+  useEffect(() => {
+    if (activeCount <= 1 || isPaused) return;
+
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % activeCount);
+    }, autoPlayIntervalMs);
+
+    return () => clearInterval(timer);
+  }, [activeCount, isPaused, autoPlayIntervalMs]);
 
   if (!activeBanner) return null;
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
     setDismissedIds((prev) => [...prev, activeBanner.id]);
+  };
+
+  const handleNext = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev + 1) % activeCount);
+  };
+
+  const handlePrev = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev - 1 + activeCount) % activeCount);
   };
 
   const handleAction = () => {
@@ -105,9 +179,12 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   };
 
   const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
+  const isDemo = activeBanner.id === 'demo-your-ad-here';
 
   return (
     <div
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
       onClick={handleAction}
       className={`relative w-full ${style.bg} border-b ${style.border} px-4 py-2.5 sm:py-3 transition-all duration-300 cursor-pointer group z-30 shadow-lg`}
     >
@@ -125,8 +202,14 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
               />
             </div>
           ) : (
-            <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-              <Megaphone className="w-4 h-4 text-emerald-400 animate-bounce" />
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ${
+              isDemo ? 'bg-amber-500/30 border border-amber-400 text-amber-300' : 'bg-white/10 text-emerald-400'
+            }`}>
+              {isDemo ? (
+                <Crown className="w-5 h-5 animate-pulse text-amber-300" />
+              ) : (
+                <Megaphone className="w-4 h-4 animate-bounce" />
+              )}
             </div>
           )}
 
@@ -137,7 +220,12 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
                   {activeBanner.badgeText}
                 </span>
               )}
-              <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-emerald-300 transition-colors truncate">
+              {isDemo && (
+                <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Demo Card
+                </span>
+              )}
+              <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors truncate">
                 {activeBanner.headline}
               </h4>
             </div>
@@ -149,8 +237,44 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
           </div>
         </div>
 
-        {/* Right Side: CTA Button + Dismiss Button */}
+        {/* Right Side: Navigation Dots / Arrows (if multi) + CTA Button + Dismiss Button */}
         <div className="flex items-center space-x-2.5 flex-shrink-0 self-end sm:self-auto">
+          {activeCount > 1 && (
+            <div className="flex items-center space-x-1.5 mr-1" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={handlePrev}
+                className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
+                title="Previous Announcement"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Dots */}
+              <div className="flex items-center space-x-1">
+                {activeBannerList.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setCurrentIndex(idx)}
+                    className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                      idx === safeIndex ? 'w-4 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleNext}
+                className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
+                title="Next Announcement"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {activeBanner.ctaText && (
             <button
               onClick={handleAction}

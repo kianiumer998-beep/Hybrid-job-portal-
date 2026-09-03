@@ -1,14 +1,16 @@
 import React, { useState, useRef } from 'react';
-import { Briefcase, ShieldCheck, Heart, Sparkles, MessageSquare, Mail, Phone, Lock } from 'lucide-react';
+import { Briefcase, ShieldCheck, Heart, Sparkles, MessageSquare, Mail, Phone, Lock, AlertTriangle, ShieldAlert } from 'lucide-react';
 
 interface FooterProps {
   onTriggerAdminClickTrick: () => void;
   onOpenSubscriptionModal: () => void;
+  onOpenLegalModal?: (tab: 'disclaimer' | 'privacy' | 'terms' | 'contact') => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onTriggerAdminClickTrick,
-  onOpenSubscriptionModal
+  onOpenSubscriptionModal,
+  onOpenLegalModal
 }) => {
   const [clickCount, setClickCount] = useState<number>(0);
   const clickTimeoutRef = useRef<any>(null);
@@ -62,14 +64,48 @@ export const Footer: React.FC<FooterProps> = ({
             </ul>
           </div>
 
-          {/* Col 3: Services */}
+          {/* Col 3: Legal & Trust Center */}
           <div>
-            <h4 className="font-bold text-white uppercase tracking-wider text-[11px] mb-3">Features</h4>
+            <h4 className="font-bold text-white uppercase tracking-wider text-[11px] mb-3">Legal & Trust</h4>
             <ul className="space-y-2 text-slate-400">
-              <li>ATS Automated CV Builder</li>
-              <li>WhatsApp Job Alert Stream</li>
-              <li>Direct HR Application Route</li>
-              <li>Verified Remote Listings</li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onOpenLegalModal?.('disclaimer')}
+                  className="hover:text-amber-400 transition-colors text-left cursor-pointer flex items-center space-x-1.5"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400/80" />
+                  <span>Public Disclaimer</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onOpenLegalModal?.('privacy')}
+                  className="hover:text-emerald-400 transition-colors text-left cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onOpenLegalModal?.('terms')}
+                  className="hover:text-emerald-400 transition-colors text-left cursor-pointer"
+                >
+                  Terms & Conditions
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onOpenLegalModal?.('contact')}
+                  className="hover:text-indigo-400 transition-colors text-left cursor-pointer flex items-center space-x-1.5"
+                >
+                  <Mail className="w-3.5 h-3.5 text-indigo-400/80" />
+                  <span>Contact Us & Fraud Report</span>
+                </button>
+              </li>
             </ul>
           </div>
 
@@ -88,13 +124,30 @@ export const Footer: React.FC<FooterProps> = ({
 
         </div>
 
+        {/* Public Disclaimer Banner */}
+        <div className="p-4 bg-slate-900/80 border border-slate-800/80 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-slate-400">
+          <div className="flex items-start space-x-3">
+            <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <p className="leading-relaxed text-[11px]">
+              <strong className="text-amber-300 font-semibold">Important Disclaimer:</strong> All jobs and advertisements listed are independent of the websites and should be pursued at your own risk. We are not responsible for any investments or applications made. While our customers post these jobs and advertisements, and we strive to ensure their validity, we cannot guarantee 100% accuracy. These listings have no direct affiliation with the websites mentioned.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenLegalModal?.('disclaimer')}
+            className="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-[11px] font-bold border border-slate-700 cursor-pointer"
+          >
+            Read Full Legal Notice
+          </button>
+        </div>
+
         {/* Bottom Bar & Hidden Admin Trigger */}
-        <div className="pt-8 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between text-slate-500 text-[11px] gap-2">
+        <div className="pt-6 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between text-slate-500 text-[11px] gap-2">
           
           <div className="flex items-center space-x-2">
             <span>© 2026 HybridJobs Portal. All rights reserved.</span>
             
-            {/* HIDDEN SECRET CLICK TRIGGER (Click 5 times on copyright symbol or shield) */}
+            {/* HIDDEN SECRET CLICK TRIGGER (Click 5 times on copyright symbol or lock) */}
             <span
               onClick={handleSecretClick}
               className="inline-flex items-center cursor-pointer select-none p-1 rounded hover:bg-slate-900 hover:text-amber-400 transition-colors"
@@ -109,12 +162,29 @@ export const Footer: React.FC<FooterProps> = ({
             </span>
           </div>
 
-          <div className="flex space-x-4">
-            <span className="hover:text-slate-300 cursor-pointer">Privacy Policy</span>
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => onOpenLegalModal?.('privacy')}
+              className="hover:text-slate-300 cursor-pointer bg-transparent border-0 p-0 text-[11px] text-slate-500"
+            >
+              Privacy Policy
+            </button>
             <span>•</span>
-            <span className="hover:text-slate-300 cursor-pointer">Terms of Service</span>
+            <button
+              onClick={() => onOpenLegalModal?.('terms')}
+              className="hover:text-slate-300 cursor-pointer bg-transparent border-0 p-0 text-[11px] text-slate-500"
+            >
+              Terms of Service
+            </button>
             <span>•</span>
-            <span className="hover:text-slate-300 cursor-pointer">Pakistan Job Index</span>
+            <button
+              onClick={() => onOpenLegalModal?.('contact')}
+              className="hover:text-slate-300 cursor-pointer bg-transparent border-0 p-0 text-[11px] text-slate-500"
+            >
+              Contact Us
+            </button>
+            <span>•</span>
+            <span className="text-slate-600">Pakistan & Global Job Index</span>
           </div>
 
         </div>

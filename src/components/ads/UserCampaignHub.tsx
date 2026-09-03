@@ -18,6 +18,9 @@ import {
   isAdCurrentlyRunning,
   isPageScheduledActive,
   validateCampaignTargetPages,
+  getOccupiedSlotRangesForPlacement,
+  checkSlotDateAvailability,
+  getNextAvailableDateForPlacement,
   AD_BANNER_PRESETS
 } from '../../types/ad';
 import { UserAccount } from '../../types/job';
@@ -61,6 +64,7 @@ import {
 interface UserCampaignHubProps {
   currentUser: UserAccount;
   userAds: Advertisement[];
+  allAds?: Advertisement[];
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
   onDepositWallet: (amount: number, paymentMethod: string) => void;
@@ -73,6 +77,7 @@ interface UserCampaignHubProps {
 export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   currentUser,
   userAds,
+  allAds = [],
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   onDepositWallet,
@@ -293,6 +298,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
   const totalUserImpressions = userAds.reduce((acc, curr) => acc + (curr.impressions || 0), 0);
   const totalUserClicks = userAds.reduce((acc, curr) => acc + (curr.clicks || 0), 0);
+
+  // Slot availability info for selected placement
+  const adsPool = allAds.length > 0 ? allAds : userAds;
+  const occupiedRanges = getOccupiedSlotRangesForPlacement(adsPool, formPlacement);
+  const nextOpenDate = getNextAvailableDateForPlacement(adsPool, formPlacement);
+  const isRunningNow = adsPool.some(a => a.placement === formPlacement && isAdCurrentlyRunning(a));
+  const selectedPlacementOpt = campaignConfig.placementOptions.find(p => p.id === formPlacement);
+  const isPlacementFree = !!selectedPlacementOpt?.isFreeOverride;
   const userCtr = totalUserImpressions > 0 ? ((totalUserClicks / totalUserImpressions) * 100).toFixed(2) : '0.00';
 
   return (
@@ -765,6 +778,62 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     )}
                   </select>
                 </div>
+              </div>
+
+              {/* Slot Availability & Real-Time Booking Timeline Card */}
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-black text-white">Live Slot Schedule & Availability:</span>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    {isPlacementFree && (
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase">
+                        🎉 100% Free Placement!
+                      </span>
+                    )}
+                    {isRunningNow ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-1"></span>
+                        <span>Currently Active Campaign</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        🟢 Slot Open for Immediate Booking
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Booked Date Ranges Visualizer */}
+                {occupiedRanges.length > 0 ? (
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
+                    <div className="text-[11px] font-semibold text-slate-400">
+                      Reserved / Occupied Booking Windows:
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {occupiedRanges.map((r, i) => (
+                        <div
+                          key={i}
+                          className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[11px] font-mono text-slate-300 flex items-center space-x-1.5"
+                        >
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          <span>{r.startDate} ➔ {r.endDate}</span>
+                          <span className="text-[9px] text-slate-500">({r.title})</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-[11px] font-bold text-emerald-400 pt-1">
+                      ✨ Next completely available open date begins on: <strong className="text-white font-mono">{nextOpenDate}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                    ✨ No reservations queued for this placement. Your campaign will launch <strong className="text-emerald-400">immediately</strong> upon submission!
+                  </div>
+                )}
               </div>
 
               {/* 3. Target Pages (Multi-Select with Admin Schedule Enforced) */}

@@ -12,6 +12,10 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { AuthModal } from './components/AuthModal';
 import { UserDashboard } from './components/UserDashboard';
 import { Footer } from './components/Footer';
+import { CountrySelectionModal } from './components/CountrySelectionModal';
+import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
+import { WhatsAppStickyButton, WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './components/WhatsAppStickyButton';
+import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 
 import { TopBannerAd } from './components/ads/TopBannerAd';
 import { PopupAdModal } from './components/ads/PopupAdModal';
@@ -40,15 +44,54 @@ import {
   DEFAULT_JOB_POSTING_PRICING_CONFIG
 } from './types/job';
 import { INITIAL_JOBS } from './data/mockJobs';
-import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X } from 'lucide-react';
+import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X, Layers, Globe, MapPin, Zap } from 'lucide-react';
 import { SiteSeoConfig } from './types/adminSuite';
 import { INITIAL_SITE_SEO_CONFIG } from './data/mockAdminSuiteData';
+import { 
+  LandingPageConfig, 
+  DEFAULT_LANDING_PAGE_CONFIG, 
+  CountryOption, 
+  SUPPORTED_COUNTRIES 
+} from './types/landing';
 
 export default function App() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
   const [showAdminView, setShowAdminView] = useState<boolean>(false);
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
+
+  // User Country Selection State (Pop-up on entry if not set)
+  const [userSelectedCountry, setUserSelectedCountry] = useState<CountryOption | null>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_user_country_preference');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return null;
+  });
+
+  const [showCountryModal, setShowCountryModal] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_user_country_preference');
+      return !saved; // If no preference saved, open on first visit
+    } catch {
+      return true;
+    }
+  });
+
+  // Dynamic Landing Page Builder Configuration State
+  const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_landing_page_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return DEFAULT_LANDING_PAGE_CONFIG;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hybrid_landing_page_config', JSON.stringify(landingConfig));
+    } catch (e) {}
+  }, [landingConfig]);
 
   // Global SEO & Announcement State (Synchronized with Admin Suite)
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
@@ -265,6 +308,70 @@ export default function App() {
       }
     ];
   });
+
+  // Persistent WhatsApp Support Configuration State
+  const [whatsAppSupportConfig, setWhatsAppSupportConfig] = useState<WhatsAppSupportConfig>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_whatsapp_support_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      phoneNumber: '923001234567',
+      agentName: 'Ayesha (Lead Career Advisor)',
+      defaultMessage: 'Hello! I need assistance with job applications on CareerPak...',
+      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
+      enabled: true,
+      position: 'bottom-right'
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(whatsAppSupportConfig));
+    } catch (e) {}
+  }, [whatsAppSupportConfig]);
+
+  // Payment Verification Transactions State
+  const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransaction[]>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_payment_transactions');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_PAYMENT_TRANSACTIONS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hybrid_payment_transactions', JSON.stringify(paymentTransactions));
+    } catch (e) {}
+  }, [paymentTransactions]);
+
+  const handleApprovePaymentTransaction = (txId: string, note?: string) => {
+    setPaymentTransactions(prev => prev.map(t => {
+      if (t.id === txId) {
+        return {
+          ...t,
+          status: 'Success' as const,
+          verifiedAt: new Date().toISOString(),
+          adminNote: note
+        };
+      }
+      return t;
+    }));
+  };
+
+  const handleRejectPaymentTransaction = (txId: string, reason: string) => {
+    setPaymentTransactions(prev => prev.map(t => {
+      if (t.id === txId) {
+        return {
+          ...t,
+          status: 'Failed' as const,
+          rejectionReason: reason
+        };
+      }
+      return t;
+    }));
+  };
 
   // Helper to deduplicate jobs by unique ID
   const deduplicateJobsById = (jobList: Job[]): Job[] => {
@@ -570,6 +677,8 @@ export default function App() {
   const [adminLoginOpen, setAdminLoginOpen] = useState<boolean>(false);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(false);
+  const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
+  const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
 
   const handlePostJobClick = () => {
@@ -582,19 +691,57 @@ export default function App() {
   };
 
   // Filters & Pagination State
-  const [filters, setFilters] = useState<JobFilters>({
-    searchQuery: '',
-    jobType: 'All',
-    region: 'All',
-    province: '',
-    city: '',
-    district: '',
-    experienceLevel: 'All',
-    salaryMin: 0,
-    sortBy: 'latest'
+  const [filters, setFilters] = useState<JobFilters>(() => {
+    try {
+      const savedCountry = localStorage.getItem('hybrid_user_country_preference');
+      if (savedCountry) {
+        const c: CountryOption = JSON.parse(savedCountry);
+        return {
+          searchQuery: '',
+          jobType: 'All',
+          region: c.code === 'GL' ? 'All' : (c.region || c.name),
+          province: '',
+          city: '',
+          district: '',
+          experienceLevel: 'All',
+          salaryMin: 0,
+          sortBy: 'latest'
+        };
+      }
+    } catch (e) {}
+    return {
+      searchQuery: '',
+      jobType: 'All',
+      region: 'All',
+      province: '',
+      city: '',
+      district: '',
+      experienceLevel: 'All',
+      salaryMin: 0,
+      sortBy: 'latest'
+    };
   });
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [postsPerPage, setPostsPerPage] = useState<number>(10);
+
+  const handleSelectCountry = (country: CountryOption) => {
+    setUserSelectedCountry(country);
+    try {
+      localStorage.setItem('hybrid_user_country_preference', JSON.stringify(country));
+    } catch (e) {}
+    setShowCountryModal(false);
+
+    const targetRegion = country.code === 'GL' ? 'All' : (country.region || country.name);
+    setFilters(prev => ({
+      ...prev,
+      region: targetRegion,
+      province: '',
+      city: '',
+      district: '',
+      sortBy: 'latest'
+    }));
+    setCurrentPage(1);
+  };
 
   const handleFiltersChange = (newFilters: JobFilters) => {
     setFilters(newFilters);
@@ -605,7 +752,7 @@ export default function App() {
     setFilters({
       searchQuery: '',
       jobType: 'All',
-      region: 'All',
+      region: userSelectedCountry ? (userSelectedCountry.code === 'GL' ? 'All' : (userSelectedCountry.region || userSelectedCountry.name)) : 'All',
       province: '',
       city: '',
       district: '',
@@ -1390,6 +1537,9 @@ export default function App() {
         showAdminView={showAdminView}
         activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
         onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
+        selectedCountryName={userSelectedCountry?.name || 'All Countries'}
+        selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
+        onOpenCountryModal={() => setShowCountryModal(true)}
       />
 
       {/* Main View Area */}
@@ -1463,53 +1613,216 @@ export default function App() {
             onRejectAd={handleRejectAd}
             jobPostingPricing={jobPostingPricing}
             onChangeJobPostingPricing={setJobPostingPricing}
+            landingConfig={landingConfig}
+            onUpdateLandingConfig={setLandingConfig}
+            whatsAppSupportConfig={whatsAppSupportConfig}
+            onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
+            paymentTransactions={paymentTransactions}
+            onApprovePaymentTransaction={handleApprovePaymentTransaction}
+            onRejectPaymentTransaction={handleRejectPaymentTransaction}
           />
         ) : (
           <>
-            {/* JOBS PORTAL TAB */}
+            {/* JOBS PORTAL TAB (Dynamic Landing Page Sections Sequenced by Admin) */}
             {activeTab === 'jobs' && (
-              <>
-                <HeroSection
-                  totalJobsCount={jobs.length}
-                  onExploreClick={() => {
-                    const el = document.getElementById('jobs-section');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  onCvClick={() => setActiveTab('cv')}
-                  onPostJobClick={handlePostJobClick}
-                />
+              <div className="space-y-6">
+                {(landingConfig.sections || [])
+                  .filter((sec) => sec.isEnabled)
+                  .sort((a, b) => a.order - b.order)
+                  .map((section) => {
+                    if (section.id === 'hero') {
+                      return (
+                        <HeroSection
+                          key="section-hero"
+                          heroConfig={landingConfig.hero}
+                          totalJobsCount={jobs.length}
+                          onExploreClick={() => {
+                            const el = document.getElementById('jobs-section');
+                            el?.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                          onCvClick={() => setActiveTab('cv')}
+                          onPostJobClick={handlePostJobClick}
+                        />
+                      );
+                    }
 
-                <div id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                  
-                  {/* Filters Bar */}
-                  <Filters
-                    filters={filters}
-                    onChange={handleFiltersChange}
-                    onReset={handleResetFilters}
-                    totalResults={filteredJobs.length}
-                    postsPerPage={postsPerPage}
-                    onPostsPerPageChange={handlePostsPerPageChange}
-                  />
+                    if (section.id === 'promo-banners') {
+                      const activeBanners = (campaignConfig.promoBanners || []).filter(b => b.isEnabled);
+                      if (activeBanners.length === 0) return null;
+                      return (
+                        <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
+                          {activeBanners.map((banner) => (
+                            <div
+                              key={banner.id}
+                              className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
+                                    {banner.badgeText || '🔥 SPECIAL OFFER'}
+                                  </span>
+                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
+                                    {banner.discountPercent}% OFF
+                                  </span>
+                                  {banner.promoCode && (
+                                    <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
+                                      Use Code: {banner.promoCode}
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
+                                <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
+                              </div>
 
-                  {/* Job Cards Grid with Pagination and Inline Ads */}
-                  <JobListings
-                    jobs={filteredJobs}
-                    savedJobIds={savedJobIds}
-                    onToggleSaveJob={handleToggleSaveJob}
-                    onSelectJob={(job) => setSelectedJob(job)}
-                    onApplyClick={handleApplyClick}
-                    isSubscribed={isSubscribed}
-                    currentPage={currentPage}
-                    postsPerPage={postsPerPage}
-                    onPageChange={setCurrentPage}
-                    onPostsPerPageChange={handlePostsPerPageChange}
-                    ads={advertisements}
-                    onAdClick={handleAdClick}
-                    onNavigateTab={setActiveTab}
-                  />
+                              <button
+                                onClick={() => {
+                                  if (currentUser) {
+                                    setActiveTab('dashboard');
+                                  } else {
+                                    setAuthModalOpen(true);
+                                  }
+                                }}
+                                className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                              >
+                                {banner.ctaText || 'Book Discount Ad'} →
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
 
-                </div>
-              </>
+                    if (section.id === 'top-sponsor-ads') {
+                      return null; // TopBannerAd renders sticky at top
+                    }
+
+                    if (section.id === 'quick-stats') {
+                      return (
+                        <div key="section-stats" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
+                            <div className="p-3 text-center">
+                              <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length}+</div>
+                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge1Text || 'Active Verified Vacancies'}</div>
+                            </div>
+                            <div className="p-3 text-center">
+                              <div className="text-xl sm:text-2xl font-black text-emerald-400">100% Free</div>
+                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge2Text || 'Automated ATS Resume'}</div>
+                            </div>
+                            <div className="p-3 text-center">
+                              <div className="text-xl sm:text-2xl font-black text-indigo-400">36+ Districts</div>
+                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge3Text || 'Punjab, Sindh, KPK & Global'}</div>
+                            </div>
+                            <div className="p-3 text-center">
+                              <div className="text-xl sm:text-2xl font-black text-teal-400">Instant</div>
+                              <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge4Text || 'WhatsApp & Email Alerts'}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (section.id === 'custom-announcements') {
+                      const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
+                      if (activeCards.length === 0) return null;
+                      return (
+                        <div key="section-cards" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {activeCards.sort((a, b) => a.order - b.order).map((card) => (
+                              <div
+                                key={card.id}
+                                className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
+                              >
+                                <div className="space-y-2">
+                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
+                                    {card.badge}
+                                  </span>
+                                  <h4 className="text-lg font-black">{card.title}</h4>
+                                  <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    if (card.buttonUrl?.startsWith('#')) {
+                                      const tab = card.buttonUrl.replace('#', '') as any;
+                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
+                                        setActiveTab(tab);
+                                      } else {
+                                        const el = document.getElementById(tab);
+                                        el?.scrollIntoView({ behavior: 'smooth' });
+                                      }
+                                    }
+                                  }}
+                                  className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
+                                >
+                                  {card.buttonText} →
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (section.id === 'jobs-feed') {
+                      return (
+                        <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+                          
+                          {/* Active Country Filter Notification Badge */}
+                          {userSelectedCountry && userSelectedCountry.code !== 'GL' && (
+                            <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                              <div className="flex items-center space-x-2.5">
+                                <span className="text-xl">{userSelectedCountry.flag}</span>
+                                <div>
+                                  <span className="font-bold text-white">
+                                    Showing Jobs for {userSelectedCountry.name} ({userSelectedCountry.nameUrdu})
+                                  </span>
+                                  <p className="text-[11px] text-slate-400">
+                                    Sorted by recently updated & priority verified listings.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setShowCountryModal(true)}
+                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] border border-amber-500/20 transition-all cursor-pointer shrink-0"
+                              >
+                                Change Country
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Filters Bar */}
+                          <Filters
+                            filters={filters}
+                            onChange={handleFiltersChange}
+                            onReset={handleResetFilters}
+                            totalResults={filteredJobs.length}
+                            postsPerPage={postsPerPage}
+                            onPostsPerPageChange={handlePostsPerPageChange}
+                          />
+
+                          {/* Job Cards Grid with Pagination and Inline Ads */}
+                          <JobListings
+                            jobs={filteredJobs}
+                            savedJobIds={savedJobIds}
+                            onToggleSaveJob={handleToggleSaveJob}
+                            onSelectJob={(job) => setSelectedJob(job)}
+                            onApplyClick={handleApplyClick}
+                            isSubscribed={isSubscribed}
+                            currentPage={currentPage}
+                            postsPerPage={postsPerPage}
+                            onPageChange={setCurrentPage}
+                            onPostsPerPageChange={handlePostsPerPageChange}
+                            ads={advertisements}
+                            feedInlineSettings={campaignConfig.feedInlineSettings}
+                            onAdClick={handleAdClick}
+                            onNavigateTab={setActiveTab}
+                          />
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+              </div>
             )}
 
             {/* REGISTERED USER DASHBOARD TAB */}
@@ -1520,8 +1833,14 @@ export default function App() {
                 chatMessages={chatMessages}
                 jobPostingFeePkr={jobPostingFeePkr}
                 userApplications={allApplications}
+                allJobs={jobs}
+                savedJobIds={savedJobIds}
+                onSelectJob={(job) => setSelectedJob(job)}
+                onApplyJob={handleApplyClick}
+                onToggleSaveJob={handleToggleSaveJob}
                 initialTab={userDashboardInitialTab}
                 userAds={advertisements.filter(a => a.submittedByUserId === currentUser.id)}
+                allAds={advertisements}
                 pricingConfig={pricingConfig}
                 campaignConfig={campaignConfig}
                 jobPostingPricing={jobPostingPricing}
@@ -1601,16 +1920,38 @@ export default function App() {
 
       </main>
 
-      {/* Footer with Secret 5-Click Admin Panel Trigger */}
+      {/* Footer with Secret 5-Click Admin Panel Trigger and Legal Links */}
       <Footer
         onTriggerAdminClickTrick={() => setAdminLoginOpen(true)}
         onOpenSubscriptionModal={() => {
           setSelectedJobTitleForSub('');
           setSubscriptionModalOpen(true);
         }}
+        onOpenLegalModal={(tab) => {
+          setLegalModalTab(tab);
+          setLegalModalOpen(true);
+        }}
+      />
+
+      {/* Floating Sticky WhatsApp Quick-Action Button */}
+      <WhatsAppStickyButton
+        onOpenSubscriptionModal={() => {
+          setSelectedJobTitleForSub('WhatsApp Instant Job Alert Stream');
+          setSubscriptionModalOpen(true);
+        }}
       />
 
       {/* MODALS */}
+      <LegalDisclaimerModal
+        isOpen={legalModalOpen}
+        onClose={() => setLegalModalOpen(false)}
+        initialTab={legalModalTab}
+        onOpenSubscriptionModal={() => {
+          setLegalModalOpen(false);
+          setSubscriptionModalOpen(true);
+        }}
+      />
+
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
@@ -1652,13 +1993,25 @@ export default function App() {
         }}
       />
 
-      {/* Pop-up Lightbox Advertisement Modal */}
-      <PopupAdModal
-        ads={advertisements}
-        currentPage={activeTab}
-        onAdClick={handleAdClick}
-        onNavigateTab={setActiveTab}
+      {/* Country Selection Modal (Urdu/English First-Time & Switcher) */}
+      <CountrySelectionModal
+        isOpen={showCountryModal}
+        onClose={() => setShowCountryModal(false)}
+        onSelectCountry={handleSelectCountry}
+        currentSelectedCode={userSelectedCountry?.code}
+        isInitialRequired={!userSelectedCountry}
       />
+
+      {/* Pop-up Lightbox Advertisement Modal (Displays after country selection) */}
+      {!showCountryModal && (
+        <PopupAdModal
+          ads={advertisements}
+          currentPage={activeTab}
+          popupSettings={campaignConfig.popupSettings}
+          onAdClick={handleAdClick}
+          onNavigateTab={setActiveTab}
+        />
+      )}
 
       {/* Floating Bottom-Right Toast Notification Ad */}
       <ToastNotificationAd
@@ -1675,6 +2028,12 @@ export default function App() {
         ads={advertisements}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}
+      />
+
+      {/* Persistent Floating WhatsApp Support & Alerts Button */}
+      <WhatsAppStickyButton
+        config={whatsAppSupportConfig}
+        onOpenLegalModal={() => setLegalModalOpen(true)}
       />
 
     </div>

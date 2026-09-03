@@ -15,8 +15,6 @@ export const AdminSubscriberModal: React.FC<AdminSubscriberModalProps> = ({
   onClose,
   onSave
 }) => {
-  if (!isOpen) return null;
-
   const [formData, setFormData] = useState<Subscriber>(() => {
     if (subscriber) return { ...subscriber };
     return {
@@ -33,6 +31,8 @@ export const AdminSubscriberModal: React.FC<AdminSubscriberModalProps> = ({
       whatsappEnabled: true
     };
   });
+
+  if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

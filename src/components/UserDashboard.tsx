@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS, JobPostingPricingConfig, DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../types/job';
 import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp } from 'lucide-react';
 
 interface UserDashboardProps {
   currentUser: UserAccount;
@@ -11,8 +11,14 @@ interface UserDashboardProps {
   chatMessages: ChatMessage[];
   jobPostingFeePkr: number;
   userApplications?: JobApplication[];
+  allJobs?: Job[];
+  savedJobIds?: string[];
+  onSelectJob?: (job: Job) => void;
+  onApplyJob?: (job: Job) => void;
+  onToggleSaveJob?: (jobId: string) => void;
   initialTab?: 'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns';
   userAds?: Advertisement[];
+  allAds?: Advertisement[];
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
   jobPostingPricing?: JobPostingPricingConfig;
@@ -36,8 +42,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   chatMessages,
   jobPostingFeePkr,
   userApplications = [],
+  allJobs = [],
+  savedJobIds = [],
+  onSelectJob,
+  onApplyJob,
+  onToggleSaveJob,
   initialTab = 'overview',
   userAds = [],
+  allAds = [],
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
   campaignConfig,
   jobPostingPricing = DEFAULT_JOB_POSTING_PRICING_CONFIG,
@@ -332,6 +344,78 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   // Filter messages for current user
   const myMessages = chatMessages.filter((m) => m.userId === currentUser.id);
 
+  // Recommended Jobs Calculation Engine
+  const recommendedJobs = useMemo(() => {
+    if (!allJobs || allJobs.length === 0) return [];
+    
+    // Gather user affinity keywords
+    const keywords: string[] = [];
+    if (currentUser.skills) {
+      keywords.push(...currentUser.skills.map((s) => s.toLowerCase()));
+    }
+    if (currentUser.name) {
+      keywords.push(...currentUser.name.toLowerCase().split(' '));
+    }
+    if (currentUser.bio) {
+      keywords.push(...currentUser.bio.toLowerCase().split(/[\s,]+/));
+    }
+    // From applied jobs
+    userApplications.forEach((app) => {
+      if (app.jobTitle) keywords.push(...app.jobTitle.toLowerCase().split(/[\s,]+/));
+    });
+    // From saved jobs
+    if (savedJobIds && savedJobIds.length > 0) {
+      const saved = allJobs.filter((j) => savedJobIds.includes(j.id));
+      saved.forEach((j) => {
+        keywords.push(...j.title.toLowerCase().split(/[\s,]+/));
+        j.tags.forEach((t) => keywords.push(t.toLowerCase()));
+      });
+    }
+
+    const stopWords = new Set(['and', 'for', 'the', 'with', 'from', 'into', 'that', 'this', 'jobs', 'remote', 'hybrid', 'lead', 'senior', 'junior']);
+    const uniqueKeywords = Array.from(new Set(keywords.filter((k) => k.length > 2 && !stopWords.has(k))));
+
+    return allJobs
+      .filter((j) => j.status === 'Approved' || !j.status)
+      .map((job) => {
+        let matchScore = 60; // base fit
+        const matchedReasons: string[] = [];
+
+        const jobText = `${job.title} ${job.description} ${job.tags.join(' ')} ${job.department || ''} ${job.city || ''} ${job.region}`.toLowerCase();
+        
+        let keywordHits = 0;
+        uniqueKeywords.forEach((kw) => {
+          if (jobText.includes(kw)) {
+            keywordHits++;
+          }
+        });
+
+        if (keywordHits > 0) {
+          matchScore += Math.min(35, keywordHits * 12);
+          matchedReasons.push(`Matches ${keywordHits} saved skills & target keywords`);
+        }
+
+        if (job.type === 'Remote' || job.type === 'Hybrid') {
+          matchScore += 4;
+          matchedReasons.push('High-flexibility Remote/Hybrid role');
+        }
+
+        if (job.featured || job.urgent) {
+          matchScore += 3;
+        }
+
+        const fitPercent = Math.min(99, Math.max(65, matchScore));
+
+        return {
+          job,
+          fitPercent,
+          reasons: matchedReasons.length > 0 ? matchedReasons : ['Matches trending hybrid opportunities in your region']
+        };
+      })
+      .sort((a, b) => b.fitPercent - a.fitPercent)
+      .slice(0, 6);
+  }, [allJobs, currentUser, userApplications, savedJobIds]);
+
   // Derived Billing Dates & Times
   const activationTimeStr = currentUser.activationDate || '2026-07-25 09:00';
   const expiryTimeStr = currentUser.expiryDate || '2026-08-24 09:00';
@@ -499,6 +583,92 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </button>
             </div>
           </div>
+
+          {/* RECOMMENDED JOBS BASED ON PROFILE & SAVED TAGS */}
+          {recommendedJobs.length > 0 && (
+            <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-4 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-base font-black flex items-center space-x-2 text-white">
+                    <Sparkles className="w-5 h-5 text-amber-400" />
+                    <span>Personalized Job Recommendations</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Matched automatically to your profile skills, applied roles, and saved preferences.
+                  </p>
+                </div>
+                <span className="text-xs text-amber-400 font-bold bg-amber-400/10 px-2.5 py-1 rounded-full border border-amber-400/20 self-start sm:self-auto">
+                  {recommendedJobs.length} Recommended Openings
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {recommendedJobs.map(({ job, fitPercent, reasons }) => (
+                  <div
+                    key={`rec-job-${job.id}`}
+                    className="p-4 bg-slate-950/80 border border-slate-800 hover:border-emerald-500/50 rounded-xl flex flex-col justify-between space-y-3 transition-all hover:shadow-lg group"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          {fitPercent}% Match
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {job.type} • {job.region}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors line-clamp-1">
+                          {job.title}
+                        </h4>
+                        <p className="text-xs text-slate-400 font-medium">
+                          {job.company} • <span className="text-slate-300">{job.city || job.region}</span>
+                        </p>
+                      </div>
+
+                      <p className="text-xs font-semibold text-emerald-400 font-mono">
+                        {job.salary}
+                      </p>
+
+                      <div className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 flex items-center space-x-1.5">
+                        <ThumbsUp className="w-3 h-3 shrink-0 text-amber-400" />
+                        <span className="truncate">{reasons[0]}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-900 flex items-center justify-between gap-2">
+                      {onToggleSaveJob && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleSaveJob(job.id)}
+                          className={`p-2 rounded-lg border text-xs font-medium transition-all ${
+                            savedJobIds.includes(job.id)
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                          title="Save Job"
+                        >
+                          <Bookmark className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onSelectJob) onSelectJob(job);
+                        }}
+                        className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-extrabold flex items-center justify-center space-x-1 transition-all shadow-md"
+                      >
+                        <span>View Details</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* PAYMENT HISTORY TABLE */}
           <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-4 shadow-xl">
@@ -1260,8 +1430,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 <div className="flex items-center space-x-2">
                   <Crown className="w-5 h-5 text-amber-400" />
                   <div>
-                    <h4 className="font-bold text-sm text-white">Priority & Top-of-Board Placement Options</h4>
-                    <p className="text-[11px] text-slate-400">Choose how and where your job opening appears on the public job board</p>
+                    <h4 className="font-bold text-sm text-white">Choose Placement & Visibility Boost</h4>
+                    <p className="text-[11px] text-slate-400">Select where and how long your job is highlighted on the public job board</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -1274,134 +1444,174 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
                 {/* 1. Standard Option */}
-                <button
-                  type="button"
-                  onClick={() => setPriorityTier('standard')}
-                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    priorityTier === 'standard'
-                      ? 'bg-slate-800 border-slate-400 text-white shadow-lg'
-                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-white flex items-center space-x-1.5">
-                        <Briefcase className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Standard Listing</span>
-                      </span>
-                      <span className="font-mono font-bold text-slate-300">
-                        {computeJobPostingCost('standard') === 0 ? 'Free' : `PKR ${computeJobPostingCost('standard').toLocaleString()}`}
+                {jobPostingPricing.enableStandard !== false && (
+                  <button
+                    type="button"
+                    onClick={() => setPriorityTier('standard')}
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      priorityTier === 'standard'
+                        ? 'bg-slate-800 border-slate-400 text-white shadow-lg'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-white flex items-center space-x-1.5">
+                          <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Standard Listing</span>
+                        </span>
+                        <span className="font-mono font-bold text-slate-300">
+                          {computeJobPostingCost('standard') === 0 ? 'Free' : `PKR ${computeJobPostingCost('standard').toLocaleString()}`}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        {jobPostingPricing.standardDescription || 'Regular chronological placement on the public board.'}
+                      </p>
+                    </div>
+                    <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Listing Duration:</span>
+                      <span className="font-bold text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                        {jobPostingPricing.standardDurationDays || 30} Days
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      Regular chronological placement. Standard listing on the public board.
-                    </p>
-                  </div>
-                </button>
+                  </button>
+                )}
 
                 {/* 2. Urgent Hiring Boost */}
-                <button
-                  type="button"
-                  onClick={() => setPriorityTier('urgent')}
-                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    priorityTier === 'urgent'
-                      ? 'bg-rose-500/20 border-rose-500 text-white shadow-lg shadow-rose-500/10'
-                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-rose-500/40'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-rose-300 flex items-center space-x-1.5">
-                        <Flame className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
-                        <span>🔥 Urgent Hiring</span>
-                      </span>
-                      <span className="font-mono font-bold text-rose-300">
-                        PKR {computeJobPostingCost('urgent').toLocaleString()}
+                {jobPostingPricing.enableUrgent !== false && (
+                  <button
+                    type="button"
+                    onClick={() => setPriorityTier('urgent')}
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      priorityTier === 'urgent'
+                        ? 'bg-rose-500/20 border-rose-500 text-white shadow-lg shadow-rose-500/10'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-rose-500/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-rose-300 flex items-center space-x-1.5">
+                          <Flame className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
+                          <span>{jobPostingPricing.urgentBadgeText || '🔥 Urgent Hiring'}</span>
+                        </span>
+                        <span className="font-mono font-bold text-rose-300">
+                          PKR {computeJobPostingCost('urgent').toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        {jobPostingPricing.urgentDescription || 'Shows glowing Urgent Flame badge & ranks above regular jobs for instant applicant attention.'}
+                      </p>
+                    </div>
+                    <div className="mt-3 pt-2 border-t border-rose-900/30 flex items-center justify-between text-[10px] text-rose-300">
+                      <span>Boost Duration:</span>
+                      <span className="font-bold bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/50">
+                        {jobPostingPricing.urgentDurationDays || 15} Days
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      Shows glowing Urgent Flame badge & ranks above regular jobs for instant applicant attention.
-                    </p>
-                  </div>
-                </button>
+                  </button>
+                )}
 
                 {/* 3. Pinned Top of Board */}
-                <button
-                  type="button"
-                  onClick={() => setPriorityTier('featured_top')}
-                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    priorityTier === 'featured_top'
-                      ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10'
-                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-amber-500/40'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-amber-300 flex items-center space-x-1.5">
-                        <Pin className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                        <span>📌 Pinned Top of Board</span>
-                      </span>
-                      <span className="font-mono font-bold text-amber-300">
-                        PKR {computeJobPostingCost('featured_top').toLocaleString()}
+                {jobPostingPricing.enableFeaturedTop !== false && (
+                  <button
+                    type="button"
+                    onClick={() => setPriorityTier('featured_top')}
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      priorityTier === 'featured_top'
+                        ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-amber-500/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-amber-300 flex items-center space-x-1.5">
+                          <Pin className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                          <span>{jobPostingPricing.featuredBadgeText || '⭐ Pinned Top & Featured'}</span>
+                        </span>
+                        <span className="font-mono font-bold text-amber-300">
+                          PKR {computeJobPostingCost('featured_top').toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        {jobPostingPricing.featuredTopDescription || 'Pinned at the very top of all jobs first! Premium gold border & maximum impressions.'}
+                      </p>
+                    </div>
+                    <div className="mt-3 pt-2 border-t border-amber-900/30 flex items-center justify-between text-[10px] text-amber-300">
+                      <span>Top Lock Duration:</span>
+                      <span className="font-bold bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/50">
+                        {jobPostingPricing.featuredTopDurationDays || 30} Days
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      Pinned at the very top of all jobs first! Premium gold border & maximum impressions.
-                    </p>
-                  </div>
-                </button>
+                  </button>
+                )}
 
                 {/* 4. Future Job Opportunity */}
-                <button
-                  type="button"
-                  onClick={() => setPriorityTier('future_job')}
-                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    priorityTier === 'future_job'
-                      ? 'bg-cyan-500/20 border-cyan-500 text-white shadow-lg shadow-cyan-500/10'
-                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-cyan-500/40'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-cyan-300 flex items-center space-x-1.5">
-                        <Calendar className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>📅 Future Job Intake</span>
-                      </span>
-                      <span className="font-mono font-bold text-cyan-300">
-                        PKR {computeJobPostingCost('future_job').toLocaleString()}
+                {jobPostingPricing.enableFutureJob !== false && (
+                  <button
+                    type="button"
+                    onClick={() => setPriorityTier('future_job')}
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      priorityTier === 'future_job'
+                        ? 'bg-cyan-500/20 border-cyan-500 text-white shadow-lg shadow-cyan-500/10'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-cyan-500/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-cyan-300 flex items-center space-x-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>{jobPostingPricing.futureBadgeText || '🚀 Advance Intake'}</span>
+                        </span>
+                        <span className="font-mono font-bold text-cyan-300">
+                          PKR {computeJobPostingCost('future_job').toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        {jobPostingPricing.futureJobDescription || 'Post upcoming openings in advance with batch date countdown. Priority placement above standard listings.'}
+                      </p>
+                    </div>
+                    <div className="mt-3 pt-2 border-t border-cyan-900/30 flex items-center justify-between text-[10px] text-cyan-300">
+                      <span>Advance Window:</span>
+                      <span className="font-bold bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/50">
+                        {jobPostingPricing.futureJobDurationDays || 60} Days
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      Post upcoming & future openings in advance with batch date countdown. Priority placement above standard listings.
-                    </p>
-                  </div>
-                </button>
+                  </button>
+                )}
 
                 {/* 5. VIP All-in-One Bundle */}
-                <button
-                  type="button"
-                  onClick={() => setPriorityTier('vip_bundle')}
-                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between sm:col-span-2 ${
-                    priorityTier === 'vip_bundle'
-                      ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10'
-                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-purple-500/40'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-purple-300 flex items-center space-x-1.5">
-                        <Crown className="w-3.5 h-3.5 text-purple-400 fill-purple-400" />
-                        <span>👑 VIP All-in-One Power Bundle</span>
-                      </span>
-                      <span className="font-mono font-bold text-purple-300">
-                        PKR {computeJobPostingCost('vip_bundle').toLocaleString()}
+                {jobPostingPricing.enableVipBundle !== false && (
+                  <button
+                    type="button"
+                    onClick={() => setPriorityTier('vip_bundle')}
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between sm:col-span-2 ${
+                      priorityTier === 'vip_bundle'
+                        ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-purple-500/40'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-purple-300 flex items-center space-x-1.5">
+                          <Crown className="w-3.5 h-3.5 text-purple-400 fill-purple-400" />
+                          <span>{jobPostingPricing.vipBadgeText || '👑 VIP All-in-One Power Bundle'}</span>
+                        </span>
+                        <span className="font-mono font-bold text-purple-300">
+                          PKR {computeJobPostingCost('vip_bundle').toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        {jobPostingPricing.vipBundleDescription || 'All privileges included: Pinned Top #1 + Urgent Flame Badge + Featured Gold Styling + Advance Intake options.'}
+                      </p>
+                    </div>
+                    <div className="mt-3 pt-2 border-t border-purple-900/30 flex items-center justify-between text-[10px] text-purple-300">
+                      <span>Complete VIP Validity:</span>
+                      <span className="font-bold bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/50">
+                        {jobPostingPricing.vipBundleDurationDays || 45} Days Full Coverage
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      All privileges included: Pinned Top #1 + Urgent Flame Badge + Featured Gold Styling + Advance Intake options.
-                    </p>
-                  </div>
-                </button>
+                  </button>
+                )}
               </div>
 
               {/* Conditional Future Job Date Input */}
@@ -1567,6 +1777,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         <UserCampaignHub
           currentUser={currentUser}
           userAds={userAds}
+          allAds={allAds}
           pricingConfig={pricingConfig}
           campaignConfig={campaignConfig}
           onSubmitCampaign={(newAd, cost) => {

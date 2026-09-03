@@ -31,11 +31,11 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
   onSuspendJob,
   onInspectJob
 }) => {
-  if (!user) return null;
-
   const [activeTab, setActiveTab] = useState<'info' | 'applications' | 'posted-jobs' | 'transactions'>('info');
   const [adminNewPassword, setAdminNewPassword] = useState('');
   const [customExpiryInput, setCustomExpiryInput] = useState('');
+
+  if (!user) return null;
 
   const handleAdminChangePassword = (e: React.FormEvent) => {
     e.preventDefault();

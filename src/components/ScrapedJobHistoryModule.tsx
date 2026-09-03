@@ -90,8 +90,18 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
 
   // Compute live combined audit entries
   const currentLogs = useMemo(() => {
-    // If we have audit logs, use them; also reconcile with live pending and approved jobs
-    return auditLogs;
+    // Reconcile and deduplicate audit logs by id to guarantee zero duplicate keys
+    const seen = new Set<string>();
+    const uniqueLogs: ScrapedJobAuditEntry[] = [];
+    (auditLogs || []).forEach((entry) => {
+      if (entry && entry.id) {
+        if (!seen.has(entry.id)) {
+          seen.add(entry.id);
+          uniqueLogs.push(entry);
+        }
+      }
+    });
+    return uniqueLogs;
   }, [auditLogs]);
 
   // Filtered Audit Entries
@@ -726,7 +736,7 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
 
               {/* TABLE ITEMS */}
               <div className="divide-y divide-slate-800/80">
-                {filteredAuditLogs.map((entry) => {
+                {filteredAuditLogs.map((entry, aIdx) => {
                   const isSelected = selectedAuditIds.includes(entry.id);
                   const isPending = entry.status === 'Pending Review';
                   const isApproved = entry.status === 'Approved Live' || entry.status === 'Auto-Approved';
@@ -735,7 +745,7 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
 
                   return (
                     <div
-                      key={entry.id}
+                      key={entry.id ? `${entry.id}-${aIdx}` : `audit-entry-${aIdx}`}
                       className={`p-4 sm:p-5 transition-all hover:bg-slate-800/30 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 ${
                         isSelected ? 'bg-amber-500/5' : ''
                       }`}
@@ -947,9 +957,9 @@ export const ScrapedJobHistoryModule: React.FC<ScrapedJobHistoryModuleProps> = (
 
             {/* BATCH RUNS LIST */}
             <div className="space-y-3">
-              {batchRuns.map((batch) => (
+              {batchRuns.map((batch, bIdx) => (
                 <div
-                  key={batch.batchId}
+                  key={batch.batchId ? `${batch.batchId}-${bIdx}` : `batch-run-${bIdx}`}
                   className="bg-slate-950 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-3 hover:border-slate-700 transition-all"
                 >
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">

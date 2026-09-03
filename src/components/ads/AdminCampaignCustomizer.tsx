@@ -7,6 +7,10 @@ import {
   AdDurationUnit,
   AdPlacement,
   AdType,
+  PopupDisplaySettings,
+  FeedInlineAdSettings,
+  PromoDiscountBanner,
+  JobPostingFeeSettings,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   isPageScheduledActive,
   getPageDisplayName,
@@ -41,7 +45,14 @@ import {
   Radio,
   Flame,
   Zap,
-  DollarSign
+  DollarSign,
+  Smartphone,
+  Layout,
+  Percent,
+  CheckSquare,
+  HelpCircle,
+  Copy,
+  ChevronRight
 } from 'lucide-react';
 
 interface AdminCampaignCustomizerProps {
@@ -55,44 +66,45 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   onSaveConfig,
   onResetDefaults
 }) => {
-  const [localConfig, setLocalConfig] = useState<CampaignCustomizationConfig>(config);
-  const [activeTab, setActiveTab] = useState<'pages' | 'durations' | 'placements' | 'rules'>('pages');
+  const [localConfig, setLocalConfig] = useState<CampaignCustomizationConfig>(() => ({
+    ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+    ...config,
+    popupSettings: config.popupSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
+    feedInlineSettings: config.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+    promoBanners: config.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
+    jobPostingFeeSettings: config.jobPostingFeeSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings
+  }));
+
+  const [activeTab, setActiveTab] = useState<
+    'popup-modes' | 'feed-positioning' | 'placements' | 'promo-banners' | 'job-fees' | 'pages' | 'durations' | 'rules'
+  >('popup-modes');
+
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
-  // New Page Modal State
-  const [isAddPageModalOpen, setIsAddPageModalOpen] = useState(false);
-  const [newPageId, setNewPageId] = useState('');
-  const [newPageName, setNewPageName] = useState('');
-  const [newPageDesc, setNewPageDesc] = useState('');
-  const [newPageMultiplier, setNewPageMultiplier] = useState(1.0);
-  const [newPageScheduleMode, setNewPageScheduleMode] = useState<'always_active' | 'time_window' | 'date_range'>('always_active');
-  const [newPageTimeStart, setNewPageTimeStart] = useState('08:00');
-  const [newPageTimeEnd, setNewPageTimeEnd] = useState('22:00');
-  const [newPageDateStart, setNewPageDateStart] = useState(new Date().toISOString().slice(0, 10));
-  const [newPageDateEnd, setNewPageDateEnd] = useState(new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10));
+  // New Promo Banner Modal State
+  const [isAddPromoOpen, setIsAddPromoOpen] = useState(false);
+  const [newPromoTitle, setNewPromoTitle] = useState('50% Flash Discount Special');
+  const [newPromoDesc, setNewPromoDesc] = useState('Book any premium banner or popup at flat 50% discount this week.');
+  const [newPromoDiscount, setNewPromoDiscount] = useState(50);
+  const [newPromoBadge, setNewPromoBadge] = useState('🔥 50% OFF FLASH SALE');
+  const [newPromoCode, setNewPromoCode] = useState('CAREER50');
+  const [newPromoPlacement, setNewPromoPlacement] = useState<AdPlacement | 'all'>('all');
+  const [newPromoValidUntil, setNewPromoValidUntil] = useState(new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
+  const [newPromoGradient, setNewPromoGradient] = useState('from-amber-600 via-rose-600 to-indigo-700');
 
-  // New Duration Preset Modal State
-  const [isAddDurationModalOpen, setIsAddDurationModalOpen] = useState(false);
-  const [newDurLabel, setNewDurLabel] = useState('');
-  const [newDurSub, setNewDurSub] = useState('');
-  const [newDurUnit, setNewDurUnit] = useState<AdDurationUnit>('days');
-  const [newDurValue, setNewDurValue] = useState<number>(1);
-  const [newDurDiscount, setNewDurDiscount] = useState<number>(0);
-  const [newDurBadge, setNewDurBadge] = useState('');
-
-  // Editing existing page state
-  const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  // Custom Index Quick Adder State
+  const [quickIndexInput, setQuickIndexInput] = useState<string>('');
 
   // Save changes handler
   const handleSave = () => {
     onSaveConfig(localConfig);
-    setSaveSuccessMessage('Campaign customization & page schedules saved successfully!');
+    setSaveSuccessMessage('All campaign settings, placement rules, and popup modes saved successfully!');
     setTimeout(() => setSaveSuccessMessage(null), 3500);
   };
 
   // Reset handler
   const handleReset = () => {
-    if (window.confirm('Reset all portal page schedules, duration presets, and campaign submission rules to platform defaults?')) {
+    if (window.confirm('Reset all popup queue settings, feed positions, placement rates, and promotional discount banners to platform defaults?')) {
       setLocalConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
       onSaveConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
       if (onResetDefaults) onResetDefaults();
@@ -101,980 +113,1132 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
     }
   };
 
-  // Toggle page enable/disable
-  const handleTogglePage = (pageId: string) => {
+  // -------------------------------------------------------------
+  // POPUP DISPLAY SETTINGS HANDLERS
+  // -------------------------------------------------------------
+  const handleUpdatePopupSettings = (updates: Partial<PopupDisplaySettings>) => {
     setLocalConfig(prev => ({
       ...prev,
-      portalPages: prev.portalPages.map(p => 
-        p.id === pageId ? { ...p, isEnabled: !p.isEnabled } : p
-      )
+      popupSettings: {
+        ...prev.popupSettings,
+        ...updates
+      }
     }));
   };
 
-  // Update specific page config
-  const handleUpdatePage = (pageId: string, updates: Partial<PortalPageConfig>) => {
+  // -------------------------------------------------------------
+  // FEED INLINE SETTINGS HANDLERS
+  // -------------------------------------------------------------
+  const handleUpdateFeedInlineSettings = (updates: Partial<FeedInlineAdSettings>) => {
     setLocalConfig(prev => ({
       ...prev,
-      portalPages: prev.portalPages.map(p => 
-        p.id === pageId ? { ...p, ...updates } : p
-      )
+      feedInlineSettings: {
+        ...prev.feedInlineSettings,
+        ...updates
+      }
     }));
   };
 
-  // Delete custom page
-  const handleDeletePage = (pageId: string) => {
-    if (['all', 'jobs', 'alerts', 'cv', 'dashboard'].includes(pageId)) {
-      alert('Core portal system pages cannot be removed, but you can toggle them disabled.');
-      return;
+  const handleAddCustomIndex = (indexNum: number) => {
+    if (indexNum <= 0 || isNaN(indexNum)) return;
+    const current = localConfig.feedInlineSettings.customIndices || [];
+    if (!current.includes(indexNum)) {
+      const updated = [...current, indexNum].sort((a, b) => a - b);
+      handleUpdateFeedInlineSettings({ customIndices: updated });
     }
+  };
+
+  const handleRemoveCustomIndex = (indexNum: number) => {
+    const current = localConfig.feedInlineSettings.customIndices || [];
+    handleUpdateFeedInlineSettings({
+      customIndices: current.filter(n => n !== indexNum)
+    });
+  };
+
+  // -------------------------------------------------------------
+  // PLACEMENT OPTION HANDLERS
+  // -------------------------------------------------------------
+  const handleUpdatePlacement = (placementId: AdPlacement, updates: Partial<CampaignPlacementOption>) => {
     setLocalConfig(prev => ({
       ...prev,
-      portalPages: prev.portalPages.filter(p => p.id !== pageId)
+      placementOptions: prev.placementOptions.map(p =>
+        p.id === placementId ? { ...p, ...updates } : p
+      )
     }));
   };
 
-  // Add new custom page
-  const handleCreatePage = (e: React.FormEvent) => {
+  // -------------------------------------------------------------
+  // PROMO DISCOUNT BANNERS HANDLERS
+  // -------------------------------------------------------------
+  const handleTogglePromoBanner = (promoId: string) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      promoBanners: prev.promoBanners.map(p =>
+        p.id === promoId ? { ...p, isEnabled: !p.isEnabled } : p
+      )
+    }));
+  };
+
+  const handleDeletePromoBanner = (promoId: string) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      promoBanners: prev.promoBanners.filter(p => p.id !== promoId)
+    }));
+  };
+
+  const handleCreatePromoBanner = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPageName.trim()) return;
+    if (!newPromoTitle.trim()) return;
 
-    const generatedId = (newPageId.trim() || newPageName.toLowerCase().replace(/[^a-z0-9]/g, '-')).slice(0, 20);
-    
-    if (localConfig.portalPages.some(p => p.id === generatedId)) {
-      alert('A portal page with this ID already exists. Please choose a unique identifier.');
-      return;
-    }
-
-    const newPage: PortalPageConfig = {
-      id: generatedId,
-      name: newPageName.trim(),
-      description: newPageDesc.trim() || `Target campaigns specifically for ${newPageName.trim()}`,
-      routePath: `#${generatedId}`,
+    const newBanner: PromoDiscountBanner = {
+      id: 'promo-' + Date.now(),
       isEnabled: true,
-      multiplier: Number(newPageMultiplier) || 1.0,
-      scheduleMode: newPageScheduleMode,
-      activeTimeStart: newPageScheduleMode === 'time_window' ? newPageTimeStart : undefined,
-      activeTimeEnd: newPageScheduleMode === 'time_window' ? newPageTimeEnd : undefined,
-      activeDateStart: newPageScheduleMode === 'date_range' ? newPageDateStart : undefined,
-      activeDateEnd: newPageScheduleMode === 'date_range' ? newPageDateEnd : undefined,
-      minDurationHours: 6,
-      maxDurationHours: 2160
+      title: newPromoTitle.trim(),
+      description: newPromoDesc.trim(),
+      discountPercent: Number(newPromoDiscount) || 50,
+      badgeText: newPromoBadge.trim() || '🔥 SPECIAL OFFER',
+      promoCode: newPromoCode.trim() || undefined,
+      targetPlacement: newPromoPlacement,
+      validUntil: newPromoValidUntil,
+      bgGradient: newPromoGradient,
+      ctaText: 'Claim Discount Slot',
+      ctaUrl: '#dashboard'
     };
 
     setLocalConfig(prev => ({
       ...prev,
-      portalPages: [...prev.portalPages, newPage]
+      promoBanners: [newBanner, ...prev.promoBanners]
     }));
 
-    setIsAddPageModalOpen(false);
-    setNewPageId('');
-    setNewPageName('');
-    setNewPageDesc('');
-    setNewPageMultiplier(1.0);
+    setIsAddPromoOpen(false);
   };
 
-  // Toggle duration preset
-  const handleToggleDuration = (durId: string) => {
+  // -------------------------------------------------------------
+  // JOB POSTING FEE HANDLERS
+  // -------------------------------------------------------------
+  const handleUpdateJobPostingFeeSettings = (updates: Partial<JobPostingFeeSettings>) => {
     setLocalConfig(prev => ({
       ...prev,
-      durationPresets: prev.durationPresets.map(d => 
-        d.id === durId ? { ...d, isEnabled: !d.isEnabled } : d
-      )
-    }));
-  };
-
-  // Add new duration preset
-  const handleCreateDuration = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDurLabel.trim()) return;
-
-    const generatedId = 'dur-' + Date.now();
-    const newPreset: CampaignDurationPreset = {
-      id: generatedId,
-      label: newDurLabel.trim(),
-      subLabel: newDurSub.trim() || `${newDurValue} ${newDurUnit}`,
-      unit: newDurUnit,
-      value: Number(newDurValue) || 1,
-      discountPercent: Number(newDurDiscount) || undefined,
-      badge: newDurBadge.trim() || undefined,
-      isEnabled: true
-    };
-
-    setLocalConfig(prev => ({
-      ...prev,
-      durationPresets: [...prev.durationPresets, newPreset]
-    }));
-
-    setIsAddDurationModalOpen(false);
-    setNewDurLabel('');
-    setNewDurSub('');
-    setNewDurBadge('');
-    setNewDurDiscount(0);
-    setNewDurValue(1);
-  };
-
-  // Delete duration preset
-  const handleDeleteDuration = (durId: string) => {
-    setLocalConfig(prev => ({
-      ...prev,
-      durationPresets: prev.durationPresets.filter(d => d.id !== durId)
-    }));
-  };
-
-  // Toggle placement
-  const handleTogglePlacement = (placementId: AdPlacement) => {
-    setLocalConfig(prev => ({
-      ...prev,
-      placementOptions: prev.placementOptions.map(p => 
-        p.id === placementId ? { ...p, isEnabled: !p.isEnabled } : p
-      )
-    }));
-  };
-
-  // Update placement multiplier
-  const handleUpdatePlacementMultiplier = (placementId: AdPlacement, mult: number) => {
-    setLocalConfig(prev => ({
-      ...prev,
-      placementOptions: prev.placementOptions.map(p => 
-        p.id === placementId ? { ...p, multiplier: Math.max(0.1, mult) } : p
-      )
+      jobPostingFeeSettings: {
+        ...(prev.jobPostingFeeSettings || {
+          isFreeAll: false,
+          customStandardFeePkr: 500,
+          globalDiscountPercent: 0,
+          promoBannerText: ''
+        }),
+        ...updates
+      }
     }));
   };
 
   return (
-    <div className="space-y-6 text-white">
+    <div className="space-y-6">
       
-      {/* Top Header Banner with Action Buttons */}
-      <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 border border-indigo-500/40 rounded-3xl p-6 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
+      {/* Top Header Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <div className="flex items-center space-x-2">
+            <span className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30">
               <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-xl font-black text-white flex items-center space-x-2">
-                <span>Campaign Customizer & Portal Page Scheduler</span>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  Admin Master Controller
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400">
-                Customize, add, and edit options for campaign creation; schedule target portal pages with manual time frames and duration rules.
-              </p>
-            </div>
+            </span>
+            <h2 className="text-xl font-black text-white">Campaign & Placement Engine</h2>
           </div>
+          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+            Configure Centered Popup Lightbox queue modes, Job Feed Inline Card frequencies, All 6 Ad Placements, 100% Free overrides, and Promotional Discount Banners.
+          </p>
         </div>
 
-        <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
+        <div className="flex items-center space-x-3">
           <button
-            type="button"
             onClick={handleReset}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 flex items-center space-x-1.5 cursor-pointer transition-all"
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Reset Defaults</span>
           </button>
 
           <button
-            type="button"
             onClick={handleSave}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 flex items-center space-x-1.5 cursor-pointer active:scale-95 transition-all"
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center space-x-1.5 active:scale-95"
           >
             <Save className="w-4 h-4" />
-            <span>Save All Customizations</span>
+            <span>Save All Configurations</span>
           </button>
         </div>
       </div>
 
-      {/* Success Notification Alert */}
+      {/* Save Success Alert Banner */}
       {saveSuccessMessage && (
-        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between text-xs text-emerald-300 animate-in fade-in duration-300">
+        <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-between animate-fadeIn">
           <div className="flex items-center space-x-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>{saveSuccessMessage}</span>
           </div>
-          <button onClick={() => setSaveSuccessMessage(null)} className="text-emerald-400 hover:text-white p-1">
+          <button onClick={() => setSaveSuccessMessage(null)} className="text-emerald-400 hover:text-white">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto text-xs font-bold">
+      <div className="flex flex-wrap gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl">
         {[
-          { id: 'pages', label: `Target Portal Pages & Schedules (${localConfig.portalPages.length})`, icon: Globe },
-          { id: 'durations', label: `Timeframe & Duration Presets (${localConfig.durationPresets.length})`, icon: Clock },
-          { id: 'placements', label: `Placement Formats & Multipliers (${localConfig.placementOptions.length})`, icon: Layers },
-          { id: 'rules', label: 'Campaign Submission Rules & Policies', icon: ShieldCheck }
+          { id: 'popup-modes', label: 'Centered Popup Lightbox', icon: Sparkles, badge: localConfig.popupSettings.displayMode },
+          { id: 'feed-positioning', label: 'Job Feed Inline Frequency', icon: Layers, badge: `${localConfig.feedInlineSettings.customIndices.length} slots` },
+          { id: 'placements', label: 'All 6 Placement Models', icon: Layout, badge: 'Full Control' },
+          { id: 'promo-banners', label: 'Promotional Discount Banners', icon: Percent, badge: `${localConfig.promoBanners.filter(b => b.isEnabled).length} active` },
+          { id: 'job-fees', label: 'Job Posting Fee Override', icon: DollarSign, badge: localConfig.jobPostingFeeSettings?.isFreeAll ? '100% FREE' : 'Custom' },
+          { id: 'rules', label: 'Policy Rules', icon: ShieldCheck }
         ].map((tab) => {
           const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-indigo-500 text-white font-extrabold shadow-lg shadow-indigo-500/20'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all cursor-pointer ${
+                isActive
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
-              <Icon className="w-4 h-4" />
+              <Icon className="w-3.5 h-3.5" />
               <span>{tab.label}</span>
+              {tab.badge && (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase ${
+                  isActive ? 'bg-slate-950/30 text-slate-950' : 'bg-slate-800 text-slate-300 border border-slate-700'
+                }`}>
+                  {tab.badge}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* ========================================================================= */}
-      {/* TAB 1: TARGET PORTAL PAGES & SCHEDULE TIMEFRAME CONTROLLER */}
-      {/* ========================================================================= */}
-      {activeTab === 'pages' && (
+      {/* ========================================================= */}
+      {/* 1. CENTERED POPUP LIGHTBOX QUEUE & LAYOUTS TAB           */}
+      {/* ========================================================= */}
+      {activeTab === 'popup-modes' && (
         <div className="space-y-6">
-          
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
             <div>
-              <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2">
-                <span>Manage Target Portal Pages Availability</span>
-              </h4>
-              <p className="text-xs text-slate-400">
-                Enable or disable ad spaces per portal page (e.g. Job Alerts, Explore Jobs feed, ATS CV Builder) and set manual time frames, daily hours, and custom duration limits.
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+                <h3 className="text-lg font-black text-white">Centered Popup Lightbox Modal Customizer</h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Customize how centered popup lightbox ads are presented to visitors upon entering the portal.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsAddPageModalOpen(true)}
-              className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs flex items-center space-x-1.5 shadow-lg shadow-indigo-500/20 cursor-pointer transition-all"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Custom Portal Page</span>
-            </button>
+            {/* Display Mode Selection Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Option 1: Sequential One-by-One Queue on Cross */}
+              <div
+                onClick={() => handleUpdatePopupSettings({ displayMode: 'sequential' })}
+                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                  localConfig.popupSettings.displayMode === 'sequential'
+                    ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
+                      Recommended
+                    </span>
+                    <input
+                      type="radio"
+                      checked={localConfig.popupSettings.displayMode === 'sequential'}
+                      onChange={() => handleUpdatePopupSettings({ displayMode: 'sequential' })}
+                      className="accent-amber-500"
+                    />
+                  </div>
+                  <h4 className="text-sm font-black text-white">Sequential Queue (1-by-1 On Cross)</h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Shows 1st popup modal first. When visitor clicks <strong className="text-amber-400">X (Close)</strong>, the 2nd popup appears right away, continuing through all active queued sponsor announcements!
+                  </p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] font-bold text-amber-400 flex items-center space-x-1">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Unlimited Queue Support</span>
+                </div>
+              </div>
+
+              {/* Option 2: Stacked Dual Modal (Simultaneous Top & Bottom) */}
+              <div
+                onClick={() => handleUpdatePopupSettings({ displayMode: 'stacked_dual' })}
+                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                  localConfig.popupSettings.displayMode === 'stacked_dual'
+                    ? 'bg-indigo-500/10 border-indigo-500 shadow-lg shadow-indigo-500/10'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
+                      Dual Simultaneous
+                    </span>
+                    <input
+                      type="radio"
+                      checked={localConfig.popupSettings.displayMode === 'stacked_dual'}
+                      onChange={() => handleUpdatePopupSettings({ displayMode: 'stacked_dual' })}
+                      className="accent-indigo-500"
+                    />
+                  </div>
+                  <h4 className="text-sm font-black text-white">Stacked Dual (Top & Bottom on Screen)</h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Shows 2 separate popup announcement cards simultaneously on screen (Top and Bottom or Side-by-Side) so both campaigns gain instant visitor eyeballs at once.
+                  </p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] font-bold text-indigo-300 flex items-center space-x-1">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Dual Multi-Sponsor View</span>
+                </div>
+              </div>
+
+              {/* Option 3: Single High-Priority Modal */}
+              <div
+                onClick={() => handleUpdatePopupSettings({ displayMode: 'single' })}
+                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                  localConfig.popupSettings.displayMode === 'single'
+                    ? 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                      Single Modal
+                    </span>
+                    <input
+                      type="radio"
+                      checked={localConfig.popupSettings.displayMode === 'single'}
+                      onChange={() => handleUpdatePopupSettings({ displayMode: 'single' })}
+                      className="accent-emerald-500"
+                    />
+                  </div>
+                  <h4 className="text-sm font-black text-white">Single Exclusive Focus Modal</h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Displays only the single highest-priority active popup per session. No subsequent popups appear upon closing.
+                  </p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] font-bold text-emerald-400 flex items-center space-x-1">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Exclusive Slot Focus</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Fine-Tuning Sliders & Queue Controls */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-800">
+              
+              {/* Max Popups Queue Limit */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-300">
+                    Maximum Sequential Popups Allowed:
+                  </label>
+                  <span className="text-xs font-mono font-bold text-amber-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                    {localConfig.popupSettings.allowUnlimitedQueue ? 'Unlimited (All Active)' : `${localConfig.popupSettings.maxPopupsPerVisit} Popups`}
+                  </span>
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localConfig.popupSettings.allowUnlimitedQueue}
+                      onChange={(e) => handleUpdatePopupSettings({ allowUnlimitedQueue: e.target.checked })}
+                      className="rounded accent-amber-500"
+                    />
+                    <span>Allow Unlimited Queue (All active sponsor popups shown in sequence)</span>
+                  </label>
+                </div>
+
+                {!localConfig.popupSettings.allowUnlimitedQueue && (
+                  <div className="pt-2">
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={localConfig.popupSettings.maxPopupsPerVisit}
+                      onChange={(e) => handleUpdatePopupSettings({ maxPopupsPerVisit: Number(e.target.value) })}
+                      className="w-full accent-amber-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                      <span>1 (Single)</span>
+                      <span>2 (Dual)</span>
+                      <span>3 (Triple)</span>
+                      <span>5</span>
+                      <span>10 Max</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Delay between sequential popups */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-300">
+                    Delay Between Sequential Popups:
+                  </label>
+                  <span className="text-xs font-mono font-bold text-teal-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                    {localConfig.popupSettings.delayBetweenPopupsSec} Seconds
+                  </span>
+                </div>
+
+                <input
+                  type="range"
+                  min="0.2"
+                  max="3.0"
+                  step="0.1"
+                  value={localConfig.popupSettings.delayBetweenPopupsSec}
+                  onChange={(e) => handleUpdatePopupSettings({ delayBetweenPopupsSec: Number(e.target.value) })}
+                  className="w-full accent-teal-500"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                  <span>0.2s (Instant)</span>
+                  <span>0.8s (Smooth)</span>
+                  <span>1.5s (Comfortable)</span>
+                  <span>3.0s (Relaxed)</span>
+                </div>
+              </div>
+
+            </div>
+
           </div>
+        </div>
+      )}
 
-          {/* List of Portal Pages Config Cards */}
-          <div className="grid grid-cols-1 gap-4">
-            {localConfig.portalPages.map((page) => {
-              const statusCheck = isPageScheduledActive(page);
-              const isEditing = editingPageId === page.id;
+      {/* ========================================================= */}
+      {/* 2. JOB FEED INLINE CARD FREQUENCY TAB                     */}
+      {/* ========================================================= */}
+      {activeTab === 'feed-positioning' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Layers className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-lg font-black text-white">Job Listing Feed Inline Card Frequency</h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Control exactly after how many job cards inline sponsored banner cards appear in the feed.
+              </p>
+            </div>
 
-              return (
-                <div 
-                  key={page.id}
-                  className={`p-5 rounded-2xl border transition-all space-y-4 ${
-                    page.isEnabled 
-                      ? statusCheck.isActive
-                        ? 'bg-slate-900/90 border-slate-800 hover:border-indigo-500/40'
-                        : 'bg-amber-950/20 border-amber-500/30'
-                      : 'bg-slate-950/60 border-slate-800/80 opacity-75'
+            {/* Mode Selector */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              {/* Cadence Mode (Every N Jobs) */}
+              <div
+                onClick={() => handleUpdateFeedInlineSettings({ insertionMode: 'cadence' })}
+                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                  localConfig.feedInlineSettings.insertionMode === 'cadence'
+                    ? 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                      Regular Cadence
+                    </span>
+                    <input
+                      type="radio"
+                      checked={localConfig.feedInlineSettings.insertionMode === 'cadence'}
+                      onChange={() => handleUpdateFeedInlineSettings({ insertionMode: 'cadence' })}
+                      className="accent-emerald-500"
+                    />
+                  </div>
+                  <h4 className="text-sm font-black text-white">Repeat Every N Job Cards (e.g. Every 2 or 3 Jobs)</h4>
+                  <p className="text-xs text-slate-300">
+                    Inserts an inline card predictably across the entire feed (e.g. after card #3, #6, #9, #12...).
+                  </p>
+                </div>
+
+                {localConfig.feedInlineSettings.insertionMode === 'cadence' && (
+                  <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
+                    <label className="text-xs font-bold text-slate-300">Insert Ad After Every:</label>
+                    <div className="flex items-center space-x-2">
+                      {[2, 3, 4, 5, 6].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleUpdateFeedInlineSettings({ repeatEveryNJobs: num });
+                          }}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            localConfig.feedInlineSettings.repeatEveryNJobs === num
+                              ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
+                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          {num} Jobs
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Custom Indices Mode (e.g. After 2nd, 5th, 8th job) */}
+              <div
+                onClick={() => handleUpdateFeedInlineSettings({ insertionMode: 'custom_indices' })}
+                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                  localConfig.feedInlineSettings.insertionMode === 'custom_indices'
+                    ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
+                      Custom Manual Slots
+                    </span>
+                    <input
+                      type="radio"
+                      checked={localConfig.feedInlineSettings.insertionMode === 'custom_indices'}
+                      onChange={() => handleUpdateFeedInlineSettings({ insertionMode: 'custom_indices' })}
+                      className="accent-amber-500"
+                    />
+                  </div>
+                  <h4 className="text-sm font-black text-white">Manual Selected Positions (e.g. After #2, #5, #8)</h4>
+                  <p className="text-xs text-slate-300">
+                    Specify exact positions where you want ads placed. Perfect for highlighting top tier slots without clutter.
+                  </p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] font-bold text-amber-400 flex items-center space-x-1">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Precision Slot Control</span>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Custom Indices List & Quick Adder */}
+            {localConfig.feedInlineSettings.insertionMode === 'custom_indices' && (
+              <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h5 className="text-xs font-black text-white uppercase tracking-wider">Active Manual Insertion Positions:</h5>
+                    <p className="text-[11px] text-slate-400">An ad will be placed immediately following each selected job position number.</p>
+                  </div>
+
+                  {/* Quick Preset Buttons */}
+                  <div className="flex items-center space-x-1.5 text-xs">
+                    <span className="text-slate-500 text-[10px] font-semibold">Presets:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateFeedInlineSettings({ customIndices: [2, 5, 8] })}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono font-bold cursor-pointer"
+                    >
+                      [2, 5, 8]
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateFeedInlineSettings({ customIndices: [3, 7, 12] })}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono font-bold cursor-pointer"
+                    >
+                      [3, 7, 12]
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateFeedInlineSettings({ customIndices: [1, 4, 8, 12] })}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono font-bold cursor-pointer"
+                    >
+                      [1, 4, 8, 12]
+                    </button>
+                  </div>
+                </div>
+
+                {/* Chips of Active Indices */}
+                <div className="flex flex-wrap gap-2 items-center">
+                  {localConfig.feedInlineSettings.customIndices.map((idxNum) => (
+                    <div
+                      key={idxNum}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center space-x-2"
+                    >
+                      <span>After Job #{idxNum}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCustomIndex(idxNum)}
+                        className="text-amber-400 hover:text-white cursor-pointer"
+                        title="Remove position"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Add Number Input */}
+                  <div className="flex items-center space-x-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      max="30"
+                      placeholder="Card #"
+                      value={quickIndexInput}
+                      onChange={(e) => setQuickIndexInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = parseInt(quickIndexInput, 10);
+                          if (!isNaN(val)) {
+                            handleAddCustomIndex(val);
+                            setQuickIndexInput('');
+                          }
+                        }
+                      }}
+                      className="w-20 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = parseInt(quickIndexInput, 10);
+                        if (!isNaN(val)) {
+                          handleAddCustomIndex(val);
+                          setQuickIndexInput('');
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all cursor-pointer"
+                    >
+                      + Add
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* General Feed Settings */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-800">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-300">Max Ads Rendered Per Feed Page:</label>
+                <div className="flex items-center space-x-2">
+                  {[1, 2, 3, 4, 5].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => handleUpdateFeedInlineSettings({ maxAdsPerPage: count })}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        localConfig.feedInlineSettings.maxAdsPerPage === count
+                          ? 'bg-indigo-500 text-white font-black'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {count} {count === 1 ? 'Ad' : 'Ads'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-300">Rotate Multiple Sponsor Ads:</label>
+                <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={localConfig.feedInlineSettings.rotateMultipleAds}
+                    onChange={(e) => handleUpdateFeedInlineSettings({ rotateMultipleAds: e.target.checked })}
+                    className="rounded accent-emerald-500"
+                  />
+                  <span>Rotate different active campaigns across positions instead of repeating the same ad</span>
+                </label>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 3. ALL 6 PLACEMENT MODELS FULL MANAGEMENT TAB             */}
+      {/* ========================================================= */}
+      {activeTab === 'placements' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Layout className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-lg font-black text-white">All 6 Placement Models & Fee Overrides</h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Manage all 6 ad formats: Top Sticky Header, Native Job Feed Card, Centered Popup Modal, Floating Toast Alert, Sidebar Filter Widget, and Direct SMS Text Broadcast.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {localConfig.placementOptions.map((placement) => {
+                const isFree = !!placement.isFreeOverride;
+
+                return (
+                  <div
+                    key={placement.id}
+                    className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
+                      placement.isEnabled
+                        ? isFree
+                          ? 'bg-emerald-950/20 border-emerald-500/40 shadow-emerald-500/5'
+                          : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                        : 'bg-slate-950/40 border-slate-800/60 opacity-60'
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      
+                      {/* Top Header of Card */}
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                          placement.isEnabled ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-slate-800 text-slate-500 border-slate-700'
+                        }`}>
+                          {placement.type}
+                        </span>
+
+                        <div className="flex items-center space-x-2">
+                          <label className="text-[11px] font-bold text-slate-400 cursor-pointer flex items-center space-x-1">
+                            <span>{placement.isEnabled ? 'Active' : 'Disabled'}</span>
+                            <input
+                              type="checkbox"
+                              checked={placement.isEnabled}
+                              onChange={(e) => handleUpdatePlacement(placement.id, { isEnabled: e.target.checked })}
+                              className="rounded accent-emerald-500"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <h4 className="text-sm font-black text-white">{placement.name}</h4>
+                      <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                        {placement.description}
+                      </p>
+
+                      {/* 100% Free Toggle */}
+                      <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                        <label className="flex items-center justify-between text-xs cursor-pointer">
+                          <span className="font-bold text-slate-300 flex items-center space-x-1">
+                            <Percent className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>100% Free Placement:</span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={isFree}
+                            onChange={(e) => handleUpdatePlacement(placement.id, { isFreeOverride: e.target.checked })}
+                            className="rounded accent-emerald-500"
+                          />
+                        </label>
+                        {isFree && (
+                          <div className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded">
+                            ✓ Advertisers can book this placement at 0 PKR fee!
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Rate Multiplier / Flat Override */}
+                      {!isFree && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-400 font-medium">Pricing Multiplier:</span>
+                            <span className="font-mono font-bold text-amber-400">{placement.multiplier}x</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.5"
+                            max="3.0"
+                            step="0.1"
+                            value={placement.multiplier}
+                            onChange={(e) => handleUpdatePlacement(placement.id, { multiplier: Number(e.target.value) })}
+                            className="w-full accent-amber-500"
+                          />
+                        </div>
+                      )}
+
+                    </div>
+
+                    {/* Footer concurrent slots */}
+                    <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                      <span>Max Concurrent Slots:</span>
+                      <span className="font-mono font-bold text-slate-200">
+                        {placement.maxConcurrentSlots || 2} Slots
+                      </span>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 4. PROMOTIONAL DISCOUNT & PERCENTAGE-OFF BANNERS TAB      */}
+      {/* ========================================================= */}
+      {activeTab === 'promo-banners' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <Percent className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-lg font-black text-white">Promotional Discount & Percentage-Off Banners</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Broadcast site-wide flash discounts (e.g. 50% OFF, 100% Free Week) to drive ad campaign bookings.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsAddPromoOpen(true)}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all cursor-pointer flex items-center space-x-1.5 self-start sm:self-auto"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Promo Banner</span>
+              </button>
+            </div>
+
+            {/* List of Active & Inactive Promo Banners */}
+            <div className="space-y-4">
+              {localConfig.promoBanners.map((promo) => (
+                <div
+                  key={promo.id}
+                  className={`p-5 rounded-2xl border transition-all ${
+                    promo.isEnabled
+                      ? 'bg-slate-950/80 border-slate-800 shadow-lg'
+                      : 'bg-slate-950/40 border-slate-800/60 opacity-60'
                   }`}
                 >
-                  {/* Top Line: Name, Status Badge, Enable Switch, Edit Button */}
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
-                        page.isEnabled 
-                          ? statusCheck.isActive ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-slate-800 text-slate-500'
-                      }`}>
-                        {page.id === 'alerts' && <Bell className="w-4 h-4" />}
-                        {page.id === 'jobs' && <Briefcase className="w-4 h-4" />}
-                        {page.id === 'cv' && <FileText className="w-4 h-4" />}
-                        {page.id === 'dashboard' && <Users className="w-4 h-4" />}
-                        {page.id === 'all' && <Globe className="w-4 h-4" />}
-                        {page.id === 'detail-modal' && <Layers className="w-4 h-4" />}
-                        {!['alerts', 'jobs', 'cv', 'dashboard', 'all', 'detail-modal'].includes(page.id) && <Tag className="w-4 h-4" />}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                          <h5 className="text-base font-black text-white">{page.name}</h5>
-                          <span className="text-xs font-mono text-slate-500 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                            ID: {page.id}
-                          </span>
-                          
-                          {/* Real-time Status Badge */}
-                          {page.isEnabled ? (
-                            statusCheck.isActive ? (
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
-                                <Check className="w-3 h-3" />
-                                <span>Active & Accepting Campaigns</span>
-                              </span>
-                            ) : (
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
-                                <Clock className="w-3 h-3" />
-                                <span>Outside Schedule ({statusCheck.reason})</span>
-                              </span>
-                            )
-                          ) : (
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
-                              <Lock className="w-3 h-3" />
-                              <span>Disabled by Admin</span>
-                            </span>
-                          )}
-
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                            Rate Multiplier: {page.multiplier}x
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400 mt-0.5">{page.description}</p>
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center space-x-2 self-end md:self-auto">
-                      <button
-                        type="button"
-                        onClick={() => setEditingPageId(isEditing ? null : page.id)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center space-x-1 ${
-                          isEditing
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
-                        }`}
-                      >
-                        <Edit3 className="w-3 h-3" />
-                        <span>{isEditing ? 'Close Schedule Editor' : 'Configure Time Frame & Duration'}</span>
-                      </button>
-
-                      {/* Enable/Disable Master Switch */}
-                      <button
-                        type="button"
-                        onClick={() => handleTogglePage(page.id)}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                          page.isEnabled
-                            ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-md shadow-emerald-500/10'
-                            : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
-                        }`}
-                      >
-                        {page.isEnabled ? 'ENABLED' : 'DISABLED'}
-                      </button>
-
-                      {!['all', 'jobs', 'alerts', 'cv', 'dashboard'].includes(page.id) && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePage(page.id)}
-                          className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-500/20 rounded-lg cursor-pointer transition-all"
-                          title="Delete Custom Page"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Schedule Details Summary Strip */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-slate-950/80 p-3.5 rounded-xl border border-slate-800/80 font-mono text-slate-300">
-                    <div>
-                      <span className="text-slate-500 font-sans">Schedule Mode:</span>{' '}
-                      <span className="text-indigo-400 font-bold">
-                        {page.scheduleMode === 'always_active' && '24/7 Always Active'}
-                        {page.scheduleMode === 'time_window' && `Daily Time Window (${page.activeTimeStart || '00:00'} - ${page.activeTimeEnd || '23:59'})`}
-                        {page.scheduleMode === 'date_range' && `Date Range (${page.activeDateStart || 'Start'} to ${page.activeDateEnd || 'End'})`}
-                        {page.scheduleMode === 'disabled' && 'Permanently Disabled'}
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-slate-500 font-sans">Duration Preference:</span>{' '}
-                      <span className="text-white">
-                        Min: {page.minDurationHours || 6}h • Max: {page.maxDurationHours ? `${Math.round(page.maxDurationHours / 24)}d` : '30d'}
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-slate-500 font-sans">Cost Multiplier:</span>{' '}
-                      <span className="text-emerald-400 font-bold">{page.multiplier}x Base Rate</span>
-                    </div>
-                  </div>
-
-                  {/* Expandable Schedule & Duration Settings Panel */}
-                  {isEditing && (
-                    <div className="p-4 bg-slate-950 border border-indigo-500/30 rounded-2xl space-y-4 animate-in fade-in duration-200">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <span className="text-xs font-black uppercase text-amber-300 flex items-center space-x-1.5">
-                          <Clock className="w-3.5 h-3.5" />
-                          <span>Edit Schedule & Duration Preferences for "{page.name}"</span>
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    
+                    {/* Left: Info */}
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-gradient-to-r ${promo.bgGradient || 'from-amber-600 to-rose-600'} text-white shadow`}>
+                          {promo.badgeText}
                         </span>
-                        <span className="text-[11px] text-slate-500">Changes apply immediately to user campaign creation</span>
+
+                        <span className="text-xs font-bold text-amber-400 font-mono">
+                          {promo.discountPercent}% Discount
+                        </span>
+
+                        {promo.promoCode && (
+                          <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                            Code: {promo.promoCode}
+                          </span>
+                        )}
+
+                        {promo.validUntil && (
+                          <span className="text-[11px] text-slate-500 font-mono">
+                            Valid until: {promo.validUntil}
+                          </span>
+                        )}
                       </div>
 
-                      {/* 1. Schedule Mode Selection */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-bold text-slate-300">Schedule Activation Mode</label>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          {[
-                            { id: 'always_active', label: '24/7 Always Active', desc: 'Accept ads anytime without restriction' },
-                            { id: 'time_window', label: 'Daily Time Window', desc: 'Active only between specific hours of the day' },
-                            { id: 'date_range', label: 'Manual Date Range Window', desc: 'Active only between start and end dates' }
-                          ].map((mode) => (
-                            <button
-                              key={mode.id}
-                              type="button"
-                              onClick={() => handleUpdatePage(page.id, { scheduleMode: mode.id as any })}
-                              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                                page.scheduleMode === mode.id
-                                  ? 'bg-indigo-500/20 border-indigo-500/50 text-white'
-                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              <div className="text-xs font-bold">{mode.label}</div>
-                              <div className="text-[10px] text-slate-500 mt-0.5">{mode.desc}</div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* 2. Manual Time Window Inputs (If time_window selected) */}
-                      {page.scheduleMode === 'time_window' && (
-                        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-bold text-slate-300 mb-1">Daily Start Time (HH:MM)</label>
-                            <input
-                              type="time"
-                              value={page.activeTimeStart || '08:00'}
-                              onChange={(e) => handleUpdatePage(page.id, { activeTimeStart: e.target.value })}
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold text-slate-300 mb-1">Daily End Time (HH:MM)</label>
-                            <input
-                              type="time"
-                              value={page.activeTimeEnd || '22:00'}
-                              onChange={(e) => handleUpdatePage(page.id, { activeTimeEnd: e.target.value })}
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 3. Manual Date Range Inputs (If date_range selected) */}
-                      {page.scheduleMode === 'date_range' && (
-                        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-bold text-slate-300 mb-1">Active Start Date</label>
-                            <input
-                              type="date"
-                              value={page.activeDateStart || new Date().toISOString().slice(0, 10)}
-                              onChange={(e) => handleUpdatePage(page.id, { activeDateStart: e.target.value })}
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold text-slate-300 mb-1">Active End Date</label>
-                            <input
-                              type="date"
-                              value={page.activeDateEnd || new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10)}
-                              onChange={(e) => handleUpdatePage(page.id, { activeDateEnd: e.target.value })}
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 4. Duration and Pricing Modifiers */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-300 mb-1">Page Rate Multiplier</label>
-                          <input
-                            type="number"
-                            step="0.05"
-                            min="0.1"
-                            max="5.0"
-                            value={page.multiplier}
-                            onChange={(e) => handleUpdatePage(page.id, { multiplier: parseFloat(e.target.value) || 1.0 })}
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold text-slate-300 mb-1">Min Duration (Hours)</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={page.minDurationHours || 6}
-                            onChange={(e) => handleUpdatePage(page.id, { minDurationHours: parseInt(e.target.value) || 1 })}
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold text-slate-300 mb-1">Max Duration (Hours)</label>
-                          <input
-                            type="number"
-                            min="6"
-                            value={page.maxDurationHours || 720}
-                            onChange={(e) => handleUpdatePage(page.id, { maxDurationHours: parseInt(e.target.value) || 720 })}
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                          />
-                        </div>
-                      </div>
-
-                      {/* 5. Disabled / Restriction Reason Notice */}
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 mb-1">Custom Notice / Restriction Reason for Users</label>
-                        <input
-                          type="text"
-                          value={page.disabledReason || ''}
-                          onChange={(e) => handleUpdatePage(page.id, { disabledReason: e.target.value })}
-                          placeholder="e.g. This placement is reserved during the FPSC examination cycle."
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs"
-                        />
-                      </div>
+                      <h4 className="text-base font-black text-white">{promo.title}</h4>
+                      <p className="text-xs text-slate-300">{promo.description}</p>
                     </div>
-                  )}
 
+                    {/* Right: Toggle & Actions */}
+                    <div className="flex items-center space-x-3 self-end lg:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePromoBanner(promo.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                          promo.isEnabled
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700'
+                        }`}
+                      >
+                        {promo.isEnabled ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                        <span>{promo.isEnabled ? 'Active on Portal' : 'Inactive'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePromoBanner(promo.id)}
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 transition-all cursor-pointer"
+                        title="Delete promo banner"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                  </div>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 5. JOB POSTING FEE OVERRIDE & 1-CLICK FREE TAB            */}
+      {/* ========================================================= */}
+      {activeTab === 'job-fees' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+            <div>
+              <div className="flex items-center space-x-2">
+                <DollarSign className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-lg font-black text-white">Job Posting Fee Override & Free Publishing</h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Make job postings 100% Free for employers or adjust custom fee tiers and global discount rates.
+              </p>
+            </div>
+
+            {/* 1-Click 100% Free Job Postings Big Switch */}
+            <div className={`p-6 rounded-3xl border-2 transition-all ${
+              localConfig.jobPostingFeeSettings?.isFreeAll
+                ? 'bg-emerald-950/30 border-emerald-500 shadow-xl shadow-emerald-500/10'
+                : 'bg-slate-950/80 border-slate-800'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-black text-xs border border-emerald-500/30">
+                      ⚡ 1-Click Master Control
+                    </span>
+                  </div>
+                  <h4 className="text-base font-black text-white">Make All Job Postings 100% Free (0 PKR)</h4>
+                  <p className="text-xs text-slate-300 max-w-xl">
+                    When enabled, all employers can publish unlimited verified job openings completely free with zero invoice barriers.
+                  </p>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={localConfig.jobPostingFeeSettings?.isFreeAll || false}
+                    onChange={(e) => handleUpdateJobPostingFeeSettings({ isFreeAll: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-14 h-8 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
+                </label>
+              </div>
+            </div>
+
+            {/* Custom Standard Rate & Discount Sliders */}
+            {!localConfig.jobPostingFeeSettings?.isFreeAll && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-800">
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-300">
+                    Standard Job Posting Base Fee (PKR):
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm font-bold text-slate-500">PKR</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="50"
+                      value={localConfig.jobPostingFeeSettings?.customStandardFeePkr || 500}
+                      onChange={(e) => handleUpdateJobPostingFeeSettings({ customStandardFeePkr: Number(e.target.value) })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-bold text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-300">
+                      Global Job Posting Discount:
+                    </label>
+                    <span className="text-xs font-mono font-bold text-emerald-400">
+                      {localConfig.jobPostingFeeSettings?.globalDiscountPercent || 0}% OFF
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={localConfig.jobPostingFeeSettings?.globalDiscountPercent || 0}
+                    onChange={(e) => handleUpdateJobPostingFeeSettings({ globalDiscountPercent: Number(e.target.value) })}
+                    className="w-full accent-emerald-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>0% (Standard)</span>
+                    <span>25%</span>
+                    <span>50% (Half Price)</span>
+                    <span>100% (Free)</span>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 6. POLICY RULES TAB                                       */}
+      {/* ========================================================= */}
+      {activeTab === 'rules' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+          <div>
+            <div className="flex items-center space-x-2">
+              <ShieldCheck className="w-5 h-5 text-teal-400" />
+              <h3 className="text-lg font-black text-white">Campaign Submission Policies</h3>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Global requirements and verification policies enforced on user submitted campaigns.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {[
+              {
+                id: 'requireAdminApproval',
+                label: 'Require Admin Approval Before Publishing',
+                desc: 'User campaigns enter pending queue until an admin approves creative & payment.'
+              },
+              {
+                id: 'allowCustomDateRange',
+                label: 'Allow Flexible Date Range Booking',
+                desc: 'Let advertisers select exact start and end calendar dates for their campaign.'
+              },
+              {
+                id: 'adminFreeCampaignBypass',
+                label: 'Admin Manual Campaigns Exempt From Fees (100% Free Admin Ads)',
+                desc: 'Allows portal admins to create and publish official announcements with 0 cost.'
+              },
+              {
+                id: 'requireImage',
+                label: 'Require Creative Image / Banner Graphic',
+                desc: 'Enforce mandatory banner graphic upload for all visual placements.'
+              }
+            ].map((rule) => {
+              const isChecked = !!(localConfig.formRules as any)[rule.id];
+              return (
+                <div
+                  key={rule.id}
+                  className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex items-start justify-between gap-4"
+                >
+                  <div className="space-y-1">
+                    <h5 className="text-xs font-bold text-white">{rule.label}</h5>
+                    <p className="text-[11px] text-slate-400">{rule.desc}</p>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      setLocalConfig(prev => ({
+                        ...prev,
+                        formRules: {
+                          ...prev.formRules,
+                          [rule.id]: e.target.checked
+                        }
+                      }));
+                    }}
+                    className="mt-1 rounded accent-emerald-500"
+                  />
                 </div>
               );
             })}
           </div>
-
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 2: TIMEFRAME & DURATION PRESETS MANAGER */}
-      {/* ========================================================================= */}
-      {activeTab === 'durations' && (
-        <div className="space-y-6">
-          
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div>
-              <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2">
-                <span>Campaign Duration Presets & Timeframe Options</span>
-              </h4>
-              <p className="text-xs text-slate-400">
-                Configure duration buttons shown to users during campaign creation (e.g. 6 Hours, 24 Hours, 1 Week, 1 Month, Custom).
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsAddDurationModalOpen(true)}
-              className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs flex items-center space-x-1.5 shadow-lg shadow-indigo-500/20 cursor-pointer transition-all"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Custom Duration Preset</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {localConfig.durationPresets.map((dur) => (
-              <div 
-                key={dur.id}
-                className={`p-4 rounded-2xl border transition-all space-y-3 ${
-                  dur.isEnabled
-                    ? 'bg-slate-900 border-slate-800 hover:border-indigo-500/40'
-                    : 'bg-slate-950/60 border-slate-800/80 opacity-60'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-base font-black text-white">{dur.label}</span>
-                    <div className="text-[11px] text-slate-400">{dur.subLabel}</div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleToggleDuration(dur.id)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
-                      dur.isEnabled ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {dur.isEnabled ? 'ACTIVE' : 'OFF'}
-                  </button>
-                </div>
-
-                <div className="space-y-1 text-xs text-slate-300">
-                  <div className="flex justify-between py-1 border-t border-slate-800">
-                    <span className="text-slate-500">Duration Value:</span>
-                    <span className="font-mono font-bold text-white">{dur.value} {dur.unit}</span>
-                  </div>
-
-                  {dur.discountPercent ? (
-                    <div className="flex justify-between py-1 border-t border-slate-800 text-emerald-400">
-                      <span>Discount:</span>
-                      <span className="font-mono font-bold">{dur.discountPercent}% Off</span>
-                    </div>
-                  ) : null}
-
-                  {dur.badge && (
-                    <div className="pt-1">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        {dur.badge}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-2 border-t border-slate-800 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteDuration(dur.id)}
-                    className="text-slate-500 hover:text-rose-400 text-xs font-semibold p-1"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+      {/* ========================================================= */}
+      {/* MODAL: CREATE PROMOTIONAL DISCOUNT BANNER                 */}
+      {/* ========================================================= */}
+      {isAddPromoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Percent className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-black text-white">Create Promotional Discount Banner</h3>
               </div>
-            ))}
-          </div>
-
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 3: PLACEMENT FORMATS & MULTIPLIERS */}
-      {/* ========================================================================= */}
-      {activeTab === 'placements' && (
-        <div className="space-y-6">
-          
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-1">
-            <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2">
-              <span>Placement Slot Formats & Rate Multipliers</span>
-            </h4>
-            <p className="text-xs text-slate-400">
-              Control the rate cards, allowed mediums, and enable/disable specific placement slots across the portal.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {localConfig.placementOptions.map((placement) => (
-              <div 
-                key={placement.id}
-                className={`p-5 rounded-2xl border space-y-4 ${
-                  placement.isEnabled ? 'bg-slate-900 border-slate-800' : 'bg-slate-950/60 border-slate-800/80 opacity-60'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-3">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h5 className="text-sm font-black text-white">{placement.name}</h5>
-                      {placement.badge && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                          {placement.badge}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-400 mt-0.5">{placement.description}</p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleTogglePlacement(placement.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer ${
-                      placement.isEnabled ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {placement.isEnabled ? 'ENABLED' : 'DISABLED'}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="block text-slate-400 font-semibold mb-1">Pricing Multiplier</label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        step="0.05"
-                        min="0.1"
-                        max="5.0"
-                        value={placement.multiplier}
-                        onChange={(e) => handleUpdatePlacementMultiplier(placement.id, parseFloat(e.target.value) || 1.0)}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-xs"
-                      />
-                      <span className="text-slate-400 font-bold">x</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-400 font-semibold mb-1">Campaign Type</label>
-                    <div className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-indigo-300 font-bold text-xs uppercase">
-                      {placement.type} format
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 4: CAMPAIGN SUBMISSION RULES & POLICIES */}
-      {/* ========================================================================= */}
-      {activeTab === 'rules' && (
-        <div className="space-y-6">
-          
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-            <div className="border-b border-slate-800 pb-3">
-              <h4 className="text-base font-black text-white flex items-center space-x-2">
-                <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                <span>Campaign Approval & Publishing Guardrails</span>
-              </h4>
-              <p className="text-xs text-slate-400">
-                Configure validation rules, review policies, and maximum timeframe limits for all self-serve campaigns.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-white">Require Admin Approval Workflow</div>
-                  <div className="text-[11px] text-slate-400">Campaigns enter admin queue before going live</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setLocalConfig(prev => ({
-                    ...prev,
-                    formRules: { ...prev.formRules, requireAdminApproval: !prev.formRules.requireAdminApproval }
-                  }))}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer ${
-                    localConfig.formRules.requireAdminApproval ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {localConfig.formRules.requireAdminApproval ? 'REQUIRED' : 'AUTO-PUBLISH'}
-                </button>
-              </div>
-
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-white">Allow Custom Date Ranges</div>
-                  <div className="text-[11px] text-slate-400">Users can pick custom start & end timeframes</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setLocalConfig(prev => ({
-                    ...prev,
-                    formRules: { ...prev.formRules, allowCustomDateRange: !prev.formRules.allowCustomDateRange }
-                  }))}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer ${
-                    localConfig.formRules.allowCustomDateRange ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {localConfig.formRules.allowCustomDateRange ? 'ENABLED' : 'DISABLED'}
-                </button>
-              </div>
-
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-white">Direct SMS Cellular Broadcasts</div>
-                  <div className="text-[11px] text-slate-400">Allow users to schedule direct SMS alerts</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setLocalConfig(prev => ({
-                    ...prev,
-                    formRules: { ...prev.formRules, allowDirectSms: !prev.formRules.allowDirectSms }
-                  }))}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer ${
-                    localConfig.formRules.allowDirectSms ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {localConfig.formRules.allowDirectSms ? 'ALLOWED' : 'BLOCKED'}
-                </button>
-              </div>
-
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-white">Mandatory Image Graphic Upload</div>
-                  <div className="text-[11px] text-slate-400">Enforce logo or banner image on all banners</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setLocalConfig(prev => ({
-                    ...prev,
-                    formRules: { ...prev.formRules, requireImage: !prev.formRules.requireImage }
-                  }))}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer ${
-                    localConfig.formRules.requireImage ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {localConfig.formRules.requireImage ? 'MANDATORY' : 'OPTIONAL'}
-                </button>
-              </div>
-
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL: ADD CUSTOM PORTAL PAGE */}
-      {/* ========================================================================= */}
-      {isAddPageModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-          <form onSubmit={handleCreatePage} className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 text-white shadow-2xl relative">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h4 className="text-base font-black flex items-center space-x-2">
-                <Globe className="w-5 h-5 text-indigo-400" />
-                <span>Add Custom Portal Page for Campaigns</span>
-              </h4>
-              <button type="button" onClick={() => setIsAddPageModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+              <button onClick={() => setIsAddPromoOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Portal Page Name *</label>
-              <input
-                type="text"
-                required
-                value={newPageName}
-                onChange={(e) => setNewPageName(e.target.value)}
-                placeholder="e.g. FPSC Exam Hub, Gulf Relocation Portal"
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Page ID / Slug</label>
-              <input
-                type="text"
-                value={newPageId}
-                onChange={(e) => setNewPageId(e.target.value)}
-                placeholder="e.g. fpsc-exam-hub"
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Description</label>
-              <input
-                type="text"
-                value={newPageDesc}
-                onChange={(e) => setNewPageDesc(e.target.value)}
-                placeholder="Target candidates browsing this specific section..."
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Price Multiplier</label>
-                <input
-                  type="number"
-                  step="0.05"
-                  value={newPageMultiplier}
-                  onChange={(e) => setNewPageMultiplier(parseFloat(e.target.value) || 1.0)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Schedule Mode</label>
-                <select
-                  value={newPageScheduleMode}
-                  onChange={(e) => setNewPageScheduleMode(e.target.value as any)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
-                >
-                  <option value="always_active">24/7 Always Active</option>
-                  <option value="time_window">Daily Time Window</option>
-                  <option value="date_range">Manual Date Range</option>
-                </select>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs shadow-lg shadow-indigo-500/20 cursor-pointer transition-all"
-            >
-              Add Portal Page to Campaign Target List
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL: ADD DURATION PRESET */}
-      {/* ========================================================================= */}
-      {isAddDurationModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-          <form onSubmit={handleCreateDuration} className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 text-white shadow-2xl relative">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h4 className="text-base font-black flex items-center space-x-2">
-                <Clock className="w-5 h-5 text-emerald-400" />
-                <span>Add Custom Duration Preset</span>
-              </h4>
-              <button type="button" onClick={() => setIsAddDurationModalOpen(false)} className="text-slate-400 hover:text-white p-1">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">Button Label *</label>
-              <input
-                type="text"
-                required
-                value={newDurLabel}
-                onChange={(e) => setNewDurLabel(e.target.value)}
-                placeholder="e.g. 48 Hours (2 Days) or 3 Weeks"
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Time Unit</label>
-                <select
-                  value={newDurUnit}
-                  onChange={(e) => setNewDurUnit(e.target.value as AdDurationUnit)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
-                >
-                  <option value="hours">Hours</option>
-                  <option value="days">Days</option>
-                  <option value="weeks">Weeks</option>
-                  <option value="months">Months</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Amount / Value</label>
-                <input
-                  type="number"
-                  min="1"
-                  required
-                  value={newDurValue}
-                  onChange={(e) => setNewDurValue(parseInt(e.target.value) || 1)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Discount % (Optional)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="90"
-                  value={newDurDiscount}
-                  onChange={(e) => setNewDurDiscount(parseInt(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Badge Tag (Optional)</label>
+            <form onSubmit={handleCreatePromoBanner} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-300">Banner Headline Title:</label>
                 <input
                   type="text"
-                  value={newDurBadge}
-                  onChange={(e) => setNewDurBadge(e.target.value)}
-                  placeholder="e.g. 🔥 Flash Promo"
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
+                  required
+                  value={newPromoTitle}
+                  onChange={(e) => setNewPromoTitle(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
                 />
               </div>
-            </div>
 
-            <button
-              type="submit"
-              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 cursor-pointer transition-all"
-            >
-              Add Duration Preset to Form
-            </button>
-          </form>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-300">Description Subtitle:</label>
+                <textarea
+                  rows={2}
+                  value={newPromoDesc}
+                  onChange={(e) => setNewPromoDesc(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Discount %:</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="100"
+                    value={newPromoDiscount}
+                    onChange={(e) => setNewPromoDiscount(Number(e.target.value))}
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Promo Code:</label>
+                  <input
+                    type="text"
+                    value={newPromoCode}
+                    onChange={(e) => setNewPromoCode(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-300">Badge Text:</label>
+                <input
+                  type="text"
+                  value={newPromoBadge}
+                  onChange={(e) => setNewPromoBadge(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddPromoOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/20"
+                >
+                  Publish Promo Banner
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

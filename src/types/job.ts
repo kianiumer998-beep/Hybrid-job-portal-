@@ -31,8 +31,24 @@ export interface PaymentTransaction {
   currency: Currency;
   type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund';
   status: 'Success' | 'Pending' | 'Failed';
-  paymentMethod: 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer' | 'Stripe' | 'PayPal' | 'Wallet Balance';
+  paymentMethod: 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer' | 'Stripe' | 'PayPal' | 'Wallet Balance' | string;
   jobTitleRef?: string;
+  
+  // Payment Proof & Verification Enhancements
+  transactionId?: string; // TID / UTR / Reference No.
+  senderName?: string;
+  senderPhoneOrAccount?: string;
+  depositBankOrWalletName?: string;
+  jobIdRef?: string;
+  adminNote?: string;
+  proofScreenshotUrl?: string;
+  proofNote?: string;
+  rejectionReason?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
 }
 
 export interface JobPostingFeeLog {
@@ -143,6 +159,7 @@ export interface Job {
   scrapedRawSalary?: string;
   deduplicationScore?: number; // 0-100%
   reviewTimeline?: ScrapedJobAuditAction[];
+  lastScrapedAt?: string; // Timestamp of latest scrape crawl
 
   // Government Job Extensions
   isGovtJob?: boolean;
@@ -215,13 +232,20 @@ export interface Subscriber {
   name: string;
   email: string;
   phone: string;
-  plan: 'Basic' | 'Pro Alerts' | 'VIP Jobseeker';
-  paymentMethod: 'Easypaisa' | 'JazzCash' | 'Bank Transfer' | 'Card';
+  plan: 'Basic' | 'Pro Alerts' | 'VIP Jobseeker' | 'Govt Alerts Weekly' | 'Global Remote Stream' | string;
+  paymentMethod: 'Easypaisa' | 'JazzCash' | 'Bank Transfer' | 'Card' | 'Stripe' | 'Free Trial' | string;
   amountPaid: number;
-  currency: 'PKR' | 'USD';
-  status: 'Active' | 'Pending';
-  subscribedAt: string;
+  currency: 'PKR' | 'USD' | Currency;
+  status: 'Active' | 'Pending' | 'Expiring Soon' | 'Expired';
+  subscribedAt: string; // "YYYY-MM-DD HH:MM"
+  expiryDate?: string;   // "YYYY-MM-DD HH:MM"
   whatsappEnabled: boolean;
+  emailEnabled?: boolean;
+  smsEnabled?: boolean;
+  categories?: string[];
+  proofScreenshotUrl?: string;
+  transactionRef?: string;
+  notes?: string;
 }
 
 export interface CvData {
@@ -434,6 +458,9 @@ export interface ConsolidatedPdfGazette {
   closingDeadline: string;
   rawTextSample: string;
   extractedVacancies: Job[];
+  lastScrapedAt?: string; // e.g. "2026-09-02 14:30:00"
+  lastScrapedJobCount?: number;
+  portalCategory?: string;
 }
 
 export interface ScraperBatchRun {
@@ -464,6 +491,31 @@ export interface JobPostingPricingConfig {
   futureJobFeePkr: number;      // Priority surcharge for Advance / Future Job Intake (PKR)
   vipBundleFeePkr: number;      // VIP All-in-One: Top Pinned + Urgent + Featured + Future Option (PKR)
   freePostingAllowed: boolean;  // If true and standardFee is 0, base posts are free
+
+  // Granular Feature Toggles (Enable / Disable per tier)
+  enableStandard: boolean;
+  enableUrgent: boolean;
+  enableFeaturedTop: boolean;
+  enableFutureJob: boolean;
+  enableVipBundle: boolean;
+
+  // Customizable Durations Shown to Employers & Users (in Days)
+  standardDurationDays: number;
+  urgentDurationDays: number;
+  featuredTopDurationDays: number;
+  futureJobDurationDays: number;
+  vipBundleDurationDays: number;
+
+  // Customizable Badges and Descriptions
+  urgentBadgeText?: string;
+  featuredBadgeText?: string;
+  futureBadgeText?: string;
+  vipBadgeText?: string;
+  standardDescription?: string;
+  urgentDescription?: string;
+  featuredTopDescription?: string;
+  futureJobDescription?: string;
+  vipBundleDescription?: string;
 }
 
 export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
@@ -472,7 +524,29 @@ export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
   featuredTopFeePkr: 1500,
   futureJobFeePkr: 800,
   vipBundleFeePkr: 2500,
-  freePostingAllowed: true
+  freePostingAllowed: true,
+
+  enableStandard: true,
+  enableUrgent: true,
+  enableFeaturedTop: true,
+  enableFutureJob: true,
+  enableVipBundle: true,
+
+  standardDurationDays: 30,
+  urgentDurationDays: 15,
+  featuredTopDurationDays: 30,
+  futureJobDurationDays: 60,
+  vipBundleDurationDays: 45,
+
+  urgentBadgeText: '🔥 Urgent Hiring',
+  featuredBadgeText: '⭐ Pinned Top & Featured',
+  futureBadgeText: '🚀 Advance Intake',
+  vipBadgeText: '👑 VIP Ultimate Placement',
+  standardDescription: 'Standard chronological listing on public board.',
+  urgentDescription: 'Flashing badge & ranks above regular jobs for rapid hiring.',
+  featuredTopDescription: 'Locks position at top of search results and homepage cards.',
+  futureJobDescription: 'Accepts advance candidate pre-registrations with countdown.',
+  vipBundleDescription: 'Full package: Top Pinned #1 + Urgent Badge + Gold Highlighting.'
 };
 
 

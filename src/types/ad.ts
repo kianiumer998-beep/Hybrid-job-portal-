@@ -66,6 +66,45 @@ export interface CampaignDurationPreset {
   isEnabled: boolean;
 }
 
+export interface PopupDisplaySettings {
+  displayMode: 'single' | 'sequential' | 'stacked_dual';
+  maxPopupsPerVisit: number; // 1, 2, 3, 5, or 99 (unlimited)
+  delayBetweenPopupsSec: number; // Delay between sequential popups (in seconds, e.g. 0.5 or 1.2)
+  showStackedDualOnDesktop: boolean; // Show top & bottom simultaneously if mode is stacked_dual
+  allowUnlimitedQueue: boolean; // Allow admin to queue unlimited popups on cross
+}
+
+export interface FeedInlineAdSettings {
+  insertionMode: 'cadence' | 'custom_indices'; // 'cadence' = every N jobs, 'custom_indices' = after specific job numbers
+  repeatEveryNJobs: number; // e.g. 2, 3, 4, 5
+  customIndices: number[]; // e.g. [2, 5, 8] -> after 2nd job, after 5th job, after 8th job
+  page1SpecificIndices?: number[]; // Optional different indices for page 1
+  maxAdsPerPage: number; // e.g. 3
+  rotateMultipleAds: boolean; // Rotate through different active feed ads
+}
+
+export interface PromoDiscountBanner {
+  id: string;
+  isEnabled: boolean;
+  title: string;
+  description: string;
+  discountPercent: number; // e.g. 50%
+  badgeText: string; // e.g. "🔥 50% OFF FLASH PROMO"
+  promoCode?: string; // e.g. "CAREER50"
+  targetPlacement?: AdPlacement | 'all';
+  validUntil?: string; // e.g. "2026-09-30"
+  bgGradient?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+}
+
+export interface JobPostingFeeSettings {
+  isFreeAll: boolean; // If true, all job postings are 100% Free
+  customStandardFeePkr: number;
+  globalDiscountPercent: number; // 0 - 100
+  promoBannerText?: string;
+}
+
 export interface CampaignPlacementOption {
   id: AdPlacement;
   name: string;
@@ -75,6 +114,9 @@ export interface CampaignPlacementOption {
   iconName: string;
   badge?: string;
   isEnabled: boolean;
+  isFreeOverride?: boolean; // Admin can make this specific placement completely free
+  fixedPriceOverridePkr?: number; // Override dynamic calculation with flat fee
+  maxConcurrentSlots?: number; // e.g. 3 simultaneous banners
   allowedPageIds?: string[];
 }
 
@@ -84,6 +126,10 @@ export interface CampaignCustomizationConfig {
   placementOptions: CampaignPlacementOption[];
   badgePresets: string[];
   ctaPresets: { label: string; defaultUrl?: string }[];
+  popupSettings: PopupDisplaySettings;
+  feedInlineSettings: FeedInlineAdSettings;
+  promoBanners: PromoDiscountBanner[];
+  jobPostingFeeSettings?: JobPostingFeeSettings;
   formRules: {
     requireImage: boolean;
     requireAdminApproval: boolean;
@@ -91,6 +137,7 @@ export interface CampaignCustomizationConfig {
     maxCampaignDays: number;
     allowDirectSms: boolean;
     instantPublishForPro: boolean;
+    adminFreeCampaignBypass: boolean; // Admin can create campaigns 100% free
   };
 }
 
@@ -349,19 +396,73 @@ export const DEFAULT_CTA_PRESETS: { label: string; defaultUrl?: string }[] = [
   { label: 'Learn More', defaultUrl: 'https://example.com' }
 ];
 
+export const DEFAULT_PROMO_BANNERS: PromoDiscountBanner[] = [
+  {
+    id: 'promo-flash-50',
+    isEnabled: true,
+    title: '50% Flash Discount On All High-Impact Placements',
+    description: 'Book Top Header, Native Feed, or Lightbox Popups at flat 50% discount for the next 7 days.',
+    discountPercent: 50,
+    badgeText: '🔥 50% OFF FLASH PROMO',
+    promoCode: 'CAREER50',
+    targetPlacement: 'all',
+    validUntil: '2026-09-30',
+    bgGradient: 'from-amber-600 via-rose-600 to-indigo-700',
+    ctaText: 'Claim 50% Discount Slot',
+    ctaUrl: '#dashboard'
+  },
+  {
+    id: 'promo-free-postings',
+    isEnabled: false,
+    title: 'Free Employer Job Posting Week',
+    description: 'Post unlimited verified openings at 0 PKR standard publishing fee.',
+    discountPercent: 100,
+    badgeText: '🆓 100% FREE POSTING',
+    promoCode: 'FREEPOST',
+    targetPlacement: 'all',
+    validUntil: '2026-09-15',
+    bgGradient: 'from-emerald-600 via-teal-600 to-cyan-700',
+    ctaText: 'Post Free Job Now',
+    ctaUrl: '#dashboard'
+  }
+];
+
 export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig = {
   portalPages: DEFAULT_PORTAL_PAGES_CONFIG,
   durationPresets: DEFAULT_DURATION_PRESETS,
   placementOptions: DEFAULT_PLACEMENT_OPTIONS,
   badgePresets: DEFAULT_BADGE_PRESETS,
   ctaPresets: DEFAULT_CTA_PRESETS,
+  popupSettings: {
+    displayMode: 'sequential',
+    maxPopupsPerVisit: 99, // Unlimited queue on cross
+    delayBetweenPopupsSec: 0.8,
+    showStackedDualOnDesktop: true,
+    allowUnlimitedQueue: true
+  },
+  feedInlineSettings: {
+    insertionMode: 'custom_indices',
+    repeatEveryNJobs: 3,
+    customIndices: [2, 5, 8, 12], // After 2nd job, after 5th job, after 8th job
+    page1SpecificIndices: [2, 5, 8],
+    maxAdsPerPage: 3,
+    rotateMultipleAds: true
+  },
+  promoBanners: DEFAULT_PROMO_BANNERS,
+  jobPostingFeeSettings: {
+    isFreeAll: false,
+    customStandardFeePkr: 500,
+    globalDiscountPercent: 0,
+    promoBannerText: ''
+  },
   formRules: {
     requireImage: false,
     requireAdminApproval: true,
     allowCustomDateRange: true,
     maxCampaignDays: 90,
     allowDirectSms: true,
-    instantPublishForPro: false
+    instantPublishForPro: false,
+    adminFreeCampaignBypass: true
   }
 };
 
@@ -951,4 +1052,123 @@ export function formatTimeRemaining(endString?: string): string {
   }
   const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
   return `${diffHours}h ${diffMinutes}m remaining`;
+}
+
+export interface SlotDateRange {
+  adId: string;
+  title: string;
+  placement: AdPlacement;
+  advertiserName: string;
+  startDate: string; // YYYY-MM-DD or YYYY-MM-DD HH:MM
+  endDate: string;
+  isCurrent: boolean;
+}
+
+/**
+ * Returns all booked / occupied date ranges for a given placement
+ */
+export function getOccupiedSlotRangesForPlacement(
+  ads: Advertisement[],
+  placement: AdPlacement
+): SlotDateRange[] {
+  const now = Date.now();
+  return ads
+    .filter(
+      (a) =>
+        a.placement === placement &&
+        (a.status === 'active' || a.status === 'pending_approval') &&
+        a.scheduledStartAt &&
+        a.scheduledEndAt
+    )
+    .map((a) => {
+      const endMs = new Date(a.scheduledEndAt!.replace(' ', 'T')).getTime();
+      const startMs = new Date(a.scheduledStartAt!.replace(' ', 'T')).getTime();
+      return {
+        adId: a.id,
+        title: a.title,
+        placement: a.placement,
+        advertiserName: a.submittedByUserName || 'Portal Advertiser',
+        startDate: a.scheduledStartAt!,
+        endDate: a.scheduledEndAt!,
+        isCurrent: now >= startMs && now <= endMs
+      };
+    })
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+}
+
+/**
+ * Checks if a requested date range is free or occupied for a placement
+ */
+export function checkSlotDateAvailability(
+  ads: Advertisement[],
+  placement: AdPlacement,
+  reqStartStr: string,
+  reqEndStr: string,
+  excludeAdId?: string,
+  maxConcurrent: number = 2
+): {
+  isAvailable: boolean;
+  conflictingAds: SlotDateRange[];
+  nextAvailableDate?: string;
+  message: string;
+} {
+  const reqStart = new Date(reqStartStr.replace(' ', 'T')).getTime();
+  const reqEnd = new Date(reqEndStr.replace(' ', 'T')).getTime();
+
+  if (isNaN(reqStart) || isNaN(reqEnd) || reqStart >= reqEnd) {
+    return {
+      isAvailable: true,
+      conflictingAds: [],
+      message: 'Valid date window selected.'
+    };
+  }
+
+  const occupied = getOccupiedSlotRangesForPlacement(ads, placement).filter(
+    (s) => s.adId !== excludeAdId
+  );
+
+  const conflicts: SlotDateRange[] = [];
+
+  for (const slot of occupied) {
+    const slotStart = new Date(slot.startDate.replace(' ', 'T')).getTime();
+    const slotEnd = new Date(slot.endDate.replace(' ', 'T')).getTime();
+
+    // Check overlap
+    if (reqStart < slotEnd && reqEnd > slotStart) {
+      conflicts.push(slot);
+    }
+  }
+
+  if (conflicts.length >= maxConcurrent) {
+    // Find when the earliest conflict ends
+    const latestEndMs = Math.max(...conflicts.map(c => new Date(c.endDate.replace(' ', 'T')).getTime()));
+    const nextDate = new Date(latestEndMs + 60000).toISOString().slice(0, 10);
+    return {
+      isAvailable: false,
+      conflictingAds: conflicts,
+      nextAvailableDate: nextDate,
+      message: `Slot is fully booked from ${conflicts[0].startDate.slice(0, 10)} to ${conflicts[0].endDate.slice(0, 10)}. Next open slot is available from ${nextDate}.`
+    };
+  }
+
+  return {
+    isAvailable: true,
+    conflictingAds: conflicts,
+    message: 'Slot is open and ready for immediate campaign booking!'
+  };
+}
+
+/**
+ * Calculates next available open date for any placement
+ */
+export function getNextAvailableDateForPlacement(ads: Advertisement[], placement: AdPlacement): string {
+  const occupied = getOccupiedSlotRangesForPlacement(ads, placement);
+  if (occupied.length === 0) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  const maxEndMs = Math.max(...occupied.map(s => new Date(s.endDate.replace(' ', 'T')).getTime()));
+  if (maxEndMs <= Date.now()) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  return new Date(maxEndMs + 86400000).toISOString().slice(0, 10);
 }

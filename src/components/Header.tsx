@@ -15,6 +15,9 @@ interface HeaderProps {
   showAdminView: boolean;
   activeAdsCount?: number;
   onOpenAdDrawer?: () => void;
+  selectedCountryName?: string;
+  selectedCountryFlag?: string;
+  onOpenCountryModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,7 +32,10 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAdminView,
   showAdminView,
   activeAdsCount = 0,
-  onOpenAdDrawer
+  onOpenAdDrawer,
+  selectedCountryName,
+  selectedCountryFlag,
+  onOpenCountryModal
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -121,6 +127,21 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Action Controls */}
           <div className="hidden md:flex items-center space-x-3">
+            {/* Selected Country Indicator & Switcher Button */}
+            {onOpenCountryModal && (
+              <button
+                onClick={onOpenCountryModal}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer group"
+                title="Change Country"
+              >
+                <span className="text-sm">{selectedCountryFlag || '🌐'}</span>
+                <span className="text-slate-300 group-hover:text-emerald-400 max-w-[100px] truncate">
+                  {selectedCountryName || 'Global'}
+                </span>
+                <span className="text-[9px] text-slate-400 font-normal">▼</span>
+              </button>
+            )}
+
             {/* Live Announcements / Ads Bell */}
             <button
               onClick={onOpenAdDrawer}

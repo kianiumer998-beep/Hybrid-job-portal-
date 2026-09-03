@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Job, ConsolidatedPdfGazette, ScrapedJobAuditEntry, ScraperBatchRun } from '../types/job';
 import { 
   MOCK_CONSOLIDATED_PDF_GAZETTES, 
+  ALL_CONSOLIDATED_PDF_GAZETTES,
   generateGazetteFromManualInput,
   OFFICIAL_GOVT_SCRAPER_PORTALS 
 } from '../data/mockPdfConsolidatedAds';
+import { AutoScrapeTimerControls, AutoScrapeConfig } from './pdf/AutoScrapeTimerControls';
 import { 
   FileText, 
   X, 
@@ -37,7 +39,10 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
-  FileCheck
+  FileCheck,
+  Bot,
+  Zap,
+  CheckCheck
 } from 'lucide-react';
 
 interface PdfConsolidatedScraperModalProps {
@@ -50,6 +55,7 @@ interface PdfConsolidatedScraperModalProps {
   onDeleteGazette?: (gazetteId: string) => void;
   initialSelectedGazetteId?: string | null;
   existingJobs?: Job[];
+  onUpdateGazettesLastScraped?: (updates: { id: string; lastScrapedAt: string; jobCount: number }[]) => void;
 }
 
 // DUPLICATE DETECTION HELPER
@@ -112,15 +118,14 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
   onClose,
   onBatchImportJobs,
   onLogBatchRun,
-  gazettes = MOCK_CONSOLIDATED_PDF_GAZETTES,
+  gazettes = ALL_CONSOLIDATED_PDF_GAZETTES,
   onAddGazette,
   onDeleteGazette,
   initialSelectedGazetteId,
-  existingJobs = []
+  existingJobs = [],
+  onUpdateGazettesLastScraped
 }) => {
-  if (!isOpen) return null;
-
-  const currentGazettes = gazettes && gazettes.length > 0 ? gazettes : MOCK_CONSOLIDATED_PDF_GAZETTES;
+  const currentGazettes = gazettes && gazettes.length > 0 ? gazettes : ALL_CONSOLIDATED_PDF_GAZETTES;
 
   // Active sub-views: easy-extractor (default), python-code, raw-stream
   const [activeTab, setActiveTab] = useState<'easy-extractor' | 'python-code' | 'raw-stream'>('easy-extractor');
@@ -141,6 +146,85 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
   const [selectedGazetteIdsForBulk, setSelectedGazetteIdsForBulk] = useState<string[]>(() => {
     return currentGazettes.slice(0, 3).map(g => g.id);
   });
+
+  // Portal Last Scraped Timestamp tracking
+  const [portalLastScrapedMap, setPortalLastScrapedMap] = useState<Record<string, { timestamp: string; jobCount: number }>>(() => {
+    try {
+      const saved = localStorage.getItem('career_pak_portal_last_scraped');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn(e);
+    }
+    return {};
+  });
+
+  const updatePortalScrapedTimestamp = (gazetteIds: string[], jobCountPerPortal?: number) => {
+    const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    setPortalLastScrapedMap(prev => {
+      const updated = { ...prev };
+      gazetteIds.forEach(id => {
+        updated[id] = { timestamp: now, jobCount: jobCountPerPortal || 4 };
+      });
+      try {
+        localStorage.setItem('career_pak_portal_last_scraped', JSON.stringify(updated));
+      } catch (e) {
+        console.warn(e);
+      }
+      return updated;
+    });
+
+    if (onUpdateGazettesLastScraped) {
+      onUpdateGazettesLastScraped(gazetteIds.map(id => ({ id, lastScrapedAt: now, jobCount: jobCountPerPortal || 4 })));
+    }
+  };
+
+  // Automated Crawler & Interval Timer State (15m, 30m, 1h, 2h, 3m)
+  const [autoScrapeConfig, setAutoScrapeConfig] = useState<AutoScrapeConfig>(() => {
+    try {
+      const saved = localStorage.getItem('career_pak_pdf_autoscrape_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn(e);
+    }
+    return {
+      enabled: false,
+      intervalMinutes: 15,
+      targetScope: 'all',
+      preventDuplicates: true,
+      autoApprove: true
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('career_pak_pdf_autoscrape_config', JSON.stringify(autoScrapeConfig));
+    } catch (e) {
+      console.warn(e);
+    }
+  }, [autoScrapeConfig]);
+
+  const [lastAutoRunTimestamp, setLastAutoRunTimestamp] = useState<string | null>(() => {
+    return localStorage.getItem('career_pak_pdf_autoscrape_last_run');
+  });
+  const [toastNotification, setToastNotification] = useState<{ message: string; type: 'success' | 'info' | 'warn' } | null>(null);
+
+  const getPortalScrapeStatus = (gazetteId: string) => {
+    const entry = portalLastScrapedMap[gazetteId];
+    if (!entry || !entry.timestamp) {
+      return { text: 'Never Scraped', isRecent: false, timestamp: null, count: 0 };
+    }
+    try {
+      const d = new Date(entry.timestamp.replace(' ', 'T'));
+      const diffMins = Math.floor((Date.now() - d.getTime()) / 60000);
+      if (diffMins < 1) return { text: `Scraped Just now (${entry.jobCount || 4} jobs)`, isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
+      if (diffMins < 60) return { text: `Scraped ${diffMins}m ago (${entry.jobCount || 4} jobs)`, isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) return { text: `Scraped ${diffHours}h ago (${entry.jobCount || 4} jobs)`, isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
+      return { text: `Scraped ${Math.floor(diffHours / 24)}d ago`, isRecent: false, timestamp: entry.timestamp, count: entry.jobCount };
+    } catch {
+      return { text: 'Scraped Recently', isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
+    }
+  };
 
   const [customPdfUrl, setCustomPdfUrl] = useState<string>('https://fpsc.gov.pk/advertisements/Consolidated_Advt_No_08_2026.pdf');
   const [inputMode, setInputMode] = useState<'preloaded' | 'url' | 'upload' | 'add-manual'>('preloaded');
@@ -192,7 +276,35 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
   const [importedSuccessfully, setImportedSuccessfully] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // Filtered portals
+  // Filtered gazettes across all 447 official portals
+  const filteredGazettes = useMemo(() => {
+    return currentGazettes.filter(gazette => {
+      const q = portalSearch.toLowerCase().trim();
+      const matchesSearch = !q || 
+        gazette.title.toLowerCase().includes(q) || 
+        gazette.organization.toLowerCase().includes(q) || 
+        (gazette.gazetteIssueNumber || '').toLowerCase().includes(q) ||
+        (gazette.pdfFileName || '').toLowerCase().includes(q) ||
+        (gazette.portalCategory || '').toLowerCase().includes(q);
+
+      if (!matchesSearch) return false;
+
+      if (portalRegionFilter === 'all') return true;
+      const lowerOrg = (gazette.organization + ' ' + gazette.title + ' ' + (gazette.portalCategory || '')).toLowerCase();
+      if (portalRegionFilter === 'federal') return lowerOrg.includes('federal') || lowerOrg.includes('fpsc') || lowerOrg.includes('njp') || lowerOrg.includes('cda') || lowerOrg.includes('hec') || lowerOrg.includes('jobs.gov.pk') || lowerOrg.includes('ministry') || lowerOrg.includes('national');
+      if (portalRegionFilter === 'punjab') return lowerOrg.includes('punjab') || lowerOrg.includes('ppsc') || lowerOrg.includes('lahore');
+      if (portalRegionFilter === 'sindh') return lowerOrg.includes('sindh') || lowerOrg.includes('spsc') || lowerOrg.includes('karachi');
+      if (portalRegionFilter === 'kpk') return lowerOrg.includes('khyber') || lowerOrg.includes('kp') || lowerOrg.includes('kppsc') || lowerOrg.includes('kmc') || lowerOrg.includes('kcd') || lowerOrg.includes('kmu') || lowerOrg.includes('peshawar');
+      if (portalRegionFilter === 'balochistan') return lowerOrg.includes('balochistan') || lowerOrg.includes('bpsc') || lowerOrg.includes('quetta');
+      if (portalRegionFilter === 'defense') return lowerOrg.includes('army') || lowerOrg.includes('mes') || lowerOrg.includes('mod') || lowerOrg.includes('defense') || lowerOrg.includes('defence') || lowerOrg.includes('military') || lowerOrg.includes('navy') || lowerOrg.includes('air force');
+      if (portalRegionFilter === 'railways') return lowerOrg.includes('rail') || lowerOrg.includes('railways');
+      if (portalRegionFilter === 'health') return lowerOrg.includes('health') || lowerOrg.includes('medical') || lowerOrg.includes('hospital') || lowerOrg.includes('pims') || lowerOrg.includes('drap');
+
+      return true;
+    });
+  }, [currentGazettes, portalSearch, portalRegionFilter]);
+
+  // Filtered portals legacy fallback
   const filteredPortals = useMemo(() => {
     return OFFICIAL_GOVT_SCRAPER_PORTALS.filter(portal => {
       const q = portalSearch.toLowerCase().trim();
@@ -435,6 +547,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
 
       setExtractedVacancies(enriched);
       setSelectedJobIds(enriched.map(j => j.id));
+      updatePortalScrapedTimestamp([activeGazette.id], enriched.length);
       setParseLogs(prev => [
         ...prev,
         `[00:02.3] Extracted ${enriched.length} job openings successfully! (${enriched.filter(j => j.isDuplicate).length} duplicates flagged)`
@@ -499,6 +612,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
 
           setExtractedVacancies(allAggregatedJobs);
           setSelectedJobIds(allAggregatedJobs.map(j => j.id));
+          updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
           setParseLogs(prev => [
             ...prev,
             `[00:03.4] Bulk Batch Finished! Total ${allAggregatedJobs.length} vacancies consolidated across ${targetGazettes.length} sources.`
@@ -506,6 +620,362 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
         }, 500);
       }
     }, 400);
+  };
+
+  // ONE-CLICK INSTANT SCRAPE & DIRECT INGESTION
+  const handleOneClickScrape = (targetId?: string) => {
+    const targetG = currentGazettes.find(g => g.id === (targetId || selectedGazetteId)) || activeGazette;
+    if (!targetG) return;
+
+    setIsParsing(true);
+    setParseProgress(20);
+    setImportedSuccessfully(false);
+
+    setParseLogs([
+      `[00:00.1] ⚡ One-Click Instant Scrape initiated for "${targetG.organization}"...`,
+      `[00:00.3] Downloading & parsing PDF: ${targetG.pdfFileName}...`
+    ]);
+
+    setTimeout(() => {
+      setParseProgress(65);
+      setParseLogs(prev => [...prev, `[00:00.6] Cross-referencing against existing job database to eliminate duplicates...`]);
+    }, 250);
+
+    setTimeout(() => {
+      setParseProgress(100);
+      setIsParsing(false);
+
+      const rawJobs = targetG.extractedVacancies || [];
+      const enriched = rawJobs.map(job => {
+        const dup = checkJobDuplicate(job, existingJobs);
+        return {
+          ...job,
+          extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+          isDuplicate: dup.isDuplicate,
+          duplicateScore: dup.duplicateScore,
+          duplicateOfJobTitle: dup.matchedJob?.title,
+          duplicateOfJobId: dup.matchedJob?.id
+        };
+      });
+
+      const uniqueJobs = enriched.filter(j => !j.isDuplicate);
+      const duplicateCount = enriched.length - uniqueJobs.length;
+
+      // Ingest unique jobs directly to live approved database
+      if (uniqueJobs.length > 0) {
+        onBatchImportJobs(uniqueJobs, true, targetG.title);
+      }
+
+      updatePortalScrapedTimestamp([targetG.id], enriched.length);
+      setExtractedVacancies(enriched);
+      setSelectedJobIds(uniqueJobs.map(j => j.id));
+
+      const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const batchId = 'ONECLICK-' + Date.now().toString().substring(6);
+
+      const auditEntries: ScrapedJobAuditEntry[] = uniqueJobs.map((job, jIdx) => ({
+        id: `audit-${job.id}-${Date.now().toString(36)}-${jIdx}`,
+        jobId: job.id,
+        batchId,
+        jobTitle: job.title,
+        company: job.company,
+        scrapedAt: now,
+        scrapedTimezone: 'PKT (UTC+5)',
+        sourcePortalName: targetG.organization,
+        sourceUrl: targetG.pdfUrl,
+        sourceDomain: targetG.organization.includes('FPSC') ? 'fpsc.gov.pk' : 'jobs.gov.pk',
+        category: 'Government Sector',
+        region: 'Pakistan',
+        currency: 'PKR',
+        salaryText: job.salary,
+        status: 'Auto-Approved',
+        deduplicationScore: 99.9,
+        crawlLatencyMs: 310,
+        extractedTags: job.tags || [],
+        requirementsCount: job.requirements?.length || 0,
+        isGovtJob: true,
+        govtScale: job.govtScale,
+        govtDepartment: job.govtDepartment,
+        isPdfScraped: true,
+        pdfFileName: targetG.pdfFileName,
+        pdfCaseNumber: job.pdfCaseNumber,
+        pdfTotalVacanciesInCase: job.pdfTotalVacanciesInCase,
+        domicileQuota: job.domicileQuota,
+        challanFee: job.challanFee,
+        ageRelaxationNote: job.ageRelaxationNote,
+        pdfParserEngine: 'pdfplumber',
+        extractionSourceType: 'pdf_gazette',
+        isDuplicate: false,
+        reviewTimeline: [
+          {
+            id: 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            timestamp: now,
+            relativeTime: 'Just now',
+            action: 'Scraped',
+            performedBy: 'Admin User',
+            notes: `Extracted via 1-Click Instant Scraper from ${targetG.organization}.`
+          }
+        ],
+        snapshot: {
+          description: job.description,
+          requirements: job.requirements,
+          benefits: job.benefits,
+          applyUrl: job.sourceUrl
+        }
+      }));
+
+      const batchRun: ScraperBatchRun = {
+        batchId,
+        startTime: now,
+        endTime: now,
+        sourceId: targetG.id,
+        sourceName: `${targetG.organization} (1-Click Instant Scrape)`,
+        sourceUrl: targetG.pdfUrl,
+        region: 'Pakistan',
+        category: 'Government Sector',
+        status: 'Completed',
+        totalExtracted: enriched.length,
+        approvedCount: uniqueJobs.length,
+        pendingCount: 0,
+        duplicatesSkipped: duplicateCount,
+        rejectionCount: 0,
+        executionDurationMs: 650,
+        httpStatusCode: 200,
+        triggerType: 'Manual On-Demand',
+        logTrace: [
+          `[${now}] ⚡ One-Click Instant Scrape executed for ${targetG.organization}`,
+          `[${now}] Total Extracted: ${enriched.length} vacancies | Imported New: ${uniqueJobs.length} | Duplicates Blocked: ${duplicateCount}`
+        ]
+      };
+
+      onLogBatchRun(batchRun, auditEntries);
+
+      setToastNotification({
+        message: `⚡ One-Click Scrape Complete! Ingested ${uniqueJobs.length} new vacancies from ${targetG.organization}. (${duplicateCount} duplicate(s) safely filtered)`,
+        type: 'success'
+      });
+      setTimeout(() => setToastNotification(null), 5000);
+    }, 600);
+  };
+
+  // FULL AUTOMATED INTERVAL TIMER CRAWLER EXECUTION
+  const [isAutoCrawling, setIsAutoCrawling] = useState(false);
+
+  const handleTriggerAutoScrapeRun = () => {
+    setIsAutoCrawling(true);
+    const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    setLastAutoRunTimestamp(now);
+    try {
+      localStorage.setItem('career_pak_pdf_autoscrape_last_run', now);
+    } catch (e) {
+      console.warn(e);
+    }
+
+    const targets = autoScrapeConfig.targetScope === 'selected' && selectedGazetteIdsForBulk.length > 0
+      ? currentGazettes.filter(g => selectedGazetteIdsForBulk.includes(g.id))
+      : currentGazettes.slice(0, 20);
+
+    const aggregatedJobs: Job[] = [];
+    let duplicateCount = 0;
+
+    targets.forEach(g => {
+      (g.extractedVacancies || []).forEach(job => {
+        const dup = checkJobDuplicate(job, existingJobs);
+        if (autoScrapeConfig.preventDuplicates && dup.isDuplicate) {
+          duplicateCount++;
+        } else {
+          aggregatedJobs.push({
+            ...job,
+            extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+            isDuplicate: dup.isDuplicate,
+            duplicateScore: dup.duplicateScore,
+            duplicateOfJobTitle: dup.matchedJob?.title,
+            duplicateOfJobId: dup.matchedJob?.id
+          });
+        }
+      });
+    });
+
+    setTimeout(() => {
+      setIsAutoCrawling(false);
+
+      if (aggregatedJobs.length > 0) {
+        onBatchImportJobs(
+          aggregatedJobs,
+          autoScrapeConfig.autoApprove,
+          `Automated Timer Crawl (${targets.length} Portals)`
+        );
+      }
+
+      updatePortalScrapedTimestamp(targets.map(t => t.id), 4);
+
+      const batchId = 'AUTO-TIMER-' + Date.now().toString().substring(6);
+      const auditEntries: ScrapedJobAuditEntry[] = aggregatedJobs.slice(0, 15).map((job, jIdx) => ({
+        id: `audit-${job.id}-${Date.now().toString(36)}-${jIdx}`,
+        jobId: job.id,
+        batchId,
+        jobTitle: job.title,
+        company: job.company,
+        scrapedAt: now,
+        scrapedTimezone: 'PKT (UTC+5)',
+        sourcePortalName: job.company,
+        sourceUrl: job.sourceUrl || 'https://jobs.gov.pk',
+        sourceDomain: 'jobs.gov.pk',
+        category: 'Government Sector',
+        region: 'Pakistan',
+        currency: 'PKR',
+        salaryText: job.salary,
+        status: autoScrapeConfig.autoApprove ? 'Auto-Approved' : 'Pending Review',
+        deduplicationScore: 99.4,
+        crawlLatencyMs: 380,
+        extractedTags: job.tags || [],
+        requirementsCount: job.requirements?.length || 0,
+        isGovtJob: true,
+        govtScale: job.govtScale,
+        govtDepartment: job.govtDepartment,
+        isPdfScraped: true,
+        pdfFileName: job.pdfFileName || 'Gazette.pdf',
+        pdfParserEngine: 'pdfplumber',
+        extractionSourceType: 'pdf_gazette',
+        isDuplicate: false,
+        reviewTimeline: [
+          {
+            id: 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            timestamp: now,
+            relativeTime: 'Just now',
+            action: 'Scraped',
+            performedBy: 'Cron Scraper Engine',
+            notes: `Auto-crawled on ${autoScrapeConfig.intervalMinutes}m timer schedule.`
+          }
+        ],
+        snapshot: {
+          description: job.description,
+          requirements: job.requirements,
+          benefits: job.benefits,
+          applyUrl: job.sourceUrl
+        }
+      }));
+
+      const batchRun: ScraperBatchRun = {
+        batchId,
+        startTime: now,
+        endTime: now,
+        sourceId: 'auto-timer',
+        sourceName: `Automated Scheduled Crawler (${autoScrapeConfig.intervalMinutes}m Interval)`,
+        sourceUrl: 'https://jobs.gov.pk',
+        region: 'Pakistan',
+        category: 'Government Sector',
+        status: 'Completed',
+        totalExtracted: aggregatedJobs.length + duplicateCount,
+        approvedCount: autoScrapeConfig.autoApprove ? aggregatedJobs.length : 0,
+        pendingCount: autoScrapeConfig.autoApprove ? 0 : aggregatedJobs.length,
+        duplicatesSkipped: duplicateCount,
+        rejectionCount: 0,
+        executionDurationMs: 1250,
+        httpStatusCode: 200,
+        triggerType: 'Scheduled Cron',
+        logTrace: [
+          `[${now}] 🤖 Automated Interval Crawler executed (${autoScrapeConfig.intervalMinutes}m cycle)`,
+          `[${now}] Scraped ${targets.length} official portals | Imported ${aggregatedJobs.length} vacancies | Skipped ${duplicateCount} duplicates`
+        ]
+      };
+
+      onLogBatchRun(batchRun, auditEntries);
+
+      setToastNotification({
+        message: `🤖 Auto-Crawler Cycle Complete: Ingested ${aggregatedJobs.length} new vacancies across ${targets.length} portals, skipped ${duplicateCount} duplicates.`,
+        type: 'success'
+      });
+      setTimeout(() => setToastNotification(null), 5000);
+    }, 800);
+  };
+
+  // SCRAPE ALL 447 PORTALS INSTANTLY
+  const handleScrapeAllPortals = () => {
+    setSelectedGazetteIdsForBulk(currentGazettes.map(g => g.id));
+    setIsBulkParsing(true);
+    setParseProgress(10);
+    setImportedSuccessfully(false);
+
+    const targetGazettes = currentGazettes;
+    setParseLogs([
+      `[00:00.1] Starting Full System Bulk Scraper across all ${targetGazettes.length} official government portals...`,
+      `[00:00.4] Consolidating FPSC, WAPDA, PPSC, SPSC, KPPSC, BPSC, NJP, MES, Defence & Autonomous bodies...`
+    ]);
+
+    let step = 0;
+    const totalSteps = 10;
+
+    const interval = setInterval(() => {
+      step++;
+      const percent = Math.min(95, Math.round((step / totalSteps) * 90));
+      setParseProgress(percent);
+
+      setParseLogs(prev => [
+        ...prev,
+        `[00:0${step}.${step * 2}] Batch cluster ${step}/${totalSteps}: Processing gazettes & verifying duplicate signatures...`
+      ]);
+
+      if (step >= totalSteps) {
+        clearInterval(interval);
+        setTimeout(() => {
+          setParseProgress(100);
+          setIsBulkParsing(false);
+
+          const allJobs: Job[] = [];
+          targetGazettes.forEach(g => {
+            (g.extractedVacancies || []).forEach(job => {
+              const dup = checkJobDuplicate(job, existingJobs);
+              allJobs.push({
+                ...job,
+                extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+                isDuplicate: dup.isDuplicate,
+                duplicateScore: dup.duplicateScore,
+                duplicateOfJobTitle: dup.matchedJob?.title,
+                duplicateOfJobId: dup.matchedJob?.id
+              });
+            });
+          });
+
+          setExtractedVacancies(allJobs);
+          const uniqueOnes = allJobs.filter(j => !j.isDuplicate);
+          setSelectedJobIds(uniqueOnes.map(j => j.id));
+          updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
+
+          setParseLogs(prev => [
+            ...prev,
+            `[00:03.8] Full Consolidated Scrape Finished! Extracted ${allJobs.length} vacancies across ${targetGazettes.length} portals. (${uniqueOnes.length} unique, ${allJobs.length - uniqueOnes.length} duplicates flagged)`
+          ]);
+
+          setToastNotification({
+            message: `⚡ Full Scrape Complete: Extracted ${allJobs.length} vacancies across all ${targetGazettes.length} portals (${uniqueOnes.length} unique ready to import).`,
+            type: 'info'
+          });
+          setTimeout(() => setToastNotification(null), 5000);
+        }, 500);
+      }
+    }, 300);
+  };
+
+  // Toggle Selection of All Filtered Gazettes
+  const handleSelectAllFilteredGazettes = () => {
+    const targetList = filteredGazettes.length > 0 ? filteredGazettes : currentGazettes;
+    const allFilteredSelected = targetList.every(g => selectedGazetteIdsForBulk.includes(g.id));
+    if (allFilteredSelected) {
+      setSelectedGazetteIdsForBulk(prev => prev.filter(id => !targetList.some(g => g.id === id)));
+    } else {
+      const merged = new Set([...selectedGazetteIdsForBulk, ...targetList.map(g => g.id)]);
+      setSelectedGazetteIdsForBulk(Array.from(merged));
+    }
+  };
+
+  // Select Absolute All 447 Portals
+  const handleSelectAbsoluteAllGazettes = () => {
+    if (selectedGazetteIdsForBulk.length === currentGazettes.length) {
+      setSelectedGazetteIdsForBulk([]);
+    } else {
+      setSelectedGazetteIdsForBulk(currentGazettes.map(g => g.id));
+    }
   };
 
   // Toggle Job Selection
@@ -774,6 +1244,8 @@ if __name__ == "__main__":
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-6xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden">
@@ -909,12 +1381,39 @@ if __name__ == "__main__":
           </button>
         </div>
 
+        {/* TOAST NOTIFICATION */}
+        {toastNotification && (
+          <div className="mx-6 mt-4 p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-200 text-xs font-bold flex items-center justify-between shadow-lg shadow-emerald-950/40 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{toastNotification.message}</span>
+            </div>
+            <button
+              onClick={() => setToastNotification(null)}
+              className="text-emerald-400 hover:text-white text-xs cursor-pointer ml-4"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* MODAL BODY */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
           
           {/* TAB 1: EASY EXTRACTOR */}
           {activeTab === 'easy-extractor' && (
             <div className="space-y-6">
+
+              {/* AUTO-SCRAPE TIMER & BACKGROUND CRAWLER CONTROLS */}
+              <AutoScrapeTimerControls
+                config={autoScrapeConfig}
+                onChangeConfig={setAutoScrapeConfig}
+                isAutoCrawling={isAutoCrawling}
+                onTriggerNow={handleTriggerAutoScrapeRun}
+                lastRunTimestamp={lastAutoRunTimestamp}
+                totalPortalsCount={currentGazettes.length}
+                selectedPortalsCount={selectedGazetteIdsForBulk.length}
+              />
               
               {/* STEP 1: CHOOSE SOURCE SECTION */}
               <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
@@ -922,10 +1421,10 @@ if __name__ == "__main__":
                   <div>
                     <h3 className="text-sm font-black uppercase text-white flex items-center space-x-2">
                       <span className="w-5 h-5 rounded-full bg-indigo-500 text-white text-[11px] font-black flex items-center justify-center">1</span>
-                      <span>Target PDF Sources & Bulk Multi-Select Engine</span>
+                      <span>Target PDF Sources & Multi-Mode Scraper Engine</span>
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Select individual or multiple gazettes to scrape simultaneously in a unified batch run.
+                      Supports 1-Click Instant Scrape, Bulk Selection Scrape, One-by-One Selection, or Auto Scrape with 15m/30m timer.
                     </p>
                   </div>
 
@@ -989,7 +1488,7 @@ if __name__ == "__main__":
                           type="text"
                           value={portalSearch}
                           onChange={(e) => setPortalSearch(e.target.value)}
-                          placeholder="Search FPSC, WAPDA, PPSC, Railways, NJP, MES, Health..."
+                          placeholder="Search across all 447 portals: FPSC, WAPDA, PPSC, Railways, NJP, MES, Health..."
                           className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 outline-none"
                         />
                       </div>
@@ -1012,80 +1511,142 @@ if __name__ == "__main__":
                       </div>
                     </div>
 
-                    {/* BULK MULTI-SELECTION CONTROL BAR */}
-                    <div className="p-3 bg-slate-900/90 rounded-2xl border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                      <div className="flex items-center space-x-3">
+                    {/* MULTI-MODE ACTION BAR (ONE-CLICK, BULK, ALL, SELECTION) */}
+                    <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-indigo-500/30 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* SELECT FILTERED / DESELECT */}
                         <button
                           type="button"
-                          onClick={handleSelectAllBulkGazettes}
+                          onClick={handleSelectAllFilteredGazettes}
                           className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer flex items-center space-x-1.5"
                         >
-                          {selectedGazetteIdsForBulk.length === currentGazettes.length ? (
-                            <>
-                              <CheckSquare className="w-4 h-4 text-emerald-400" />
-                              <span>Deselect All Portals</span>
-                            </>
-                          ) : (
-                            <>
-                              <Square className="w-4 h-4 text-indigo-400" />
-                              <span>Select All ({currentGazettes.length})</span>
-                            </>
-                          )}
+                          <CheckSquare className="w-4 h-4 text-indigo-400" />
+                          <span>Toggle Filtered ({filteredGazettes.length})</span>
                         </button>
 
-                        <div className="text-xs text-slate-300">
-                          <span className="font-bold text-amber-400">{selectedGazetteIdsForBulk.length}</span> of <span className="font-bold text-white">{currentGazettes.length}</span> Portals Selected for Bulk Scrape
+                        {/* SELECT ABSOLUTE ALL */}
+                        <button
+                          type="button"
+                          onClick={handleSelectAbsoluteAllGazettes}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold border border-slate-700 cursor-pointer flex items-center space-x-1.5"
+                        >
+                          <CheckCheck className="w-4 h-4 text-amber-400" />
+                          <span>{selectedGazetteIdsForBulk.length === currentGazettes.length ? 'Deselect All' : `Select All (${currentGazettes.length})`}</span>
+                        </button>
+
+                        <div className="text-xs text-slate-300 pl-2">
+                          <span className="font-black text-amber-400">{selectedGazetteIdsForBulk.length}</span> of <span className="font-black text-white">{currentGazettes.length}</span> Portals Selected
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={handleRunBulkScraping}
-                        disabled={isBulkParsing || selectedGazetteIdsForBulk.length === 0}
-                        className="px-4 py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-slate-950 hover:text-white font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer transition-all active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
-                      >
-                        <Sparkles className="w-4 h-4 text-slate-950 animate-spin" />
-                        <span>{isBulkParsing ? 'Bulk Scraping in Progress...' : `⚡ Bulk Scrape All Selected (${selectedGazetteIdsForBulk.length}) Sources`}</span>
-                      </button>
+                      {/* ACTION BUTTONS: ONE-CLICK, BULK SCRAPE, SCRAPE ALL */}
+                      <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-start lg:justify-end">
+                        {/* 1-CLICK INSTANT SCRAPE BUTTON */}
+                        <button
+                          type="button"
+                          onClick={() => handleOneClickScrape()}
+                          disabled={isParsing || isBulkParsing}
+                          className="px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer transition-all active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
+                          title="Instantly scrape the active portal, check duplicates, and directly ingest unique jobs"
+                        >
+                          <Zap className="w-4 h-4 text-slate-950 fill-current" />
+                          <span>⚡ 1-Click Instant Scrape & Ingest</span>
+                        </button>
+
+                        {/* BULK SCRAPE SELECTED */}
+                        <button
+                          type="button"
+                          onClick={handleRunBulkScraping}
+                          disabled={isBulkParsing || selectedGazetteIdsForBulk.length === 0}
+                          className="px-3.5 py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-slate-950 hover:text-white font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer transition-all active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
+                        >
+                          <Sparkles className="w-4 h-4 text-slate-950 animate-spin" />
+                          <span>{isBulkParsing ? 'Bulk Scraping...' : `⚡ Bulk Scrape (${selectedGazetteIdsForBulk.length})`}</span>
+                        </button>
+
+                        {/* SCRAPE ALL 447 PORTALS */}
+                        <button
+                          type="button"
+                          onClick={handleScrapeAllPortals}
+                          disabled={isBulkParsing}
+                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs rounded-xl border border-slate-700 cursor-pointer transition-all disabled:opacity-50 flex items-center space-x-1.5"
+                          title="Scrape all 447 portals in unified multi-cluster mode"
+                        >
+                          <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Scrape All ({currentGazettes.length})</span>
+                        </button>
+                      </div>
                     </div>
 
-                    {/* GAZETTE PORTALS GRID WITH INDIVIDUAL CHECKBOXES */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto pr-1">
-                      {currentGazettes.map((gazette) => {
+                    {/* GAZETTE PORTALS GRID WITH INDIVIDUAL CHECKBOXES & 1-CLICK SCRAPE ON EACH */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                      {filteredGazettes.map((gazette, gIdx) => {
                         const isBulkSelected = selectedGazetteIdsForBulk.includes(gazette.id);
                         const isCurrentActive = selectedGazetteId === gazette.id;
+                        const scrapeStatus = getPortalScrapeStatus(gazette.id);
 
                         return (
                           <div
-                            key={gazette.id}
+                            key={`${gazette.id}-${gIdx}`}
                             onClick={() => handleSelectGazette(gazette.id)}
-                            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start space-x-2.5 ${
+                            className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-2 ${
                               isCurrentActive
                                 ? 'bg-indigo-950/70 border-indigo-500/80 shadow-md ring-1 ring-indigo-500/40'
                                 : 'bg-slate-900/60 hover:bg-slate-900 border-slate-800'
                             }`}
                           >
-                            <button
-                              type="button"
-                              onClick={(e) => handleToggleBulkGazette(gazette.id, e)}
-                              className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                                isBulkSelected ? 'bg-amber-500 border-amber-400 text-slate-950' : 'border-slate-700 bg-slate-950'
-                              }`}
-                            >
-                              {isBulkSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                            </button>
+                            <div className="flex items-start space-x-2.5">
+                              {/* SELECTION CHECKBOX */}
+                              <button
+                                type="button"
+                                onClick={(e) => handleToggleBulkGazette(gazette.id, e)}
+                                className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${
+                                  isBulkSelected ? 'bg-amber-500 border-amber-400 text-slate-950' : 'border-slate-700 bg-slate-950'
+                                }`}
+                                title="Toggle in bulk scraper list"
+                              >
+                                {isBulkSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                              </button>
 
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-indigo-300 truncate">{gazette.organization}</span>
-                                <span className="text-[9px] font-mono text-slate-400">{gazette.gazetteIssueNumber}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-indigo-300 truncate">{gazette.organization}</span>
+                                  <span className="text-[9px] font-mono text-slate-400">{gazette.gazetteIssueNumber}</span>
+                                </div>
+                                <h5 className="font-bold text-white text-xs truncate mt-0.5">{gazette.title}</h5>
+                                <div className="flex items-center space-x-2 text-[10px] text-slate-400 mt-1">
+                                  <span>{gazette.extractedVacancies?.length || 4} Vacancies</span>
+                                  <span>•</span>
+                                  <span className="text-rose-300 font-semibold truncate">{gazette.closingDeadline}</span>
+                                </div>
                               </div>
-                              <h5 className="font-bold text-white text-xs truncate mt-0.5">{gazette.title}</h5>
-                              <div className="flex items-center space-x-2 text-[10px] text-slate-400 mt-1">
-                                <span>{gazette.extractedVacancies?.length || 4} Vacancies</span>
-                                <span>•</span>
-                                <span className="text-rose-300 font-semibold">{gazette.closingDeadline}</span>
-                              </div>
+                            </div>
+
+                            {/* CARD FOOTER: LAST SCRAPED STATUS & ONE-CLICK SCRAPE BUTTON */}
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-[10px]">
+                              <span className={`px-2 py-0.5 rounded-full font-bold flex items-center space-x-1 ${
+                                scrapeStatus.isRecent
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                              }`}>
+                                <Clock className="w-2.5 h-2.5" />
+                                <span>{scrapeStatus.text}</span>
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectGazette(gazette.id);
+                                  handleOneClickScrape(gazette.id);
+                                }}
+                                disabled={isParsing}
+                                className="px-2 py-1 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white font-bold text-[10px] flex items-center space-x-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                                title="1-Click Scrape this specific portal only"
+                              >
+                                <Zap className="w-3 h-3 text-amber-300 fill-current" />
+                                <span>Scrape</span>
+                              </button>
                             </div>
                           </div>
                         );
@@ -1095,11 +1656,17 @@ if __name__ == "__main__":
                     {/* CURRENTLY ACTIVE GAZETTE DETAILS */}
                     <div className="p-4 bg-indigo-950/40 border border-indigo-500/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                       <div className="space-y-1">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 flex-wrap">
                           <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-indigo-500 text-white">
-                            Active Preview Source
+                            Active Single Selection
                           </span>
                           <span className="text-xs font-bold text-indigo-300">{activeGazette.organization}</span>
+                          {portalLastScrapedMap[activeGazette.id]?.timestamp && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                              <Clock className="w-2.5 h-2.5" />
+                              <span>Last Scraped: {portalLastScrapedMap[activeGazette.id].timestamp}</span>
+                            </span>
+                          )}
                         </div>
                         <h4 className="font-black text-white text-sm">{activeGazette.title}</h4>
                         <p className="text-xs text-slate-400">
@@ -1109,6 +1676,19 @@ if __name__ == "__main__":
                       </div>
 
                       <div className="shrink-0 flex items-center space-x-2">
+                        {/* 1-CLICK SCRAPE THIS ACTIVE PORTAL */}
+                        <button
+                          type="button"
+                          onClick={() => handleOneClickScrape(activeGazette.id)}
+                          disabled={isParsing}
+                          className="px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                          title="Instant scrape & save without manual review"
+                        >
+                          <Zap className="w-3.5 h-3.5 text-slate-950 fill-current" />
+                          <span>⚡ 1-Click Ingest</span>
+                        </button>
+
+                        {/* EXTRACT & PREVIEW JOBS */}
                         <button
                           type="button"
                           onClick={handleRunPdfExtraction}
@@ -1116,7 +1696,7 @@ if __name__ == "__main__":
                           className="px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-black rounded-xl shadow-lg shadow-indigo-500/20 cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                          <span>{isParsing ? 'Parsing Active PDF...' : '⚡ Extract Active PDF'}</span>
+                          <span>{isParsing ? 'Extracting...' : 'Preview Jobs'}</span>
                         </button>
                       </div>
                     </div>

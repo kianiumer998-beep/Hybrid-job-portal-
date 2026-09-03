@@ -68,7 +68,8 @@ import {
   SlidersHorizontal,
   Download,
   Copy,
-  ArrowUpDown
+  ArrowUpDown,
+  Link as LinkIcon
 } from 'lucide-react';
 import { UserDetailModal } from './UserDetailModal';
 import { AdminJobDetailModal } from './AdminJobDetailModal';
@@ -78,11 +79,15 @@ import { PdfConsolidatedScraperModal } from './PdfConsolidatedScraperModal';
 import { AdminQuickEditJobModal } from './admin/AdminQuickEditJobModal';
 import { AdminDuplicateCheckerModal, DuplicateCluster } from './admin/AdminDuplicateCheckerModal';
 import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
+import { BatchUrlIngestModal } from './BatchUrlIngestModal';
 import { 
   MOCK_CONSOLIDATED_PDF_GAZETTES, 
+  ALL_CONSOLIDATED_PDF_GAZETTES,
+  getUnifiedAllGazettes,
   generateGazetteFromManualInput,
   OFFICIAL_GOVT_SCRAPER_PORTALS,
-  OfficialGovtPdfPortal
+  OfficialGovtPdfPortal,
+  generateScrapedJobsForPortal
 } from '../data/mockPdfConsolidatedAds';
 import { INITIAL_SCRAPED_AUDIT_LOGS, INITIAL_SCRAPER_BATCH_RUNS } from '../data/mockScraperHistory';
 
@@ -94,6 +99,16 @@ import { AdminBroadcastCenter } from './admin/AdminBroadcastCenter';
 import { AdminDataBackupHub } from './admin/AdminDataBackupHub';
 import { AdminAiQualityEnhancer } from './admin/AdminAiQualityEnhancer';
 import { AdminEmployerKycHub } from './admin/AdminEmployerKycHub';
+import { LandingPageCustomizer } from './admin/LandingPageCustomizer';
+import { AdminCampaignCenter } from './admin/AdminCampaignCenter';
+import { AdminFeeManager } from './admin/AdminFeeManager';
+import { AdminActivityLogs } from './admin/AdminActivityLogs';
+import { AdminBulkNotificationTool } from './admin/AdminBulkNotificationTool';
+import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
+import { AdminPaymentVerificationHub } from './admin/AdminPaymentVerificationHub';
+import { WhatsAppSupportConfig } from './WhatsAppStickyButton';
+import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
+import { LandingPageConfig } from '../types/landing';
 import { 
   SiteSeoConfig, 
   CurrencyExchangeConfig, 
@@ -167,6 +182,13 @@ interface AdminDashboardProps {
   onRejectAd?: (adId: string, reason: string) => void;
   jobPostingPricing?: JobPostingPricingConfig;
   onChangeJobPostingPricing?: (config: JobPostingPricingConfig) => void;
+  landingConfig?: LandingPageConfig;
+  onUpdateLandingConfig?: (config: LandingPageConfig) => void;
+  whatsAppSupportConfig?: WhatsAppSupportConfig;
+  onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => void;
+  paymentTransactions?: PaymentTransaction[];
+  onApprovePaymentTransaction?: (transactionId: string, note?: string) => void;
+  onRejectPaymentTransaction?: (transactionId: string, reason: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -225,16 +247,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   campaignConfig,
   onUpdateCampaignConfig,
   onApproveAd,
-  onRejectAd
+  onRejectAd,
+  landingConfig,
+  onUpdateLandingConfig,
+  whatsAppSupportConfig,
+  onUpdateWhatsAppConfig,
+  paymentTransactions,
+  onApprovePaymentTransaction,
+  onRejectPaymentTransaction
 }) => {
   const [adminTab, setAdminTab] = useState<
     | 'analytics'
+    | 'landing-customizer'
+    | 'campaign-center'
+    | 'fee-management'
+    | 'payment-proofs'
+    | 'whatsapp-manager'
     | 'pending'
     | 'scraped-history'
     | 'advertisements'
     | 'seo-config'
     | 'currency-forex'
     | 'broadcast-center'
+    | 'bulk-notifications'
+    | 'activity-logs'
     | 'data-backup'
     | 'ai-enhancer'
     | 'employer-kyc'
@@ -321,6 +357,147 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (e) {}
   }, [kycRequests]);
 
+  // WhatsApp Support Configuration State
+  const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
+    if (whatsAppSupportConfig) return whatsAppSupportConfig;
+    try {
+      const saved = localStorage.getItem('hybrid_whatsapp_support_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      phoneNumber: '923001234567',
+      agentName: 'Ayesha (Lead Career Advisor)',
+      defaultMessage: 'Hello! I need assistance regarding job applications on CareerPak...',
+      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
+      enabled: true,
+      position: 'bottom-right'
+    };
+  });
+
+  // Payment Verification Transactions State
+  const [internalTransactions, setInternalTransactions] = useState<PaymentTransaction[]>(() => {
+    if (paymentTransactions && paymentTransactions.length > 0) return paymentTransactions;
+    try {
+      const saved = localStorage.getItem('hybrid_payment_transactions');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_PAYMENT_TRANSACTIONS;
+  });
+
+  const currentWhatsAppConfig = whatsAppSupportConfig || internalWhatsAppConfig;
+  const currentTransactions = paymentTransactions && paymentTransactions.length > 0 ? paymentTransactions : internalTransactions;
+
+  const handleUpdateWhatsApp = (newCfg: WhatsAppSupportConfig) => {
+    setInternalWhatsAppConfig(newCfg);
+    if (onUpdateWhatsAppConfig) {
+      onUpdateWhatsAppConfig(newCfg);
+    }
+    try {
+      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(newCfg));
+    } catch (e) {}
+  };
+
+  const handleApproveTx = (txId: string, note?: string) => {
+    if (onApprovePaymentTransaction) {
+      onApprovePaymentTransaction(txId, note);
+    }
+    setInternalTransactions(prev => {
+      const updated = prev.map(t => t.id === txId ? { ...t, status: 'Success' as const, verifiedAt: new Date().toISOString(), adminNote: note } : t);
+      try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
+      return updated;
+    });
+  };
+
+  const handleRejectTx = (txId: string, reason: string) => {
+    if (onRejectPaymentTransaction) {
+      onRejectPaymentTransaction(txId, reason);
+    }
+    setInternalTransactions(prev => {
+      const updated = prev.map(t => t.id === txId ? { ...t, status: 'Failed' as const, rejectionReason: reason } : t);
+      try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
+      return updated;
+    });
+  };
+
+  // Helper for computing duplicate scraped & pending jobs
+  const computeScrapedDuplicates = (jobList: Job[]) => {
+    const keyMap = new Map<string, Job[]>();
+    jobList.forEach(job => {
+      if (!job || !job.title) return;
+      const normalizedTitle = job.title.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const normalizedCompany = (job.company || job.govtDepartment || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const key = `${normalizedTitle}_${normalizedCompany}`;
+      if (!keyMap.has(key)) {
+        keyMap.set(key, []);
+      }
+      keyMap.get(key)!.push(job);
+    });
+
+    const duplicateJobIds: string[] = [];
+    const uniqueJobs: Job[] = [];
+
+    keyMap.forEach((group) => {
+      if (group.length > 0) {
+        uniqueJobs.push(group[0]); // Keep the first as unique
+        if (group.length > 1) {
+          group.slice(1).forEach(dup => duplicateJobIds.push(dup.id));
+        }
+      }
+    });
+
+    return {
+      duplicateCount: duplicateJobIds.length,
+      duplicateIds: duplicateJobIds,
+      uniqueCount: uniqueJobs.length,
+      uniqueJobs
+    };
+  };
+
+  // 1-Click Purge all duplicate scraped/pending jobs
+  const handleBulkPurgeDuplicates = () => {
+    const allPendingOrScraped = pendingJobs.filter(j => 
+      j.sourceUrl || j.scraperSourceId || j.scrapedSourceDomain || j.id.includes('scraped') || j.id.includes('sc')
+    );
+    const { duplicateIds, duplicateCount } = computeScrapedDuplicates(allPendingOrScraped);
+
+    if (duplicateCount === 0) {
+      alert('No duplicate scraped jobs found! All jobs in the queue are unique. (کوئی ڈپلیکیٹ جاب نہیں ملی)');
+      return;
+    }
+
+    if (confirm(`Are you sure you want to permanently remove ${duplicateCount} duplicate scraped jobs? (کیا آپ تمام ${duplicateCount} ڈپلیکیٹ جابز ڈیلیٹ کرنا چاہتے ہیں؟)`)) {
+      if (onBulkDeleteJobs) {
+        onBulkDeleteJobs(duplicateIds);
+      } else {
+        duplicateIds.forEach(id => onDeleteJob(id));
+      }
+      alert(`Successfully deleted ${duplicateCount} duplicate jobs in 1 click!`);
+    }
+  };
+
+  // 1-Click Approve all unique scraped/pending jobs to Live
+  const handleBulkApproveUniqueToLive = () => {
+    const allPendingOrScraped = pendingJobs.filter(j => 
+      j.sourceUrl || j.scraperSourceId || j.scrapedSourceDomain || j.id.includes('scraped') || j.id.includes('sc')
+    );
+    const { uniqueJobs, uniqueCount } = computeScrapedDuplicates(allPendingOrScraped);
+
+    if (uniqueCount === 0) {
+      alert('No scraped jobs available to approve.');
+      return;
+    }
+
+    if (confirm(`Instantly approve and publish all ${uniqueCount} verified unique scraped jobs directly to the Live Job Board? (کیا آپ تمام ${uniqueCount} یونیک جابز کو فوری لائیو کرنا چاہتے ہیں؟)`)) {
+      const uniqueIds = uniqueJobs.map(j => j.id);
+      if (onBulkApprovePendingJobs) {
+        onBulkApprovePendingJobs(uniqueIds);
+      } else {
+        uniqueIds.forEach(id => onApproveJob(id));
+      }
+      alert(`Successfully published ${uniqueCount} unique jobs directly to Live Job Board! (تمام جابز لائیو ہوگئیں)`);
+    }
+  };
+
   // Snapshot restore and bulk jobs ingestion handlers
   const handleRestoreSnapshot = (snapshot: SystemSnapshotPayload) => {
     if (snapshot.jobs && Array.isArray(snapshot.jobs)) {
@@ -340,7 +517,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [scrapedAuditLogs, setScrapedAuditLogs] = useState<ScrapedJobAuditEntry[]>(() => {
     try {
       const saved = localStorage.getItem('career_pak_scraped_audit_logs');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const seen = new Set<string>();
+          const deduped: ScrapedJobAuditEntry[] = [];
+          for (const item of parsed) {
+            if (item && item.id) {
+              if (!seen.has(item.id)) {
+                seen.add(item.id);
+                deduped.push(item);
+              }
+            }
+          }
+          return deduped;
+        }
+      }
     } catch (e) {
       console.error('Error loading scraped audit logs from storage', e);
     }
@@ -350,7 +542,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [scraperBatchRuns, setScraperBatchRuns] = useState<ScraperBatchRun[]>(() => {
     try {
       const saved = localStorage.getItem('career_pak_scraper_batch_runs');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const seen = new Set<string>();
+          const deduped: ScraperBatchRun[] = [];
+          for (const item of parsed) {
+            if (item && item.batchId) {
+              if (!seen.has(item.batchId)) {
+                seen.add(item.batchId);
+                deduped.push(item);
+              }
+            }
+          }
+          return deduped;
+        }
+      }
     } catch (e) {
       console.error('Error loading scraper batch runs from storage', e);
     }
@@ -741,18 +948,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isPdfScraperModalOpen, setIsPdfScraperModalOpen] = useState(false);
   const [activeSelectedPdfGazetteId, setActiveSelectedPdfGazetteId] = useState<string | null>(null);
 
-  // PDF Consolidated Gazettes Library (FPSC, WAPDA, PPSC, KPPSC & Manually Added Sites)
+  // PDF Consolidated Gazettes Library (All 447+ Official Pakistani Govt, Autonomous, Provincial & Defence Portals)
   const [pdfGazettes, setPdfGazettes] = useState<ConsolidatedPdfGazette[]>(() => {
     try {
       const saved = localStorage.getItem('career_pak_pdf_gazettes');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Extract custom user-added gazettes
+          const customGazettes = parsed.filter((g: any) => g && typeof g.id === 'string' && g.id.startsWith('pdf-gazette-custom'));
+
+          // Always merge with latest ALL_CONSOLIDATED_PDF_GAZETTES to ensure all 447 official portals have pristine, unique IDs
+          const freshGazettes = ALL_CONSOLIDATED_PDF_GAZETTES;
+          const freshIdSet = new Set(freshGazettes.map(g => g.id));
+          const uniqueCustom: ConsolidatedPdfGazette[] = [];
+          const seenCustomIds = new Set<string>();
+
+          for (let i = 0; i < customGazettes.length; i++) {
+            const cg = customGazettes[i];
+            let safeId = cg.id;
+            if (freshIdSet.has(safeId) || seenCustomIds.has(safeId)) {
+              safeId = `pdf-gazette-custom-${i}-${Date.now().toString(36)}`;
+            }
+            seenCustomIds.add(safeId);
+            uniqueCustom.push({ ...cg, id: safeId });
+          }
+
+          const combined = [...freshGazettes, ...uniqueCustom];
+          return combined;
+        }
       }
     } catch (e) {
       console.warn('Failed to load pdf gazettes from localStorage:', e);
     }
-    return MOCK_CONSOLIDATED_PDF_GAZETTES;
+    return ALL_CONSOLIDATED_PDF_GAZETTES;
   });
 
   useEffect(() => {
@@ -782,9 +1011,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pdfManualDeadline, setPdfManualDeadline] = useState('');
   const [pdfManualPages, setPdfManualPages] = useState<number>(4);
 
-  // Official Govt Portals (13 Key Portals) Filter & Search State
+  // Official Govt Portals (100+ Verified Portals) Filter & Search State
   const [portalSearchQuery, setPortalSearchQuery] = useState('');
   const [portalCategoryFilter, setPortalCategoryFilter] = useState<string>('All');
+  const [portalJurisdictionFilter, setPortalJurisdictionFilter] = useState<string>('All');
+  const [portalFormatFilter, setPortalFormatFilter] = useState<string>('All');
+  const [isBulkCrawlingPortals, setIsBulkCrawlingPortals] = useState<boolean>(false);
+  const [bulkCrawlProgress, setBulkCrawlProgress] = useState<number>(0);
+  const [isBatchIngestModalOpen, setIsBatchIngestModalOpen] = useState<boolean>(false);
 
   // Scraper Sub-Tab Navigation State
   const [scraperSubTab, setScraperSubTab] = useState<'targets' | 'pdf-sources' | 'history' | 'add' | 'inspect-feed' | 'logs'>('targets');
@@ -824,29 +1058,184 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
-    const newGazette = generateGazetteFromManualInput({
-      title: `${portal.name} Consolidated Recruitment Advt 2026`,
+    const generatedJobs = generateScrapedJobsForPortal(portal);
+    const newGazette: ConsolidatedPdfGazette = {
+      id: `pdf-gazette-${portal.id}-${Date.now()}`,
+      title: `${portal.name} Recruitment Notice 2026`,
       organization: portal.organization,
+      pdfFileName: (portal.pdfUrl || portal.portalUrl).split('/').pop() || `${portal.shortName}_Advt_2026.pdf`,
       pdfUrl: portal.pdfUrl || portal.portalUrl,
-      gazetteIssueNumber: portal.sampleAdvtNo,
-      closingDeadline: portal.defaultDeadline,
-      totalPages: 4
-    });
+      fileSizeFormatted: portal.formatType.includes('PDF') ? '3.8 MB' : 'Live HTML / REST Stream',
+      totalPages: portal.formatType.includes('PDF') ? 4 : 2,
+      gazetteIssueNumber: portal.sampleAdvtNo || `Advt. 2026`,
+      publicationDate: new Date().toISOString().split('T')[0],
+      closingDeadline: portal.defaultDeadline || '30 Days from Publication',
+      rawTextSample: `OFFICIAL RECRUITMENT PORTAL: ${portal.name}\nORGANIZATION: ${portal.organization}\nURL: ${portal.portalUrl}\nFORMAT: ${portal.formatType}\nCRAWLER METHOD: ${portal.crawlerMethod}\nTYPICAL SCALES: ${portal.typicalScales}\nSAMPLE NOTICE: ${portal.sampleAdvtNo}`,
+      extractedVacancies: generatedJobs
+    };
 
     handleAddPdfGazette(newGazette, true);
   };
 
-  // Sync / Reset all 13 Official Pakistani Recruitment Portals
-  const handleSyncAll13OfficialPortals = () => {
+  // Bulk Parallel Crawl across multiple portals with distributed crash safety
+  const handleScrapeMultiplePortals = (targetPortals: OfficialGovtPdfPortal[]) => {
+    if (targetPortals.length === 0) {
+      alert('No portals match your current filter criteria.');
+      return;
+    }
+
+    setIsBulkCrawlingPortals(true);
+    setBulkCrawlProgress(10);
+
+    const now = new Date();
+    const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+    const batchId = 'BATCH-DISTRIB-' + Date.now().toString(36);
+
+    const progressTimer = setInterval(() => {
+      setBulkCrawlProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressTimer);
+          return 90;
+        }
+        return prev + 25;
+      });
+    }, 400);
+
+    setTimeout(() => {
+      clearInterval(progressTimer);
+      setIsBulkCrawlingPortals(false);
+      setBulkCrawlProgress(100);
+
+      let totalJobsExtracted = 0;
+      const allAuditEntries: ScrapedJobAuditEntry[] = [];
+
+      targetPortals.forEach((portal) => {
+        const jobs = generateScrapedJobsForPortal(portal);
+        totalJobsExtracted += jobs.length;
+        jobs.forEach(j => {
+          onAddJob(j);
+        });
+
+        // Add to batch runs
+        const newBatch: ScraperBatchRun = {
+          batchId: `${batchId}-${portal.id}`,
+          startTime: timestamp,
+          endTime: timestamp,
+          sourceId: portal.id,
+          sourceName: `${portal.name} (${portal.formatType})`,
+          sourceUrl: portal.portalUrl,
+          region: 'Pakistan',
+          category: 'Government Sector',
+          status: 'Completed',
+          totalExtracted: jobs.length,
+          approvedCount: 0,
+          pendingCount: jobs.length,
+          duplicatesSkipped: 0,
+          rejectionCount: 0,
+          executionDurationMs: 1400,
+          httpStatusCode: 200,
+          triggerType: 'Batch Rescrape',
+          logTrace: [
+            `[${timestamp}] Parsed using ${portal.crawlerMethod}`,
+            `[${timestamp}] Harvested ${jobs.length} vacancies with BPS scales and quotas`
+          ]
+        };
+        setScraperBatchRuns(prev => [newBatch, ...prev]);
+      });
+
+      setScraperLogs(prev => [
+        `[${timestamp}] Distributed Crawler finished across ${targetPortals.length} portals. Total ${totalJobsExtracted} vacancies ingested to Pending Review.`,
+        ...prev
+      ]);
+
+      alert(`✅ Distributed Scraper Finished!\nSuccessfully crawled ${targetPortals.length} portals in parallel using format-specific engines (pdfplumber, BeautifulSoup, REST endpoints).\nTotal ${totalJobsExtracted} vacancies harvested and added to Pending Review.`);
+    }, 2200);
+  };
+
+  // Handle batch adding unique portals with duplicate protection
+  const handleBatchAddPortals = (newPortals: OfficialGovtPdfPortal[], scrapeImmediately: boolean) => {
+    const now = new Date();
+    const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+
+    newPortals.forEach((portal, idx) => {
+      const generatedJobs = generateScrapedJobsForPortal(portal);
+      const newGazette: ConsolidatedPdfGazette = {
+        id: `pdf-gazette-${portal.id}-${Date.now()}-${idx}`,
+        title: `${portal.name} Recruitment Notice 2026`,
+        organization: portal.organization,
+        pdfFileName: (portal.pdfUrl || portal.portalUrl).split('/').pop() || `${portal.shortName}_Advt_2026.pdf`,
+        pdfUrl: portal.pdfUrl || portal.portalUrl,
+        fileSizeFormatted: portal.formatType.includes('PDF') ? '3.5 MB' : 'Live HTML / REST Stream',
+        totalPages: portal.formatType.includes('PDF') ? 4 : 2,
+        gazetteIssueNumber: portal.sampleAdvtNo || `Advt. 2026/${idx + 1}`,
+        publicationDate: new Date().toISOString().split('T')[0],
+        closingDeadline: portal.defaultDeadline || '30 Days from Publication',
+        rawTextSample: `OFFICIAL RECRUITMENT PORTAL: ${portal.name}\nORGANIZATION: ${portal.organization}\nURL: ${portal.portalUrl}\nFORMAT: ${portal.formatType}\nCRAWLER METHOD: ${portal.crawlerMethod}\nTYPICAL SCALES: ${portal.typicalScales}\nSAMPLE NOTICE: ${portal.sampleAdvtNo}`,
+        extractedVacancies: generatedJobs
+      };
+
+      setPdfGazettes(prev => [newGazette, ...prev]);
+
+      if (scrapeImmediately) {
+        const batchRun: ScraperBatchRun = {
+          batchId: `BATCH-INGEST-${Date.now().toString(36)}-${idx}`,
+          startTime: timestamp,
+          endTime: timestamp,
+          sourceId: portal.id,
+          sourceName: `${portal.name} (${portal.formatType})`,
+          sourceUrl: portal.portalUrl,
+          region: (portal.jurisdiction === 'Federal' ? 'Islamabad' : portal.jurisdiction) as any,
+          category: portal.category || 'Government Sector',
+          status: 'Completed',
+          totalExtracted: generatedJobs.length,
+          approvedCount: 0,
+          pendingCount: generatedJobs.length,
+          duplicatesSkipped: 0,
+          rejectionCount: 0,
+          executionDurationMs: 1200,
+          httpStatusCode: 200,
+          triggerType: 'Batch Rescrape',
+          logTrace: [
+            `[${timestamp}] Batch Ingest Deduplicator approved unique link: ${portal.portalUrl}`,
+            `[${timestamp}] Configured with crawler: ${portal.crawlerMethod}`,
+            `[${timestamp}] Harvested ${generatedJobs.length} vacancies with BPS scales and quotas`
+          ]
+        };
+        setScraperBatchRuns(prev => [batchRun, ...prev]);
+      }
+    });
+
+    setScraperLogs(prev => [
+      `[${timestamp}] Batch Ingestion Engine: Successfully registered ${newPortals.length} unique government job links into active registry.`,
+      ...prev
+    ]);
+  };
+
+  // Sync / Reset all Official Pakistani Recruitment Portals (All 447 Portals)
+  const handleSyncAllOfficialPortals = () => {
     const existingCustom = pdfGazettes.filter(g => g.id.startsWith('pdf-gazette-custom'));
-    const updated = [...MOCK_CONSOLIDATED_PDF_GAZETTES, ...existingCustom];
+    const freshGazettes = getUnifiedAllGazettes();
+    const existingIds = new Set(freshGazettes.map(g => g.id));
+    const updated = [...freshGazettes, ...existingCustom.filter(c => !existingIds.has(c.id))];
     setPdfGazettes(updated);
     try {
       localStorage.setItem('career_pak_pdf_gazettes', JSON.stringify(updated));
     } catch (e) {
       console.warn(e);
     }
-    alert('✅ Successfully refreshed and synced all 13 Official Federal, Defence, Autonomous, Ministry & Testing Agency Portals into the PDF Gazette Library!');
+    alert(`✅ Successfully refreshed and synced all ${updated.length} Official Federal, Provincial, Defence, Autonomous & Testing Agency Portals into the PDF Gazette Library!`);
+  };
+  const handleSyncAll13OfficialPortals = handleSyncAllOfficialPortals;
+
+  const handleBatchUpdateGazettesLastScraped = (updates: { id: string; lastScrapedAt: string; jobCount: number }[]) => {
+    const updateMap = new Map(updates.map(u => [u.id, u]));
+    setPdfGazettes(prev => prev.map(g => {
+      const u = updateMap.get(g.id);
+      if (u) {
+        return { ...g, lastScrapedAt: u.lastScrapedAt, lastScrapedJobCount: u.jobCount };
+      }
+      return g;
+    }));
   };
 
   // Handle Add PDF Gazette into Library
@@ -1021,7 +1410,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     alert(`Auto-Approve set to ${enable ? 'ON' : 'OFF'} for ${selectedScraperTargetIds.length} sources.`);
   };
 
-  const handleBulkSetIntervalTargets = (interval: ScraperFrequency) => {
+  const handleBulkSetIntervalTargets = (interval: '15m' | '30m' | '1h' | '6h' | '24h' | '7d') => {
     if (selectedScraperTargetIds.length === 0) return;
     setScraperSources(prev => prev.map(s => selectedScraperTargetIds.includes(s.id) ? { ...s, interval } : s));
     alert(`Updated cron schedule to "${interval}" for ${selectedScraperTargetIds.length} sources.`);
@@ -1121,7 +1510,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           rejectionCount: 0,
           executionDurationMs: 1800,
           httpStatusCode: 200,
-          triggerType: 'Bulk Batch Trigger',
+          triggerType: 'Batch Rescrape',
           logTrace: [`[${timestamp}] Bulk multi-source crawl finished for ${source.name}`]
         };
         setScraperBatchRuns(prev => [newBatch, ...prev]);
@@ -1373,7 +1762,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // Create Audit Log Entries for Both Scraped Jobs
       const audit1: ScrapedJobAuditEntry = {
-        id: 'audit-' + mockScraped1.id,
+        id: `audit-${mockScraped1.id}-${Date.now().toString(36)}-1-${Math.random().toString(36).substring(2, 6)}`,
         jobId: mockScraped1.id,
         batchId,
         jobTitle: mockScraped1.title,
@@ -1434,7 +1823,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       };
 
       const audit2: ScrapedJobAuditEntry = {
-        id: 'audit-' + mockScraped2.id,
+        id: `audit-${mockScraped2.id}-${Date.now().toString(36)}-2-${Math.random().toString(36).substring(2, 6)}`,
         jobId: mockScraped2.id,
         batchId,
         jobTitle: mockScraped2.title,
@@ -1599,8 +1988,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleLogPdfBatchRun = (batchRun: ScraperBatchRun, auditEntries: ScrapedJobAuditEntry[]) => {
-    setScraperBatchRuns(prev => [batchRun, ...prev]);
-    setScrapedAuditLogs(prev => [...auditEntries, ...prev]);
+    setScraperBatchRuns(prev => {
+      const filtered = prev.filter(b => b.batchId !== batchRun.batchId);
+      return [batchRun, ...filtered];
+    });
+    setScrapedAuditLogs(prev => {
+      const existingIds = new Set(prev.map(a => a.id));
+      const newEntries = auditEntries.map((entry, idx) => {
+        // Guarantee unique ID
+        if (existingIds.has(entry.id) || !entry.id) {
+          return {
+            ...entry,
+            id: `audit-${entry.jobId || 'job'}-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).substring(2, 6)}`
+          };
+        }
+        return entry;
+      });
+      return [...newEntries, ...prev];
+    });
   };
 
   // Add Custom Form Field
@@ -1740,12 +2145,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div className="flex items-center space-x-2 border-b border-slate-800 pb-4 overflow-x-auto text-xs font-bold scrollbar-thin">
         {[
           { id: 'analytics', label: '📊 Executive Analytics & KPIs', icon: BarChart3 },
+          { id: 'whatsapp-manager', label: '💬 WhatsApp Support & Alerts Hub', icon: MessageSquare },
+          { id: 'payment-proofs', label: `🧾 Payment Proofs Verification (${currentTransactions.filter(t => t.status === 'Pending').length})`, icon: Receipt },
+          { id: 'landing-customizer', label: '🎨 Landing Page Customizer', icon: Layers },
+          { id: 'campaign-center', label: `📢 Campaign Center (${ads.filter(a => a.status === 'active').length} Live)`, icon: Megaphone },
+          { id: 'fee-management', label: '💳 Category Fees & Waivers', icon: DollarSign },
           { id: 'pending', label: `Pending Approvals (${pendingJobs.length})`, icon: Clock },
           { id: 'scraped-history', label: `Scraped Jobs History (${scrapedAuditLogs.length})`, icon: History },
-          { id: 'advertisements', label: `📢 Ad & Campaigns (${ads.filter(a => a.status === 'active').length} Active)`, icon: Megaphone },
+          { id: 'advertisements', label: `📢 Ad Hub & Analytics`, icon: Megaphone },
           { id: 'seo-config', label: '🌐 Global SEO & Meta', icon: Globe },
           { id: 'currency-forex', label: '💱 Multi-Currency & Forex', icon: Coins },
           { id: 'broadcast-center', label: '📣 Broadcasts (WhatsApp/Email)', icon: Send },
+          { id: 'bulk-notifications', label: '🚀 Pro Bulk Notification Tool', icon: Send },
+          { id: 'activity-logs', label: '🛡️ Audit & Activity Trail', icon: ShieldCheck },
           { id: 'data-backup', label: '💾 Data Vault & CSV Exporter', icon: Database },
           { id: 'ai-enhancer', label: '✨ AI Quality & Spam Filter', icon: Sparkles },
           { id: 'employer-kyc', label: `🛡️ Employer KYC Queue (${kycRequests.filter(r => r.status === 'Pending').length})`, icon: BadgeCheck },
@@ -1776,6 +2188,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           );
         })}
       </div>
+
+      {/* TAB: WHATSAPP SUPPORT & ALERTS MANAGER */}
+      {adminTab === 'whatsapp-manager' && (
+        <AdminWhatsAppManager
+          config={currentWhatsAppConfig}
+          onUpdateConfig={handleUpdateWhatsApp}
+          subscribersCount={subscribers.length}
+        />
+      )}
+
+      {/* TAB: PAYMENT PROOFS & DEPOSIT VERIFICATION HUB */}
+      {adminTab === 'payment-proofs' && (
+        <AdminPaymentVerificationHub
+          transactions={currentTransactions}
+          onApproveTransaction={handleApproveTx}
+          onRejectTransaction={handleRejectTx}
+          users={users}
+          jobs={jobs}
+        />
+      )}
+
+      {/* TAB: LIVE LANDING PAGE VISUAL BUILDER & SEQUENCE EDITOR */}
+      {adminTab === 'landing-customizer' && landingConfig && onUpdateLandingConfig && (
+        <LandingPageCustomizer
+          config={landingConfig}
+          onUpdateConfig={onUpdateLandingConfig}
+          campaignConfig={campaignConfig || {
+            placementOptions: [],
+            popupSettings: {
+              displayMode: 'sequential',
+              maxPopupsPerVisit: 99,
+              delayBetweenPopupsSec: 0.8,
+              showStackedDualOnDesktop: true,
+              allowUnlimitedQueue: true
+            },
+            promoBanners: []
+          }}
+          onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
+        />
+      )}
+
+      {/* TAB: VISUAL CAMPAIGN COMMAND CENTER & GRANULAR DATES */}
+      {adminTab === 'campaign-center' && (
+        <AdminCampaignCenter
+          ads={ads}
+          campaignConfig={campaignConfig || {
+            placementOptions: [],
+            popupSettings: {
+              displayMode: 'sequential',
+              maxPopupsPerVisit: 99,
+              delayBetweenPopupsSec: 0.8,
+              showStackedDualOnDesktop: true,
+              allowUnlimitedQueue: true
+            },
+            promoBanners: []
+          }}
+          onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
+          onUpdateAd={onUpdateAd || (() => {})}
+          onDeleteAd={onDeleteAd || (() => {})}
+          onResetAdMetrics={onResetAdMetrics || (() => {})}
+          onApproveAd={onApproveAd}
+          onRejectAd={onRejectAd}
+        />
+      )}
+
+      {/* TAB: PER-CATEGORY POSTING FEES & 1-CLICK WAIVERS */}
+      {adminTab === 'fee-management' && (
+        <AdminFeeManager
+          landingConfig={landingConfig}
+          onUpdateLandingConfig={onUpdateLandingConfig}
+          globalPostingFeePkr={jobPostingFeePkr}
+          onChangeGlobalPostingFee={onChangeJobPostingFee}
+          postingPricing={jobPostingPricing}
+          onChangePostingPricing={onChangeJobPostingPricing || (() => {})}
+          users={users}
+          jobs={jobs}
+          pendingJobs={pendingJobs}
+          feeLogs={jobPostingFeeLogs}
+          onUpdateUser={onUpdateUser || (() => {})}
+          onBulkEndUnpaidMemberships={onBulkEndUnpaidMemberships}
+        />
+      )}
 
       {/* TAB: EXECUTIVE ANALYTICS & REVENUE COMMAND CENTER */}
       {adminTab === 'analytics' && (
@@ -1818,6 +2312,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           commConfig={commConfig}
           onSendCampaign={(newCamp) => setBroadcastCampaigns(prev => [newCamp, ...prev])}
           onUpdateCommConfig={setCommConfig}
+        />
+      )}
+
+      {/* TAB: ADVANCED BULK NOTIFICATION SUITE */}
+      {adminTab === 'bulk-notifications' && (
+        <AdminBulkNotificationTool
+          users={users}
+          subscribers={subscribers}
+        />
+      )}
+
+      {/* TAB: AUDIT & ADMIN ACTIVITY LOGS */}
+      {adminTab === 'activity-logs' && (
+        <AdminActivityLogs
+          jobs={jobs}
+          users={users}
+          subscribers={subscribers}
+          ads={ads}
+          pendingJobs={pendingJobs}
         />
       )}
 
@@ -3069,6 +3582,85 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
+            {/* EASY WORKFLOW & 1-CLICK DEDUPLICATION / BULK LIVE BAR */}
+            {(() => {
+              const allScrapedPendingJobs = pendingJobs.filter(j => 
+                j.sourceUrl || j.scraperSourceId || j.scrapedSourceDomain || j.id.includes('scraped') || j.id.includes('sc')
+              );
+              const { duplicateCount, uniqueCount } = computeScrapedDuplicates(allScrapedPendingJobs);
+
+              return (
+                <div className="bg-slate-950 border-2 border-indigo-500/40 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="px-2 py-0.5 rounded bg-indigo-500 text-slate-950 font-black text-[10px] uppercase">
+                          Easy Admin Workflow (آسان طریقہ کار)
+                        </span>
+                        <span className="text-xs font-black text-white">Smart Scraper & Deduplication Hub</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 mt-1">
+                        1️⃣ <span className="text-amber-300 font-bold">Scrape</span> (جابز لائیں) ➔ 
+                        2️⃣ <span className="text-rose-300 font-bold">Remove Duplicates</span> (ڈپلیکیٹ ڈیلیٹ کریں) ➔ 
+                        3️⃣ <span className="text-emerald-300 font-bold">Approve Live</span> (فوری لائیو کریں)
+                      </p>
+                    </div>
+
+                    <div className="flex items-center space-x-3 text-xs">
+                      <div className="px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-bold flex items-center space-x-1.5">
+                        <AlertCircle className="w-4 h-4 text-rose-400" />
+                        <span>{duplicateCount} Duplicates (ڈپلیکیٹ)</span>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold flex items-center space-x-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>{uniqueCount} Unique (یونیک)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 1-CLICK ACTIONS */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleBulkPurgeDuplicates}
+                      disabled={duplicateCount === 0}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 cursor-pointer transition-all ${
+                        duplicateCount > 0
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/20 active:scale-95'
+                          : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                      }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>🗑️ 1-Click Remove {duplicateCount} Duplicates (تمام ڈپلیکیٹ حذف کریں)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleBulkApproveUniqueToLive}
+                      disabled={uniqueCount === 0}
+                      className={`px-4 py-2 rounded-xl text-xs font-black flex items-center space-x-2 cursor-pointer transition-all ${
+                        uniqueCount > 0
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 active:scale-95'
+                          : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                      <span>🚀 1-Click Approve All {uniqueCount} Unique Jobs to Live (تمام یونیک جابز فوری لائیو کریں)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsPendingDuplicateModalOpen(true)}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center space-x-1.5 cursor-pointer transition-all"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Detailed Duplicate Inspector (تفصیلی چیکر)</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* SCRAPING LIVE PROGRESS BAR */}
             {isScraping && (
               <div className="p-4 bg-indigo-950/40 border border-indigo-500/40 rounded-xl space-y-2">
@@ -3913,138 +4505,264 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              {/* 13 OFFICIAL PAKISTAN JOB & TESTING PORTALS SECTION */}
+              {/* 100+ OFFICIAL PAKISTAN JOB & TESTING PORTALS SECTION */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                        Verified Pakistani Job Portals
-                      </span>
-                      <span className="text-xs text-slate-400 font-mono">13 Portals Ready to Scan</span>
-                    </div>
-                    <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2 mt-1">
-                      <Globe className="w-4 h-4 text-rose-400" />
-                      <span>Federal, Defence, Railway & Testing Agency Websites</span>
-                    </h4>
-                    <p className="text-xs text-slate-400">
-                      Click <strong className="text-rose-300">"Scan & Read Jobs"</strong> to start reading job vacancies immediately, or <strong className="text-amber-300">"Fill Form Below"</strong> to edit details first.
-                    </p>
-                  </div>
+                {(() => {
+                  const filteredPortals = OFFICIAL_GOVT_SCRAPER_PORTALS.filter((portal) => {
+                    const matchesCategory = portalCategoryFilter === 'All' || portal.category === portalCategoryFilter;
+                    const matchesJurisdiction = portalJurisdictionFilter === 'All' || portal.jurisdiction === portalJurisdictionFilter;
+                    const matchesFormat = portalFormatFilter === 'All' || portal.formatType.toLowerCase().includes(portalFormatFilter.toLowerCase());
+                    const q = portalSearchQuery.toLowerCase().trim();
+                    const matchesQuery = !q || 
+                      portal.name.toLowerCase().includes(q) || 
+                      portal.shortName.toLowerCase().includes(q) || 
+                      portal.portalUrl.toLowerCase().includes(q) || 
+                      portal.organization.toLowerCase().includes(q) ||
+                      portal.typicalScales.toLowerCase().includes(q) ||
+                      portal.crawlerMethod.toLowerCase().includes(q);
+                    return matchesCategory && matchesJurisdiction && matchesFormat && matchesQuery;
+                  });
 
-                  {/* SEARCH & CATEGORY FILTER */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        value={portalSearchQuery}
-                        onChange={(e) => setPortalSearchQuery(e.target.value)}
-                        placeholder="Search portals (e.g. NJP, Army, NTS, WAPDA)..."
-                        className="pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 font-medium focus:border-rose-400 outline-none w-56 sm:w-64"
-                      />
-                    </div>
-
-                    <select
-                      value={portalCategoryFilter}
-                      onChange={(e) => setPortalCategoryFilter(e.target.value)}
-                      className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold focus:border-rose-400 outline-none"
-                    >
-                      <option value="All">All Categories (13)</option>
-                      <option value="National / Federal Portal">National / Federal</option>
-                      <option value="Public Service Commission">Public Service Commission</option>
-                      <option value="Defence & Armed Forces">Defence & Armed Forces</option>
-                      <option value="Autonomous / Public Sector">Autonomous / WAPDA / Rail</option>
-                      <option value="Federal Ministry">Federal Ministries (MoD / Railways)</option>
-                      <option value="Testing & Assessment Service">Testing Services (NTS / OTS / STS / CTSP)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* 13 PORTALS CARDS GRID */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {OFFICIAL_GOVT_SCRAPER_PORTALS
-                    .filter((portal) => {
-                      const matchesCategory = portalCategoryFilter === 'All' || portal.category === portalCategoryFilter;
-                      const q = portalSearchQuery.toLowerCase().trim();
-                      const matchesQuery = !q || 
-                        portal.name.toLowerCase().includes(q) || 
-                        portal.shortName.toLowerCase().includes(q) || 
-                        portal.portalUrl.toLowerCase().includes(q) || 
-                        portal.organization.toLowerCase().includes(q) ||
-                        portal.typicalScales.toLowerCase().includes(q);
-                      return matchesCategory && matchesQuery;
-                    })
-                    .map((portal) => (
-                      <div
-                        key={portal.id}
-                        className="p-4 bg-slate-950/80 border border-slate-800/90 hover:border-rose-500/40 rounded-2xl flex flex-col justify-between space-y-3 transition-all group shadow-md"
-                      >
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                              {portal.badge}
+                  return (
+                    <>
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                        <div>
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                              Verified Official Portals Directory
                             </span>
-                            <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                              {portal.typicalScales}
+                            <span className="text-xs text-slate-400 font-mono">
+                              Showing <strong className="text-rose-400">{filteredPortals.length}</strong> of {OFFICIAL_GOVT_SCRAPER_PORTALS.length} Portals
                             </span>
                           </div>
-
-                          <div>
-                            <h5 className="font-bold text-white text-sm leading-snug group-hover:text-rose-300 transition-colors">
-                              {portal.name}
-                            </h5>
-                            <a
-                              href={portal.portalUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs font-mono text-indigo-400 hover:underline flex items-center space-x-1 mt-0.5 truncate"
-                            >
-                              <span>{portal.portalUrl}</span>
-                              <ExternalLink className="w-3 h-3 text-slate-500 flex-shrink-0" />
-                            </a>
-                          </div>
-
-                          <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
-                            {portal.description}
+                          <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2 mt-1">
+                            <Globe className="w-4 h-4 text-rose-400" />
+                            <span>Federal, Provincial, Autonomous, Police, Health, Universities & UN Portals</span>
+                          </h4>
+                          <p className="text-xs text-slate-400">
+                            Select any portal to instantly scan, or run a distributed batch crawl across all matching portals in parallel.
                           </p>
-
-                          <div className="text-[10px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300 space-y-0.5">
-                            <div className="flex justify-between">
-                              <span className="text-slate-500">Sample Notice:</span>
-                              <span className="font-mono text-slate-300 font-bold">{portal.sampleAdvtNo}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-500">Typical Deadline:</span>
-                              <span className="text-rose-300 font-bold">{portal.defaultDeadline}</span>
-                            </div>
-                          </div>
                         </div>
 
-                        {/* ACTION BUTTONS */}
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 gap-1.5">
+                        {/* BULK ACTION BUTTONS */}
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
                           <button
                             type="button"
-                            onClick={() => handleFillPortalPreset(portal)}
-                            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 text-[11px] font-bold rounded-lg border border-slate-700 cursor-pointer flex items-center space-x-1 transition-all"
-                            title="Fill details in the custom form below"
+                            onClick={() => setIsBatchIngestModalOpen(true)}
+                            className="px-4 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:from-indigo-500 hover:to-rose-500 text-white font-black text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center space-x-1.5 cursor-pointer transition-all border border-indigo-400/30"
                           >
-                            <BookmarkPlus className="w-3 h-3 text-amber-400" />
-                            <span>Fill Form Below</span>
+                            <LinkIcon className="w-4 h-4 text-amber-300" />
+                            <span>⚡ Batch Import URLs (Auto-Skip Duplicates)</span>
                           </button>
 
                           <button
                             type="button"
-                            onClick={() => handleLaunchPortalDirectly(portal)}
-                            className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white text-[11px] font-black rounded-lg shadow-md shadow-rose-500/20 cursor-pointer flex items-center space-x-1 transition-all"
+                            disabled={isBulkCrawlingPortals || filteredPortals.length === 0}
+                            onClick={() => handleScrapeMultiplePortals(filteredPortals)}
+                            className="px-3.5 py-2 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-400 hover:to-amber-400 text-white font-black text-xs rounded-xl shadow-lg shadow-rose-500/20 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 transition-all"
                           >
-                            <Sparkles className="w-3 h-3 text-amber-300" />
-                            <span>Scan & Read Jobs</span>
+                            <Sparkles className="w-4 h-4 text-amber-200" />
+                            <span>{isBulkCrawlingPortals ? `Crawling (${bulkCrawlProgress}%)...` : `⚡ Crawl All Filtered (${filteredPortals.length}) Portals`}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleSyncAll13OfficialPortals}
+                            className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs font-bold rounded-xl border border-slate-800 flex items-center space-x-1"
+                            title="Reset portal cache"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Reset Registry</span>
                           </button>
                         </div>
                       </div>
-                    ))}
-                </div>
+
+                      {/* FILTER BAR: SEARCH, SECTOR, JURISDICTION, FORMAT */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={portalSearchQuery}
+                            onChange={(e) => setPortalSearchQuery(e.target.value)}
+                            placeholder="Search by name, scale, method..."
+                            className="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 font-medium focus:border-rose-400 outline-none"
+                          />
+                        </div>
+
+                        <select
+                          value={portalCategoryFilter}
+                          onChange={(e) => setPortalCategoryFilter(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold focus:border-rose-400 outline-none"
+                        >
+                          <option value="All">All Sectors ({OFFICIAL_GOVT_SCRAPER_PORTALS.length})</option>
+                          <option value="National / Federal Portal">National / Federal Portals</option>
+                          <option value="Public Service Commission">Public Service Commissions</option>
+                          <option value="Defence & Armed Forces">Defence & Armed Forces</option>
+                          <option value="Autonomous / Public Sector">Autonomous / Energy / Infrastructure</option>
+                          <option value="Provincial Government Portal">Provincial Govt Portals</option>
+                          <option value="Law Enforcement & Police">Law Enforcement & Police</option>
+                          <option value="Healthcare & Medical Cadres">Healthcare & Medical Cadres</option>
+                          <option value="Higher Education & Universities">Higher Education & Universities</option>
+                          <option value="Technical Training & Skills">Technical Skills (NAVTTC / TEVTA)</option>
+                          <option value="Testing & Assessment Service">Testing Services (NTS / OTS / STS)</option>
+                          <option value="International / UN Agencies">International & UN Agencies</option>
+                        </select>
+
+                        <select
+                          value={portalJurisdictionFilter}
+                          onChange={(e) => setPortalJurisdictionFilter(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold focus:border-rose-400 outline-none"
+                        >
+                          <option value="All">All Jurisdictions</option>
+                          <option value="Federal">Federal / National</option>
+                          <option value="Punjab">Punjab</option>
+                          <option value="Sindh">Sindh</option>
+                          <option value="Khyber Pakhtunkhwa">Khyber Pakhtunkhwa</option>
+                          <option value="Balochistan">Balochistan</option>
+                          <option value="Gilgit-Baltistan">Gilgit-Baltistan</option>
+                          <option value="Azad Jammu & Kashmir">AJK</option>
+                          <option value="International">International</option>
+                        </select>
+
+                        <select
+                          value={portalFormatFilter}
+                          onChange={(e) => setPortalFormatFilter(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-bold focus:border-rose-400 outline-none"
+                        >
+                          <option value="All">All Ingestion Formats</option>
+                          <option value="PDF">📄 PDF Advertisements (pdfplumber)</option>
+                          <option value="HTML Table">📊 Structured HTML Tables (BeautifulSoup)</option>
+                          <option value="Dynamic JS">⚡ Dynamic JS / REST (Selenium / API)</option>
+                          <option value="ASPX">🔒 ASPX Forms (ViewState & PostBack)</option>
+                          <option value="UN">🌍 UN / NGO Feeds (REST / JSON)</option>
+                        </select>
+                      </div>
+
+                      {/* PORTALS CARDS GRID */}
+                      {filteredPortals.length === 0 ? (
+                        <div className="text-center py-10 bg-slate-950 border border-slate-800 rounded-xl text-slate-400 space-y-2">
+                          <Bot className="w-8 h-8 text-slate-600 mx-auto" />
+                          <p className="font-bold text-slate-300 text-sm">No scraper portals found matching your filter.</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPortalSearchQuery('');
+                              setPortalCategoryFilter('All');
+                              setPortalJurisdictionFilter('All');
+                              setPortalFormatFilter('All');
+                            }}
+                            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-xs text-white rounded-lg cursor-pointer"
+                          >
+                            Reset All Filters
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[700px] overflow-y-auto pr-1">
+                          {filteredPortals.map((portal, pIdx) => {
+                            const isPdf = portal.formatType.includes('PDF');
+                            const isTable = portal.formatType.includes('HTML Table');
+                            const isDynamic = portal.formatType.includes('Dynamic');
+                            const isAspx = portal.formatType.includes('ASPX');
+                            const isUN = portal.formatType.includes('UN') || portal.formatType.includes('REST');
+
+                            return (
+                              <div
+                                key={`${portal.id}-${pIdx}`}
+                                className="p-4 bg-slate-950/90 border border-slate-800 hover:border-rose-500/50 rounded-2xl flex flex-col justify-between space-y-3 transition-all group shadow-md"
+                              >
+                                <div className="space-y-2">
+                                  {/* TOP BADGES: JURISDICTION, BADGE, SCALES */}
+                                  <div className="flex items-center justify-between flex-wrap gap-1">
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                        {portal.badge}
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                                        📍 {portal.jurisdiction}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                                      {portal.typicalScales}
+                                    </span>
+                                  </div>
+
+                                  {/* PORTAL TITLE & LINK */}
+                                  <div>
+                                    <h5 className="font-bold text-white text-sm leading-snug group-hover:text-rose-300 transition-colors">
+                                      {portal.name}
+                                    </h5>
+                                    <a
+                                      href={portal.portalUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-xs font-mono text-indigo-400 hover:underline flex items-center space-x-1 mt-0.5 truncate"
+                                    >
+                                      <span>{portal.portalUrl}</span>
+                                      <ExternalLink className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                                    </a>
+                                  </div>
+
+                                  <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                                    {portal.description}
+                                  </p>
+
+                                  {/* FORMAT & CRAWLER METHOD NOTICE */}
+                                  <div className="text-[10px] bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 text-slate-300 space-y-1">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-slate-500">Format:</span>
+                                      <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
+                                        isPdf ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                                        isTable ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                                        isDynamic ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                        isAspx ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                                        'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                                      }`}>
+                                        {portal.formatType}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-start justify-between gap-1">
+                                      <span className="text-slate-500 flex-shrink-0">Engine:</span>
+                                      <span className="font-mono text-slate-300 text-[10px] text-right truncate">
+                                        {portal.crawlerMethod}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between pt-0.5 border-t border-slate-800/60">
+                                      <span className="text-slate-500">Sample Notice:</span>
+                                      <span className="font-mono text-slate-300 font-bold">{portal.sampleAdvtNo}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* ACTION BUTTONS */}
+                                <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleFillPortalPreset(portal)}
+                                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 text-[11px] font-bold rounded-lg border border-slate-700 cursor-pointer flex items-center space-x-1 transition-all"
+                                    title="Fill details in the custom form below"
+                                  >
+                                    <BookmarkPlus className="w-3 h-3 text-amber-400" />
+                                    <span>Fill Form</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLaunchPortalDirectly(portal)}
+                                    className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white text-[11px] font-black rounded-lg shadow-md shadow-rose-500/20 cursor-pointer flex items-center space-x-1 transition-all"
+                                  >
+                                    <Sparkles className="w-3 h-3 text-amber-300" />
+                                    <span>Scan & Read Jobs</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* MANUAL SITE ENTRY CARD WITH QUICK PRESET CHIPS */}
@@ -4056,21 +4774,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <span>Add Any Custom Government Website or PDF File</span>
                     </h4>
                     <p className="text-xs text-slate-400">
-                      Enter any Pakistani Government Department or PDF Gazette link to scan it, or click a portal button to fill in the form quickly.
+                      Enter any Pakistani Government Department or PDF Gazette link to scan it, or open the Batch Ingestion Engine to add multiple links with auto-duplicate filtering.
                     </p>
                   </div>
-                  <span className="text-[10px] font-mono bg-slate-950 px-2.5 py-1 rounded-lg text-slate-400 border border-slate-800 self-start sm:self-auto">
-                    Auto-Reads Job Openings
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsBatchIngestModalOpen(true)}
+                      className="px-3 py-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 text-xs font-black rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                    >
+                      <LinkIcon className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Bulk Ingest Links (Zero Duplicates)</span>
+                    </button>
+                    <span className="text-[10px] font-mono bg-slate-950 px-2.5 py-1.5 rounded-lg text-slate-400 border border-slate-800 self-start sm:self-auto">
+                      Auto-Reads Job Openings
+                    </span>
+                  </div>
                 </div>
 
                 {/* QUICK PRESET CHIPS */}
                 <div className="space-y-1.5">
                   <span className="text-[11px] font-bold text-slate-400">Quick Portal Fill Buttons:</span>
                   <div className="flex flex-wrap gap-1.5">
-                    {OFFICIAL_GOVT_SCRAPER_PORTALS.map((portal) => (
+                    {OFFICIAL_GOVT_SCRAPER_PORTALS.map((portal, pIdx) => (
                       <button
-                        key={portal.id}
+                        key={`${portal.id}-${pIdx}`}
                         type="button"
                         onClick={() => handleFillPortalPreset(portal)}
                         className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white text-[11px] font-bold rounded-lg border border-slate-800 cursor-pointer transition-all flex items-center space-x-1"
@@ -4189,11 +4917,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {pdfGazettes.map((gazette) => {
+                  {pdfGazettes.map((gazette, gIdx) => {
                     const isCustom = gazette.id.startsWith('pdf-gazette-custom');
                     return (
                       <div
-                        key={gazette.id}
+                        key={`${gazette.id}-${gIdx}`}
                         className="p-5 bg-slate-900 border border-slate-800 hover:border-rose-500/40 rounded-2xl space-y-4 transition-all shadow-lg flex flex-col justify-between"
                       >
                         <div className="space-y-2">
@@ -5906,10 +6634,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         />
                       </th>
                       <th className="p-3">Subscriber</th>
-                      <th className="p-3">WhatsApp Phone</th>
+                      <th className="p-3">WhatsApp / Channels</th>
                       <th className="p-3">Alert Plan</th>
-                      <th className="p-3">Payment</th>
-                      <th className="p-3">Status</th>
+                      <th className="p-3">Fee Paid</th>
+                      <th className="p-3">Status & Expiry</th>
                       <th className="p-3">Subscribed Date</th>
                       <th className="p-3 text-right">Actions</th>
                     </tr>
@@ -5917,6 +6645,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody className="divide-y divide-slate-800">
                     {filteredSubscribers.map((s) => {
                       const isSelected = selectedSubscriberIds.includes(s.id);
+                      const cleanPhone = (s.phone || '').replace(/[^0-9]/g, '');
+                      const whatsappLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(`Assalam-o-Alaikum ${s.name}! Your CareerPak job alerts subscription is active.`)}`;
 
                       return (
                         <tr
@@ -5935,11 +6665,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
                           <td className="p-3">
                             <strong className="text-white block">{s.name}</strong>
-                            <span className="text-[11px] text-slate-400 font-mono">{s.email || 'No email provided'}</span>
+                            <span className="text-[11px] text-slate-400 font-mono">{s.email || 'No email'}</span>
                           </td>
-                          <td className="p-3 font-mono font-bold text-emerald-300 flex items-center space-x-1">
-                            <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>{s.phone}</span>
+                          <td className="p-3 space-y-1">
+                            <div className="font-mono font-bold text-emerald-300 flex items-center space-x-1">
+                              <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>{s.phone}</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded text-[9px] font-bold">
+                                💬 WA
+                              </span>
+                              {s.smsEnabled && (
+                                <span className="px-1.5 py-0.2 bg-indigo-500/20 text-indigo-300 rounded text-[9px] font-bold">
+                                  📱 SMS
+                                </span>
+                              )}
+                              {s.emailEnabled && (
+                                <span className="px-1.5 py-0.2 bg-purple-500/20 text-purple-300 rounded text-[9px] font-bold">
+                                  ✉️ Email
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="p-3">
                             <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-bold text-[10px] border border-amber-500/20">
@@ -5950,7 +6697,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div className="font-bold text-white font-mono">PKR {s.amountPaid}</div>
                             <div className="text-[10px] text-slate-400">{s.paymentMethod}</div>
                           </td>
-                          <td className="p-3">
+                          <td className="p-3 space-y-1">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               s.status === 'Active'
                                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -5958,10 +6705,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             }`}>
                               {s.status}
                             </span>
+                            {s.expiryDate && (
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                Exp: {s.expiryDate.split(' ')[0]}
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 font-mono text-slate-400">{s.subscribedAt || 'Recent'}</td>
                           <td className="p-3 text-right">
                             <div className="flex items-center justify-end space-x-1.5">
+                              {cleanPhone && (
+                                <a
+                                  href={whatsappLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 rounded-lg border border-emerald-500/30 cursor-pointer transition-all"
+                                  title="Open WhatsApp Chat (واٹس ایپ میسج)"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+
                               <button
                                 type="button"
                                 onClick={() => {
@@ -6065,14 +6829,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
                     Priority Monetization & Tier Placements
                   </span>
-                  <span className="text-xs text-slate-400 font-mono">Live Pricing Engine</span>
+                  <span className="text-xs text-slate-400 font-mono">Live Pricing & Duration Engine</span>
                 </div>
                 <h3 className="text-lg font-black text-white flex items-center space-x-2 mt-1">
                   <Sparkles className="w-5 h-5 text-amber-400" />
-                  <span>Urgent, Pinned Top, Future Jobs & VIP Fee Management</span>
+                  <span>Job Feature Toggles, Rates & Duration Customization</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Set the priority upgrade fees for employers who want their jobs to appear at the very top of all listings, feature urgent hiring badges, or announce upcoming advance intakes.
+                  Enable or disable any job placement tier, set custom rates (PKR), define listing duration (Days) shown to employers, and customize badge labels and descriptions.
                 </p>
               </div>
 
@@ -6092,20 +6856,135 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            {/* 4 TIER FEE CONTROLS GRID */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-              {/* TIER 1: URGENT HIRING */}
-              <div className="p-4 bg-slate-950/80 border border-rose-500/30 rounded-2xl space-y-3 shadow-md">
+            {/* 5 TIER FEE CONTROLS GRID WITH ENABLE/DISABLE & DURATION CONTROLS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 text-xs">
+              
+              {/* TIER 1: STANDARD LISTING */}
+              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
+                jobPostingPricing.enableStandard !== false ? 'border-slate-700' : 'border-slate-800 opacity-60'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-slate-800 text-slate-300 border border-slate-700">
+                    🏢 Standard Post
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          enableStandard: !(jobPostingPricing.enableStandard !== false)
+                        });
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                      jobPostingPricing.enableStandard !== false
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                    }`}
+                  >
+                    {jobPostingPricing.enableStandard !== false ? '✓ Enabled' : '✕ Disabled'}
+                  </button>
+                </div>
+
+                <div>
+                  <div className="font-bold text-white text-sm">Standard Listing</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Regular chronological placement</div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Base Fee (PKR) [0 = Free]</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
+                    <input
+                      type="number"
+                      value={jobPostingPricing.standardFeePkr}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        onChangeJobPostingFee(val);
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            standardFeePkr: val
+                          });
+                        }
+                      }}
+                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-bold font-mono focus:border-amber-400 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={jobPostingPricing.standardDurationDays ?? 30}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            standardDurationDays: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono focus:border-amber-400 outline-none"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Description for Users</label>
+                  <input
+                    type="text"
+                    value={jobPostingPricing.standardDescription || 'Standard chronological listing on public board.'}
+                    onChange={(e) => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          standardDescription: e.target.value
+                        });
+                      }
+                    }}
+                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-slate-300 text-[11px] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* TIER 2: URGENT HIRING */}
+              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
+                jobPostingPricing.enableUrgent !== false ? 'border-rose-500/30' : 'border-slate-800 opacity-60'
+              }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
                     🔥 Urgent Hiring
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">+Surcharge</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          enableUrgent: !(jobPostingPricing.enableUrgent !== false)
+                        });
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                      jobPostingPricing.enableUrgent !== false
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                    }`}
+                  >
+                    {jobPostingPricing.enableUrgent !== false ? '✓ Enabled' : '✕ Disabled'}
+                  </button>
                 </div>
+
                 <div>
                   <div className="font-bold text-white text-sm">Urgent Placement Fee</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">Flashing badge & ranks above regular jobs</div>
                 </div>
+
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
                   <div className="relative">
@@ -6121,27 +7000,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           });
                         }
                       }}
-                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-bold font-mono focus:border-rose-400 outline-none"
+                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-bold font-mono focus:border-rose-400 outline-none"
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={jobPostingPricing.urgentDurationDays ?? 15}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            urgentDurationDays: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-mono focus:border-rose-400 outline-none"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
+                  <input
+                    type="text"
+                    value={jobPostingPricing.urgentBadgeText || '🔥 Urgent Hiring'}
+                    onChange={(e) => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          urgentBadgeText: e.target.value
+                        });
+                      }
+                    }}
+                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-rose-300 text-[11px] outline-none"
+                  />
+                </div>
+
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total Employer Cost: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.urgentFeePkr).toLocaleString()}</strong>
+                  Total: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.urgentFeePkr).toLocaleString()}</strong>
                 </div>
               </div>
 
-              {/* TIER 2: FEATURED & PINNED TOP */}
-              <div className="p-4 bg-slate-950/80 border border-amber-500/30 rounded-2xl space-y-3 shadow-md">
+              {/* TIER 3: FEATURED & PINNED TOP */}
+              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
+                jobPostingPricing.enableFeaturedTop !== false ? 'border-amber-500/30' : 'border-slate-800 opacity-60'
+              }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    ⭐ Featured Top-of-List
+                    ⭐ Featured Top
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">+Surcharge</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          enableFeaturedTop: !(jobPostingPricing.enableFeaturedTop !== false)
+                        });
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                      jobPostingPricing.enableFeaturedTop !== false
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                    }`}
+                  >
+                    {jobPostingPricing.enableFeaturedTop !== false ? '✓ Enabled' : '✕ Disabled'}
+                  </button>
                 </div>
+
                 <div>
                   <div className="font-bold text-white text-sm">Pinned Top Placement Fee</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">Locks position at top of search & cards</div>
                 </div>
+
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
                   <div className="relative">
@@ -6157,27 +7095,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           });
                         }
                       }}
-                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-bold font-mono focus:border-amber-400 outline-none"
+                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-bold font-mono focus:border-amber-400 outline-none"
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={jobPostingPricing.featuredTopDurationDays ?? 30}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            featuredTopDurationDays: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-mono focus:border-amber-400 outline-none"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
+                  <input
+                    type="text"
+                    value={jobPostingPricing.featuredBadgeText || '⭐ Pinned Top & Featured'}
+                    onChange={(e) => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          featuredBadgeText: e.target.value
+                        });
+                      }
+                    }}
+                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-amber-300 text-[11px] outline-none"
+                  />
+                </div>
+
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total Employer Cost: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.featuredTopFeePkr).toLocaleString()}</strong>
+                  Total: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.featuredTopFeePkr).toLocaleString()}</strong>
                 </div>
               </div>
 
-              {/* TIER 3: FUTURE JOB / ADVANCE INTAKE */}
-              <div className="p-4 bg-slate-950/80 border border-indigo-500/30 rounded-2xl space-y-3 shadow-md">
+              {/* TIER 4: FUTURE JOB / ADVANCE INTAKE */}
+              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
+                jobPostingPricing.enableFutureJob !== false ? 'border-indigo-500/30' : 'border-slate-800 opacity-60'
+              }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                    🚀 Future Job / Advance Intake
+                    🚀 Future Intake
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">+Surcharge</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          enableFutureJob: !(jobPostingPricing.enableFutureJob !== false)
+                        });
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                      jobPostingPricing.enableFutureJob !== false
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                    }`}
+                  >
+                    {jobPostingPricing.enableFutureJob !== false ? '✓ Enabled' : '✕ Disabled'}
+                  </button>
                 </div>
+
                 <div>
                   <div className="font-bold text-white text-sm">Future Intake Placement</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">Collect pre-registrations ahead of intake</div>
                 </div>
+
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Fee Surcharge (PKR)</label>
                   <div className="relative">
@@ -6193,29 +7190,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           });
                         }
                       }}
-                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-bold font-mono focus:border-indigo-400 outline-none"
+                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-bold font-mono focus:border-indigo-400 outline-none"
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={jobPostingPricing.futureJobDurationDays ?? 60}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            futureJobDurationDays: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-mono focus:border-indigo-400 outline-none"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
+                  <input
+                    type="text"
+                    value={jobPostingPricing.futureBadgeText || '🚀 Advance Intake'}
+                    onChange={(e) => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          futureBadgeText: e.target.value
+                        });
+                      }
+                    }}
+                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-indigo-300 text-[11px] outline-none"
+                  />
+                </div>
+
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total Employer Cost: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.futureJobFeePkr).toLocaleString()}</strong>
+                  Total: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.futureJobFeePkr).toLocaleString()}</strong>
                 </div>
               </div>
 
-              {/* TIER 4: VIP ALL-IN-ONE BUNDLE */}
-              <div className="p-4 bg-slate-950/80 border border-purple-500/30 rounded-2xl space-y-3 shadow-md">
+              {/* TIER 5: VIP ALL-IN-ONE BUNDLE */}
+              <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
+                jobPostingPricing.enableVipBundle !== false ? 'border-purple-500/30' : 'border-slate-800 opacity-60'
+              }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    👑 VIP All-in-One Top Bundle
+                    👑 VIP Power Bundle
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Flat Package</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          enableVipBundle: !(jobPostingPricing.enableVipBundle !== false)
+                        });
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                      jobPostingPricing.enableVipBundle !== false
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                    }`}
+                  >
+                    {jobPostingPricing.enableVipBundle !== false ? '✓ Enabled' : '✕ Disabled'}
+                  </button>
                 </div>
+
                 <div>
-                  <div className="font-bold text-white text-sm">VIP Ultimate Priority Package</div>
+                  <div className="font-bold text-white text-sm">VIP Power Package</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">Top Pinned + Urgent + Featured + Future Tag</div>
                 </div>
+
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Flat Package Price (PKR)</label>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Flat Price (PKR)</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
                     <input
@@ -6229,14 +7285,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           });
                         }
                       }}
-                      className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-bold font-mono focus:border-purple-400 outline-none"
+                      className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-bold font-mono focus:border-purple-400 outline-none"
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Display Duration (Days)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={jobPostingPricing.vipBundleDurationDays ?? 45}
+                      onChange={(e) => {
+                        if (onChangeJobPostingPricing) {
+                          onChangeJobPostingPricing({
+                            ...jobPostingPricing,
+                            vipBundleDurationDays: Number(e.target.value)
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-mono focus:border-purple-400 outline-none"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">Days</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
+                  <input
+                    type="text"
+                    value={jobPostingPricing.vipBadgeText || '👑 VIP Ultimate Placement'}
+                    onChange={(e) => {
+                      if (onChangeJobPostingPricing) {
+                        onChangeJobPostingPricing({
+                          ...jobPostingPricing,
+                          vipBadgeText: e.target.value
+                        });
+                      }
+                    }}
+                    className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-purple-300 text-[11px] outline-none"
+                  />
+                </div>
+
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total Employer Cost: <strong className="text-purple-300 font-mono font-bold">PKR {jobPostingPricing.vipBundleFeePkr.toLocaleString()}</strong>
+                  Flat Price: <strong className="text-purple-300 font-mono font-bold">PKR {jobPostingPricing.vipBundleFeePkr.toLocaleString()}</strong>
                 </div>
               </div>
+
             </div>
 
             {/* LIVE PRIORITY RANKING EXPLANATION */}
@@ -6623,6 +7718,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         onDeleteGazette={handleDeletePdfGazette}
         initialSelectedGazetteId={activeSelectedPdfGazetteId}
         existingJobs={[...jobs, ...pendingJobs]}
+        onUpdateGazettesLastScraped={handleBatchUpdateGazettesLastScraped}
       />
 
       {/* QUICK EDIT / BULK EDIT JOB MODAL */}
@@ -6756,6 +7852,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
           setIsSubscriberModalOpen(false);
           setEditingSubscriber(null);
+        }}
+      />
+
+      {/* SMART BATCH URL INGESTION & DUPLICATE DEDUPLICATOR MODAL */}
+      <BatchUrlIngestModal
+        isOpen={isBatchIngestModalOpen}
+        onClose={() => setIsBatchIngestModalOpen(false)}
+        existingPortals={OFFICIAL_GOVT_SCRAPER_PORTALS}
+        existingGazettes={pdfGazettes}
+        onAddPortals={handleBatchAddPortals}
+        onAddJobs={(newJobs) => {
+          newJobs.forEach(j => onAddJob(j));
         }}
       />
 

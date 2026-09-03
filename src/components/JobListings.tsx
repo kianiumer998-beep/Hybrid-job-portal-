@@ -23,7 +23,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Job } from '../types/job';
-import { Advertisement } from '../types/ad';
+import { Advertisement, FeedInlineAdSettings } from '../types/ad';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
@@ -39,6 +39,7 @@ interface JobListingsProps {
   onPageChange?: (page: number) => void;
   onPostsPerPageChange?: (postsPerPage: number) => void;
   ads?: Advertisement[];
+  feedInlineSettings?: FeedInlineAdSettings;
   onAdClick?: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
@@ -55,6 +56,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
   onPageChange,
   onPostsPerPageChange,
   ads = [],
+  feedInlineSettings,
   onAdClick,
   onNavigateTab
 }) => {
@@ -204,7 +206,35 @@ export const JobListings: React.FC<JobListingsProps> = ({
               (a.placement === 'feed-inline' || (a.type === 'banner' && a.placement === 'feed-inline')) &&
               (a.targetPages.includes('all') || a.targetPages.includes('jobs'))
           );
-          const feedAdToRender = index === 2 && activeFeedAds.length > 0 ? activeFeedAds[0] : null;
+
+          let shouldInsertAd = false;
+          const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
+
+          if (activeFeedAds.length > 0) {
+            const positionNumber = index + 1; // 1-based index (e.g. 2nd job is position 2)
+
+            if (feedInlineSettings?.insertionMode === 'cadence') {
+              const cadence = feedInlineSettings.repeatEveryNJobs || 3;
+              shouldInsertAd = positionNumber % cadence === 0;
+            } else {
+              // Custom indices (e.g. [2, 5, 8])
+              const targetIndices =
+                safePage === 1 &&
+                feedInlineSettings?.page1SpecificIndices &&
+                feedInlineSettings.page1SpecificIndices.length > 0
+                  ? feedInlineSettings.page1SpecificIndices
+                  : feedInlineSettings?.customIndices || [2, 5, 8];
+
+              shouldInsertAd = targetIndices.includes(positionNumber);
+            }
+          }
+
+          // Compute which ad to display if any
+          let feedAdToRender: Advertisement | null = null;
+          if (shouldInsertAd && activeFeedAds.length > 0) {
+            const adIndex = Math.floor(index / (feedInlineSettings?.repeatEveryNJobs || 3)) % activeFeedAds.length;
+            feedAdToRender = activeFeedAds[adIndex] || activeFeedAds[0];
+          }
 
           const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';
 

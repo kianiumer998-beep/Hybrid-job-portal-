@@ -1,21 +1,14 @@
 import { ConsolidatedPdfGazette, Job } from '../types/job';
+import { ALL_VERIFIED_SCRAPER_PORTALS, ComprehensiveScraperPortal, generateScrapedJobsForPortal } from './allScraperPortals';
 
-export interface OfficialGovtPdfPortal {
-  id: string;
-  name: string;
-  shortName: string;
-  portalUrl: string;
-  pdfUrl?: string;
-  organization: string;
-  category: 'National / Federal Portal' | 'Public Service Commission' | 'Defence & Armed Forces' | 'Autonomous / Public Sector' | 'Federal Ministry' | 'Provincial Govt & Development' | 'Healthcare & Medical Cadres' | 'Higher Education & Universities' | 'Testing & Assessment Service';
-  badge: string;
-  description: string;
-  typicalScales: string;
-  defaultDeadline: string;
-  sampleAdvtNo: string;
-}
+export type { ComprehensiveScraperPortal };
+export { ALL_VERIFIED_SCRAPER_PORTALS, generateScrapedJobsForPortal };
 
-export const OFFICIAL_GOVT_SCRAPER_PORTALS: OfficialGovtPdfPortal[] = [
+export interface OfficialGovtPdfPortal extends ComprehensiveScraperPortal {}
+
+export const OFFICIAL_GOVT_SCRAPER_PORTALS: OfficialGovtPdfPortal[] = ALL_VERIFIED_SCRAPER_PORTALS;
+
+export const LEGACY_OFFICIAL_GOVT_SCRAPER_PORTALS: any[] = [
   // --- 1. National & Federal Portals ---
   {
     id: 'portal-njp',
@@ -1707,3 +1700,70 @@ Fee: Rs. 400/-.`;
     extractedVacancies: [vacancy1, vacancy2]
   };
 }
+
+/**
+ * Generates a ConsolidatedPdfGazette for a given OfficialGovtPdfPortal.
+ */
+export function generateGazetteFromPortal(portal: OfficialGovtPdfPortal): ConsolidatedPdfGazette {
+  const generatedJobs = generateScrapedJobsForPortal(portal);
+  return {
+    id: `pdf-gazette-${portal.id}`,
+    title: `${portal.name} Official Recruitment Gazette 2026`,
+    organization: portal.organization,
+    pdfFileName: (portal.pdfUrl || portal.portalUrl).split('/').pop() || `${portal.shortName}_Consolidated_2026.pdf`,
+    pdfUrl: portal.pdfUrl || portal.portalUrl,
+    fileSizeFormatted: portal.formatType.includes('PDF') ? '3.4 MB' : 'Live HTML / REST Stream',
+    totalPages: portal.formatType.includes('PDF') ? 4 : 2,
+    gazetteIssueNumber: portal.sampleAdvtNo || `Advt. 2026`,
+    publicationDate: new Date().toISOString().split('T')[0],
+    closingDeadline: portal.defaultDeadline || '30 Days from Publication',
+    rawTextSample: `OFFICIAL RECRUITMENT PORTAL: ${portal.name}\nORGANIZATION: ${portal.organization}\nURL: ${portal.portalUrl}\nFORMAT: ${portal.formatType}\nCRAWLER METHOD: ${portal.crawlerMethod}\nTYPICAL SCALES: ${portal.typicalScales}\nSAMPLE NOTICE: ${portal.sampleAdvtNo}`,
+    extractedVacancies: generatedJobs,
+    portalCategory: portal.category
+  };
+}
+
+export function getAllVerifiedPortalsAsGazettes(): ConsolidatedPdfGazette[] {
+  return OFFICIAL_GOVT_SCRAPER_PORTALS.map(portal => generateGazetteFromPortal(portal));
+}
+
+export function getUnifiedAllGazettes(): ConsolidatedPdfGazette[] {
+  const handCraftedUrls = new Set(
+    MOCK_CONSOLIDATED_PDF_GAZETTES.map(g => (g.pdfUrl || '').toLowerCase().trim())
+  );
+  const handCraftedOrgs = new Set(
+    MOCK_CONSOLIDATED_PDF_GAZETTES.map(g => (g.organization || '').toLowerCase().trim())
+  );
+
+  const seenIds = new Set<string>();
+  const combined: ConsolidatedPdfGazette[] = [];
+
+  for (const g of MOCK_CONSOLIDATED_PDF_GAZETTES) {
+    if (!seenIds.has(g.id)) {
+      seenIds.add(g.id);
+      combined.push(g);
+    }
+  }
+
+  const additionalGazettes = OFFICIAL_GOVT_SCRAPER_PORTALS.filter(portal => {
+    if (seenIds.has(portal.id)) return false;
+    const portalPdf = (portal.pdfUrl || '').toLowerCase().trim();
+    const portalOrg = (portal.organization || '').toLowerCase().trim();
+    const portalShort = (portal.shortName || '').toLowerCase().trim();
+    
+    const isHandCrafted = handCraftedUrls.has(portalPdf) || 
+      [...handCraftedOrgs].some(org => org.includes(portalShort) || portalOrg.includes(org));
+    return !isHandCrafted;
+  }).map(portal => generateGazetteFromPortal(portal));
+
+  for (const g of additionalGazettes) {
+    if (!seenIds.has(g.id)) {
+      seenIds.add(g.id);
+      combined.push(g);
+    }
+  }
+
+  return combined;
+}
+
+export const ALL_CONSOLIDATED_PDF_GAZETTES: ConsolidatedPdfGazette[] = getUnifiedAllGazettes();

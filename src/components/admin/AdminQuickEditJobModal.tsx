@@ -20,8 +20,6 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   onSaveJob,
   onBulkSaveJobs
 }) => {
-  if (!isOpen || (!job && selectedJobs.length === 0)) return null;
-
   const isBulkMode = selectedJobs.length > 1;
 
   // Single job state
@@ -86,6 +84,8 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   });
 
   const [tagInput, setTagInput] = useState('');
+
+  if (!isOpen || (!job && selectedJobs.length === 0)) return null;
 
   const handleAddTag = () => {
     if (tagInput.trim() && !formData.tags.includes(tagInput.trim())) {

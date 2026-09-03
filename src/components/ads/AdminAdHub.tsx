@@ -20,6 +20,7 @@ import {
 } from '../../types/ad';
 import { AdminCampaignCustomizer } from './AdminCampaignCustomizer';
 import { CampaignLiveContextPreview } from './CampaignLiveContextPreview';
+import { AdminAdPerformanceCharts } from './AdminAdPerformanceCharts';
 import { 
   Megaphone, 
   Plus, 
@@ -56,7 +57,9 @@ import {
   Settings,
   Users,
   Check,
-  Sliders
+  Sliders,
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
 
 interface AdminAdHubProps {
@@ -86,8 +89,8 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   onApproveAd,
   onRejectAd
 }) => {
-  // Main Sub-Tab: Directory, Pending Approvals, Placement Slots, Campaign Customizer, Pricing Engine
-  const [activeTab, setActiveTab] = useState<'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing'>('approvals');
+  // Main Sub-Tab: Directory, Pending Approvals, Placement Slots, Campaign Customizer, Pricing Engine, Performance Charts
+  const [activeTab, setActiveTab] = useState<'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'>('approvals');
 
   // Filters for Directory
   const [filterType, setFilterType] = useState<string>('all');
@@ -476,6 +479,18 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
         >
           <Settings className="w-4 h-4" />
           <span>Rate Card & Pricing Matrix</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('performance')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+            activeTab === 'performance'
+              ? 'bg-gradient-to-r from-teal-500 to-indigo-500 text-white font-extrabold shadow-lg shadow-teal-500/20'
+              : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4 text-teal-300" />
+          <span>Ad Performance & Yield Charts</span>
         </button>
       </div>
 
@@ -1082,6 +1097,20 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
           </form>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 6: AD PERFORMANCE & YIELD CHARTS (RECHARTS) */}
+      {/* ========================================================================= */}
+      {activeTab === 'performance' && (
+        <AdminAdPerformanceCharts
+          ads={ads}
+          pricingConfig={pricingConfig}
+          onSelectAd={(selectedAd) => {
+            setEditingAd(selectedAd);
+            setIsEditorOpen(true);
+          }}
+        />
       )}
 
       {/* ========================================================================= */}

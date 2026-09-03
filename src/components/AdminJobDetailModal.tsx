@@ -23,10 +23,10 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   onSuspendJob,
   onViewUserProfile
 }) => {
-  if (!job) return null;
-
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+
+  if (!job) return null;
 
   // Find user who posted the job
   const posterUser = (users || []).find(u => u && u.id === job.submittedByUserId) || {

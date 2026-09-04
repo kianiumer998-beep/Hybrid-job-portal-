@@ -192,7 +192,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       </div>
 
       {/* Main Job Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-6">
         {currentJobs.map((job, index) => {
           const isSaved = savedJobIds.includes(job.id);
           const cleanTitle = sanitizeJobTitle(job.title);
@@ -203,7 +203,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           const activeFeedAds = ads.filter(
             (a) =>
               a.status === 'active' &&
-              (a.placement === 'feed-inline' || (a.type === 'banner' && a.placement === 'feed-inline')) &&
+              ((a.placement as string) === 'feed-inline' || (a.type === 'banner' && (a.placement as string) === 'feed-inline')) &&
               (a.targetPages.includes('all') || a.targetPages.includes('jobs'))
           );
 
@@ -241,7 +241,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           return (
             <React.Fragment key={job.id ? `${job.id}-${index}` : `job-${index}`}>
               <div
-                className={`group relative rounded-2xl p-5 shadow-xl transition-all duration-300 flex flex-col justify-between ${
+                className={`group relative rounded-xl sm:rounded-2xl p-2.5 sm:p-5 shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${
                   isTopPriority
                     ? 'bg-gradient-to-b from-slate-900 via-slate-900 to-amber-950/20 border-2 border-amber-500/50 shadow-amber-500/10 hover:border-amber-400 hover:shadow-amber-500/20'
                     : job.urgent
@@ -252,59 +252,59 @@ export const JobListings: React.FC<JobListingsProps> = ({
               <div>
                 {/* TOP PRIORITY / PINNED / FUTURE BANNER TAG */}
                 {isTopPriority && (
-                  <div className="mb-2.5 flex items-center justify-between bg-gradient-to-r from-amber-500/20 via-rose-500/15 to-purple-500/20 px-2.5 py-1 rounded-lg border border-amber-500/40">
-                    <span className="text-[11px] font-black text-amber-300 flex items-center space-x-1.5 uppercase tracking-wider">
-                      <Pin className="w-3 h-3 text-amber-400 fill-amber-400" />
-                      <span>{job.priorityTier === 'vip_bundle' ? '🚀 VIP TOP PRIORITY' : '📌 PINNED TOP OF LIST'}</span>
+                  <div className="mb-1.5 sm:mb-2.5 flex items-center justify-between bg-gradient-to-r from-amber-500/20 via-rose-500/15 to-purple-500/20 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg border border-amber-500/40">
+                    <span className="text-[9px] sm:text-[11px] font-black text-amber-300 flex items-center space-x-1 sm:space-x-1.5 uppercase tracking-wider">
+                      <Pin className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-400 fill-amber-400" />
+                      <span>{job.priorityTier === 'vip_bundle' ? '🚀 VIP TOP' : '📌 PINNED'}</span>
                     </span>
-                    <span className="text-[10px] text-amber-400/90 font-bold font-mono">Rank #1 Placement</span>
+                    <span className="text-[8px] sm:text-[10px] text-amber-400/90 font-bold font-mono">Rank #1</span>
                   </div>
                 )}
 
                 {/* Header Badges & Saved Button */}
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex flex-wrap gap-1.5">
+                <div className="flex items-start justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-3">
+                  <div className="flex flex-wrap gap-1 sm:gap-1.5">
                     {/* Future Job Badge */}
                     {job.isFutureJob && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
-                        <Calendar className="w-3 h-3 text-cyan-400" />
-                        <span>Future Opportunity {job.futureIntakeDate ? `(${job.futureIntakeDate})` : ''}</span>
+                      <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
+                        <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-cyan-400" />
+                        <span>Future {job.futureIntakeDate ? `(${job.futureIntakeDate})` : ''}</span>
                       </span>
                     )}
 
                     {/* PDF Scraped Gazette Badge */}
                     {job.isPdfScraped && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 flex items-center space-x-1">
-                        <FileText className="w-3 h-3 text-indigo-400" />
-                        <span>PDF Gazette</span>
+                      <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 flex items-center space-x-1">
+                        <FileText className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-400" />
+                        <span>PDF</span>
                       </span>
                     )}
 
                     {/* Duplicate Override / Re-announced Posting Badge */}
                     {job.isDuplicateOverride && (
-                      <span className="text-xs font-bold px-2 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center space-x-1" title="Approved as Re-advertised Vacancy">
-                        <RefreshCw className="w-3 h-3 text-amber-400" />
+                      <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center space-x-1" title="Approved as Re-advertised Vacancy">
+                        <RefreshCw className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-400" />
                         <span>Re-announced</span>
                       </span>
                     )}
 
                     {/* Government & Newspaper Badges */}
                     {job.isGovtJob && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
-                        <Shield className="w-3 h-3 text-amber-400" />
-                        <span>Govt {job.govtScale || 'Sector'}</span>
+                      <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
+                        <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-400" />
+                        <span>Govt {job.govtScale || ''}</span>
                       </span>
                     )}
                     {job.isNewspaperAd && (
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-teal-500/15 text-teal-300 border border-teal-500/30 flex items-center space-x-1">
-                        <Globe className="w-3 h-3 text-teal-400" />
-                        <span>{job.newspaperName || 'Newspaper Ad'}</span>
+                      <span className="text-[9px] sm:text-xs font-semibold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-teal-500/15 text-teal-300 border border-teal-500/30 flex items-center space-x-1">
+                        <Globe className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-teal-400" />
+                        <span>{job.newspaperName || 'Newspaper'}</span>
                       </span>
                     )}
 
                     {/* Job Type Badge */}
                     <span
-                      className={`text-xs font-semibold px-2.5 py-1 rounded-md border ${
+                      className={`text-[9px] sm:text-xs font-semibold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded border ${
                         job.jobType === 'Remote'
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                           : job.jobType === 'Hybrid'
@@ -317,15 +317,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
                     {/* Urgent / Featured Badges */}
                     {job.featured && (
-                      <span className="text-xs font-bold px-2 py-1 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center space-x-1">
-                        <Sparkles className="w-3 h-3 text-purple-400" />
+                      <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center space-x-1">
+                        <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-purple-400" />
                         <span>Featured</span>
                       </span>
                     )}
                     {job.urgent && (
-                      <span className="text-xs font-bold px-2 py-1 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center space-x-1">
-                        <Flame className="w-3 h-3 text-rose-400 fill-rose-400" />
-                        <span>Urgent Hiring</span>
+                      <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center space-x-1">
+                        <Flame className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-rose-400 fill-rose-400" />
+                        <span>Urgent</span>
                       </span>
                     )}
                   </div>
@@ -333,36 +333,52 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   {/* Bookmark Toggle */}
                   <button
                     onClick={() => onToggleSaveJob(job.id)}
-                    className={`p-2 rounded-xl transition-all shrink-0 cursor-pointer ${
+                    className={`p-1 sm:p-2 rounded-lg sm:rounded-xl transition-all shrink-0 cursor-pointer ${
                       isSaved
                         ? 'bg-emerald-500 text-slate-950 font-bold'
                         : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'
                     }`}
                     title={isSaved ? 'Remove from Saved Jobs' : 'Save Job'}
                   >
-                    <Bookmark className="w-4 h-4 fill-current" />
+                    <Bookmark className="w-3 h-3 sm:w-4 sm:h-4 fill-current" />
                   </button>
                 </div>
 
                 {/* Job Title & Company */}
                 <h3
                   onClick={() => onSelectJob(job)}
-                  className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-snug line-clamp-2 mb-1"
+                  className="text-xs sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight sm:leading-snug line-clamp-1 sm:line-clamp-2 mb-1"
                 >
                   {cleanTitle}
                 </h3>
 
-                <div className="flex items-center space-x-2 text-slate-400 text-xs font-medium mb-3">
-                  <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="text-slate-300 font-semibold">{cleanCompany}</span>
-                  <span>•</span>
-                  <Clock className="w-3.5 h-3.5 text-slate-500" />
-                  <span>{job.postedAt}</span>
+                {/* Mobile compact company, location and posted line */}
+                <div className="flex sm:hidden items-center justify-between text-[10px] text-slate-400 mb-1.5">
+                  <div className="flex items-center space-x-1 truncate max-w-[70%]">
+                    <Building2 className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                    <span className="text-slate-300 font-semibold truncate">{cleanCompany}</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-emerald-400 font-medium truncate">{job.city || (job.region === 'Pakistan' ? 'Pakistan' : job.region)}</span>
+                  </div>
+                  <span className="text-[9px] text-slate-500 shrink-0">{job.postedAt}</span>
                 </div>
 
-                {/* Location Badges (Province, City, District) */}
-                <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/60 mb-4 space-y-1">
-                  <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-medium">
+                {/* Desktop metadata row */}
+                <div className="hidden sm:flex flex-wrap items-center gap-1.5 text-slate-400 text-xs font-medium mb-3">
+                  <div className="flex items-center space-x-1">
+                    <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="text-slate-300 font-semibold">{cleanCompany}</span>
+                  </div>
+                  <span>•</span>
+                  <div className="flex items-center space-x-1">
+                    <Clock className="w-3.5 h-3.5 text-slate-500" />
+                    <span>{job.postedAt}</span>
+                  </div>
+                </div>
+
+                {/* Location Badges (Province, City, District) - Desktop view */}
+                <div className="hidden sm:block bg-slate-950/60 p-2.5 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800/60 mb-2 sm:mb-3 space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-slate-300 font-medium">
                     {job.region === 'Pakistan' ? (
                       <span className="text-emerald-400 font-bold">🇵🇰 Pakistan</span>
                     ) : job.region === 'US' ? (
@@ -370,7 +386,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     ) : job.region === 'UK' ? (
                       <span>🇬🇧 United Kingdom</span>
                     ) : job.region === 'UAE' ? (
-                      <span className="text-amber-300 font-semibold">🇦🇪 United Arab Emirates</span>
+                      <span className="text-amber-300 font-semibold">🇦🇪 UAE</span>
                     ) : job.region === 'Saudi Arabia' ? (
                       <span className="text-emerald-300 font-semibold">🇸🇦 Saudi Arabia</span>
                     ) : job.region === 'Canada' ? (
@@ -380,40 +396,35 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     ) : job.region === 'Australia' ? (
                       <span>🇦🇺 Australia</span>
                     ) : (
-                      <span className="text-indigo-400 font-semibold">🌐 Global Remote</span>
+                      <span className="text-indigo-400 font-semibold">🌐 Remote</span>
                     )}
 
                     {job.province && (
                       <span className="text-slate-400">• {job.province}</span>
                     )}
-                  </div>
 
-                  {/* Detailed City/District Badges */}
-                  {(job.city || job.district) && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                      {job.city && (
-                        <span className="inline-flex items-center text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/20">
-                          <MapPin className="w-3 h-3 mr-1 text-emerald-400" />
-                          {job.city}
-                        </span>
-                      )}
-                      {job.district && (
-                        <span className="inline-flex items-center text-[11px] font-semibold bg-teal-500/15 text-teal-300 px-2 py-0.5 rounded border border-teal-500/20">
-                          District: {job.district}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                    {job.city && (
+                      <span className="inline-flex items-center text-[10px] sm:text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 px-1.5 sm:px-2 py-0.5 rounded border border-emerald-500/20">
+                        <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1 text-emerald-400" />
+                        {job.city}
+                      </span>
+                    )}
+                    {job.district && (
+                      <span className="inline-flex items-center text-[10px] sm:text-[11px] font-semibold bg-teal-500/15 text-teal-300 px-1.5 sm:px-2 py-0.5 rounded border border-teal-500/20">
+                        {job.district}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Brief Job Description & Overview Excerpt on Front Card */}
                 {job.description && (
-                  <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 mb-3 group-hover:border-slate-700/80 transition-colors">
-                    <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed font-normal">
+                  <div className="mb-1.5 sm:mb-3">
+                    <p className="text-[10px] sm:text-xs text-slate-400 sm:text-slate-300 line-clamp-1 sm:line-clamp-2 leading-relaxed font-normal sm:bg-slate-950/60 sm:p-2.5 sm:rounded-xl sm:border sm:border-slate-800/80">
                       {job.description.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()}
                     </p>
                     {job.domicileQuota && (
-                      <div className="mt-1.5 pt-1.5 border-t border-slate-800/80 text-[10px] text-amber-300 font-medium truncate flex items-center space-x-1">
+                      <div className="mt-0.5 sm:mt-1 pt-0.5 sm:pt-1 sm:border-t sm:border-slate-800/80 text-[9px] sm:text-[10px] text-amber-300 font-medium truncate flex items-center space-x-1">
                         <span className="font-bold text-amber-400">Quota:</span>
                         <span className="truncate">{job.domicileQuota}</span>
                       </div>
@@ -421,39 +432,39 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   </div>
                 )}
 
-                {/* Tags */}
-                <div className="flex flex-wrap gap-1.5 mb-4">
-                  {cleanTags.slice(0, 4).map((tag, i) => (
+                {/* Tags - 2 tags on mobile, 3+ on desktop */}
+                <div className="flex flex-wrap gap-1 sm:gap-1.5 mb-1.5 sm:mb-4">
+                  {cleanTags.slice(0, 2).map((tag, i) => (
                     <span
                       key={i}
-                      className="text-[11px] font-medium bg-slate-800/80 text-slate-300 px-2 py-0.5 rounded border border-slate-700/60"
+                      className="text-[9px] sm:text-[11px] font-medium bg-slate-800/80 text-slate-300 px-1.5 sm:px-2 py-0.5 rounded border border-slate-700/60"
                     >
                       {tag}
                     </span>
                   ))}
-                  {cleanTags.length > 4 && (
-                    <span className="text-[10px] text-slate-500 self-center">
-                      +{cleanTags.length - 4} more
+                  {cleanTags.length > 2 && (
+                    <span className="text-[9px] sm:text-[10px] text-slate-500 self-center">
+                      +{cleanTags.length - 2}
                     </span>
                   )}
                 </div>
               </div>
 
               {/* Salary & Action Buttons */}
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                <div>
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                    Salary Range
+              <div className="pt-1.5 sm:pt-3 border-t border-slate-800/80 flex items-center justify-between gap-1 sm:gap-2">
+                <div className="min-w-0 pr-1">
+                  <span className="text-[8px] sm:text-[10px] uppercase font-semibold text-slate-500 block truncate">
+                    Salary
                   </span>
-                  <span className="text-sm font-bold text-emerald-400">
+                  <span className="text-[11px] sm:text-sm font-bold text-emerald-400 truncate block">
                     {job.salary}
                   </span>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
                   <button
                     onClick={() => onSelectJob(job)}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs border border-slate-700/60 transition-all cursor-pointer shadow-sm active:scale-95"
+                    className="px-2 sm:px-3.5 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-[10px] sm:text-xs border border-slate-700/60 transition-all cursor-pointer shadow-sm active:scale-95"
                     title="View Full Job Details"
                   >
                     Details
@@ -461,10 +472,10 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
                   <button
                     onClick={() => onApplyClick(job)}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 flex items-center space-x-1.5 active:scale-95 transition-all cursor-pointer"
+                    className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md shadow-emerald-500/20 flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer"
                   >
-                    <Send className="w-3.5 h-3.5 text-slate-950" />
-                    <span>Apply Now</span>
+                    <Send className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-950" />
+                    <span>Apply</span>
                   </button>
                 </div>
               </div>

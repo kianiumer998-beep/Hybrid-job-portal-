@@ -53,6 +53,7 @@ import {
   CountryOption, 
   SUPPORTED_COUNTRIES 
 } from './types/landing';
+import { safeLocalStorageSet, safeLocalStorageGet } from './utils/safeStorage';
 
 export default function App() {
   // Navigation & View State
@@ -768,49 +769,52 @@ export default function App() {
     setCurrentPage(1);
   };
 
-  // LocalStorage Persist Effects
+  // LocalStorage Persist Effects - Fully guarded with safeLocalStorageSet to prevent QuotaExceeded crashes
   useEffect(() => {
-    localStorage.setItem('hybrid_current_user', JSON.stringify(currentUser));
+    safeLocalStorageSet('hybrid_current_user', currentUser);
   }, [currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_users_directory', JSON.stringify(users));
+    safeLocalStorageSet('hybrid_users_directory', users);
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_jobs_list', JSON.stringify(jobs));
+    // Keep most recent 150 jobs in storage to ensure plenty of quota headroom
+    const toSave = jobs.length > 150 ? jobs.slice(0, 150) : jobs;
+    safeLocalStorageSet('hybrid_jobs_list', toSave);
   }, [jobs]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_pending_jobs', JSON.stringify(pendingJobs));
+    const toSave = pendingJobs.length > 150 ? pendingJobs.slice(0, 150) : pendingJobs;
+    safeLocalStorageSet('hybrid_pending_jobs', toSave);
   }, [pendingJobs]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_chat_messages', JSON.stringify(chatMessages));
+    safeLocalStorageSet('hybrid_chat_messages', chatMessages.slice(-50));
   }, [chatMessages]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_custom_form_fields', JSON.stringify(customFormFields));
+    safeLocalStorageSet('hybrid_custom_form_fields', customFormFields);
   }, [customFormFields]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_saved_job_ids', JSON.stringify(savedJobIds));
+    safeLocalStorageSet('hybrid_saved_job_ids', savedJobIds);
   }, [savedJobIds]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_subscribers_list', JSON.stringify(subscribers));
+    safeLocalStorageSet('hybrid_subscribers_list', subscribers.slice(0, 100));
   }, [subscribers]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_user_is_subscribed', isSubscribed ? 'true' : 'false');
+    safeLocalStorageSet('hybrid_user_is_subscribed', isSubscribed ? 'true' : 'false');
   }, [isSubscribed]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_monthly_fee', monthlyFeePkr.toString());
+    safeLocalStorageSet('hybrid_monthly_fee', monthlyFeePkr.toString());
   }, [monthlyFeePkr]);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_all_applications', JSON.stringify(allApplications));
+    safeLocalStorageSet('hybrid_all_applications', allApplications.slice(0, 100));
   }, [allApplications]);
 
   // Filtering & Sorting
@@ -1366,8 +1370,8 @@ export default function App() {
     const updatedAd: Advertisement = {
       ...adToApprove,
       status: 'active',
-      startDate: adToApprove.startDate || startDateStr,
-      endDate: adToApprove.endDate || endDate.toISOString().slice(0, 10),
+      scheduledStartAt: adToApprove.scheduledStartAt || startDateStr,
+      scheduledEndAt: adToApprove.scheduledEndAt || endDate.toISOString().slice(0, 10),
       rejectionReason: undefined
     };
 
@@ -1565,6 +1569,20 @@ export default function App() {
             onRejectJob={handleRejectJob}
             onAddJob={(newJob) => setJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)])}
             onAddPendingJob={(newJob) => setPendingJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)])}
+            onBulkAddJobs={(newJobs) => {
+              setJobs(prev => {
+                const existing = new Set(prev.map(j => j.id));
+                const uniqueNew = newJobs.filter(j => !existing.has(j.id));
+                return [...uniqueNew, ...prev];
+              });
+            }}
+            onBulkAddPendingJobs={(newJobs) => {
+              setPendingJobs(prev => {
+                const existing = new Set(prev.map(j => j.id));
+                const uniqueNew = newJobs.filter(j => !existing.has(j.id));
+                return [...uniqueNew, ...prev];
+              });
+            }}
             onDeleteJob={(jobId) => setJobs(prev => prev.filter(j => j.id !== jobId))}
             onSendMessageToUser={handleAdminSendMessage}
             onAddCustomField={handleAddCustomField}
@@ -1935,9 +1953,10 @@ export default function App() {
 
       {/* Floating Sticky WhatsApp Quick-Action Button */}
       <WhatsAppStickyButton
-        onOpenSubscriptionModal={() => {
-          setSelectedJobTitleForSub('WhatsApp Instant Job Alert Stream');
-          setSubscriptionModalOpen(true);
+        config={whatsAppSupportConfig}
+        onOpenLegalModal={() => {
+          setLegalModalTab('contact');
+          setLegalModalOpen(true);
         }}
       />
 
@@ -1946,10 +1965,6 @@ export default function App() {
         isOpen={legalModalOpen}
         onClose={() => setLegalModalOpen(false)}
         initialTab={legalModalTab}
-        onOpenSubscriptionModal={() => {
-          setLegalModalOpen(false);
-          setSubscriptionModalOpen(true);
-        }}
       />
 
       <AuthModal

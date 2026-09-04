@@ -3,7 +3,8 @@ import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, Job
 import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe } from 'lucide-react';
+import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 interface UserDashboardProps {
   currentUser: UserAccount;
@@ -137,6 +138,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   // Chat message input state
   const [newMessageText, setNewMessageText] = useState('');
+
+  // SEO Preview Modal State for User Postings
+  const [userJobSeoPreview, setUserJobSeoPreview] = useState<Job | null>(null);
 
   // Pricing calculation helper
   const computeJobPostingCost = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): number => {
@@ -273,7 +277,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       submittedByUserId: currentUser.id,
 
       // Priority & Placement Options
-      priorityTier,
+      priorityTier: (priorityTier === 'future_job' ? 'standard' : priorityTier) as any,
       isPinnedTop,
       urgent: isUrgent,
       featured: isFeatured,
@@ -395,7 +399,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           matchedReasons.push(`Matches ${keywordHits} saved skills & target keywords`);
         }
 
-        if (job.type === 'Remote' || job.type === 'Hybrid') {
+        if (job.jobType === 'Remote' || job.jobType === 'Hybrid') {
           matchScore += 4;
           matchedReasons.push('High-flexibility Remote/Hybrid role');
         }
@@ -614,7 +618,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           {fitPercent}% Match
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono">
-                          {job.type} • {job.region}
+                          {job.jobType} • {job.region}
                         </span>
                       </div>
 
@@ -1678,7 +1682,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="space-y-3">
               {userJobs.map((j) => (
                 <div key={j.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2">
                       <h4 className="font-bold text-sm text-white">{j.title}</h4>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -1698,6 +1702,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         <span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason}
                       </div>
                     )}
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setUserJobSeoPreview(j)}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-teal-400 border border-teal-500/30 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
+                      title="Inspect Google Search SEO Metadata & Schema"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Google SEO Tag</span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1886,6 +1902,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           </div>
         </div>
+      )}
+
+      {/* USER JOB GOOGLE SEARCH SEO & SCHEMA PREVIEW MODAL */}
+      {userJobSeoPreview && (
+        <JobSeoPreviewModal
+          job={userJobSeoPreview}
+          isOpen={!!userJobSeoPreview}
+          onClose={() => setUserJobSeoPreview(null)}
+        />
       )}
 
     </div>

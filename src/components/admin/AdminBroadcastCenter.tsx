@@ -57,10 +57,17 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   // Provider Settings state
   const [providerSettings, setProviderSettings] = useState<CommunicationProviderConfig>(
     commConfig || {
-      email: { provider: 'SendGrid', apiKey: '', senderEmail: 'jobs@careerpak.pk', senderName: 'CareerPak Alerts', active: true },
-      whatsapp: { provider: 'Meta Cloud API', apiKey: '', phoneNumberId: '', templateNamespace: 'job_alert_instant', active: true },
-      sms: { provider: 'Twilio', accountSid: '', authToken: '', senderNumber: '', active: false },
-      push: { provider: 'OneSignal', appId: '', restApiKey: '', active: true }
+      smtpHost: 'smtp.sendgrid.net',
+      smtpPort: 587,
+      smtpUser: 'apikey',
+      smtpSenderEmail: 'jobs@careerpak.pk',
+      sendgridApiKey: '',
+      resendApiKey: '',
+      whatsappCloudApiToken: '',
+      whatsappPhoneNumberId: '',
+      twilioAccountSid: '',
+      twilioAuthToken: '',
+      twilioPhoneNumber: ''
     }
   );
   const [providerSaveSuccess, setProviderSaveSuccess] = useState(false);

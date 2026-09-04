@@ -7,6 +7,7 @@ import {
   OFFICIAL_GOVT_SCRAPER_PORTALS 
 } from '../data/mockPdfConsolidatedAds';
 import { AutoScrapeTimerControls, AutoScrapeConfig } from './pdf/AutoScrapeTimerControls';
+import { safeLocalStorageSet, safeLocalStorageGet } from '../utils/safeStorage';
 import { 
   FileText, 
   X, 
@@ -58,59 +59,64 @@ interface PdfConsolidatedScraperModalProps {
   onUpdateGazettesLastScraped?: (updates: { id: string; lastScrapedAt: string; jobCount: number }[]) => void;
 }
 
-// DUPLICATE DETECTION HELPER
+// DUPLICATE DETECTION HELPER WITH DEFENSIVE GUARDS
 function checkJobDuplicate(candidate: Job, existingList: Job[] = []): { isDuplicate: boolean; duplicateScore: number; matchedJob?: Job } {
-  if (!existingList || existingList.length === 0) {
+  if (!candidate || !candidate.title || !existingList || existingList.length === 0) {
     return { isDuplicate: false, duplicateScore: 0 };
   }
 
-  const cleanCandTitle = candidate.title.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
-  const cleanCandCompany = (candidate.company || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
-  const cleanCandCase = (candidate.pdfCaseNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+  try {
+    const cleanCandTitle = (candidate.title || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+    const cleanCandCompany = (candidate.company || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+    const cleanCandCase = (candidate.pdfCaseNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 
-  let maxScore = 0;
-  let bestMatch: Job | undefined = undefined;
+    let maxScore = 0;
+    let bestMatch: Job | undefined = undefined;
 
-  for (const existing of existingList) {
-    if (existing.id === candidate.id) continue;
+    for (const existing of existingList) {
+      if (!existing || !existing.title || existing.id === candidate.id) continue;
 
-    const cleanExistTitle = existing.title.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
-    const cleanExistCompany = (existing.company || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
-    const cleanExistCase = (existing.pdfCaseNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const cleanExistTitle = (existing.title || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+      const cleanExistCompany = (existing.company || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+      const cleanExistCase = (existing.pdfCaseNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 
-    // 1. Exact Case Number Match (e.g. Case No. F.4-118/2026-R)
-    if (cleanCandCase && cleanExistCase && cleanCandCase === cleanExistCase) {
-      return { isDuplicate: true, duplicateScore: 100, matchedJob: existing };
-    }
+      // 1. Exact Case Number Match (e.g. Case No. F.4-118/2026-R)
+      if (cleanCandCase && cleanExistCase && cleanCandCase === cleanExistCase) {
+        return { isDuplicate: true, duplicateScore: 100, matchedJob: existing };
+      }
 
-    // 2. Exact Title + Same Company Match
-    if (cleanCandTitle && cleanCandTitle === cleanExistTitle && (cleanCandCompany.includes(cleanExistCompany) || cleanExistCompany.includes(cleanCandCompany))) {
-      return { isDuplicate: true, duplicateScore: 98, matchedJob: existing };
-    }
+      // 2. Exact Title + Same Company Match
+      if (cleanCandTitle && cleanCandTitle === cleanExistTitle && (cleanCandCompany.includes(cleanExistCompany) || cleanExistCompany.includes(cleanCandCompany))) {
+        return { isDuplicate: true, duplicateScore: 98, matchedJob: existing };
+      }
 
-    // 3. High similarity token overlap
-    const candTokens = cleanCandTitle.split(/\s+/).filter(t => t.length > 3);
-    const existTokens = new Set(cleanExistTitle.split(/\s+/).filter(t => t.length > 3));
-    if (candTokens.length > 0 && existTokens.size > 0) {
-      let matchedTokens = 0;
-      candTokens.forEach(t => { if (existTokens.has(t)) matchedTokens++; });
-      const tokenRatio = (matchedTokens * 2) / (candTokens.length + existTokens.size);
-      
-      const companyOverlap = cleanCandCompany && cleanExistCompany && (cleanCandCompany.includes(cleanExistCompany) || cleanExistCompany.includes(cleanCandCompany));
-      
-      const calculatedScore = Math.round(tokenRatio * (companyOverlap ? 95 : 75));
-      if (calculatedScore > maxScore) {
-        maxScore = calculatedScore;
-        bestMatch = existing;
+      // 3. High similarity token overlap
+      const candTokens = cleanCandTitle.split(/\s+/).filter(t => t.length > 3);
+      const existTokens = new Set(cleanExistTitle.split(/\s+/).filter(t => t.length > 3));
+      if (candTokens.length > 0 && existTokens.size > 0) {
+        let matchedTokens = 0;
+        candTokens.forEach(t => { if (existTokens.has(t)) matchedTokens++; });
+        const tokenRatio = (matchedTokens * 2) / (candTokens.length + existTokens.size);
+        
+        const companyOverlap = cleanCandCompany && cleanExistCompany && (cleanCandCompany.includes(cleanExistCompany) || cleanExistCompany.includes(cleanCandCompany));
+        
+        const calculatedScore = Math.round(tokenRatio * (companyOverlap ? 95 : 75));
+        if (calculatedScore > maxScore) {
+          maxScore = calculatedScore;
+          bestMatch = existing;
+        }
       }
     }
-  }
 
-  if (maxScore >= 70 && bestMatch) {
-    return { isDuplicate: true, duplicateScore: maxScore, matchedJob: bestMatch };
-  }
+    if (maxScore >= 70 && bestMatch) {
+      return { isDuplicate: true, duplicateScore: maxScore, matchedJob: bestMatch };
+    }
 
-  return { isDuplicate: false, duplicateScore: maxScore, matchedJob: bestMatch };
+    return { isDuplicate: false, duplicateScore: maxScore, matchedJob: bestMatch };
+  } catch (e) {
+    console.warn('[DuplicateDetector] Evaluation fallback:', e);
+    return { isDuplicate: false, duplicateScore: 0 };
+  }
 }
 
 export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalProps> = ({
@@ -165,11 +171,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       gazetteIds.forEach(id => {
         updated[id] = { timestamp: now, jobCount: jobCountPerPortal || 4 };
       });
-      try {
-        localStorage.setItem('career_pak_portal_last_scraped', JSON.stringify(updated));
-      } catch (e) {
-        console.warn(e);
-      }
+      safeLocalStorageSet('career_pak_portal_last_scraped', updated);
       return updated;
     });
 
@@ -180,31 +182,21 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
 
   // Automated Crawler & Interval Timer State (15m, 30m, 1h, 2h, 3m)
   const [autoScrapeConfig, setAutoScrapeConfig] = useState<AutoScrapeConfig>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_pdf_autoscrape_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.warn(e);
-    }
-    return {
+    return safeLocalStorageGet<AutoScrapeConfig>('career_pak_pdf_autoscrape_config', {
       enabled: false,
       intervalMinutes: 15,
       targetScope: 'all',
       preventDuplicates: true,
       autoApprove: true
-    };
+    });
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_pdf_autoscrape_config', JSON.stringify(autoScrapeConfig));
-    } catch (e) {
-      console.warn(e);
-    }
+    safeLocalStorageSet('career_pak_pdf_autoscrape_config', autoScrapeConfig);
   }, [autoScrapeConfig]);
 
   const [lastAutoRunTimestamp, setLastAutoRunTimestamp] = useState<string | null>(() => {
-    return localStorage.getItem('career_pak_pdf_autoscrape_last_run');
+    return safeLocalStorageGet<string | null>('career_pak_pdf_autoscrape_last_run', null);
   });
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'success' | 'info' | 'warn' } | null>(null);
 
@@ -573,20 +565,22 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     ]);
 
     let step = 0;
-    const totalSteps = targetGazettes.length;
+    const totalSteps = 10;
+    const chunkSize = Math.max(1, Math.ceil(targetGazettes.length / totalSteps));
 
     const interval = setInterval(() => {
       step++;
-      const currentG = targetGazettes[step - 1];
       const percent = Math.min(95, Math.round((step / totalSteps) * 90));
       setParseProgress(percent);
 
-      if (currentG) {
-        setParseLogs(prev => [
-          ...prev,
-          `[00:0${step}.${step * 2}] [${step}/${totalSteps}] Processing "${currentG.organization}" (${currentG.pdfFileName})... Extracted ${currentG.extractedVacancies?.length || 4} vacancies.`
-        ]);
-      }
+      const startIndex = (step - 1) * chunkSize;
+      const currentChunk = targetGazettes.slice(startIndex, startIndex + chunkSize);
+      const sampleOrg = currentChunk[0]?.organization || targetGazettes[0]?.organization || 'Portal';
+
+      setParseLogs(prev => [
+        ...prev.slice(-15),
+        `[00:0${step}.${step * 2}] Batch segment [${step}/${totalSteps}]: Processing "${sampleOrg}" + ${Math.max(0, currentChunk.length - 1)} portals...`
+      ]);
 
       if (step >= totalSteps) {
         clearInterval(interval);
@@ -594,32 +588,36 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
           setParseProgress(100);
           setIsBulkParsing(false);
 
-          // Aggregate all vacancies
-          const allAggregatedJobs: Job[] = [];
-          targetGazettes.forEach((g) => {
-            (g.extractedVacancies || []).forEach((job) => {
-              const dup = checkJobDuplicate(job, existingJobs);
-              allAggregatedJobs.push({
-                ...job,
-                extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
-                isDuplicate: dup.isDuplicate,
-                duplicateScore: dup.duplicateScore,
-                duplicateOfJobTitle: dup.matchedJob?.title,
-                duplicateOfJobId: dup.matchedJob?.id
+          try {
+            // Aggregate all vacancies safely
+            const allAggregatedJobs: Job[] = [];
+            targetGazettes.forEach((g) => {
+              (g.extractedVacancies || []).forEach((job) => {
+                const dup = checkJobDuplicate(job, existingJobs);
+                allAggregatedJobs.push({
+                  ...job,
+                  extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+                  isDuplicate: dup.isDuplicate,
+                  duplicateScore: dup.duplicateScore,
+                  duplicateOfJobTitle: dup.matchedJob?.title,
+                  duplicateOfJobId: dup.matchedJob?.id
+                });
               });
             });
-          });
 
-          setExtractedVacancies(allAggregatedJobs);
-          setSelectedJobIds(allAggregatedJobs.map(j => j.id));
-          updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
-          setParseLogs(prev => [
-            ...prev,
-            `[00:03.4] Bulk Batch Finished! Total ${allAggregatedJobs.length} vacancies consolidated across ${targetGazettes.length} sources.`
-          ]);
-        }, 500);
+            setExtractedVacancies(allAggregatedJobs);
+            setSelectedJobIds(allAggregatedJobs.map(j => j.id));
+            updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
+            setParseLogs(prev => [
+              ...prev.slice(-15),
+              `[00:03.4] Bulk Batch Finished! Total ${allAggregatedJobs.length} vacancies consolidated across ${targetGazettes.length} sources.`
+            ]);
+          } catch (aggErr) {
+            console.error('[BulkScraper] Aggregation safety error:', aggErr);
+          }
+        }, 300);
       }
-    }, 400);
+    }, 250);
   };
 
   // ONE-CLICK INSTANT SCRAPE & DIRECT INGESTION
@@ -765,11 +763,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     setIsAutoCrawling(true);
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
     setLastAutoRunTimestamp(now);
-    try {
-      localStorage.setItem('career_pak_pdf_autoscrape_last_run', now);
-    } catch (e) {
-      console.warn(e);
-    }
+    safeLocalStorageSet('career_pak_pdf_autoscrape_last_run', now);
 
     const targets = autoScrapeConfig.targetScope === 'selected' && selectedGazetteIdsForBulk.length > 0
       ? currentGazettes.filter(g => selectedGazetteIdsForBulk.includes(g.id))
@@ -912,7 +906,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       setParseProgress(percent);
 
       setParseLogs(prev => [
-        ...prev,
+        ...prev.slice(-15),
         `[00:0${step}.${step * 2}] Batch cluster ${step}/${totalSteps}: Processing gazettes & verifying duplicate signatures...`
       ]);
 
@@ -922,39 +916,43 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
           setParseProgress(100);
           setIsBulkParsing(false);
 
-          const allJobs: Job[] = [];
-          targetGazettes.forEach(g => {
-            (g.extractedVacancies || []).forEach(job => {
-              const dup = checkJobDuplicate(job, existingJobs);
-              allJobs.push({
-                ...job,
-                extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
-                isDuplicate: dup.isDuplicate,
-                duplicateScore: dup.duplicateScore,
-                duplicateOfJobTitle: dup.matchedJob?.title,
-                duplicateOfJobId: dup.matchedJob?.id
+          try {
+            const allJobs: Job[] = [];
+            targetGazettes.forEach(g => {
+              (g.extractedVacancies || []).forEach(job => {
+                const dup = checkJobDuplicate(job, existingJobs);
+                allJobs.push({
+                  ...job,
+                  extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+                  isDuplicate: dup.isDuplicate,
+                  duplicateScore: dup.duplicateScore,
+                  duplicateOfJobTitle: dup.matchedJob?.title,
+                  duplicateOfJobId: dup.matchedJob?.id
+                });
               });
             });
-          });
 
-          setExtractedVacancies(allJobs);
-          const uniqueOnes = allJobs.filter(j => !j.isDuplicate);
-          setSelectedJobIds(uniqueOnes.map(j => j.id));
-          updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
+            setExtractedVacancies(allJobs);
+            const uniqueOnes = allJobs.filter(j => !j.isDuplicate);
+            setSelectedJobIds(uniqueOnes.map(j => j.id));
+            updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
 
-          setParseLogs(prev => [
-            ...prev,
-            `[00:03.8] Full Consolidated Scrape Finished! Extracted ${allJobs.length} vacancies across ${targetGazettes.length} portals. (${uniqueOnes.length} unique, ${allJobs.length - uniqueOnes.length} duplicates flagged)`
-          ]);
+            setParseLogs(prev => [
+              ...prev.slice(-15),
+              `[00:03.8] Full Consolidated Scrape Finished! Extracted ${allJobs.length} vacancies across ${targetGazettes.length} portals. (${uniqueOnes.length} unique, ${allJobs.length - uniqueOnes.length} duplicates flagged)`
+            ]);
 
-          setToastNotification({
-            message: `⚡ Full Scrape Complete: Extracted ${allJobs.length} vacancies across all ${targetGazettes.length} portals (${uniqueOnes.length} unique ready to import).`,
-            type: 'info'
-          });
-          setTimeout(() => setToastNotification(null), 5000);
-        }, 500);
+            setToastNotification({
+              message: `⚡ Full Scrape Complete: Extracted ${allJobs.length} vacancies across all ${targetGazettes.length} portals (${uniqueOnes.length} unique ready to import).`,
+              type: 'info'
+            });
+            setTimeout(() => setToastNotification(null), 5000);
+          } catch (scrapeAllErr) {
+            console.error('[ScrapeAllPortals] Aggregation safety error:', scrapeAllErr);
+          }
+        }, 300);
       }
-    }, 300);
+    }, 250);
   };
 
   // Toggle Selection of All Filtered Gazettes
@@ -1408,11 +1406,11 @@ if __name__ == "__main__":
               <AutoScrapeTimerControls
                 config={autoScrapeConfig}
                 onChangeConfig={setAutoScrapeConfig}
-                isAutoCrawling={isAutoCrawling}
-                onTriggerNow={handleTriggerAutoScrapeRun}
+                isCrawling={isAutoCrawling}
+                onTriggerInstantAutoRun={handleTriggerAutoScrapeRun}
                 lastRunTimestamp={lastAutoRunTimestamp}
                 totalPortalsCount={currentGazettes.length}
-                selectedPortalsCount={selectedGazetteIdsForBulk.length}
+                selectedCount={selectedGazetteIdsForBulk.length}
               />
               
               {/* STEP 1: CHOOSE SOURCE SECTION */}

@@ -64,7 +64,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const matchingBanners = ads.filter(
     (ad) =>
       ad.status === 'active' &&
-      (ad.placement === 'top-header' || (ad.type === 'banner' && ad.placement === 'top-header')) &&
+      ((ad.placement as string) === 'top-header' || (ad.type === 'banner' && (ad.placement as string) === 'top-header')) &&
       (ad.targetPages.includes('all') || ad.targetPages.includes(currentPage)) &&
       !dismissedIds.includes(ad.id)
   );

@@ -287,6 +287,26 @@ export const DEFAULT_DURATION_PRESETS: CampaignDurationPreset[] = [
     isEnabled: true
   },
   {
+    id: 'days-15d',
+    label: '15 Days',
+    subLabel: 'Mid-Month Package',
+    unit: 'days',
+    value: 15,
+    discountPercent: 12,
+    badge: '⚡ 15-Day Boost',
+    isEnabled: true
+  },
+  {
+    id: 'days-20d',
+    label: '20 Days',
+    subLabel: 'Strategic Hiring Window',
+    unit: 'days',
+    value: 20,
+    discountPercent: 15,
+    badge: '⭐ 20-Day Pro Run',
+    isEnabled: true
+  },
+  {
     id: 'month-1m',
     label: '1 Month (30 Days)',
     subLabel: 'Maximum Reach',

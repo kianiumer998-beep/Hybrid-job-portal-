@@ -22,7 +22,7 @@ import {
   JobPostingPricingConfig,
   DEFAULT_JOB_POSTING_PRICING_CONFIG
 } from '../types/job';
-import { Advertisement, AdPricingConfig, CampaignCustomizationConfig } from '../types/ad';
+import { Advertisement, AdPricingConfig, CampaignCustomizationConfig, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../types/ad';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { 
   ShieldCheck, 
@@ -69,10 +69,13 @@ import {
   Download,
   Copy,
   ArrowUpDown,
-  Link as LinkIcon
+  Link as LinkIcon,
+  MoreVertical,
+  CreditCard
 } from 'lucide-react';
 import { UserDetailModal } from './UserDetailModal';
 import { AdminJobDetailModal } from './AdminJobDetailModal';
+import { safeLocalStorageSet, safeLocalStorageGet, safeAlert, clearBulkyStorageCaches } from '../utils/safeStorage';
 import { AdminAdHub } from './ads/AdminAdHub';
 import { ScrapedJobHistoryModule } from './ScrapedJobHistoryModule';
 import { PdfConsolidatedScraperModal } from './PdfConsolidatedScraperModal';
@@ -80,6 +83,10 @@ import { AdminQuickEditJobModal } from './admin/AdminQuickEditJobModal';
 import { AdminDuplicateCheckerModal, DuplicateCluster } from './admin/AdminDuplicateCheckerModal';
 import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
 import { BatchUrlIngestModal } from './BatchUrlIngestModal';
+import { AdminPaymentMethodsManager } from './admin/AdminPaymentMethodsManager';
+import { AdminUrlScraperController } from './admin/AdminUrlScraperController';
+import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
+import { injectJobJsonLd } from '../utils/seoHelper';
 import { 
   MOCK_CONSOLIDATED_PDF_GAZETTES, 
   ALL_CONSOLIDATED_PDF_GAZETTES,
@@ -140,6 +147,8 @@ interface AdminDashboardProps {
   onRejectJob: (jobId: string, reason: string) => void;
   onAddJob: (newJob: Job) => void;
   onAddPendingJob?: (newJob: Job) => void;
+  onBulkAddJobs?: (jobs: Job[]) => void;
+  onBulkAddPendingJobs?: (jobs: Job[]) => void;
   onDeleteJob: (jobId: string) => void;
   onUpdateJob?: (job: Job) => void;
   onBulkDeleteJobs?: (jobIds: string[]) => void;
@@ -208,6 +217,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRejectJob,
   onAddJob,
   onAddPendingJob,
+  onBulkAddJobs,
+  onBulkAddPendingJobs,
   onDeleteJob,
   onUpdateJob,
   onBulkDeleteJobs,
@@ -262,6 +273,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'campaign-center'
     | 'fee-management'
     | 'payment-proofs'
+    | 'admin-payment-methods'
     | 'whatsapp-manager'
     | 'pending'
     | 'scraped-history'
@@ -277,6 +289,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'user-audit'
     | 'fee-logs'
     | 'scraper'
+    | 'url-scraper'
     | 'chat-hub'
     | 'form-customizer'
     | 'add-job'
@@ -285,6 +298,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'settings'
     | 'stats'
   >('analytics');
+
+  // Modern Admin Category & Quick 3-Dot Drawer State
+  type AdminCategory = 'jobs' | 'scraper' | 'ads' | 'payments' | 'users' | 'alerts' | 'settings';
+  const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
+  const [showAllModulesMenu, setShowAllModulesMenu] = useState(false);
+  const [moduleSearchQuery, setModuleSearchQuery] = useState('');
+  const [seoPreviewJob, setSeoPreviewJob] = useState<Job | null>(null);
 
   // International Admin Suite States (Persisted in LocalStorage)
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
@@ -565,15 +585,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_scraped_audit_logs', JSON.stringify(scrapedAuditLogs));
-    } catch (e) {}
+    safeLocalStorageSet('career_pak_scraped_audit_logs', scrapedAuditLogs.slice(0, 35));
   }, [scrapedAuditLogs]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_scraper_batch_runs', JSON.stringify(scraperBatchRuns));
-    } catch (e) {}
+    safeLocalStorageSet('career_pak_scraper_batch_runs', scraperBatchRuns.slice(0, 25));
   }, [scraperBatchRuns]);
 
   // Modal inspection states
@@ -951,45 +967,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // PDF Consolidated Gazettes Library (All 447+ Official Pakistani Govt, Autonomous, Provincial & Defence Portals)
   const [pdfGazettes, setPdfGazettes] = useState<ConsolidatedPdfGazette[]>(() => {
     try {
-      const saved = localStorage.getItem('career_pak_pdf_gazettes');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Extract custom user-added gazettes
-          const customGazettes = parsed.filter((g: any) => g && typeof g.id === 'string' && g.id.startsWith('pdf-gazette-custom'));
+      // Clear legacy multi-megabyte monolithic key to instantly release browser storage quota
+      localStorage.removeItem('career_pak_pdf_gazettes');
+      localStorage.removeItem('career_pak_pdf_gazettes_cache');
 
-          // Always merge with latest ALL_CONSOLIDATED_PDF_GAZETTES to ensure all 447 official portals have pristine, unique IDs
-          const freshGazettes = ALL_CONSOLIDATED_PDF_GAZETTES;
-          const freshIdSet = new Set(freshGazettes.map(g => g.id));
-          const uniqueCustom: ConsolidatedPdfGazette[] = [];
-          const seenCustomIds = new Set<string>();
+      const savedCustom = safeLocalStorageGet<ConsolidatedPdfGazette[]>('career_pak_custom_pdf_gazettes', []);
+      const savedTimestamps = safeLocalStorageGet<Record<string, { timestamp: string; jobCount: number }>>('career_pak_portal_last_scraped', {});
 
-          for (let i = 0; i < customGazettes.length; i++) {
-            const cg = customGazettes[i];
-            let safeId = cg.id;
-            if (freshIdSet.has(safeId) || seenCustomIds.has(safeId)) {
-              safeId = `pdf-gazette-custom-${i}-${Date.now().toString(36)}`;
-            }
-            seenCustomIds.add(safeId);
-            uniqueCustom.push({ ...cg, id: safeId });
+      const freshGazettes = ALL_CONSOLIDATED_PDF_GAZETTES.map(g => {
+        const timeEntry = savedTimestamps[g.id];
+        if (timeEntry) {
+          return { ...g, lastScrapedAt: timeEntry.timestamp, lastScrapedJobCount: timeEntry.jobCount };
+        }
+        return g;
+      });
+
+      const uniqueCustom: ConsolidatedPdfGazette[] = [];
+      const freshIdSet = new Set(freshGazettes.map(g => g.id));
+      const seenCustomIds = new Set<string>();
+
+      if (Array.isArray(savedCustom)) {
+        for (let i = 0; i < savedCustom.length; i++) {
+          const cg = savedCustom[i];
+          if (!cg || !cg.id) continue;
+          let safeId = cg.id;
+          if (freshIdSet.has(safeId) || seenCustomIds.has(safeId)) {
+            safeId = `pdf-gazette-custom-${i}-${Date.now().toString(36)}`;
           }
-
-          const combined = [...freshGazettes, ...uniqueCustom];
-          return combined;
+          seenCustomIds.add(safeId);
+          uniqueCustom.push({ ...cg, id: safeId });
         }
       }
+
+      return [...freshGazettes, ...uniqueCustom];
     } catch (e) {
       console.warn('Failed to load pdf gazettes from localStorage:', e);
+      return ALL_CONSOLIDATED_PDF_GAZETTES;
     }
-    return ALL_CONSOLIDATED_PDF_GAZETTES;
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_pdf_gazettes', JSON.stringify(pdfGazettes));
-    } catch (e) {
-      console.warn('Failed to save pdf gazettes to localStorage:', e);
-    }
+    // Only save user-added custom gazettes to keep storage under 5 KB and completely prevent QuotaExceededError
+    const customOnly = pdfGazettes.filter(g => g.id.startsWith('pdf-gazette-custom'));
+    safeLocalStorageSet('career_pak_custom_pdf_gazettes', customOnly);
   }, [pdfGazettes]);
 
   const [newScraperName, setNewScraperName] = useState('');
@@ -1106,15 +1126,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsBulkCrawlingPortals(false);
       setBulkCrawlProgress(100);
 
-      let totalJobsExtracted = 0;
-      const allAuditEntries: ScrapedJobAuditEntry[] = [];
+      const allJobs: Job[] = [];
+      const newBatches: ScraperBatchRun[] = [];
 
       targetPortals.forEach((portal) => {
-        const jobs = generateScrapedJobsForPortal(portal);
-        totalJobsExtracted += jobs.length;
-        jobs.forEach(j => {
-          onAddJob(j);
-        });
+        const portalJobs = generateScrapedJobsForPortal(portal);
+        allJobs.push(...portalJobs);
 
         // Add to batch runs
         const newBatch: ScraperBatchRun = {
@@ -1127,9 +1144,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           region: 'Pakistan',
           category: 'Government Sector',
           status: 'Completed',
-          totalExtracted: jobs.length,
+          totalExtracted: portalJobs.length,
           approvedCount: 0,
-          pendingCount: jobs.length,
+          pendingCount: portalJobs.length,
           duplicatesSkipped: 0,
           rejectionCount: 0,
           executionDurationMs: 1400,
@@ -1137,18 +1154,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           triggerType: 'Batch Rescrape',
           logTrace: [
             `[${timestamp}] Parsed using ${portal.crawlerMethod}`,
-            `[${timestamp}] Harvested ${jobs.length} vacancies with BPS scales and quotas`
+            `[${timestamp}] Harvested ${portalJobs.length} vacancies with BPS scales and quotas`
           ]
         };
-        setScraperBatchRuns(prev => [newBatch, ...prev]);
+        newBatches.push(newBatch);
       });
 
+      // Efficient single-batch update for jobs to prevent cascading re-renders and quota overflows
+      if (onBulkAddPendingJobs) {
+        onBulkAddPendingJobs(allJobs);
+      } else if (onBulkAddJobs) {
+        onBulkAddJobs(allJobs);
+      } else {
+        allJobs.forEach(j => onAddJob(j));
+      }
+
+      setScraperBatchRuns(prev => [...newBatches.slice(0, 20), ...prev].slice(0, 30));
+
       setScraperLogs(prev => [
-        `[${timestamp}] Distributed Crawler finished across ${targetPortals.length} portals. Total ${totalJobsExtracted} vacancies ingested to Pending Review.`,
-        ...prev
+        `[${timestamp}] Distributed Crawler finished across ${targetPortals.length} portals. Total ${allJobs.length} vacancies ingested to Pending Review.`,
+        ...prev.slice(0, 30)
       ]);
 
-      alert(`✅ Distributed Scraper Finished!\nSuccessfully crawled ${targetPortals.length} portals in parallel using format-specific engines (pdfplumber, BeautifulSoup, REST endpoints).\nTotal ${totalJobsExtracted} vacancies harvested and added to Pending Review.`);
+      alert(`✅ Distributed Scraper Finished!\nSuccessfully crawled ${targetPortals.length} portals in parallel using format-specific engines (pdfplumber, BeautifulSoup, REST endpoints).\nTotal ${allJobs.length} vacancies harvested and added to Pending Review.`);
     }, 2200);
   };
 
@@ -1218,11 +1246,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const existingIds = new Set(freshGazettes.map(g => g.id));
     const updated = [...freshGazettes, ...existingCustom.filter(c => !existingIds.has(c.id))];
     setPdfGazettes(updated);
-    try {
-      localStorage.setItem('career_pak_pdf_gazettes', JSON.stringify(updated));
-    } catch (e) {
-      console.warn(e);
-    }
+    safeLocalStorageSet('career_pak_custom_pdf_gazettes', existingCustom);
     alert(`✅ Successfully refreshed and synced all ${updated.length} Official Federal, Provincial, Defence, Autonomous & Testing Agency Portals into the PDF Gazette Library!`);
   };
   const handleSyncAll13OfficialPortals = handleSyncAllOfficialPortals;
@@ -1459,13 +1483,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         return s;
       }));
 
+      const newJobsToAdd: Job[] = [];
+      const newBatchesToAdd: ScraperBatchRun[] = [];
+
       // Generate batch runs and jobs
       selectedScraperTargetIds.forEach((sourceId, idx) => {
         const source = scraperSources.find(s => s.id === sourceId);
         if (!source) return;
         const batchId = 'BATCH-BULK-' + Date.now().toString(36) + '-' + idx;
         const job1: Job = {
-          id: `job-bulk-${source.id}-${Date.now()}-1`,
+          id: `job-bulk-${source.id}-${Date.now().toString(36)}-${idx}`,
           title: `Senior Officer (${source.keywords.split(',')[0]?.trim() || 'Operations'})`,
           company: `${source.name.split(' ')[0]} Enterprise`,
           jobType: source.category === 'International Remote' ? 'Remote' : 'Hybrid',
@@ -1491,7 +1518,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           govtScale: source.category === 'Government Sector' ? 'BPS-17' : undefined,
           isNewspaperAd: source.category === 'Newspaper Classified'
         };
-        onAddJob(job1);
+        newJobsToAdd.push(job1);
 
         const newBatch: ScraperBatchRun = {
           batchId,
@@ -1513,8 +1540,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           triggerType: 'Batch Rescrape',
           logTrace: [`[${timestamp}] Bulk multi-source crawl finished for ${source.name}`]
         };
-        setScraperBatchRuns(prev => [newBatch, ...prev]);
+        newBatchesToAdd.push(newBatch);
       });
+
+      if (onBulkAddJobs) {
+        onBulkAddJobs(newJobsToAdd);
+      } else {
+        newJobsToAdd.forEach(j => onAddJob(j));
+      }
+
+      setScraperBatchRuns(prev => [...newBatchesToAdd, ...prev].slice(0, 30));
 
       alert(`Successfully executed bulk crawl across ${count} selected scraper sources! New jobs added to database.`);
     }, 2000);
@@ -1906,9 +1941,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }, 2500);
   };
 
-  // Synchronized Approval with Audit Trail
+  // Synchronized Approval with Audit Trail & Auto SEO Injection
   const handleAdminApproveJob = (jobId: string) => {
     onApproveJob(jobId);
+    
+    // Auto-generate Google Search SEO & inject Schema.org structured data
+    const approvedJob = pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
+    if (approvedJob) {
+      injectJobJsonLd(approvedJob);
+    }
+
     setScrapedAuditLogs(prev => prev.map(entry => {
       if (entry.jobId === jobId) {
         const newAction: ScrapedJobAuditAction = {
@@ -1968,23 +2010,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Batch Import PDF Scraped Vacancies
   const handleBatchImportPdfJobs = (extractedJobs: Job[], autoApprove: boolean, sourceGazetteTitle: string) => {
-    extractedJobs.forEach((job) => {
-      const uniqueId = `pdf-${job.id.replace('pdf-', '')}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
-      const jobToInsert: Job = {
-        ...job,
-        id: uniqueId,
-        status: autoApprove ? 'Approved' : 'Pending'
-      };
-      if (autoApprove) {
-        onAddJob(jobToInsert);
+    const jobsToInsert: Job[] = extractedJobs.map((job, idx) => ({
+      ...job,
+      id: `pdf-${job.id.replace('pdf-', '')}-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      status: autoApprove ? 'Approved' : 'Pending'
+    }));
+
+    if (autoApprove) {
+      if (onBulkAddJobs) {
+        onBulkAddJobs(jobsToInsert);
       } else {
-        if (onAddPendingJob) {
-          onAddPendingJob(jobToInsert);
-        } else {
-          onAddJob(jobToInsert);
-        }
+        jobsToInsert.forEach(j => onAddJob(j));
       }
-    });
+    } else {
+      if (onBulkAddPendingJobs) {
+        onBulkAddPendingJobs(jobsToInsert);
+      } else if (onAddPendingJob) {
+        jobsToInsert.forEach(j => onAddPendingJob(j));
+      } else {
+        jobsToInsert.forEach(j => onAddJob(j));
+      }
+    }
   };
 
   const handleLogPdfBatchRun = (batchRun: ScraperBatchRun, auditEntries: ScrapedJobAuditEntry[]) => {
@@ -2141,53 +2187,474 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
       </div>
 
-      {/* Admin Navigation Tabs */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-4 overflow-x-auto text-xs font-bold scrollbar-thin">
-        {[
-          { id: 'analytics', label: '📊 Executive Analytics & KPIs', icon: BarChart3 },
-          { id: 'whatsapp-manager', label: '💬 WhatsApp Support & Alerts Hub', icon: MessageSquare },
-          { id: 'payment-proofs', label: `🧾 Payment Proofs Verification (${currentTransactions.filter(t => t.status === 'Pending').length})`, icon: Receipt },
-          { id: 'landing-customizer', label: '🎨 Landing Page Customizer', icon: Layers },
-          { id: 'campaign-center', label: `📢 Campaign Center (${ads.filter(a => a.status === 'active').length} Live)`, icon: Megaphone },
-          { id: 'fee-management', label: '💳 Category Fees & Waivers', icon: DollarSign },
-          { id: 'pending', label: `Pending Approvals (${pendingJobs.length})`, icon: Clock },
-          { id: 'scraped-history', label: `Scraped Jobs History (${scrapedAuditLogs.length})`, icon: History },
-          { id: 'advertisements', label: `📢 Ad Hub & Analytics`, icon: Megaphone },
-          { id: 'seo-config', label: '🌐 Global SEO & Meta', icon: Globe },
-          { id: 'currency-forex', label: '💱 Multi-Currency & Forex', icon: Coins },
-          { id: 'broadcast-center', label: '📣 Broadcasts (WhatsApp/Email)', icon: Send },
-          { id: 'bulk-notifications', label: '🚀 Pro Bulk Notification Tool', icon: Send },
-          { id: 'activity-logs', label: '🛡️ Audit & Activity Trail', icon: ShieldCheck },
-          { id: 'data-backup', label: '💾 Data Vault & CSV Exporter', icon: Database },
-          { id: 'ai-enhancer', label: '✨ AI Quality & Spam Filter', icon: Sparkles },
-          { id: 'employer-kyc', label: `🛡️ Employer KYC Queue (${kycRequests.filter(r => r.status === 'Pending').length})`, icon: BadgeCheck },
-          { id: 'user-audit', label: `User Directory & Audit (${users.length})`, icon: Users },
-          { id: 'fee-logs', label: `Per-Job Fee Logs (${jobPostingFeeLogs.length})`, icon: Receipt },
-          { id: 'scraper', label: 'Automated Scraper Controller', icon: Bot },
-          { id: 'chat-hub', label: `User Chat Hub (${chatMessages.length})`, icon: MessageSquare },
-          { id: 'form-customizer', label: 'Registration Form Customizer', icon: Edit3 },
-          { id: 'add-job', label: 'Post Manual Job', icon: Plus },
-          { id: 'jobs', label: `Live Listings (${jobs.length})`, icon: Briefcase },
-          { id: 'subscribers', label: `Subscribers (${subscribers.length})`, icon: DollarSign },
-          { id: 'settings', label: 'Global Fee & Master Switches', icon: Settings }
-        ].map((t) => {
-          const Icon = t.icon;
-          return (
+      {/* MODERN ADMIN NAVIGATION: CATEGORIES + 3-DOT ALL MODULES + SUB-TABS */}
+      <div className="space-y-3 border-b border-slate-800 pb-4">
+        {/* Top Level Category Bar with 3-Dot Quick Menu */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {[
+              { id: 'jobs' as AdminCategory, label: '💼 Jobs & Posts', urdu: 'ملازمتیں', count: pendingJobs.length > 0 ? `${pendingJobs.length} Pending` : undefined, countColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
+              { id: 'scraper' as AdminCategory, label: '🤖 Web Scrapers', urdu: 'سکریپرز', count: 'URL Tool', countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
+              { id: 'ads' as AdminCategory, label: '📢 Ads & Campaigns', urdu: 'اشتہارات', count: `${ads.filter(a => a.status === 'active').length} Live`, countColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+              { id: 'payments' as AdminCategory, label: '💳 Payments & Accounts', urdu: 'ادائیگیاں', count: currentTransactions.filter(t => t.status === 'Pending').length > 0 ? `${currentTransactions.filter(t => t.status === 'Pending').length} Proofs` : undefined, countColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
+              { id: 'users' as AdminCategory, label: '👥 Users & KYC', urdu: 'صارفین', count: kycRequests.filter(r => r.status === 'Pending').length > 0 ? `${kycRequests.filter(r => r.status === 'Pending').length} KYC` : undefined, countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+              { id: 'alerts' as AdminCategory, label: '📣 Alerts & WhatsApp', urdu: 'الرٹس', count: undefined },
+              { id: 'settings' as AdminCategory, label: '⚙️ Settings & SEO', urdu: 'ترتیبات', count: undefined }
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => {
+                  setActiveCategory(cat.id);
+                  // Auto-switch to first sub-tab of that category if current tab is outside
+                  if (cat.id === 'jobs' && !['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(adminTab)) setAdminTab('jobs');
+                  if (cat.id === 'scraper' && !['url-scraper', 'scraper', 'scraped-history'].includes(adminTab)) setAdminTab('url-scraper');
+                  if (cat.id === 'ads' && !['campaign-center', 'advertisements', 'landing-customizer'].includes(adminTab)) setAdminTab('campaign-center');
+                  if (cat.id === 'payments' && !['admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'].includes(adminTab)) setAdminTab('admin-payment-methods');
+                  if (cat.id === 'users' && !['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(adminTab)) setAdminTab('user-audit');
+                  if (cat.id === 'alerts' && !['whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(adminTab)) setAdminTab('whatsapp-manager');
+                  if (cat.id === 'settings' && !['seo-config', 'settings', 'form-customizer', 'activity-logs', 'data-backup', 'analytics'].includes(adminTab)) setAdminTab('seo-config');
+                }}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer select-none ${
+                  activeCategory === cat.id
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20 scale-[1.02]'
+                    : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800/80 border border-slate-800'
+                }`}
+              >
+                <span>{cat.label}</span>
+                {cat.count && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-bold border ${activeCategory === cat.id ? 'bg-slate-950 text-amber-400 border-slate-900' : cat.countColor}`}>
+                    {cat.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* 3-DOT QUICK MENU TRIGGER BUTTON */}
+          <div className="relative">
             <button
-              key={t.id}
-              onClick={() => setAdminTab(t.id as any)}
-              className={`flex items-center space-x-2 px-3.5 py-2.5 rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-                adminTab === t.id
-                  ? 'bg-amber-500 text-slate-950 font-extrabold shadow-lg shadow-amber-500/20'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-              }`}
+              type="button"
+              onClick={() => setShowAllModulesMenu(true)}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/40 text-xs font-black flex items-center space-x-1.5 shadow-lg shadow-amber-500/10 transition-all cursor-pointer active:scale-95"
+              title="Open full modules matrix with search"
             >
-              <Icon className="w-4 h-4" />
-              <span>{t.label}</span>
+              <MoreVertical className="w-4 h-4 text-amber-400" />
+              <span>⋮ All Modules (تمام ماڈیولز)</span>
             </button>
-          );
-        })}
+          </div>
+        </div>
+
+        {/* ACTIVE CATEGORY SUB-TABS ROW */}
+        <div className="flex items-center space-x-2 overflow-x-auto py-1.5 px-2 bg-slate-950/70 border border-slate-800/80 rounded-xl scrollbar-none text-xs">
+          <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500 shrink-0 pl-1">
+            Sub-Modules:
+          </span>
+
+          {activeCategory === 'jobs' && (
+            <>
+              {[
+                { id: 'jobs', label: `Live Listings (${jobs.length})`, urdu: 'لائیو جابز', icon: Briefcase },
+                { id: 'pending', label: `Pending Approvals (${pendingJobs.length})`, urdu: 'زیرِ التواء منظوری', icon: Clock, badge: pendingJobs.length > 0 ? pendingJobs.length : undefined },
+                { id: 'add-job', label: 'Post Manual Job', urdu: 'نئی جاب', icon: Plus },
+                { id: 'ai-enhancer', label: 'AI Quality & Spam Filter', urdu: 'کوالٹی فلٹر', icon: Sparkles }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setAdminTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                      adminTab === t.id
+                        ? 'bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                    {t.badge && (
+                      <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[10px] font-black">
+                        {t.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {activeCategory === 'scraper' && (
+            <>
+              {[
+                { id: 'url-scraper', label: '🔗 Instant URL Scraper & Bulk Actions', urdu: 'براہِ راست لنک سے سکریپ', icon: Globe, isNew: true },
+                { id: 'scraper', label: 'Automated Scraper Controller', urdu: 'خودکار پورٹلز', icon: Bot },
+                { id: 'scraped-history', label: `Ingested Feed & Audit (${scrapedAuditLogs.length})`, urdu: 'حاصل شدہ فیڈ', icon: History }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setAdminTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                      adminTab === t.id
+                        ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-black shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                    {t.isNew && (
+                      <span className="px-1.5 py-0.2 rounded bg-emerald-400 text-slate-950 text-[9px] font-black">
+                        NEW
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {activeCategory === 'ads' && (
+            <>
+              {[
+                { id: 'campaign-center', label: `Campaign Center (${ads.filter(a => a.status === 'active').length} Live)`, urdu: 'اشتہاری کیمپینز', icon: Megaphone },
+                { id: 'advertisements', label: 'Ad Hub & Banner Slots', urdu: 'بینر سلاٹس', icon: Layers },
+                { id: 'landing-customizer', label: 'Landing Page Customizer', urdu: 'ہوم پیج بینرز', icon: Edit3 }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setAdminTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                      adminTab === t.id
+                        ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {activeCategory === 'payments' && (
+            <>
+              {[
+                { id: 'admin-payment-methods', label: '💳 EasyPaisa, JazzCash & Duration Setup', urdu: 'ایڈمن اکاؤنٹس اور دن', icon: CreditCard, isNew: true },
+                { id: 'payment-proofs', label: `Receipt Proofs Verification (${currentTransactions.filter(t => t.status === 'Pending').length})`, urdu: 'رسیدوں کی تصدیق', icon: Receipt },
+                { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس', icon: DollarSign },
+                { id: 'fee-logs', label: `Per-Job Fee Logs (${jobPostingFeeLogs.length})`, urdu: 'فیس لین دین', icon: Receipt },
+                { id: 'currency-forex', label: 'Multi-Currency & Forex', urdu: 'کرنسی ایکسچینج', icon: Coins }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setAdminTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                      adminTab === t.id
+                        ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                    {t.isNew && (
+                      <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 text-[9px] font-black">
+                        NEW
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {activeCategory === 'users' && (
+            <>
+              {[
+                { id: 'user-audit', label: `User Directory (${users.length})`, urdu: 'صارفین کی فہرست', icon: Users },
+                { id: 'employer-kyc', label: `Employer KYC Verification (${kycRequests.filter(r => r.status === 'Pending').length})`, urdu: 'شناختی تصدیق', icon: BadgeCheck },
+                { id: 'subscribers', label: `Paid Subscribers (${subscribers.length})`, urdu: 'سبسکرائبرز', icon: DollarSign },
+                { id: 'chat-hub', label: `User Support Chat Hub (${chatMessages.length})`, urdu: 'چیٹ ان باکس', icon: MessageSquare }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setAdminTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                      adminTab === t.id
+                        ? 'bg-purple-500 text-white font-black shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {activeCategory === 'alerts' && (
+            <>
+              {[
+                { id: 'whatsapp-manager', label: '💬 WhatsApp Support & Alerts Hub', urdu: 'واٹس ایپ الرٹس', icon: MessageSquare },
+                { id: 'broadcast-center', label: '📣 Email & WhatsApp Broadcasts', urdu: 'براڈکاسٹ میسجز', icon: Send },
+                { id: 'bulk-notifications', label: '🚀 Pro Bulk Notification Tool', urdu: 'بلک نوٹیفکیشنز', icon: Send }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setAdminTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                      adminTab === t.id
+                        ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {activeCategory === 'settings' && (
+            <>
+              {[
+                { id: 'seo-config', label: '🌐 Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او', icon: Globe },
+                { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز', icon: Settings },
+                { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم سیٹنگز', icon: Edit3 },
+                { id: 'activity-logs', label: 'Security & Activity Trail', urdu: 'سیکیورٹی لاگز', icon: ShieldCheck },
+                { id: 'data-backup', label: 'Data Vault & CSV Backup', urdu: 'بیک اپ اور ایکسپورٹ', icon: Database },
+                { id: 'analytics', label: 'Executive Analytics & KPIs', urdu: 'اینالیٹکس رپورٹس', icon: BarChart3 }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setAdminTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                      adminTab === t.id
+                        ? 'bg-indigo-500 text-white font-black shadow-md'
+                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </div>
       </div>
+
+      {/* 3-DOT ALL MODULES QUICK MODAL OVERLAY */}
+      {showAllModulesMenu && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-6 shadow-2xl space-y-5 text-white max-h-[90vh] flex flex-col animate-fadeIn">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <MoreVertical className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white flex items-center space-x-2">
+                    <span>Admin Control Hub: All Modules (تمام ماڈیولز)</span>
+                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[10px] font-bold">
+                      Quick Switcher
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Filter by module name or purpose to jump instantly without horizontal scrolling.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAllModulesMenu(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Instant Filter Search Bar */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
+              <input
+                type="text"
+                value={moduleSearchQuery}
+                onChange={(e) => setModuleSearchQuery(e.target.value)}
+                placeholder="Search any module by English or Urdu keywords (e.g. 'jazzcash', 'scraper', 'seo', 'fees', 'whatsapp', 'kyc')..."
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 shadow-inner"
+                autoFocus
+              />
+            </div>
+
+            {/* Modules Grid */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-5">
+              {[
+                {
+                  catTitle: '💼 Jobs & Vacancies (ملازمتیں اور پوسٹس)',
+                  items: [
+                    { id: 'jobs', label: 'Live Listings', urdu: 'لائیو نوکریاں', icon: Briefcase, badge: `${jobs.length} Active` },
+                    { id: 'pending', label: 'Pending Approvals Queue', urdu: 'منظوری کی منتظر نوکریاں', icon: Clock, badge: `${pendingJobs.length} Pending` },
+                    { id: 'add-job', label: 'Post Manual Job', urdu: 'نئی جاب شامل کریں', icon: Plus },
+                    { id: 'ai-enhancer', label: 'AI Quality & Spam Guard', urdu: 'کوالٹی اور اسپیم چیکر', icon: Sparkles }
+                  ]
+                },
+                {
+                  catTitle: '🤖 Web Scrapers & Gazettes (سکریپرز اور گزٹس)',
+                  items: [
+                    { id: 'url-scraper', label: 'Instant URL Scraper & Bulk Actions', urdu: 'براہِ راست لنک سے سکریپ اور بلک', icon: Globe, badge: 'NEW' },
+                    { id: 'scraper', label: 'Automated Scraper Controller', urdu: 'خودکار ویب سکریپر پورٹلز', icon: Bot },
+                    { id: 'scraped-history', label: 'Ingested Jobs Feed & Audit', urdu: 'حاصل کردہ جاب فیڈ', icon: History, badge: `${scrapedAuditLogs.length} Logs` }
+                  ]
+                },
+                {
+                  catTitle: '📢 Ads & Campaigns (اشتہارات اور کیمپینز)',
+                  items: [
+                    { id: 'campaign-center', label: 'Visual Campaign Center', urdu: 'اشتہاری کیمپین کمانڈ سنٹر', icon: Megaphone, badge: `${ads.filter(a => a.status === 'active').length} Live` },
+                    { id: 'advertisements', label: 'Ad Hub & Banner Slots', urdu: 'اشتہاری بینر سلاٹس', icon: Layers },
+                    { id: 'landing-customizer', label: 'Landing Page Customizer', urdu: 'ہوم پیج بینر ڈیزائنر', icon: Edit3 }
+                  ]
+                },
+                {
+                  catTitle: '💳 Payments, Fees & Durations (ادائیگیاں، فیس اور پیکیجز)',
+                  items: [
+                    { id: 'admin-payment-methods', label: 'EasyPaisa, JazzCash & Durations Setup', urdu: 'ایڈمن کے اکاؤنٹس اور دن (1-دن، 1-ہفتہ، 15-دن، 20-دن)', icon: CreditCard, badge: 'NEW' },
+                    { id: 'payment-proofs', label: 'Payment Receipts Verification', urdu: 'رسیدوں کی تصدیق', icon: Receipt, badge: `${currentTransactions.filter(t => t.status === 'Pending').length} Proofs` },
+                    { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس اور رعایتیں', icon: DollarSign },
+                    { id: 'fee-logs', label: 'Per-Job Fee Transaction Logs', urdu: 'فیس لین دین کا مکمل ریکارڈ', icon: Receipt, badge: `${jobPostingFeeLogs.length} Records` },
+                    { id: 'currency-forex', label: 'Multi-Currency & Forex', urdu: 'کرنسی ایکسچینج ریٹس', icon: Coins }
+                  ]
+                },
+                {
+                  catTitle: '👥 Users, KYC & Support (صارفین اور تصدیق)',
+                  items: [
+                    { id: 'user-audit', label: 'User Directory & Profiles', urdu: 'تمام صارفین کی فہرست', icon: Users, badge: `${users.length} Users` },
+                    { id: 'employer-kyc', label: 'Employer KYC Verification', urdu: 'کمپنی شناختی تصدیق', icon: BadgeCheck, badge: `${kycRequests.filter(r => r.status === 'Pending').length} KYC` },
+                    { id: 'subscribers', label: 'Paid Subscribers', urdu: 'سبسکرائبرز', icon: DollarSign, badge: `${subscribers.length} Members` },
+                    { id: 'chat-hub', label: 'User Support Chat Hub', urdu: 'چیٹ سپورٹ ان باکس', icon: MessageSquare, badge: `${chatMessages.length} Chats` }
+                  ]
+                },
+                {
+                  catTitle: '📣 Alerts & Broadcasts (الرٹس اور پیغامات)',
+                  items: [
+                    { id: 'whatsapp-manager', label: 'WhatsApp Alerts & Proofs Hub', urdu: 'واٹس ایپ الرٹس مینجر', icon: MessageSquare },
+                    { id: 'broadcast-center', label: 'Broadcast Campaigns (Email/SMS)', urdu: 'براڈکاسٹ پیغامات', icon: Send },
+                    { id: 'bulk-notifications', label: 'Pro Bulk Notification Tool', urdu: 'بلک نوٹیفکیشنز', icon: Send }
+                  ]
+                },
+                {
+                  catTitle: '⚙️ Settings, SEO & Vault (سیٹنگز اور گوگل ایس ای او)',
+                  items: [
+                    { id: 'seo-config', label: 'Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او اور میٹا ٹیگز', icon: Globe },
+                    { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز اور فیس', icon: Settings },
+                    { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم فیلڈز سیٹنگ', icon: Edit3 },
+                    { id: 'activity-logs', label: 'Security & Activity Trail', urdu: 'سیکیورٹی لاگز', icon: ShieldCheck },
+                    { id: 'data-backup', label: 'Data Vault & CSV Export', urdu: 'ڈیٹا بیک اپ اور ایکسپورٹ', icon: Database },
+                    { id: 'analytics', label: 'Executive Analytics & KPIs', urdu: 'اینالیٹکس اور کارکردگی', icon: BarChart3 }
+                  ]
+                }
+              ].map((cat, idx) => {
+                const q = moduleSearchQuery.toLowerCase().trim();
+                const filteredItems = cat.items.filter(
+                  (it) =>
+                    !q ||
+                    it.label.toLowerCase().includes(q) ||
+                    it.urdu.toLowerCase().includes(q) ||
+                    it.id.toLowerCase().includes(q)
+                );
+
+                if (filteredItems.length === 0) return null;
+
+                return (
+                  <div key={idx} className="space-y-2.5">
+                    <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                      {cat.catTitle}
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                      {filteredItems.map((item) => {
+                        const Icon = item.icon;
+                        const isCurrent = adminTab === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setAdminTab(item.id as any);
+                              // update category
+                              if (['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(item.id)) setActiveCategory('jobs');
+                              else if (['url-scraper', 'scraper', 'scraped-history'].includes(item.id)) setActiveCategory('scraper');
+                              else if (['campaign-center', 'advertisements', 'landing-customizer'].includes(item.id)) setActiveCategory('ads');
+                              else if (['admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'].includes(item.id)) setActiveCategory('payments');
+                              else if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(item.id)) setActiveCategory('users');
+                              else if (['whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(item.id)) setActiveCategory('alerts');
+                              else setActiveCategory('settings');
+                              setShowAllModulesMenu(false);
+                            }}
+                            className={`p-3 rounded-2xl border text-left flex items-start space-x-3 transition-all cursor-pointer ${
+                              isCurrent
+                                ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                                : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-300'
+                            }`}
+                          >
+                            <div className={`p-2 rounded-xl shrink-0 ${isCurrent ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400 border border-slate-800'}`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-xs font-bold text-white truncate block">{item.label}</span>
+                                {item.badge && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0">
+                                    {item.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">{item.urdu}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
+              <span>💡 Tip: Click any module card to navigate immediately.</span>
+              <button
+                type="button"
+                onClick={() => setShowAllModulesMenu(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl cursor-pointer"
+              >
+                Close Menu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TAB: WHATSAPP SUPPORT & ALERTS MANAGER */}
       {adminTab === 'whatsapp-manager' && (
@@ -2209,22 +2676,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       )}
 
+      {/* TAB: ADMIN PAYMENT METHODS & DURATION PRESETS MANAGER */}
+      {adminTab === 'admin-payment-methods' && (
+        <AdminPaymentMethodsManager />
+      )}
+
       {/* TAB: LIVE LANDING PAGE VISUAL BUILDER & SEQUENCE EDITOR */}
       {adminTab === 'landing-customizer' && landingConfig && onUpdateLandingConfig && (
         <LandingPageCustomizer
           config={landingConfig}
           onUpdateConfig={onUpdateLandingConfig}
-          campaignConfig={campaignConfig || {
-            placementOptions: [],
-            popupSettings: {
-              displayMode: 'sequential',
-              maxPopupsPerVisit: 99,
-              delayBetweenPopupsSec: 0.8,
-              showStackedDualOnDesktop: true,
-              allowUnlimitedQueue: true
-            },
-            promoBanners: []
-          }}
+          campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
         />
       )}
@@ -2233,17 +2695,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {adminTab === 'campaign-center' && (
         <AdminCampaignCenter
           ads={ads}
-          campaignConfig={campaignConfig || {
-            placementOptions: [],
-            popupSettings: {
-              displayMode: 'sequential',
-              maxPopupsPerVisit: 99,
-              delayBetweenPopupsSec: 0.8,
-              showStackedDualOnDesktop: true,
-              allowUnlimitedQueue: true
-            },
-            promoBanners: []
-          }}
+          campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
           onUpdateAd={onUpdateAd || (() => {})}
           onDeleteAd={onDeleteAd || (() => {})}
@@ -2328,9 +2780,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminActivityLogs
           jobs={jobs}
           users={users}
-          subscribers={subscribers}
+          feeLogs={jobPostingFeeLogs}
           ads={ads}
-          pendingJobs={pendingJobs}
         />
       )}
 
@@ -2789,6 +3240,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Edit</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setSeoPreviewJob(pJob)}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-teal-300 font-bold text-xs rounded-xl flex items-center space-x-1 border border-teal-500/30 cursor-pointer"
+                            title="Inspect SEO tags and Google Schema"
+                          >
+                            <Globe className="w-3.5 h-3.5" />
+                            <span>SEO Tag</span>
                           </button>
 
                           <button
@@ -3494,6 +3955,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         );
       })()}
+
+      {/* TAB: INSTANT URL SCRAPER & BULK DEDUPLICATION CONTROLLER */}
+      {adminTab === 'url-scraper' && (
+        <AdminUrlScraperController
+          existingLiveJobs={jobs}
+          existingPendingJobs={pendingJobs}
+          onApproveJobsToLive={(stagedJobs) => {
+            if (onBulkAddJobs) {
+              onBulkAddJobs(stagedJobs);
+            } else {
+              stagedJobs.forEach(j => onAddJob(j));
+            }
+          }}
+          onRejectJobs={(rejectedIds) => {
+            rejectedIds.forEach(id => {
+              if (onRejectJob) onRejectJob(id, 'Scraped job rejected by admin from URL Scraper Hub');
+            });
+          }}
+          onOverrideDuplicatesToLive={(overrideJobs) => {
+            if (onBulkAddJobs) {
+              onBulkAddJobs(overrideJobs);
+            } else {
+              overrideJobs.forEach(j => onAddJob(j));
+            }
+          }}
+        />
+      )}
 
       {/* TAB 4: AUTOMATED SCRAPER & CRON SCHEDULER CONTROLLER */}
       {adminTab === 'scraper' && (
@@ -6349,6 +6837,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                               <button
                                 type="button"
+                                onClick={() => setSeoPreviewJob(j)}
+                                className="p-1.5 bg-teal-600/20 hover:bg-teal-600 text-teal-300 hover:text-white rounded-lg border border-teal-500/30 cursor-pointer transition-all"
+                                title="View Google Search SEO & JSON-LD Metadata"
+                              >
+                                <Globe className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
                                 onClick={() => {
                                   setEditingJob(j);
                                   setIsJobQuickEditOpen(true);
@@ -7667,9 +8164,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {selectedUserForModal && (
         <UserDetailModal
           user={selectedUserForModal}
-          allJobs={jobs.concat(pendingJobs)}
-          allApplications={allApplications}
-          allTransactions={selectedUserForModal.transactions || []}
+          userJobs={jobs.concat(pendingJobs).filter(j => j.submittedByUserId === selectedUserForModal.id || j.company.toLowerCase() === selectedUserForModal.companyName?.toLowerCase())}
+          userApplications={allApplications.filter(a => a.applicantId === selectedUserForModal.id)}
           onClose={() => setSelectedUserForModal(null)}
           onUpdateUserExpiry={onUpdateUserExpiry}
           onToggleUserPlan={onToggleUserPlan}
@@ -7686,7 +8182,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {selectedJobForModal && (
         <AdminJobDetailModal
           job={selectedJobForModal}
-          posterUser={users.find(u => u.name.toLowerCase() === selectedJobForModal.company.toLowerCase() || u.email.toLowerCase() === selectedJobForModal.company.toLowerCase()) || users[0]}
+          users={users}
+          feeLogs={jobPostingFeeLogs}
           onClose={() => setSelectedJobForModal(null)}
           onApproveJob={(id) => {
             onApproveJob(id);
@@ -7694,10 +8191,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }}
           onRejectJob={(id, reason) => {
             onRejectJob(id, reason);
-            setSelectedJobForModal(null);
-          }}
-          onDeleteJob={(id) => {
-            onDeleteJob(id);
             setSelectedJobForModal(null);
           }}
           onSuspendJob={onSuspendJob}
@@ -7866,6 +8359,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           newJobs.forEach(j => onAddJob(j));
         }}
       />
+
+      {/* GOOGLE SEO & JSON-LD SCHEMA PREVIEW MODAL */}
+      {seoPreviewJob && (
+        <JobSeoPreviewModal
+          job={seoPreviewJob}
+          isOpen={!!seoPreviewJob}
+          onClose={() => setSeoPreviewJob(null)}
+        />
+      )}
 
     </div>
   );

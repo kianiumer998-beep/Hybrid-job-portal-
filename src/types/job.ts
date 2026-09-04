@@ -90,6 +90,7 @@ export interface UserAccount {
   phone?: string;
   address?: string;
   bio?: string;
+  skills?: string[];
   plan: 'Free' | 'Premium';
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue';
   membershipStatus?: 'Active' | 'Revoked' | 'Expired' | 'Unpaid';

@@ -52,7 +52,9 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
   const [applicantEmail, setApplicantEmail] = useState('');
   const [applicantPhone, setApplicantPhone] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
+  const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvFileName, setCvFileName] = useState('');
+  const [cvFileUrl, setCvFileUrl] = useState('');
   const [customAnswers, setCustomAnswers] = useState<Record<string, any>>({});
   const [submitting, setSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -67,6 +69,9 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
         setApplicantPhone(currentUser.phone || '');
         if ((currentUser as any).cvDocument) {
           setCvFileName((currentUser as any).cvDocument.name || 'Profile_Resume.pdf');
+          if ((currentUser as any).cvDocument.url) {
+            setCvFileUrl((currentUser as any).cvDocument.url);
+          }
         }
       }
       setIsSuccess(false);
@@ -90,9 +95,22 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setCvFileName(file.name);
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['pdf', 'doc', 'docx'].includes(ext || '')) {
+      setErrorMessage('Please upload a PDF, DOC, or DOCX document.');
+      return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMessage('File size exceeds 5MB limit. Please upload a smaller file.');
+      return;
+    }
+
+    setErrorMessage('');
+    setCvFile(file);
+    setCvFileName(file.name);
   };
 
   const handleCustomAnswerChange = (questionId: string, value: any) => {
@@ -113,8 +131,8 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
       return;
     }
 
-    if (settings.requireCv && !cvFileName) {
-      setErrorMessage('Please upload your CV / resume.');
+    if (settings.requireCv && !cvFile && !cvFileUrl) {
+      setErrorMessage('Please upload your CV / resume (PDF or Word document).');
       return;
     }
 
@@ -131,6 +149,20 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
     setSubmitting(true);
 
     try {
+      let finalCvUrl = cvFileUrl;
+
+      // Real CV upload if a new file was chosen
+      if (cvFile) {
+        const uploadRes = await api.applications.uploadCv(cvFile);
+        if (uploadRes.success && uploadRes.fileUrl) {
+          finalCvUrl = uploadRes.fileUrl;
+        } else {
+          setErrorMessage(uploadRes.message || 'Failed to upload CV to server.');
+          setSubmitting(false);
+          return;
+        }
+      }
+
       const appPayload = {
         jobId: job.id,
         jobTitle: job.title,
@@ -141,6 +173,7 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
         applicantPhone: applicantPhone.trim(),
         coverLetter: coverLetter.trim(),
         cvFileName: cvFileName || 'Resume.pdf',
+        cvFileUrl: finalCvUrl,
         answers: customAnswers
       };
 

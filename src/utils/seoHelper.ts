@@ -45,8 +45,28 @@ export function generateJobSeoMetadata(job: Job, siteBaseUrl = 'https://pakjobsp
   const slug = cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   const canonicalUrl = `${siteBaseUrl}/jobs/${job.id}-${slug}`;
 
+  // Parse salary if available and valid
+  let baseSalary: any = undefined;
+  if (job.salary && job.salary.toLowerCase() !== 'salary not disclosed' && job.salary.toLowerCase() !== 'negotiable') {
+    const numbers = job.salary.replace(/,/g, '').match(/\d+/g);
+    if (numbers && numbers.length > 0) {
+      const minVal = parseInt(numbers[0], 10);
+      const maxVal = numbers.length > 1 ? parseInt(numbers[1], 10) : minVal;
+      baseSalary = {
+        '@type': 'MonetaryAmount',
+        currency: job.currency || (job.salary.includes('$') ? 'USD' : 'PKR'),
+        value: {
+          '@type': 'QuantitativeValue',
+          minValue: minVal,
+          maxValue: maxVal,
+          unitText: job.salary.toLowerCase().includes('hour') ? 'HOUR' : job.salary.toLowerCase().includes('year') ? 'YEAR' : 'MONTH'
+        }
+      };
+    }
+  }
+
   // 4. Schema.org JobPosting JSON-LD for Google Jobs Carousels
-  const jsonLd = {
+  const jsonLd: Record<string, any> = {
     '@context': 'https://schema.org/',
     '@type': 'JobPosting',
     title: job.title,
@@ -56,8 +76,8 @@ export function generateJobSeoMetadata(job: Job, siteBaseUrl = 'https://pakjobsp
       name: job.company,
       value: job.id
     },
-    datePosted: new Date().toISOString().split('T')[0],
-    validThrough: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    datePosted: job.scrapedAt ? job.scrapedAt.split(' ')[0] : new Date().toISOString().split('T')[0],
+    validThrough: (job as any).deadline ? (job as any).deadline : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     employmentType: 'FULL_TIME',
     applicantLocationRequirements: job.jobType === 'Remote' ? {
       '@type': 'Country',
@@ -77,17 +97,12 @@ export function generateJobSeoMetadata(job: Job, siteBaseUrl = 'https://pakjobsp
         addressRegion: job.province || 'Punjab',
         addressCountry: 'PK'
       }
-    },
-    baseSalary: {
-      '@type': 'MonetaryAmount',
-      currency: 'PKR',
-      value: {
-        '@type': 'QuantitativeValue',
-        value: 100000,
-        unitText: 'MONTH'
-      }
     }
   };
+
+  if (baseSalary) {
+    jsonLd.baseSalary = baseSalary;
+  }
 
   return {
     metaTitle,

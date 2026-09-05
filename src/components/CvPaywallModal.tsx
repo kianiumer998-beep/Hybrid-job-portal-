@@ -68,7 +68,7 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
           </button>
 
           <p className="text-[11px] text-slate-500">
-            Easypaisa / JazzCash / Card Instant Simulation
+            Secure payment verification via Easypaisa, JazzCash & Bank Transfer
           </p>
         </div>
 

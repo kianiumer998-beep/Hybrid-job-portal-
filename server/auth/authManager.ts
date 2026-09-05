@@ -52,9 +52,20 @@ export function verifyToken(token: string): any | null {
   }
 }
 
-// Development / Testing Admin Authenticator (Preserves Rule 2)
+// Development / Testing Admin Authenticator (Controlled via environment & test-mode logic)
 export function verifyAdminDevPasskey(passkey: string): boolean {
-  return passkey === ADMIN_DEV_PASSKEY || passkey === 'admin123';
+  if (!passkey) return false;
+  
+  // In production environments, dev passkey bypass is disabled unless explicitly permitted for staging/testing
+  const isProduction = process.env.NODE_ENV === 'production';
+  const allowDevPasskey = process.env.ALLOW_DEV_PASSKEY === 'true' || !isProduction;
+
+  if (!allowDevPasskey) {
+    return false;
+  }
+
+  const expectedKey = process.env.ADMIN_DEV_PASSKEY || 'admin123';
+  return passkey === expectedKey || passkey === 'admin123';
 }
 
 export function createAdminDevSession(): { user: any; token: string } {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, CheckCircle2, Sparkles, Phone, Mail, ShieldCheck, Zap, Lock, CreditCard, ArrowRight } from 'lucide-react';
 import { Subscriber } from '../types/job';
+import { api } from '../services/api';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
@@ -23,40 +24,67 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [trxId, setTrxId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successState, setSuccessState] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !phone || !email) {
-      alert('Please fill out your Name, Phone (WhatsApp), and Email.');
+    setErrorMessage('');
+    if (!name.trim() || !phone.trim() || !email.trim()) {
+      setErrorMessage('Please fill out your Name, Phone (WhatsApp), and Email.');
       return;
     }
 
     setIsSubmitting(true);
+    const amountPaid = plan === 'Pro Alerts' ? 300 : 800;
+    const finalTrxId = trxId.trim() || `SUB-${Date.now().toString(36).toUpperCase()}`;
 
-    setTimeout(() => {
-      const newSub: Subscriber = {
-        id: 'sub-' + Date.now(),
-        name,
-        phone,
-        email,
-        plan,
-        paymentMethod,
-        amountPaid: plan === 'Pro Alerts' ? 300 : 800,
+    try {
+      // 1. Submit real transaction to backend
+      const txRes = await api.transactions.submit({
+        amount: amountPaid,
         currency: 'PKR',
-        status: 'Active',
-        subscribedAt: new Date().toISOString(),
-        whatsappEnabled: true
-      };
+        type: `Subscription: ${plan}`,
+        paymentMethod,
+        transactionId: finalTrxId,
+        senderName: name.trim(),
+        senderPhoneOrAccount: phone.trim(),
+        userEmail: email.trim(),
+        userName: name.trim(),
+        jobTitleRef: initialSelectedJobTitle || undefined,
+        idempotencyKey: `sub-${email.trim().toLowerCase()}-${Date.now()}`
+      });
 
+      if (txRes && (txRes.success || txRes.transaction)) {
+        const newSub: Subscriber = {
+          id: 'sub-' + Date.now(),
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
+          plan,
+          paymentMethod,
+          amountPaid,
+          currency: 'PKR',
+          status: 'Active',
+          subscribedAt: new Date().toISOString(),
+          whatsappEnabled: true
+        };
+
+        setIsSubmitting(false);
+        setSuccessState(true);
+
+        setTimeout(() => {
+          onSubscribeSuccess(newSub);
+        }, 1500);
+      } else {
+        setErrorMessage(txRes?.message || 'Could not record payment. Please check details and try again.');
+        setIsSubmitting(false);
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error processing payment transaction.');
       setIsSubmitting(false);
-      setSuccessState(true);
-
-      setTimeout(() => {
-        onSubscribeSuccess(newSub);
-      }, 1500);
-    }, 1000);
+    }
   };
 
   return (
@@ -208,6 +236,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             </div>
 
             {/* Input Details */}
+            {errorMessage && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400">
+                {errorMessage}
+              </div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1">Full Name</label>

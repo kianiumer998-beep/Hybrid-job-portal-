@@ -1,21 +1,22 @@
 import { Router } from 'express';
-import { Database, generateJobSlug } from '../db/database';
+import { generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdmin } from '../auth/authManager';
+import { JobRepository, AuditRepository } from '../db/repositories';
 
 export const jobRouter = Router();
 
 // 1. Get Live Approved Jobs with Query Filters & Pagination
 jobRouter.get('/', (req, res) => {
   try {
-    const { 
-      search, 
-      jobType, 
-      region, 
-      province, 
-      city, 
-      experienceLevel, 
-      salaryMin, 
+    const {
+      search,
+      jobType,
+      region,
+      province,
+      city,
+      experienceLevel,
+      salaryMin,
       sortBy,
       isGovt,
       isUrgent,
@@ -24,92 +25,29 @@ jobRouter.get('/', (req, res) => {
       limit = '50'
     } = req.query as Record<string, string>;
 
-    let jobs = Database.getJobs().filter(j => j.status === 'Approved' || (!j.status && !j.isSuspended));
-
-    // Filter by text search
-    if (search && search.trim()) {
-      const q = search.toLowerCase().trim();
-      jobs = jobs.filter(j => 
-        (j.title && j.title.toLowerCase().includes(q)) ||
-        (j.company && j.company.toLowerCase().includes(q)) ||
-        (j.department && j.department.toLowerCase().includes(q)) ||
-        (j.description && j.description.toLowerCase().includes(q)) ||
-        (j.tags && j.tags.some((t: string) => t.toLowerCase().includes(q)))
-      );
-    }
-
-    // Filter by jobType
-    if (jobType && jobType !== 'All') {
-      jobs = jobs.filter(j => j.jobType === jobType);
-    }
-
-    // Filter by region
-    if (region && region !== 'All') {
-      jobs = jobs.filter(j => j.region === region);
-    }
-
-    // Filter by province
-    if (province && province !== 'All') {
-      jobs = jobs.filter(j => j.province === province);
-    }
-
-    // Filter by city
-    if (city && city !== 'All') {
-      jobs = jobs.filter(j => j.city === city);
-    }
-
-    // Filter by experience level
-    if (experienceLevel && experienceLevel !== 'All') {
-      jobs = jobs.filter(j => j.experienceLevel === experienceLevel);
-    }
-
-    // Filter by minimum salary
-    if (salaryMin && Number(salaryMin) > 0) {
-      const minVal = Number(salaryMin);
-      jobs = jobs.filter(j => (j.salaryNumericMin || 0) >= minVal);
-    }
-
-    // Filter by Government flag
-    if (isGovt === 'true') {
-      jobs = jobs.filter(j => j.isGovtJob);
-    }
-
-    // Filter by Urgent / Featured
-    if (isUrgent === 'true') {
-      jobs = jobs.filter(j => j.urgent);
-    }
-    if (isFeatured === 'true') {
-      jobs = jobs.filter(j => j.featured || j.isPinnedTop);
-    }
-
-    // Sort order
-    if (sortBy === 'salary-high') {
-      jobs.sort((a, b) => (b.salaryNumericMin || 0) - (a.salaryNumericMin || 0));
-    } else if (sortBy === 'salary-low') {
-      jobs.sort((a, b) => (a.salaryNumericMin || 0) - (b.salaryNumericMin || 0));
-    } else if (sortBy === 'popular') {
-      jobs.sort((a, b) => (b.applicationsCount || 0) - (a.applicationsCount || 0));
-    } else {
-      // Default: Pinned first, then latest
-      jobs.sort((a, b) => {
-        if (a.isPinnedTop && !b.isPinnedTop) return -1;
-        if (!a.isPinnedTop && b.isPinnedTop) return 1;
-        return (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime());
-      });
-    }
-
-    const total = jobs.length;
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
-    const paginated = jobs.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+    const result = JobRepository.getAll({
+      search,
+      jobType,
+      region,
+      province,
+      city,
+      experienceLevel,
+      salaryMin: salaryMin ? Number(salaryMin) : undefined,
+      sortBy,
+      isGovt: isGovt === 'true',
+      isUrgent: isUrgent === 'true',
+      isFeatured: isFeatured === 'true',
+      page: parseInt(page, 10) || 1,
+      limit: parseInt(limit, 10) || 50
+    });
 
     res.json({
       success: true,
-      total,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(total / limitNum),
-      jobs: paginated
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: Math.ceil(result.total / result.limit),
+      jobs: result.jobs
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching jobs' });
@@ -118,7 +56,7 @@ jobRouter.get('/', (req, res) => {
 
 // 2. Get Single Job by ID
 jobRouter.get('/:id', (req, res) => {
-  const job = Database.getJobById(req.params.id);
+  const job = JobRepository.getById(req.params.id) || JobRepository.getPending().find(j => j.id === req.params.id);
   if (!job) {
     return res.status(404).json({ success: false, message: 'Job posting not found.' });
   }
@@ -127,7 +65,7 @@ jobRouter.get('/:id', (req, res) => {
 
 // 3. Get Single Job by SEO Slug
 jobRouter.get('/slug/:slug', (req, res) => {
-  const job = Database.getJobBySlug(req.params.slug);
+  const job = JobRepository.getBySlug(req.params.slug);
   if (!job) {
     return res.status(404).json({ success: false, message: 'Job posting not found.' });
   }
@@ -142,19 +80,22 @@ jobRouter.post('/', (req, res) => {
       return res.status(400).json({ success: false, message: 'Job title and hiring company are required.' });
     }
 
-    // Check duplicate
-    const existing = Database.getJobs();
-    const dupCheck = detectJobDuplicate(jobData, existing);
+    // Check duplicate using authoritative duplicate engine
+    const existing = JobRepository.getAll({ limit: 1000 }).jobs;
+    const pending = JobRepository.getPending();
+    const dupCheck = detectJobDuplicate(jobData, [...existing, ...pending]);
 
-    const newJob = Database.addJob({
+    const newJob = JobRepository.create({
       ...jobData,
       slug: generateJobSlug(jobData.title, jobData.city, jobData.id),
       isDuplicate: dupCheck.isDuplicate,
       duplicateScore: dupCheck.confidence,
-      duplicateMatchReason: dupCheck.reason
+      duplicateCategory: dupCheck.duplicateCategory,
+      duplicateMatchReason: dupCheck.reason,
+      duplicateOfJobId: dupCheck.matchedExistingJob?.id
     });
 
-    Database.addAuditLog({
+    AuditRepository.add({
       user: req.body.submittedByName || 'Employer / Admin',
       role: 'Job Poster',
       action: 'Job Created',
@@ -171,11 +112,11 @@ jobRouter.post('/', (req, res) => {
 // 5. Update Job
 jobRouter.put('/:id', requireAdmin, (req, res) => {
   try {
-    const updated = Database.updateJob(req.params.id, req.body);
+    const updated = JobRepository.update(req.params.id, req.body);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
     }
-    Database.addAuditLog({
+    AuditRepository.add({
       user: 'Administrator',
       role: 'Admin',
       action: 'Job Updated',
@@ -190,11 +131,19 @@ jobRouter.put('/:id', requireAdmin, (req, res) => {
 
 // 6. Delete Job
 jobRouter.delete('/:id', requireAdmin, (req, res) => {
-  const deleted = Database.deleteJob(req.params.id);
-  if (!deleted) {
+  const deleted = JobRepository.delete(req.params.id);
+  // Also try deleting from pending queue
+  const pending = JobRepository.getPending();
+  const pendingIdx = pending.findIndex(p => p.id === req.params.id);
+  if (pendingIdx !== -1) {
+    JobRepository.rejectPending(req.params.id, 'Deleted by administrator');
+  }
+
+  if (!deleted && pendingIdx === -1) {
     return res.status(404).json({ success: false, message: 'Job not found.' });
   }
-  Database.addAuditLog({
+
+  AuditRepository.add({
     user: 'Administrator',
     role: 'Admin',
     action: 'Job Deleted',
@@ -206,17 +155,17 @@ jobRouter.delete('/:id', requireAdmin, (req, res) => {
 
 // 7. Get Pending Jobs Queue
 jobRouter.get('/queue/pending', requireAdmin, (req, res) => {
-  const pending = Database.getPendingJobs();
+  const pending = JobRepository.getPending();
   res.json({ success: true, pendingJobs: pending });
 });
 
 // 8. Approve Pending Job
 jobRouter.post('/queue/pending/:id/approve', requireAdmin, (req, res) => {
-  const approved = Database.approvePendingJob(req.params.id);
+  const approved = JobRepository.approvePending(req.params.id);
   if (!approved) {
     return res.status(404).json({ success: false, message: 'Pending job not found.' });
   }
-  Database.addAuditLog({
+  AuditRepository.add({
     user: 'Administrator',
     role: 'Job Moderator',
     action: 'Job Approved & Published Live',
@@ -228,11 +177,11 @@ jobRouter.post('/queue/pending/:id/approve', requireAdmin, (req, res) => {
 
 // 9. Reject Pending Job
 jobRouter.post('/queue/pending/:id/reject', requireAdmin, (req, res) => {
-  const rejected = Database.rejectPendingJob(req.params.id, req.body.reason);
+  const rejected = JobRepository.rejectPending(req.params.id, req.body.reason);
   if (!rejected) {
     return res.status(404).json({ success: false, message: 'Pending job not found.' });
   }
-  Database.addAuditLog({
+  AuditRepository.add({
     user: 'Administrator',
     role: 'Job Moderator',
     action: 'Job Rejected',
@@ -245,36 +194,106 @@ jobRouter.post('/queue/pending/:id/reject', requireAdmin, (req, res) => {
 // 10. Multi-Signal Duplicate Detection on Demand
 jobRouter.post('/detect-duplicates', (req, res) => {
   const candidateJob = req.body;
-  const existing = Database.getJobs();
-  const pending = Database.getPendingJobs();
+  const existing = JobRepository.getAll({ limit: 1000 }).jobs;
+  const pending = JobRepository.getPending();
   const result = detectJobDuplicate(candidateJob, [...existing, ...pending]);
   res.json({ success: true, result });
 });
 
-// 11. Intelligent Merge of Duplicates
+// 11. Override Duplicate Decision (Admin Only)
+jobRouter.post('/override-duplicate', requireAdmin, (req, res) => {
+  try {
+    const { jobId, reason = 'Manually verified as distinct vacancy by administrator' } = req.body;
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'jobId is required.' });
+    }
+
+    let job = JobRepository.getById(jobId);
+    let isLive = true;
+    if (!job) {
+      job = JobRepository.getPending().find(j => j.id === jobId);
+      isLive = false;
+    }
+
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const previousDuplicateInfo = {
+      isDuplicate: job.isDuplicate,
+      duplicateScore: job.duplicateScore,
+      duplicateCategory: job.duplicateCategory,
+      duplicateOfJobId: job.duplicateOfJobId
+    };
+
+    const updates = {
+      isDuplicate: false,
+      duplicateScore: 0,
+      duplicateCategory: 'NONE',
+      duplicateMatchReason: `Overridden by admin: ${reason}`,
+      duplicateOverriddenAt: new Date().toISOString(),
+      duplicateOverriddenReason: reason
+    };
+
+    if (isLive) {
+      JobRepository.update(jobId, updates);
+    } else {
+      const pending = JobRepository.getPending();
+      const idx = pending.findIndex(j => j.id === jobId);
+      if (idx !== -1) {
+        pending[idx] = { ...pending[idx], ...updates };
+        // Save back pending
+        const { Database } = require('../db/database');
+        Database.savePendingJobs(pending);
+      }
+    }
+
+    AuditRepository.add({
+      user: 'Administrator',
+      role: 'Quality Assurance',
+      action: 'Duplicate Decision Overridden',
+      target: `Job ${job.title} (${jobId})`,
+      status: 'Success',
+      metadata: {
+        reason,
+        previousState: previousDuplicateInfo
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Duplicate status cleared successfully. Job is now classified as unique.',
+      job: { ...job, ...updates }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error overriding duplicate' });
+  }
+});
+
+// 12. Intelligent Merge of Duplicates
 jobRouter.post('/merge', requireAdmin, (req, res) => {
   const { primaryJobId, secondaryJobId } = req.body;
-  const primary = Database.getJobById(primaryJobId) || Database.getPendingJobs().find(j => j.id === primaryJobId);
-  const secondary = Database.getJobById(secondaryJobId) || Database.getPendingJobs().find(j => j.id === secondaryJobId);
+  const primary = JobRepository.getById(primaryJobId) || JobRepository.getPending().find(j => j.id === primaryJobId);
+  const secondary = JobRepository.getById(secondaryJobId) || JobRepository.getPending().find(j => j.id === secondaryJobId);
 
   if (!primary || !secondary) {
     return res.status(400).json({ success: false, message: 'Both primary and secondary jobs must exist to merge.' });
   }
 
   const merged = mergeJobRecords(primary, secondary);
-  Database.updateJob(primaryJobId, merged);
+  JobRepository.update(primaryJobId, merged);
 
   // If secondary was in pending or live, mark/remove as merged
-  Database.deleteJob(secondaryJobId);
-  const remainingPending = Database.getPendingJobs().filter(j => j.id !== secondaryJobId);
-  Database.savePendingJobs(remainingPending);
+  JobRepository.delete(secondaryJobId);
+  JobRepository.rejectPending(secondaryJobId, `Merged into job ${primaryJobId}`);
 
-  Database.addAuditLog({
+  AuditRepository.add({
     user: 'Administrator',
     role: 'Admin',
     action: 'Jobs Merged Intelligently',
-    target: `Merged ${secondary.title} into ${primary.title}`,
-    status: 'Success'
+    target: `Merged ${secondary.title} (${secondaryJobId}) into ${primary.title} (${primaryJobId})`,
+    status: 'Success',
+    metadata: { primaryJobId, secondaryJobId }
   });
 
   res.json({ success: true, job: merged, message: 'Jobs merged successfully with preserved metadata!' });

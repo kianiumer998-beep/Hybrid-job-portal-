@@ -29,6 +29,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { Job, Region, ScrapedJobAuditEntry, ScraperBatchRun } from '../../types/job';
+import { api } from '../../services/api';
 
 export interface ScraperSourceItem {
   id: string;
@@ -207,7 +208,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   };
 
   // Run Scraper Engine on Selected Sites with Date/Time filter applied
-  const handleRunSelectedScrapers = (overrideSourceIds?: string[]) => {
+  const handleRunSelectedScrapers = async (overrideSourceIds?: string[]) => {
     const targetIds = overrideSourceIds || selectedSourceIds;
     if (targetIds.length === 0) {
       alert('براہِ کرم پہلے کم از کم ایک سائٹ منتخب کریں۔ (Please select at least one portal)');
@@ -218,197 +219,102 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     if (selectedSources.length === 0) return;
 
     setIsScrapingActive(true);
-    setScrapingProgress(10);
+    setScrapingProgress(15);
     setCurrentScrapingSource(selectedSources[0].name);
 
     // Calculate cutoff date string based on dateFilterMode
     let cutoffDescription = 'Any time';
-    if (dateFilterMode === '24h') cutoffDescription = 'Past 24 Hours (پچھلے 24 گھنٹے)';
-    else if (dateFilterMode === '3d') cutoffDescription = 'Past 3 Days (پچھلے 3 دن)';
-    else if (dateFilterMode === '7d') cutoffDescription = 'Past 7 Days (پچھلے ایک ہفتے کی)';
-    else if (dateFilterMode === 'custom') cutoffDescription = `After ${customDateTime}`;
+    let sinceTimestamp: string | undefined = undefined;
+    const mode: 'complete' | 'since_last' | 'custom_date' = 
+      dateFilterMode === 'all' ? 'complete' :
+      dateFilterMode === 'custom' ? 'custom_date' :
+      'since_last';
 
-    setStatusNotification(`⏳ Connecting to ${selectedSources.length} selected portals (Filter: ${cutoffDescription})...`);
+    if (dateFilterMode === '24h') {
+      cutoffDescription = 'Past 24 Hours (پچھلے 24 گھنٹے)';
+      sinceTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    } else if (dateFilterMode === '3d') {
+      cutoffDescription = 'Past 3 Days (پچھلے 3 دن)';
+      sinceTimestamp = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    } else if (dateFilterMode === '7d') {
+      cutoffDescription = 'Past 7 Days (پچھلے ایک ہفتے کی)';
+      sinceTimestamp = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    } else if (dateFilterMode === 'custom') {
+      cutoffDescription = `After ${customDateTime}`;
+      sinceTimestamp = new Date(customDateTime).toISOString();
+    }
+
+    setStatusNotification(`⏳ Querying ${selectedSources.length} selected portals via backend scraper (${cutoffDescription})...`);
 
     let currentIdx = 0;
     const progressTimer = setInterval(() => {
       setScrapingProgress((prev) => {
-        if (prev >= 85) {
-          clearInterval(progressTimer);
-          return 85;
-        }
+        if (prev >= 85) return 85;
         if (currentIdx < selectedSources.length) {
           setCurrentScrapingSource(selectedSources[currentIdx].name);
           currentIdx++;
         }
-        return prev + 15;
+        return prev + 10;
       });
-    }, 350);
+    }, 400);
 
-    setTimeout(() => {
+    try {
+      const response = await api.scraper.run({
+        mode,
+        sourceIds: targetIds,
+        sinceTimestamp,
+        autoPublishTrusted: false
+      });
+
+      clearInterval(progressTimer);
+      setScrapingProgress(100);
+      setIsScrapingActive(false);
+
+      if (response && response.success) {
+        const published = response.publishedJobs || [];
+        const pending = response.pendingJobs || [];
+        const duplicates = response.duplicateJobs || [];
+        const allNewHarvested: Job[] = [...published, ...pending];
+
+        // Notify parent state of newly published or pending jobs
+        published.forEach((j: Job) => onAddJob({ ...j, status: 'Approved' }));
+        pending.forEach((j: Job) => onAddJob({ ...j, status: 'Pending' }));
+
+        setSessionScrapedJobs((prev) => [...allNewHarvested, ...prev]);
+        setSessionApprovedCount((prev) => prev + published.length);
+        setSelectedJobIds(allNewHarvested.map((j) => j.id));
+
+        // Update scraper source stats from backend source statistics
+        if (response.sourcesStats && Array.isArray(response.sourcesStats)) {
+          setScraperSources((prev) =>
+            prev.map((s) => {
+              const stat = response.sourcesStats.find((st: any) => st.sourceId === s.id);
+              if (stat) {
+                return {
+                  ...s,
+                  lastRun: new Date().toISOString().substring(0, 16),
+                  scrapedCount: s.scrapedCount + (stat.found || 0),
+                  successRate: stat.failed ? Math.max(50, s.successRate - 10) : 100
+                };
+              }
+              return s;
+            })
+          );
+        }
+
+        setStatusNotification(
+          `✅ کامیابی! ${response.sourcesStats?.length || selectedSources.length} پورٹلز سے ${response.totalFound || 0} اسامیاں حاصل ہوئیں۔ (${published.length} لائیو، ${pending.length} جائزہ کے لیے تیار، ${duplicates.length} ڈپلیکیٹ)`
+        );
+      } else {
+        setStatusNotification(`⚠️ اسکریپر نے ایرر واپس کیا: ${response?.message || 'نامعلوم غلطی'}`);
+      }
+    } catch (err: any) {
       clearInterval(progressTimer);
       setIsScrapingActive(false);
       setScrapingProgress(100);
-
-      const now = new Date();
-      const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
-      const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-
-      const newHarvestedJobs: Job[] = [];
-      const newAuditEntries: ScrapedJobAuditEntry[] = [];
-      let newApprovedCount = 0;
-
-      selectedSources.forEach((source, index) => {
-        const domainName = source.url.replace('https://', '').replace('http://', '').split('/')[0];
-        const isGovt = source.category === 'Government Sector';
-        const isNews = source.category === 'Newspaper Classified';
-        const isRemote = source.category === 'International Remote';
-        const sampleDept = source.keywords.split(',')[0]?.trim() || (isGovt ? 'Executive Operations' : 'Technology & Engineering');
-        const scale = isGovt ? (index % 2 === 0 ? 'BPS-17' : 'BPS-16') : undefined;
-
-        // Create 2 realistic vacancies per selected portal
-        const job1: Job = {
-          id: `scraped-${source.id}-${Date.now().toString(36)}-${index}-1`,
-          title: isGovt ? `Assistant Director (${sampleDept})` : isNews ? `Urgent Staff Required - ${sampleDept}` : `Lead Specialist (${sampleDept})`,
-          company: isGovt ? `${source.name.split(' ')[0]} Commission` : isNews ? `${source.name.split(' ')[0]} Organization` : `${source.name.split(' ')[0]} Solutions`,
-          description: `Official job advertisement from ${source.name}.\n\nKey Responsibilities:\n• Deliver domain deliverables according to executive specifications.\n• Supervise project milestones and coordinate with cross-functional departments.\n• Ensure high operational quality, documentation, and compliance.`,
-          jobType: isRemote ? 'Remote' : isGovt ? 'On-site' : 'Hybrid',
-          region: source.region,
-          province: source.region === 'Pakistan' ? (index % 2 === 0 ? 'Punjab' : 'Sindh') : undefined,
-          city: source.region === 'Pakistan' ? (index % 2 === 0 ? 'Lahore' : 'Karachi') : undefined,
-          salary: isGovt ? `${scale} Pay Scale (PKR 120,000 - 180,000)` : isRemote ? '$3,500 - $5,500 / month' : 'PKR 180,000 - 280,000 / month',
-          currency: isRemote ? 'USD' : 'PKR',
-          experienceLevel: 'Mid',
-          department: sampleDept,
-          requirements: ['Bachelors or Masters from HEC recognized university', '2+ years practical domain experience', 'Strong communication skills'],
-          benefits: isGovt ? ['Official Gratuity & Pension', 'Medical Allowance', 'Government Housing Allowance'] : ['Health Insurance', 'Performance Bonus', 'Learning Stipend'],
-          applicationsCount: 0,
-          postedAt: 'Just now',
-          status: source.autoApprove ? 'Approved' : 'Pending',
-          sourceUrl: source.url,
-          scraperSourceId: source.id,
-          scraperSourceName: source.name,
-          scrapedSourceDomain: domainName,
-          scrapedAt: timestamp,
-          scrapedTime: timeFormatted,
-          jobCategory: source.category,
-          isGovtJob: isGovt,
-          govtScale: scale,
-          isNewspaperAd: isNews,
-          newspaperName: isNews ? source.name : undefined,
-          tags: [source.category, sampleDept, domainName]
-        };
-
-        const job2: Job = {
-          id: `scraped-${source.id}-${Date.now().toString(36)}-${index}-2`,
-          title: isGovt ? `Accounts & Audit Officer` : `Project Coordinator - ${sampleDept}`,
-          company: isGovt ? `Federal Department of ${sampleDept}` : `${source.name.split(' ')[0]} Enterprise`,
-          description: `Official employment vacancy announced by ${source.name}.\n\nCore Responsibilities:\n• Maintain financial ledger, process department communications, and review logs.\n• Assist senior executives in operational reporting and record-keeping.\n• Verify applicant data and execute assigned domain initiatives.`,
-          jobType: 'On-site',
-          region: source.region,
-          province: source.region === 'Pakistan' ? 'Islamabad' : undefined,
-          city: source.region === 'Pakistan' ? 'Islamabad' : undefined,
-          salary: isGovt ? 'BPS-16 Pay Scale (PKR 90,000 - 135,000)' : 'PKR 140,000 - 210,000 / month',
-          currency: 'PKR',
-          experienceLevel: 'Entry',
-          department: 'Operations & Administration',
-          requirements: ['Relevant Degree from accredited institution', 'Computer and office software proficiency'],
-          benefits: ['Medical Coverage', 'Annual Increment'],
-          applicationsCount: 0,
-          postedAt: '2 hours ago',
-          status: source.autoApprove ? 'Approved' : 'Pending',
-          sourceUrl: source.url,
-          scraperSourceId: source.id,
-          scraperSourceName: source.name,
-          scrapedSourceDomain: domainName,
-          scrapedAt: timestamp,
-          scrapedTime: timeFormatted,
-          jobCategory: source.category,
-          isGovtJob: isGovt,
-          govtScale: isGovt ? 'BPS-16' : undefined,
-          isNewspaperAd: isNews,
-          newspaperName: isNews ? source.name : undefined,
-          tags: [source.category, 'Administration', domainName]
-        };
-
-        const sourceBatch = [job1, job2];
-        sourceBatch.forEach((j) => {
-          newHarvestedJobs.push(j);
-          if (source.autoApprove) {
-            newApprovedCount++;
-            onAddJob(j); // directly live
-          } else {
-            onAddJob(j); // added to pending queue
-          }
-
-          // Create audit entry
-          newAuditEntries.push({
-            id: `audit-${j.id}`,
-            jobId: j.id,
-            batchId: `BATCH-${Date.now().toString(36)}`,
-            jobTitle: j.title,
-            company: j.company,
-            scrapedAt: timestamp,
-            scrapedTimezone: 'PKT (UTC+5)',
-            sourcePortalName: source.name,
-            sourceUrl: source.url,
-            sourceDomain: domainName,
-            category: source.category,
-            region: source.region,
-            currency: j.currency || 'PKR',
-            salaryText: j.salary,
-            status: source.autoApprove ? 'Auto-Approved' : 'Pending Review',
-            deduplicationScore: 99.2,
-            crawlLatencyMs: 240,
-            extractedTags: j.tags || [],
-            requirementsCount: j.requirements?.length || 0,
-            isGovtJob: isGovt,
-            govtScale: scale,
-            isNewspaperAd: isNews,
-            newspaperName: isNews ? source.name : undefined,
-            reviewTimeline: [
-              {
-                id: `act-${Date.now()}-1`,
-                timestamp,
-                relativeTime: 'Just now',
-                action: source.autoApprove ? 'Auto-Approved' : 'Scraped',
-                performedBy: 'Cron Scraper Engine',
-                notes: `Extracted from ${domainName} by Automated Scraper Hub`
-              }
-            ],
-            snapshot: {
-              description: j.description || '',
-              requirements: j.requirements || [],
-              benefits: j.benefits || [],
-              applyUrl: j.sourceUrl
-            }
-          });
-        });
-      });
-
-      // Update scraper sources stats
-      setScraperSources((prev) =>
-        prev.map((s) => {
-          if (targetIds.includes(s.id)) {
-            return {
-              ...s,
-              lastRun: timestamp.substring(0, 16),
-              scrapedCount: s.scrapedCount + 2
-            };
-          }
-          return s;
-        })
-      );
-
-      setSessionScrapedJobs((prev) => [...newHarvestedJobs, ...prev]);
-      setSessionApprovedCount((prev) => prev + newApprovedCount);
-      setSelectedJobIds(newHarvestedJobs.map((j) => j.id));
-      setScrapedAuditLogs((prev) => [...newAuditEntries, ...prev]);
-
-      setStatusNotification(
-        `✅ کامیابی! ${selectedSources.length} سائٹس سے ${newHarvestedJobs.length} جابز حاصل ہو گئیں۔ (${newApprovedCount} لائیو ہو گئیں، باقی جائزہ کے لیے تیار ہیں)`
-      );
-    }, 1600);
+      console.error('Backend scraper execution error:', err);
+      setStatusNotification(`❌ اسکریپر کال ناکام رہی: ${err.message || 'کنکشن ایرر'}`);
+    }
   };
 
   // Bulk Actions on Scraped Jobs

@@ -10,8 +10,8 @@ function getAuthHeader(): Record<string, string> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  // Include testing passkey for seamless developer verification
-  const passkey = localStorage.getItem('hybrid_admin_dev_passkey') || 'admin123';
+  // Only include testing passkey if admin explicitly logged in using demo credentials
+  const passkey = localStorage.getItem('hybrid_admin_dev_passkey');
   if (passkey) {
     headers['x-admin-passkey'] = passkey;
   }
@@ -37,7 +37,7 @@ export const api = {
       });
       return res.json();
     },
-    async adminLogin(passkey: string = 'admin123') {
+    async adminLogin(passkey: string) {
       const res = await fetch(`${API_BASE}/auth/admin-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -64,6 +64,7 @@ export const api = {
         });
       } catch {}
       localStorage.removeItem('hybrid_auth_token');
+      localStorage.removeItem('hybrid_admin_dev_passkey');
     }
   },
 
@@ -134,6 +135,14 @@ export const api = {
       });
       return res.json();
     },
+    async overrideDuplicate(jobId: string, reason?: string) {
+      const res = await fetch(`${API_BASE}/jobs/override-duplicate`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ jobId, reason })
+      });
+      return res.json();
+    },
     async mergeJobs(primaryJobId: string, secondaryJobId: string) {
       const res = await fetch(`${API_BASE}/jobs/merge`, {
         method: 'POST',
@@ -161,6 +170,31 @@ export const api = {
       });
       return res.json();
     },
+    async uploadCv(file: File): Promise<{ success: boolean; fileUrl?: string; fileName?: string; fileSize?: number; message?: string }> {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const base64 = reader.result as string;
+            const res = await fetch(`${API_BASE}/applications/upload-cv`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fileName: file.name,
+                fileType: file.type,
+                fileBase64: base64
+              })
+            });
+            const data = await res.json();
+            resolve(data);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read file from local system.'));
+        reader.readAsDataURL(file);
+      });
+    },
     async updateStatus(id: string, status: string, notes?: string) {
       const res = await fetch(`${API_BASE}/applications/${id}/status`, {
         method: 'PATCH',
@@ -175,6 +209,22 @@ export const api = {
   pricing: {
     async get() {
       const res = await fetch(`${API_BASE}/pricing`);
+      return res.json();
+    },
+    async calculateJob(options: any) {
+      const res = await fetch(`${API_BASE}/pricing/calculate-job`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options)
+      });
+      return res.json();
+    },
+    async calculateAd(options: any) {
+      const res = await fetch(`${API_BASE}/pricing/calculate-ad`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options)
+      });
       return res.json();
     },
     async update(pricingData: any) {
@@ -220,9 +270,12 @@ export const api = {
     async run(options: {
       mode: 'complete' | 'page_range' | 'since_last' | 'custom_date' | 'source_only';
       sourceId?: string;
+      sourceIds?: string[];
       startPage?: number;
       endPage?: number;
       sinceTimestamp?: string;
+      fromTimestamp?: string;
+      toTimestamp?: string;
       autoPublishTrusted?: boolean;
     }) {
       const res = await fetch(`${API_BASE}/scraper/run`, {

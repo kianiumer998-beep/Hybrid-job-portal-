@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Database } from '../db/database';
+import { PricingRepository, AuditRepository } from '../db/repositories';
 import { requireAdmin } from '../auth/authManager';
 
 export const pricingRouter = Router();
@@ -7,26 +7,39 @@ export const pricingRouter = Router();
 // 1. Get Complete Dynamic Pricing Configuration
 pricingRouter.get('/', (req, res) => {
   try {
-    const pricing = Database.getPricing();
+    const pricing = PricingRepository.get();
     res.json({ success: true, pricing });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching pricing' });
   }
 });
 
-// 2. Update Dynamic Pricing Configuration (Admin Only)
+// 2. Calculate Job Posting Price Server-Side (Authoritative)
+pricingRouter.post('/calculate-job', (req, res) => {
+  try {
+    const calculation = PricingRepository.calculateJobPostingPrice(req.body);
+    res.json({ success: true, calculation });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error calculating job price' });
+  }
+});
+
+// 3. Calculate Advertisement Price Server-Side (Authoritative)
+pricingRouter.post('/calculate-ad', (req, res) => {
+  try {
+    const calculation = PricingRepository.calculateAdPrice(req.body);
+    res.json({ success: true, calculation });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error calculating ad price' });
+  }
+});
+
+// 4. Update Dynamic Pricing Configuration (Admin Only)
 pricingRouter.put('/', requireAdmin, (req, res) => {
   try {
-    const current = Database.getPricing();
-    const updated = {
-      ...current,
-      ...req.body,
-      updatedAt: new Date().toISOString()
-    };
+    const updated = PricingRepository.update(req.body);
 
-    Database.savePricing(updated);
-
-    Database.addAuditLog({
+    AuditRepository.add({
       user: 'Administrator',
       role: 'Finance Manager',
       action: 'Pricing Configuration Updated',

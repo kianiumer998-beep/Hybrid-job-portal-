@@ -339,6 +339,14 @@ export class Database {
     return users[idx];
   }
 
+  static deleteUser(id: string): boolean {
+    const users = this.getUsers();
+    const filtered = users.filter((u) => u.id !== id);
+    if (filtered.length === users.length) return false;
+    this.saveUsers(filtered);
+    return true;
+  }
+
   // --- APPLICATIONS ---
   static getApplications(): any[] {
     return safeReadJson<any[]>('applications.json', [

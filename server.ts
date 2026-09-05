@@ -16,7 +16,7 @@ import { transactionRouter } from './server/routes/transactionRoutes';
 import { userRouter } from './server/routes/userRoutes';
 import { adRouter } from './server/routes/adRoutes';
 import { auditRouter } from './server/routes/auditRoutes';
-import { scrapeTargetPortal } from './src/services/scraperService';
+import { executeScraperWithWizard } from './server/services/scraperEngine';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -100,37 +100,15 @@ async function startServer() {
     const timestamp = new Date().toISOString();
     console.log(`[Cron Scheduler Engine] Running scheduled scrape cycle at ${timestamp}...`);
 
-    const sources = Database.getScraperSources();
-    for (const config of sources) {
-      if (config.status === 'Active Scheduled') {
-        try {
-          const results = await scrapeTargetPortal(config);
-          config.lastRun = timestamp.substring(0, 16);
-          config.scrapedCount = (config.scrapedCount || 0) + results.length;
-
-          // Save results to pending or live
-          for (const raw of results) {
-            const jobData = {
-              ...raw,
-              id: `cron-${config.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-              scraperSourceId: config.id,
-              scraperSourceName: config.name,
-              scrapedAt: timestamp,
-              salary: raw.salary || 'Salary not disclosed'
-            };
-
-            if (config.autoApprove) {
-              Database.addJob(jobData);
-            } else {
-              Database.addPendingJob(jobData);
-            }
-          }
-        } catch (err) {
-          console.error(`[Cron Error] Failed processing ${config.name}:`, err);
-        }
-      }
+    try {
+      const result = await executeScraperWithWizard({
+        mode: 'since_last',
+        autoPublishTrusted: featureFlags.enableScraperAutoApprove
+      });
+      console.log(`[Cron Scheduler Engine] Completed scrape run. Found: ${result.totalFound}, Published: ${result.publishedJobs.length}, Pending: ${result.pendingJobs.length}`);
+    } catch (err) {
+      console.error('[Cron Error] Scraper run failed:', err);
     }
-    Database.saveScraperSources(sources);
   });
 
   // Global Error Handler for API

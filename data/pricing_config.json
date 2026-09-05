@@ -1,0 +1,42 @@
+{
+  "jobPosting": {
+    "standardFeePkr": 1000,
+    "urgentFeePkr": 500,
+    "featuredTopFeePkr": 1500,
+    "futureJobFeePkr": 800,
+    "vipBundleFeePkr": 2500,
+    "freePostingAllowed": true,
+    "enableStandard": true,
+    "enableUrgent": true,
+    "enableFeaturedTop": true,
+    "enableFutureJob": true,
+    "enableVipBundle": true,
+    "standardDurationDays": 30,
+    "urgentDurationDays": 15,
+    "featuredTopDurationDays": 30,
+    "futureJobDurationDays": 60,
+    "vipBundleDurationDays": 45
+  },
+  "advertisements": {
+    "bannerPerDayPkr": 1500,
+    "topBannerPerDayPkr": 3000,
+    "popupPerDayPkr": 4500,
+    "feedAdPerDayPkr": 2000,
+    "featuredEmployerPerMonthPkr": 25000,
+    "allowDiscounts": true,
+    "defaultDiscountPercent": 10,
+    "minCampaignDurationDays": 3,
+    "maxCampaignDurationDays": 90
+  },
+  "subscriptions": {
+    "freeTierPrice": 0,
+    "proMonthlyPkr": 1200,
+    "vipMonthlyPkr": 3000,
+    "govtAlertsWeeklyPkr": 400
+  },
+  "cvBuilder": {
+    "standardPdfExportPkr": 0,
+    "premiumAiOptimizerPkr": 500,
+    "unlimitedTemplatesPkr": 1000
+  }
+}

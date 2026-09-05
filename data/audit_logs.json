@@ -1,0 +1,20 @@
+[
+  {
+    "id": "log-1788597278908-pvbw",
+    "timestamp": "2026-09-05T08:34:38.908Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated (Testing Passkey)",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "audit-init-1",
+    "timestamp": "2026-09-05T08:34:38.907Z",
+    "user": "System Admin",
+    "role": "Super Admin",
+    "action": "System Bootstrapped",
+    "target": "Hybrid Job Portal Database Engine",
+    "status": "Success"
+  }
+]

@@ -4,6 +4,7 @@ import { HeroSection } from './components/HeroSection';
 import { Filters } from './components/Filters';
 import { JobListings } from './components/JobListings';
 import { JobDetailModal } from './components/JobDetailModal';
+import { CandidateApplicationModal } from './components/CandidateApplicationModal';
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { CvBuilder } from './components/CvBuilder';
 import { CvPaywallModal } from './components/CvPaywallModal';
@@ -672,6 +673,7 @@ export default function App() {
 
   // Modal States
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [applyingJob, setApplyingJob] = useState<Job | null>(null);
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState<boolean>(false);
   const [selectedJobTitleForSub, setSelectedJobTitleForSub] = useState<string>('');
   const [cvPaywallOpen, setCvPaywallOpen] = useState<boolean>(false);
@@ -910,34 +912,18 @@ export default function App() {
   };
 
   const handleApplyClick = (job: Job) => {
-    if (!isSubscribed) {
-      setSelectedJobTitleForSub(job.title);
-      setSubscriptionModalOpen(true);
-    } else {
-      const newApp: JobApplication = {
-        id: 'app-' + Date.now(),
-        jobId: job.id,
-        jobTitle: job.title,
-        companyName: job.company,
-        applicantId: currentUser ? currentUser.id : 'usr-demo-1',
-        applicantName: currentUser ? currentUser.name : 'Guest Candidate',
-        applicantEmail: currentUser ? currentUser.email : 'guest@example.com',
-        appliedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        status: 'Under Review',
-        paymentStatus: 'Subscription Paid'
+    setApplyingJob(job);
+  };
+
+  const handleApplicationSubmitted = (newApp: JobApplication) => {
+    setAllApplications((prev) => [newApp, ...prev]);
+
+    if (currentUser) {
+      const updatedUser: UserAccount = {
+        ...currentUser,
+        appliedJobs: [...(currentUser.appliedJobs || []), newApp]
       };
-
-      setAllApplications(prev => [newApp, ...prev]);
-
-      if (currentUser) {
-        const updatedUser: UserAccount = {
-          ...currentUser,
-          appliedJobs: [...(currentUser.appliedJobs || []), newApp]
-        };
-        handleUpdateProfile(updatedUser);
-      }
-
-      alert(`Application Submitted! Your candidate profile has been sent to ${job.company} HR.`);
+      handleUpdateProfile(updatedUser);
     }
   };
 
@@ -1981,6 +1967,14 @@ export default function App() {
         onApply={handleApplyClick}
         isSaved={selectedJob ? savedJobIds.includes(selectedJob.id) : false}
         onToggleSave={handleToggleSaveJob}
+      />
+
+      <CandidateApplicationModal
+        isOpen={!!applyingJob}
+        onClose={() => setApplyingJob(null)}
+        job={applyingJob}
+        currentUser={currentUser}
+        onApplicationSubmitted={handleApplicationSubmitted}
       />
 
       <SubscriptionModal

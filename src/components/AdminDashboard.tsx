@@ -114,6 +114,8 @@ import { AdminActivityLogs } from './admin/AdminActivityLogs';
 import { AdminBulkNotificationTool } from './admin/AdminBulkNotificationTool';
 import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
 import { AdminPaymentVerificationHub } from './admin/AdminPaymentVerificationHub';
+import { AdminPricingController } from './admin/AdminPricingController';
+import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
 import { WhatsAppSupportConfig } from './WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
 import { LandingPageConfig } from '../types/landing';
@@ -293,6 +295,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'url-scraper'
     | 'chat-hub'
     | 'form-customizer'
+    | 'pricing-controller'
+    | 'apply-settings'
     | 'add-job'
     | 'jobs'
     | 'subscribers'
@@ -2347,6 +2351,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {activeCategory === 'payments' && (
             <>
               {[
+                { id: 'pricing-controller', label: 'Universal Pricing Controller', urdu: 'تمام فیسیں اور اشتہارات ریٹ', icon: DollarSign, isNew: true },
                 { id: 'admin-payment-methods', label: '💳 EasyPaisa, JazzCash & Duration Setup', urdu: 'ایڈمن اکاؤنٹس اور دن', icon: CreditCard, isNew: true },
                 { id: 'payment-proofs', label: `Receipt Proofs Verification (${currentTransactions.filter(t => t.status === 'Pending').length})`, urdu: 'رسیدوں کی تصدیق', icon: Receipt },
                 { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس', icon: DollarSign },
@@ -2436,6 +2441,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {activeCategory === 'settings' && (
             <>
               {[
+                { id: 'apply-settings', label: 'Apply Button & Form Flow', urdu: 'اپلائی بٹن اور سوالات', icon: FileText, isNew: true },
                 { id: 'seo-config', label: '🌐 Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او', icon: Globe },
                 { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز', icon: Settings },
                 { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم سیٹنگز', icon: Edit3 },
@@ -2704,6 +2710,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onApproveAd={onApproveAd}
           onRejectAd={onRejectAd}
         />
+      )}
+
+      {/* TAB: UNIVERSAL PRICING CONTROLLER */}
+      {adminTab === 'pricing-controller' && (
+        <AdminPricingController />
+      )}
+
+      {/* TAB: APPLICATION FLOW & BUTTON CUSTOMIZER */}
+      {adminTab === 'apply-settings' && (
+        <AdminApplySettingsManager />
       )}
 
       {/* TAB: PER-CATEGORY POSTING FEES & 1-CLICK WAIVERS */}

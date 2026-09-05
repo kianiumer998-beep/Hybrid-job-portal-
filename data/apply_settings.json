@@ -1,0 +1,37 @@
+{
+  "enableApplyButton": true,
+  "applyButtonText": "Apply Now",
+  "applicationModalTitle": "Submit Job Application",
+  "applicationInstructions": "Complete the verified application details below. The hiring employer or department will review your credentials directly.",
+  "successMessage": "Your application has been received successfully and forwarded to the hiring team!",
+  "loginRequiredMessage": "Please sign in or register a free candidate account to track this application in your dashboard.",
+  "confirmationMessage": "Are you sure you want to submit your verified application for this vacancy?",
+  "requireCv": true,
+  "requireCoverLetter": false,
+  "requirePhone": true,
+  "requireEmail": true,
+  "allowExternalApplication": true,
+  "externalApplicationWarning": "Notice: You will be redirected to the official department/portal hiring page to submit your application directly.",
+  "expiredJobMessage": "This employment opportunity has passed its application deadline and is no longer accepting new submissions.",
+  "customQuestions": [
+    {
+      "id": "q-notice",
+      "question": "What is your current notice period or earliest available joining date?",
+      "type": "select",
+      "options": [
+        "Immediate",
+        "15 Days",
+        "30 Days",
+        "60 Days",
+        "Negotiable"
+      ],
+      "required": true
+    },
+    {
+      "id": "q-salary-exp",
+      "question": "What is your expected monthly salary / remuneration (in PKR or USD)?",
+      "type": "text",
+      "required": false
+    }
+  ]
+}

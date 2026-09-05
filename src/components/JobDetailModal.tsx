@@ -1,7 +1,23 @@
-import React from 'react';
-import { X, MapPin, Building2, Clock, CheckCircle2, Sparkles, Send, ShieldCheck, Share2, Bookmark } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { 
+  X, 
+  MapPin, 
+  Building2, 
+  Clock, 
+  CheckCircle2, 
+  Sparkles, 
+  Send, 
+  ShieldCheck, 
+  Share2, 
+  Bookmark,
+  Calendar,
+  AlertTriangle,
+  ExternalLink
+} from 'lucide-react';
 import { Job } from '../types/job';
 import { sanitizeJob } from '../utils/jobSanitizer';
+import { injectJobJsonLd } from '../utils/seoHelper';
+import { api } from '../services/api';
 
 interface JobDetailModalProps {
   job: Job | null;
@@ -18,9 +34,35 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   isSaved,
   onToggleSave
 }) => {
+  const [applySettings, setApplySettings] = useState<any>({
+    applyButtonText: 'Apply Now',
+    expiredJobMessage: 'This employment opportunity has passed its application deadline.'
+  });
+
+  useEffect(() => {
+    if (rawJob) {
+      injectJobJsonLd(rawJob);
+      loadApplySettings();
+    }
+    return () => {
+      const script = document.getElementById('google-job-schema');
+      if (script) script.remove();
+    };
+  }, [rawJob]);
+
+  const loadApplySettings = async () => {
+    try {
+      const data = await api.applySettings.get();
+      if (data.success && data.settings) {
+        setApplySettings(data.settings);
+      }
+    } catch {}
+  };
+
   if (!rawJob) return null;
 
   const job = sanitizeJob(rawJob);
+  const isExpired = job.deadlineDate && new Date(job.deadlineDate) < new Date();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
@@ -36,6 +78,16 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <span className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold">
                 {job.experienceLevel} Level
               </span>
+              {job.priorityTier === 'vip_bundle' && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  👑 VIP Vacancy
+                </span>
+              )}
+              {job.urgent && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                  🔥 Urgent
+                </span>
+              )}
             </div>
             <h2 className="text-2xl font-black text-white">{job.title}</h2>
             <div className="flex items-center space-x-3 text-sm text-slate-400 mt-1">
@@ -56,6 +108,14 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
         {/* Modal Body */}
         <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-sm text-slate-300">
           
+          {/* Expired Job Alert */}
+          {isExpired && (
+            <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center space-x-2.5 text-xs text-rose-300">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{applySettings.expiredJobMessage}</span>
+            </div>
+          )}
+
           {/* Government Job Banner */}
           {job.isGovtJob && (
             <div className="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-2 text-amber-200">
@@ -171,10 +231,15 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               onClose();
               onApply(job);
             }}
-            className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-emerald-500/20 hover:scale-105 active:scale-95 transition-all flex items-center space-x-2"
+            disabled={isExpired}
+            className={`px-6 py-3 rounded-xl font-extrabold text-sm shadow-xl transition-all flex items-center space-x-2 ${
+              isExpired
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20 hover:scale-105 active:scale-95'
+            }`}
           >
             <Send className="w-4 h-4 text-slate-950" />
-            <span>Apply Now</span>
+            <span>{applySettings.applyButtonText || 'Apply Now'}</span>
           </button>
         </div>
 

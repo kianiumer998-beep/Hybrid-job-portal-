@@ -649,6 +649,46 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         )}
       </div>
 
+      {/* EASY TO USE 3-STEP EXPLANATION BANNER FOR ADMIN (آسان 3 مرحلہ گائیڈ) */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 shadow-xl">
+        <div className="flex items-center space-x-2.5 text-indigo-400 font-black text-sm mb-3">
+          <HelpCircle className="w-5 h-5 text-indigo-400" />
+          <span>ایڈمن کے لیے آسان رہنما گائیڈ — 3 مراحل میں جابز لائیو کریں (Easy 3-Step Guide)</span>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
+          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5">
+            <div className="flex items-center space-x-2 text-amber-400 font-bold">
+              <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-[10px] font-black">1</span>
+              <span>ویب سائٹس منتخب کریں (Select Sites)</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed">
+              نیچے دی گئی لسٹ میں سے جن پورٹلز سے نوکریاں لینی ہیں ان پر نشان لگائیں (یا اوپر <strong>تمام سائٹس</strong> کا بٹن دبائیں)۔
+            </p>
+          </div>
+
+          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5">
+            <div className="flex items-center space-x-2 text-indigo-400 font-bold">
+              <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-[10px] font-black">2</span>
+              <span>اسکریپنگ شروع کریں (Start Scraping)</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed">
+              سبز رنگ کا <strong>"منتخب سائٹس سے جابز اسکریپ کریں"</strong> بٹن دبائیں۔ خودکار نظام انٹرنیٹ سے تازہ اشتہارات اکٹھے کر لے گا۔
+            </p>
+          </div>
+
+          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5">
+            <div className="flex items-center space-x-2 text-emerald-400 font-bold">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-black">3</span>
+              <span>ایک کلک میں لائیو کریں (Publish Live)</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed">
+              حاصل شدہ جابز کا جائزہ لیں اور <strong>"ایک کلک میں لائیو شائع کریں"</strong> دبائیں تاکہ وہ فوری طور پر پورٹل پر نظر آئیں۔
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* 3. STEP 1 & 2: SITE SELECTION & DATE-TIME FILTER CARD */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
         <div className="border-b border-slate-800 pb-3 flex flex-col md:flex-row md:items-center justify-between gap-2">

@@ -1,0 +1,452 @@
+[
+  {
+    "id": "job-1",
+    "title": "Senior React & Node.js Engineer",
+    "company": "Vercel Remote Tech",
+    "jobType": "Remote",
+    "region": "Global",
+    "salary": "$110,000 - $140,000 / year",
+    "salaryNumericMin": 110000,
+    "currency": "USD",
+    "experienceLevel": "Senior",
+    "department": "Software Engineering",
+    "tags": [
+      "React",
+      "TypeScript",
+      "Node.js",
+      "Next.js",
+      "GraphQL"
+    ],
+    "description": "We are seeking a high-performing Senior React Engineer to help scale our distributed global web platform. You will build high-throughput UI components and optimize serverless edge functions.",
+    "requirements": [
+      "5+ years of full-stack engineering with React and TypeScript",
+      "Proven expertise in Next.js, SSR, and server actions",
+      "Demonstrated experience with scalable GraphQL / REST APIs",
+      "Strong async collaboration skills across global timezones"
+    ],
+    "benefits": [
+      "100% Remote flexibility anywhere in the world",
+      "Annual home office stipend ($2,500)",
+      "Unlimited Paid Time Off (PTO)",
+      "Equity option plan"
+    ],
+    "postedAt": "2 hours ago",
+    "featured": true,
+    "urgent": true,
+    "isPinnedTop": true,
+    "priorityTier": "vip_bundle",
+    "applicationsCount": 42,
+    "jobCategory": "International Remote",
+    "sourceUrl": "https://www.linkedin.com/jobs/view/senior-react-engineer-remote",
+    "scrapedSourceDomain": "linkedin.com",
+    "scraperSourceName": "LinkedIn Global Remote Developer Feed",
+    "scrapedAt": "2026-08-24 10:15:30",
+    "scrapedTime": "10:15 AM",
+    "paymentStatus": "Paid"
+  },
+  {
+    "id": "job-2",
+    "title": "Full Stack Lead Developer (Hybrid)",
+    "company": "Systems Limited",
+    "jobType": "Hybrid",
+    "region": "Pakistan",
+    "province": "Punjab",
+    "city": "Lahore",
+    "district": "Gulberg",
+    "salary": "PKR 350,000 - PKR 480,000 / month",
+    "salaryNumericMin": 350000,
+    "currency": "PKR",
+    "experienceLevel": "Lead",
+    "department": "Enterprise Systems",
+    "tags": [
+      "React",
+      ".NET Core",
+      "SQL Server",
+      "Azure",
+      "Microservices"
+    ],
+    "description": "Systems Limited is hiring a Lead Developer for our Gulberg office. You will lead an agile squad of 8 developers delivering fintech solutions for international clients.",
+    "requirements": [
+      "6+ years experience in C# .NET Core & Modern Frontend Frameworks",
+      "Strong architecture skills in Microservices and Event-Driven architecture",
+      "Experience leading code reviews and mentoring junior engineers",
+      "Hybrid availability (3 days in Gulberg, Lahore office)"
+    ],
+    "benefits": [
+      "Fuel & Conveyance Allowance",
+      "Health Insurance for family with OPD coverage",
+      "Performance bi-annual bonuses",
+      "Certification sponsorship"
+    ],
+    "postedAt": "5 hours ago",
+    "featured": true,
+    "urgent": false,
+    "applicationsCount": 88,
+    "jobCategory": "Private Corporate",
+    "sourceUrl": "https://www.rozee.pk/systems-limited-full-stack-lead-developer-lahore-jobs",
+    "scrapedSourceDomain": "rozee.pk",
+    "scraperSourceName": "Rozee.pk Pakistan Tech Jobs",
+    "scrapedAt": "2026-08-24 08:30:12",
+    "scrapedTime": "08:30 AM",
+    "paymentStatus": "Paid"
+  },
+  {
+    "id": "job-3",
+    "title": "Senior Mobile Application Engineer (Flutter/React Native)",
+    "company": "NetSol Technologies",
+    "jobType": "On-site",
+    "region": "Pakistan",
+    "province": "Punjab",
+    "city": "Lahore",
+    "district": "Model Town",
+    "salary": "PKR 280,000 - PKR 380,000 / month",
+    "salaryNumericMin": 280000,
+    "currency": "PKR",
+    "experienceLevel": "Senior",
+    "department": "Mobile Innovation Lab",
+    "tags": [
+      "Flutter",
+      "React Native",
+      "iOS",
+      "Android",
+      "Firebase"
+    ],
+    "description": "Join NetSol Technologies in Model Town, Lahore as a Senior Mobile Apps Developer building next-gen leasing & asset financing native hybrid apps.",
+    "requirements": [
+      "4+ years building cross-platform apps with Flutter or React Native",
+      "Solid experience with state management (Bloc, Provider, Redux)",
+      "Published at least 3 apps on Google Play Store & Apple App Store",
+      "Experience with push notifications and local encryption"
+    ],
+    "benefits": [
+      "In-house cafeteria and gym facilities",
+      "Gratuity & Provident Fund",
+      "Flexible working hours"
+    ],
+    "postedAt": "1 day ago",
+    "featured": false,
+    "urgent": true,
+    "applicationsCount": 31
+  },
+  {
+    "id": "job-4",
+    "title": "DevOps & Cloud Security Specialist",
+    "company": "Contour Software",
+    "jobType": "Hybrid",
+    "region": "Pakistan",
+    "province": "Punjab",
+    "city": "Rawalpindi",
+    "district": "Saddar",
+    "salary": "PKR 250,000 - PKR 350,000 / month",
+    "salaryNumericMin": 250000,
+    "currency": "PKR",
+    "experienceLevel": "Senior",
+    "department": "Cloud Infrastructure",
+    "tags": [
+      "AWS",
+      "Docker",
+      "Kubernetes",
+      "Terraform",
+      "CI/CD"
+    ],
+    "description": "Contour Software Saddar Rawalpindi branch is looking for a skilled DevOps Specialist to manage multi-region AWS cloud pipelines and automated deployment gates.",
+    "requirements": [
+      "3+ years managing Kubernetes clusters and Terraform infrastructure",
+      "Deep knowledge of Docker, GitHub Actions, and Linux administration",
+      "AWS Solutions Architect certification is a strong plus",
+      "Hybrid schedule (2 days office in Saddar Rawalpindi)"
+    ],
+    "benefits": [
+      "EOBI and Gratuity",
+      "Annual overseas trip incentive for top performers",
+      "Learning budget"
+    ],
+    "postedAt": "3 days ago",
+    "featured": false,
+    "urgent": false,
+    "applicationsCount": 19
+  },
+  {
+    "id": "job-5",
+    "title": "UI/UX Product Designer",
+    "company": "Techlogix Global",
+    "jobType": "Remote",
+    "region": "Pakistan",
+    "province": "Sindh",
+    "city": "Karachi",
+    "district": "Clifton",
+    "salary": "PKR 220,000 - PKR 300,000 / month",
+    "salaryNumericMin": 220000,
+    "currency": "PKR",
+    "experienceLevel": "Mid",
+    "department": "Product Design",
+    "tags": [
+      "Figma",
+      "UI Design",
+      "User Research",
+      "Design Systems",
+      "Prototyping"
+    ],
+    "description": "Design intuitive interfaces for B2B enterprise applications. Work fully remote from Karachi (Clifton team hub optional) or anywhere in Pakistan.",
+    "requirements": [
+      "3+ years experience designing mobile & web user interfaces",
+      "Strong portfolio demonstrating end-to-end design process",
+      "Mastery of Figma design systems, component variants, and interactive prototypes",
+      "Good English communication skills"
+    ],
+    "benefits": [
+      "100% Remote flexibility",
+      "Internet & laptop allowance",
+      "Flexible time off"
+    ],
+    "postedAt": "Just now",
+    "featured": true,
+    "urgent": false,
+    "isPinnedTop": true,
+    "isFutureJob": true,
+    "futureIntakeDate": "Oct 2026 Batch",
+    "priorityTier": "featured_top",
+    "applicationsCount": 54
+  },
+  {
+    "id": "job-6",
+    "title": "AI & Data Science Specialist",
+    "company": "Jazz (PMCL)",
+    "jobType": "On-site",
+    "region": "Pakistan",
+    "province": "Islamabad Capital Territory",
+    "city": "Islamabad",
+    "district": "Blue Area (Zone 1)",
+    "salary": "PKR 320,000 - PKR 450,000 / month",
+    "salaryNumericMin": 320000,
+    "currency": "PKR",
+    "experienceLevel": "Senior",
+    "department": "Data & AI Lab",
+    "tags": [
+      "Python",
+      "PyTorch",
+      "Machine Learning",
+      "SQL",
+      "LLMs"
+    ],
+    "description": "Jazz Digital HQ in Blue Area Islamabad is building generative AI models for customer support, predictive churn, and personalized telecommunication packages.",
+    "requirements": [
+      "Master or Bachelor degree in CS, Data Science, or AI",
+      "3+ years deploying ML models in production environment",
+      "Experience with LLM fine-tuning, RAG architectures, and vector databases",
+      "On-site presence at Jazz Digital HQ in Blue Area Islamabad"
+    ],
+    "benefits": [
+      "Subsidized telecom package and phone hardware",
+      "Company vehicle / allowance for senior grades",
+      "Executive health checkups"
+    ],
+    "postedAt": "4 hours ago",
+    "featured": true,
+    "urgent": true,
+    "applicationsCount": 76
+  },
+  {
+    "id": "job-7",
+    "title": "Senior Python & Django Backend Engineer",
+    "company": "Turing US Remote",
+    "jobType": "Remote",
+    "region": "US",
+    "salary": "$85,000 - $115,000 / year",
+    "salaryNumericMin": 85000,
+    "currency": "USD",
+    "experienceLevel": "Senior",
+    "department": "Software Engineering",
+    "tags": [
+      "Python",
+      "Django",
+      "PostgreSQL",
+      "Redis",
+      "Docker"
+    ],
+    "description": "Work remotely with Silicon Valley scale-ups on high-concurrency microservices and data streaming APIs.",
+    "requirements": [
+      "5+ years with Python (Django / FastAPI)",
+      "Solid expertise in PostgreSQL indexing, Redis caching, and Celery background workers",
+      "Experience in automated test suites (PyTest)",
+      "Overlapping US Eastern hours availability"
+    ],
+    "benefits": [
+      "USD salary paid directly to local bank account",
+      "Flexible vacation policy",
+      "Remote coworking space budget"
+    ],
+    "postedAt": "1 day ago",
+    "featured": false,
+    "urgent": false,
+    "applicationsCount": 93
+  },
+  {
+    "id": "job-9-govt",
+    "title": "Assistant Director (Administration) - BPS-17",
+    "company": "Federal Public Service Commission (FPSC)",
+    "jobType": "On-site",
+    "region": "Pakistan",
+    "province": "Federal Capital Territory",
+    "city": "Islamabad",
+    "district": "Blue Area (Zone 1)",
+    "salary": "PKR 180,000 - PKR 260,000 / month (BPS-17 Pay Scale)",
+    "salaryNumericMin": 180000,
+    "currency": "PKR",
+    "experienceLevel": "Mid",
+    "department": "Public Administration",
+    "tags": [
+      "Government Job",
+      "FPSC",
+      "BPS-17",
+      "Federal Ministry",
+      "Public Sector"
+    ],
+    "description": "Federal Government of Pakistan position under FPSC Consolidated Advertisement No. 08/2026. Responsible for administrative supervision, policy formulation, and official correspondence.",
+    "requirements": [
+      "Second Class or Grade \"C\" Master’s Degree or Bachelor (16 Years)",
+      "Age limit: 22–30 years + 5 years general relaxation",
+      "Valid Domicile of Punjab / Sindh / KPK / Balochistan",
+      "Passing score in FPSC Screening Test"
+    ],
+    "benefits": [
+      "Official Government Pension & Gratuity",
+      "BPS-17 Official Accommodation Allowance",
+      "Free Medical Treatment for self and family in Govt Hospitals",
+      "High Job Security & Promotional Cadre"
+    ],
+    "postedAt": "1 day ago",
+    "featured": true,
+    "urgent": true,
+    "applicationsCount": 142,
+    "isGovtJob": true,
+    "govtDepartment": "Ministry of Federal Education & Professional Training",
+    "govtScale": "BPS-17",
+    "govtCategory": "Federal",
+    "jobCategory": "Government Sector",
+    "sourceUrl": "https://fpsc.gov.pk/jobs/gr/current-vacancies/consolidated-ad-08-2026",
+    "scrapedSourceDomain": "fpsc.gov.pk",
+    "scraperSourceName": "FPSC & PPSC Federal Govt Jobs",
+    "scrapedAt": "2026-08-24 09:45:00",
+    "scrapedTime": "09:45 AM",
+    "paymentStatus": "Paid"
+  },
+  {
+    "id": "job-10-newspaper",
+    "title": "Senior Accounts & Tax Officer (Newspaper Ad Clipping)",
+    "company": "Al-Farooq Enterprises (Daily Jang Classifieds)",
+    "jobType": "On-site",
+    "region": "Pakistan",
+    "province": "Punjab",
+    "city": "Lahore",
+    "district": "Gulberg",
+    "salary": "PKR 150,000 - PKR 220,000 / month",
+    "salaryNumericMin": 150000,
+    "currency": "PKR",
+    "experienceLevel": "Senior",
+    "department": "Finance & Accounts",
+    "tags": [
+      "Newspaper Clipping",
+      "Daily Jang",
+      "Taxation",
+      "ACCA",
+      "Lahore"
+    ],
+    "description": "As advertised in Daily Jang Sunday Classified Edition. Urgent opening for Senior Accounts Officer with experience in FBR sales tax filing and Tally ERP.",
+    "requirements": [
+      "M.Com / ACCA / CA Inter qualified",
+      "4+ years handling corporate taxation & FBR e-portals",
+      "Direct application via email or WhatsApp clipping contact"
+    ],
+    "benefits": [
+      "Competitive salary",
+      "Annual increment & bonus",
+      "EOBI registration"
+    ],
+    "postedAt": "Yesterday",
+    "featured": false,
+    "urgent": true,
+    "applicationsCount": 39,
+    "isNewspaperAd": true,
+    "newspaperName": "Daily Jang",
+    "clippingImageUrl": "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=800&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+    "newspaperDate": "2026-08-10",
+    "jobCategory": "Newspaper Classified",
+    "sourceUrl": "https://e.jang.com.pk/classifieds/karachi-lahore-accounts-2026",
+    "scrapedSourceDomain": "e.jang.com.pk",
+    "scraperSourceName": "Daily Jang Newspaper Classified Ads",
+    "scrapedAt": "2026-08-24 07:15:22",
+    "scrapedTime": "07:15 AM",
+    "paymentStatus": "Paid"
+  },
+  {
+    "id": "job-11-uae",
+    "title": "Senior Cloud Solutions Architect",
+    "company": "Emirates NBD Digital Hub",
+    "jobType": "Hybrid",
+    "region": "UAE",
+    "city": "Dubai",
+    "salary": "AED 24,000 - AED 35,000 / month (Tax Free)",
+    "salaryNumericMin": 24000,
+    "currency": "AED",
+    "experienceLevel": "Senior",
+    "department": "Cloud & Infrastructure",
+    "tags": [
+      "Dubai",
+      "Tax Free",
+      "AWS",
+      "Kubernetes",
+      "Fintech"
+    ],
+    "description": "Emirates NBD is hiring a Senior Cloud Architect in Dubai Internet City. Oversee migration of core banking workloads to resilient multi-cloud infrastructure.",
+    "requirements": [
+      "7+ years cloud infrastructure architecture in AWS/Azure",
+      "Deep knowledge of ISO27001 banking compliance & container security",
+      "Relocation sponsorship to Dubai provided"
+    ],
+    "benefits": [
+      "100% Tax Free UAE Salary in AED",
+      "Relocation ticket & initial housing allowance",
+      "Private Premium Medical Cover"
+    ],
+    "postedAt": "3 hours ago",
+    "featured": true,
+    "urgent": true,
+    "applicationsCount": 61
+  },
+  {
+    "id": "job-12-saudi",
+    "title": "Fintech Payments Engineering Lead",
+    "company": "STC Pay Riyadh Headquarters",
+    "jobType": "On-site",
+    "region": "Saudi Arabia",
+    "city": "Riyadh",
+    "salary": "SAR 28,000 - SAR 40,000 / month (Tax Free)",
+    "salaryNumericMin": 28000,
+    "currency": "SAR",
+    "experienceLevel": "Lead",
+    "department": "Digital Payments",
+    "tags": [
+      "Saudi Arabia",
+      "Riyadh",
+      "Fintech",
+      "Java",
+      "Microservices"
+    ],
+    "description": "Lead engineering squad for STC Pay digital wallet platform in Riyadh. Build low-latency ISO20022 real-time settlement rails.",
+    "requirements": [
+      "6+ years in payments, banking switches, or digital wallets",
+      "High concurrency Java Spring Boot / Go microservices mastery",
+      "Willingness to relocate to Riyadh, Kingdom of Saudi Arabia"
+    ],
+    "benefits": [
+      "Tax Free SAR Salary",
+      "Annual flight tickets for family to home country",
+      "Children education stipend"
+    ],
+    "postedAt": "12 hours ago",
+    "featured": true,
+    "urgent": false,
+    "applicationsCount": 45
+  }
+]

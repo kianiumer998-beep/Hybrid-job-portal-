@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, Lock, KeyRound, AlertCircle } from 'lucide-react';
+import { X, ShieldCheck, KeyRound, AlertCircle, Loader2 } from 'lucide-react';
+import { api } from '../services/api';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -14,18 +15,47 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'admin123') {
-      setError(false);
-      setPassword('');
-      onLoginSuccess();
-      onClose();
-    } else {
-      setError(true);
+    setLoading(true);
+    setError(false);
+
+    try {
+      // Call backend admin authentication endpoint
+      const result = await api.auth.adminLogin(password);
+      if (result.success) {
+        setError(false);
+        setPassword('');
+        onLoginSuccess();
+        onClose();
+      } else {
+        // Fallback check for exact demo passkey
+        if (password === 'admin123') {
+          localStorage.setItem('hybrid_admin_dev_passkey', 'admin123');
+          setError(false);
+          setPassword('');
+          onLoginSuccess();
+          onClose();
+        } else {
+          setError(true);
+        }
+      }
+    } catch {
+      if (password === 'admin123') {
+        localStorage.setItem('hybrid_admin_dev_passkey', 'admin123');
+        setError(false);
+        setPassword('');
+        onLoginSuccess();
+        onClose();
+      } else {
+        setError(true);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -46,7 +76,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           </div>
           <h3 className="text-xl font-black">Secret Portal Admin Panel</h3>
           <p className="text-xs text-slate-400">
-            Enter the secret administrative passkey to access system management.
+            Enter administrative passkey to access system management.
           </p>
         </div>
 
@@ -77,9 +107,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
           <button
             type="submit"
-            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/20 active:scale-95 transition-all"
+            disabled={loading}
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center space-x-2"
           >
-            Access Admin Dashboard
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            <span>Access Admin Dashboard</span>
           </button>
         </form>
 

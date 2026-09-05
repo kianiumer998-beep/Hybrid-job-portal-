@@ -85,6 +85,7 @@ import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
 import { BatchUrlIngestModal } from './BatchUrlIngestModal';
 import { AdminPaymentMethodsManager } from './admin/AdminPaymentMethodsManager';
 import { AdminUrlScraperController } from './admin/AdminUrlScraperController';
+import { AutomatedScraperHub } from './admin/AutomatedScraperHub';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 import { injectJobJsonLd } from '../utils/seoHelper';
 import { 
@@ -1041,7 +1042,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isBatchIngestModalOpen, setIsBatchIngestModalOpen] = useState<boolean>(false);
 
   // Scraper Sub-Tab Navigation State
-  const [scraperSubTab, setScraperSubTab] = useState<'targets' | 'pdf-sources' | 'history' | 'add' | 'inspect-feed' | 'logs'>('targets');
+  const [scraperSubTab, setScraperSubTab] = useState<'automated-hub' | 'targets' | 'pdf-sources' | 'history' | 'add' | 'inspect-feed' | 'logs'>('automated-hub');
   const [scrapedSourceFilter, setScrapedSourceFilter] = useState<string>('all');
   const [scrapedSearchQuery, setScrapedSearchQuery] = useState<string>('');
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>('sc-1');
@@ -4172,6 +4173,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* SUB-NAVIGATION TAB BAR */}
           <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2">
             <button
+              onClick={() => setScraperSubTab('automated-hub')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                scraperSubTab === 'automated-hub'
+                  ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 text-slate-950 font-black shadow-lg shadow-emerald-500/20'
+                  : 'bg-slate-900 text-emerald-300 hover:text-white border border-emerald-500/30'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>⚡ خودکار اسکریپر کنٹرولر (Automated Scraper Hub)</span>
+            </button>
+
+            <button
               onClick={() => setScraperSubTab('targets')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
                 scraperSubTab === 'targets'
@@ -4243,6 +4256,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>System Cron Terminal Logs</span>
             </button>
           </div>
+
+          {/* SUB-TAB 0: AUTOMATED SCRAPER & DEDUPLICATION HUB */}
+          {scraperSubTab === 'automated-hub' && (
+            <AutomatedScraperHub
+              scraperSources={scraperSources}
+              setScraperSources={setScraperSources}
+              jobs={jobs}
+              pendingJobs={pendingJobs}
+              onAddJob={onAddJob}
+              onBulkAddJobs={onBulkAddJobs}
+              onApproveJob={handleAdminApproveJob}
+              onRejectJob={handleAdminRejectJob}
+              onOverrideDuplicatesToLive={(overrideJobs) => {
+                if (onBulkAddJobs) {
+                  onBulkAddJobs(overrideJobs);
+                } else {
+                  overrideJobs.forEach(j => onAddJob(j));
+                }
+              }}
+              scrapedAuditLogs={scrapedAuditLogs}
+              setScrapedAuditLogs={setScrapedAuditLogs}
+              onOpenPdfParser={() => setIsPdfScraperModalOpen(true)}
+            />
+          )}
 
           {/* SUB-TAB: SCRAPED HISTORY & AUDIT LEDGER */}
           {scraperSubTab === 'history' && (

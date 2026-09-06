@@ -114,10 +114,18 @@ export class JobRepository {
 
     const total = jobs.length;
     const page = Math.max(1, filter.page || 1);
-    const limit = Math.min(100, Math.max(1, filter.limit || 50));
+    const limit = Math.min(10000, Math.max(1, filter.limit || 5000));
     const paginated = jobs.slice((page - 1) * limit, page * limit);
 
     return { jobs: paginated, total, page, limit };
+  }
+
+  static createBatch(jobsList: any[], autoApprove: boolean = true) {
+    return Database.addJobsBatch(jobsList, autoApprove);
+  }
+
+  static addPendingBatch(jobsList: any[]) {
+    return Database.addPendingJobsBatch(jobsList);
   }
 
   static getById(id: string): any | null {

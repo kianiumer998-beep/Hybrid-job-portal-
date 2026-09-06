@@ -1697,7 +1697,7 @@ Fee: Rs. 400/-.`;
     publicationDate: new Date().toISOString().split('T')[0],
     closingDeadline: deadline,
     rawTextSample: defaultRawText,
-    extractedVacancies: [vacancy1, vacancy2]
+    extractedVacancies: [] // STRICT INTEGRITY: No fake demo vacancies. Only live parser will extract real vacancies.
   };
 }
 

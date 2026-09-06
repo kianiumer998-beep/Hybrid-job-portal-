@@ -288,6 +288,14 @@ export const api = {
     async getRuns() {
       const res = await fetch(`${API_BASE}/scraper/runs`);
       return res.json();
+    },
+    async parseUrl(data: { url: string; organization?: string; title?: string }) {
+      const res = await fetch(`${API_BASE}/scraper/parse-url`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+      return res.json();
     }
   },
 

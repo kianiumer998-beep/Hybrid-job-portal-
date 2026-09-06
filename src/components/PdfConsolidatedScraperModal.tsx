@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Job, ConsolidatedPdfGazette, ScrapedJobAuditEntry, ScraperBatchRun } from '../types/job';
+import { api } from '../services/api';
 import { 
   MOCK_CONSOLIDATED_PDF_GAZETTES, 
   ALL_CONSOLIDATED_PDF_GAZETTES,
@@ -477,55 +478,60 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     setTimeout(() => setManualSuccessMsg(null), 4000);
   };
 
-  // Run Single Gazette Extraction Process
-  const handleRunPdfExtraction = () => {
+  // Run Single Gazette Extraction Process with 100% factual integrity (NO demo vacancies)
+  const handleRunPdfExtraction = async () => {
     setIsParsing(true);
-    setParseProgress(10);
+    setParseProgress(15);
     setImportedSuccessfully(false);
     
+    const targetUrl = inputMode === 'url' ? customPdfUrl : (activeGazette?.pdfUrl || '');
     const targetTitle = inputMode === 'upload' && uploadedFileName 
       ? uploadedFileName 
       : (inputMode === 'url' ? customPdfUrl : activeGazette?.title || 'Consolidated PDF Gazette');
 
     setParseLogs([
-      `[00:00.1] Reading PDF advertisement: "${targetTitle}"...`,
-      `[00:00.3] Checking multi-column tables, provincial quotas, and scale information...`
+      `[00:00.1] Reading source: "${targetTitle}"...`,
+      `[00:00.3] Connecting to live portal without synthetic demo generation...`
     ]);
 
-    setTimeout(() => {
+    try {
       setParseProgress(45);
-      setParseLogs(prev => [
-        ...prev,
-        `[00:00.8] Reading pages and preserving position titles & pay scales...`,
-        `[00:01.2] Found official government departments, domicile quotas, and application deadlines.`
-      ]);
-    }, 500);
+      let realJobs: Job[] = [];
+      let message = '';
+      let rawText = '';
 
-    setTimeout(() => {
-      setParseProgress(80);
-      setParseLogs(prev => [
-        ...prev,
-        `[00:01.6] Extracting vacancy details, age relaxation rules, and fee challans...`,
-        `[00:01.9] Done! Cross-referencing duplicate status with active live jobs database...`
-      ]);
-    }, 1100);
+      if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+        setParseLogs(prev => [
+          ...prev,
+          `[00:00.8] Fetching real document/portal: ${targetUrl}...`,
+          `[00:01.2] Extracting genuine vacancies from PDF / HTML source...`
+        ]);
+        const res = await api.scraper.parseUrl({
+          url: targetUrl,
+          organization: activeGazette?.organization,
+          title: targetTitle
+        });
+        setParseProgress(80);
+        if (res && res.success) {
+          realJobs = res.jobs || [];
+          message = res.message || '';
+          rawText = res.rawTextSample || '';
+        } else {
+          message = res?.message || 'Failed to parse remote source.';
+        }
+      } else if (activeGazette?.extractedVacancies && activeGazette.extractedVacancies.length > 0) {
+        realJobs = activeGazette.extractedVacancies;
+      }
 
-    setTimeout(() => {
       setParseProgress(100);
       setIsParsing(false);
-      let loadedVacancies = activeGazette?.extractedVacancies || [];
-      
-      if (inputMode === 'url' && (!activeGazette || activeGazette.pdfUrl !== customPdfUrl)) {
-        const generated = generateGazetteFromManualInput({
-          title: `Direct Extracted Gazette (${new URL(customPdfUrl.startsWith('http') ? customPdfUrl : 'https://' + customPdfUrl).hostname})`,
-          organization: 'Public Sector Recruitment',
-          pdfUrl: customPdfUrl
-        });
-        loadedVacancies = generated.extractedVacancies;
+
+      if (rawText && activeGazette) {
+        activeGazette.rawTextSample = rawText;
       }
 
       // Enrich with duplicate detection & source typing
-      const enriched = loadedVacancies.map(job => {
+      const enriched = realJobs.map(job => {
         const dup = checkJobDuplicate(job, existingJobs);
         return {
           ...job,
@@ -539,12 +545,24 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
 
       setExtractedVacancies(enriched);
       setSelectedJobIds(enriched.map(j => j.id));
-      updatePortalScrapedTimestamp([activeGazette.id], enriched.length);
+      if (activeGazette?.id) {
+        updatePortalScrapedTimestamp([activeGazette.id], enriched.length);
+      }
       setParseLogs(prev => [
         ...prev,
-        `[00:02.3] Extracted ${enriched.length} job openings successfully! (${enriched.filter(j => j.isDuplicate).length} duplicates flagged)`
+        `[00:02.1] Done! Found ${enriched.length} authentic vacancies on source portal.`,
+        message ? `[00:02.3] ${message}` : `[00:02.3] Strict factual integrity: zero synthetic demo jobs.`
       ]);
-    }, 1600);
+    } catch (err: any) {
+      setIsParsing(false);
+      setParseProgress(0);
+      setParseLogs(prev => [
+        ...prev,
+        `[Error] Extraction failed: ${err?.message || 'Network error'}. 0 vacancies imported (no synthetic data created).`
+      ]);
+      setExtractedVacancies([]);
+      setSelectedJobIds([]);
+    }
   };
 
   // Run BULK Multi-PDF Scraping Process across all selected gazettes
@@ -621,7 +639,7 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
   };
 
   // ONE-CLICK INSTANT SCRAPE & DIRECT INGESTION
-  const handleOneClickScrape = (targetId?: string) => {
+  const handleOneClickScrape = async (targetId?: string) => {
     const targetG = currentGazettes.find(g => g.id === (targetId || selectedGazetteId)) || activeGazette;
     if (!targetG) return;
 
@@ -631,19 +649,29 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
 
     setParseLogs([
       `[00:00.1] ⚡ One-Click Instant Scrape initiated for "${targetG.organization}"...`,
-      `[00:00.3] Downloading & parsing PDF: ${targetG.pdfFileName}...`
+      `[00:00.3] Connecting to live portal / document: ${targetG.pdfFileName || targetG.title}...`
     ]);
 
-    setTimeout(() => {
-      setParseProgress(65);
-      setParseLogs(prev => [...prev, `[00:00.6] Cross-referencing against existing job database to eliminate duplicates...`]);
-    }, 250);
+    let rawJobs = targetG.extractedVacancies || [];
+    if (rawJobs.length === 0 && targetG.pdfUrl && targetG.pdfUrl.startsWith('http')) {
+      try {
+        setParseProgress(50);
+        const res = await api.scraper.parseUrl({
+          url: targetG.pdfUrl,
+          organization: targetG.organization,
+          title: targetG.title
+        });
+        setParseProgress(85);
+        if (res && res.success) {
+          rawJobs = res.jobs || [];
+        }
+      } catch (e) {
+        console.error('One-click extraction error:', e);
+      }
+    }
 
-    setTimeout(() => {
-      setParseProgress(100);
-      setIsParsing(false);
-
-      const rawJobs = targetG.extractedVacancies || [];
+    setParseProgress(100);
+    setIsParsing(false);
       const enriched = rawJobs.map(job => {
         const dup = checkJobDuplicate(job, existingJobs);
         return {
@@ -753,7 +781,6 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
         type: 'success'
       });
       setTimeout(() => setToastNotification(null), 5000);
-    }, 600);
   };
 
   // FULL AUTOMATED INTERVAL TIMER CRAWLER EXECUTION

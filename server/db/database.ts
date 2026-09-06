@@ -221,6 +221,18 @@ export class Database {
 
   static addJob(job: any): any {
     const jobs = this.getJobs();
+    const existingIdx = job.id ? jobs.findIndex((j) => j.id === job.id) : -1;
+    if (existingIdx !== -1) {
+      jobs[existingIdx] = {
+        ...jobs[existingIdx],
+        ...job,
+        status: job.status || 'Approved',
+        updatedAt: new Date().toISOString()
+      };
+      this.saveJobs(jobs);
+      return jobs[existingIdx];
+    }
+
     const newJob = {
       ...job,
       id: job.id || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -228,11 +240,108 @@ export class Database {
       postedAt: job.postedAt || 'Just now',
       status: job.status || 'Approved',
       applicationsCount: job.applicationsCount || 0,
-      createdAt: new Date().toISOString()
+      createdAt: job.createdAt || new Date().toISOString()
     };
     jobs.unshift(newJob);
     this.saveJobs(jobs);
     return newJob;
+  }
+
+  static addJobsBatch(newJobs: any[], autoApprove: boolean = true): { inserted: number; updated: number; total: number } {
+    if (!Array.isArray(newJobs) || newJobs.length === 0) {
+      return { inserted: 0, updated: 0, total: this.getJobs().length };
+    }
+
+    const jobs = this.getJobs();
+    const indexMap = new Map<string, number>();
+    jobs.forEach((j, idx) => {
+      if (j.id) indexMap.set(j.id, idx);
+    });
+
+    let inserted = 0;
+    let updated = 0;
+    const toPrepend: any[] = [];
+
+    for (const item of newJobs) {
+      if (!item || !item.title) continue;
+
+      const targetId = item.id;
+      if (targetId && indexMap.has(targetId)) {
+        const existingIdx = indexMap.get(targetId)!;
+        jobs[existingIdx] = {
+          ...jobs[existingIdx],
+          ...item,
+          status: autoApprove ? 'Approved' : (item.status || 'Approved'),
+          updatedAt: new Date().toISOString()
+        };
+        updated++;
+      } else {
+        const freshJob = {
+          ...item,
+          id: targetId || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          slug: item.slug || generateJobSlug(item.title, item.city, targetId),
+          postedAt: item.postedAt || 'Just now',
+          status: autoApprove ? 'Approved' : (item.status || 'Approved'),
+          applicationsCount: item.applicationsCount || 0,
+          createdAt: item.createdAt || new Date().toISOString()
+        };
+        toPrepend.push(freshJob);
+        indexMap.set(freshJob.id, -1);
+        inserted++;
+      }
+    }
+
+    const combined = [...toPrepend, ...jobs];
+    this.saveJobs(combined);
+    return { inserted, updated, total: combined.length };
+  }
+
+  static addPendingJobsBatch(newPending: any[]): { inserted: number; updated: number; total: number } {
+    if (!Array.isArray(newPending) || newPending.length === 0) {
+      return { inserted: 0, updated: 0, total: this.getPendingJobs().length };
+    }
+
+    const pending = this.getPendingJobs();
+    const indexMap = new Map<string, number>();
+    pending.forEach((p, idx) => {
+      if (p.id) indexMap.set(p.id, idx);
+    });
+
+    let inserted = 0;
+    let updated = 0;
+    const toPrepend: any[] = [];
+
+    for (const item of newPending) {
+      if (!item || !item.title) continue;
+
+      const targetId = item.id;
+      if (targetId && indexMap.has(targetId)) {
+        const existingIdx = indexMap.get(targetId)!;
+        pending[existingIdx] = {
+          ...pending[existingIdx],
+          ...item,
+          status: 'Pending',
+          updatedAt: new Date().toISOString()
+        };
+        updated++;
+      } else {
+        const freshJob = {
+          ...item,
+          id: targetId || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          slug: item.slug || generateJobSlug(item.title, item.city, targetId),
+          status: 'Pending',
+          postedAt: item.postedAt || 'Just now',
+          createdAt: item.createdAt || new Date().toISOString()
+        };
+        toPrepend.push(freshJob);
+        indexMap.set(freshJob.id, -1);
+        inserted++;
+      }
+    }
+
+    const combined = [...toPrepend, ...pending];
+    this.savePendingJobs(combined);
+    return { inserted, updated, total: combined.length };
   }
 
   static updateJob(id: string, updates: any): any | null {
@@ -247,9 +356,18 @@ export class Database {
   static deleteJob(id: string): boolean {
     const jobs = this.getJobs();
     const filtered = jobs.filter((j) => j.id !== id);
-    if (filtered.length === jobs.length) return false;
-    this.saveJobs(filtered);
-    return true;
+    let deleted = filtered.length !== jobs.length;
+    if (deleted) {
+      this.saveJobs(filtered);
+    }
+    // Also remove from pending if exists
+    const pending = this.getPendingJobs();
+    const filteredPending = pending.filter((p) => p.id !== id);
+    if (filteredPending.length !== pending.length) {
+      this.savePendingJobs(filteredPending);
+      deleted = true;
+    }
+    return deleted;
   }
 
   // --- PENDING JOBS ---
@@ -263,13 +381,25 @@ export class Database {
 
   static addPendingJob(job: any): any {
     const pending = this.getPendingJobs();
+    const existingIdx = job.id ? pending.findIndex((j) => j.id === job.id) : -1;
+    if (existingIdx !== -1) {
+      pending[existingIdx] = {
+        ...pending[existingIdx],
+        ...job,
+        status: 'Pending',
+        updatedAt: new Date().toISOString()
+      };
+      this.savePendingJobs(pending);
+      return pending[existingIdx];
+    }
+
     const newJob = {
       ...job,
       id: job.id || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       slug: job.slug || generateJobSlug(job.title, job.city, job.id),
       status: 'Pending',
       postedAt: job.postedAt || 'Just now',
-      createdAt: new Date().toISOString()
+      createdAt: job.createdAt || new Date().toISOString()
     };
     pending.unshift(newJob);
     this.savePendingJobs(pending);

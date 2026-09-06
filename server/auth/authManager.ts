@@ -13,16 +13,33 @@ export interface UserSession {
   isDemoAdmin?: boolean;
 }
 
-// Secure password hashing with salt using SHA-256
+// Secure password hashing with salt using crypto.scrypt (OWASP recommended memory-hard hashing)
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const generatedSalt = salt || crypto.randomBytes(16).toString('hex');
-  const hash = crypto.createHmac('sha256', generatedSalt).update(password).digest('hex');
-  return { hash, salt: generatedSalt };
+  const derivedKey = crypto.scryptSync(password, generatedSalt, 64);
+  return { hash: derivedKey.toString('hex'), salt: generatedSalt };
 }
 
 export function verifyPassword(password: string, hash: string, salt: string): boolean {
-  const computed = crypto.createHmac('sha256', salt).update(password).digest('hex');
-  return computed === hash;
+  try {
+    const derivedKey = crypto.scryptSync(password, salt, 64);
+    const hashBuf = Buffer.from(hash, 'hex');
+    if (hashBuf.length === derivedKey.length && crypto.timingSafeEqual(hashBuf, derivedKey)) {
+      return true;
+    }
+  } catch {}
+
+  // Fallback for legacy HMAC-SHA256 passwords
+  try {
+    const computed = crypto.createHmac('sha256', salt).update(password).digest('hex');
+    const computedBuf = Buffer.from(computed, 'hex');
+    const hashBuf = Buffer.from(hash, 'hex');
+    if (computedBuf.length === hashBuf.length && crypto.timingSafeEqual(computedBuf, hashBuf)) {
+      return true;
+    }
+  } catch {}
+
+  return false;
 }
 
 // Stateless signed token generator (HMAC SHA-256)

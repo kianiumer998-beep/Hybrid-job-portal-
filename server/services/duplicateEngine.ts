@@ -12,13 +12,17 @@ export interface DuplicateMatchResult {
     | 'PREVIOUS-SCRAPE DUPLICATE'
     | 'POSSIBLE DUPLICATE'
     | 'NONE';
+  duplicateTags: string[];
+  matchingSignals: string[];
   reason: string;
+  source?: string;
   comparisonDetails: {
     titleSimilarity: number;
     companySimilarity: number;
     locationMatch: boolean;
     salaryMatch: boolean;
     sourceUrlMatch: boolean;
+    sourceJobIdMatch?: boolean;
     govtDetailsMatch?: boolean;
   };
 }
@@ -53,6 +57,7 @@ function calculateTokenSimilarity(str1: string, str2: string): number {
   return (2 * intersection) / (tokens1.size + tokens2.size);
 }
 
+// Authoritative multi-signal duplicate detector
 export function detectJobDuplicate(
   candidateJob: any,
   poolOfExistingJobs: any[],
@@ -63,6 +68,8 @@ export function detectJobDuplicate(
     confidence: 0,
     matchedExistingJob: null,
     duplicateCategory: 'NONE',
+    duplicateTags: [],
+    matchingSignals: [],
     reason: 'Unique job posting',
     comparisonDetails: {
       titleSimilarity: 0,
@@ -80,6 +87,9 @@ export function detectJobDuplicate(
 
   for (const existing of allJobsToCompare) {
     let score = 0;
+    const signals: string[] = [];
+    const tags: string[] = [];
+
     const titleSim = calculateTokenSimilarity(candidateJob.title, existing.title);
     const companySim = calculateTokenSimilarity(candidateJob.company, existing.company);
 
@@ -93,6 +103,11 @@ export function detectJobDuplicate(
       existing.sourceUrl &&
       candidateJob.sourceUrl.toLowerCase() === existing.sourceUrl.toLowerCase()
     );
+    const sameSourceJobId = !!(
+      candidateJob.sourceJobId &&
+      existing.sourceJobId &&
+      String(candidateJob.sourceJobId) === String(existing.sourceJobId)
+    );
     const sameDept = !!(
       candidateJob.department &&
       existing.department &&
@@ -104,60 +119,116 @@ export function detectJobDuplicate(
       candidateJob.govtScale.toLowerCase() === existing.govtScale.toLowerCase()
     );
 
-    // Exact Source URL match = immediate 100% duplicate
-    if (sameUrl) {
+    // Exact Source Job ID or Source URL match = 100% duplicate
+    if (sameSourceJobId) {
       score = 100;
+      signals.push('Identical Source Job ID');
+    } else if (sameUrl) {
+      score = 100;
+      signals.push('Identical Source Canonical URL');
     } else {
-      // Weight title similarity (up to 45%)
-      score += titleSim * 45;
+      if (titleSim > 0.8) {
+        score += titleSim * 45;
+        signals.push(`Title Match (${Math.round(titleSim * 100)}%)`);
+      } else if (titleSim > 0.6) {
+        score += titleSim * 35;
+        signals.push(`Partial Title Similarity (${Math.round(titleSim * 100)}%)`);
+      }
 
-      // Weight company similarity (up to 30%)
-      score += companySim * 30;
+      if (companySim > 0.8) {
+        score += companySim * 30;
+        signals.push('Identical Company Name');
+      } else if (companySim > 0.6) {
+        score += companySim * 20;
+        signals.push('Similar Company Name');
+      }
 
-      // Location match bonus (10%)
-      if (sameCity) score += 10;
+      if (sameCity) {
+        score += 10;
+        signals.push(`Matching City: ${candidateJob.city}`);
+      }
 
-      // Department or scale match bonus (15%)
       if (candidateJob.isGovtJob && existing.isGovtJob && sameGovtScale) {
         score += 15;
+        signals.push(`Matching Govt Scale: ${candidateJob.govtScale}`);
       } else if (sameDept) {
         score += 10;
+        signals.push(`Matching Department: ${candidateJob.department}`);
       }
     }
 
     const confidence = Math.min(100, Math.round(score));
 
     if (confidence >= 65 && confidence > highestMatch.confidence) {
-      let category: DuplicateMatchResult['duplicateCategory'] = 'POSSIBLE DUPLICATE';
+      // Retain BOTH status and duplicate classification
+      const isBatch = existing._pool === 'batch';
+      const isApproved = existing.status === 'Approved' || (!existing.status && !existing.isSuspended);
+      const isPending = existing.status === 'Pending';
+      const isExpired = existing.status === 'Expired' || existing.isExpired;
 
-      if (existing._pool === 'batch') {
-        category = 'CURRENT-SCRAPE DUPLICATE';
-      } else if (existing.status === 'Approved' || (!existing.status && !existing.isSuspended)) {
-        category = 'LIVE DUPLICATE';
-      } else if (existing.status === 'Pending') {
-        category = 'PENDING DUPLICATE';
-      } else if (existing.status === 'Expired') {
-        category = 'EXPIRED DUPLICATE';
-      } else if (existing.scraperSourceId && candidateJob.scraperSourceId && existing.scraperSourceId === candidateJob.scraperSourceId) {
-        category = 'SAME-SOURCE DUPLICATE';
-      } else if (existing.sourceUrl && candidateJob.sourceUrl && existing.scrapedSourceDomain !== candidateJob.scrapedSourceDomain) {
-        category = 'CROSS-SOURCE DUPLICATE';
+      if (isBatch) tags.push('CURRENT-SCRAPE');
+      if (isApproved) tags.push('LIVE');
+      if (isPending) tags.push('PENDING');
+      if (isExpired) tags.push('EXPIRED');
+
+      const isSameSource = !!(
+        existing.scraperSourceId &&
+        candidateJob.scraperSourceId &&
+        existing.scraperSourceId === candidateJob.scraperSourceId
+      );
+      const isCrossSource = !!(
+        (existing.scrapedSourceDomain && candidateJob.scrapedSourceDomain && existing.scrapedSourceDomain !== candidateJob.scrapedSourceDomain) ||
+        (existing.sourceUrl && candidateJob.sourceUrl && existing.scraperSourceId !== candidateJob.scraperSourceId)
+      );
+
+      if (isSameSource) tags.push('SAME-SOURCE DUPLICATE');
+      if (isCrossSource) tags.push('CROSS-SOURCE DUPLICATE');
+
+      // Primary classification
+      let primaryCategory: DuplicateMatchResult['duplicateCategory'] = 'POSSIBLE DUPLICATE';
+      if (isBatch) {
+        primaryCategory = 'CURRENT-SCRAPE DUPLICATE';
+      } else if (isSameSource) {
+        primaryCategory = 'SAME-SOURCE DUPLICATE';
+      } else if (isCrossSource) {
+        primaryCategory = 'CROSS-SOURCE DUPLICATE';
+      } else if (isApproved) {
+        primaryCategory = 'LIVE DUPLICATE';
+      } else if (isPending) {
+        primaryCategory = 'PENDING DUPLICATE';
+      } else if (isExpired) {
+        primaryCategory = 'EXPIRED DUPLICATE';
       }
 
       highestMatch = {
         isDuplicate: true,
         confidence,
-        matchedExistingJob: existing,
-        duplicateCategory: category,
-        reason: sameUrl
-          ? `Identical source URL matches existing listing: "${existing.title}"`
-          : `High similarity (${confidence}%) to existing "${existing.title}" at "${existing.company}"`,
+        matchedExistingJob: {
+          id: existing.id,
+          title: existing.title,
+          company: existing.company,
+          status: existing.status || 'Approved',
+          city: existing.city,
+          sourceUrl: existing.sourceUrl,
+          scraperSourceName: existing.scraperSourceName || existing.sourceUrl,
+          postedAt: existing.postedAt || existing.createdAt
+        },
+        duplicateCategory: primaryCategory,
+        duplicateTags: tags,
+        matchingSignals: signals,
+        reason: sameSourceJobId
+          ? `Identical source ID (${candidateJob.sourceJobId}) matches: "${existing.title}" at ${existing.company}`
+          : sameUrl
+          ? `Canonical source URL matches existing vacancy: "${existing.title}"`
+          : `High similarity (${confidence}%) to existing "${existing.title}" at "${existing.company}" (${tags.join(' + ')})`,
+        source: existing.scraperSourceName || existing.scrapedSourceDomain || existing.sourceUrl,
         comparisonDetails: {
           titleSimilarity: Math.round(titleSim * 100),
           companySimilarity: Math.round(companySim * 100),
           locationMatch: sameCity,
           salaryMatch: candidateJob.salary === existing.salary,
           sourceUrlMatch: sameUrl,
+          sourceJobIdMatch: sameSourceJobId,
           govtDetailsMatch: sameGovtScale
         }
       };
@@ -167,15 +238,23 @@ export function detectJobDuplicate(
   return highestMatch;
 }
 
-// Intelligent Merge Utility for duplicates
+// Intelligent Merge Utility for duplicates - preserves the best information and never overwrites with empty
 export function mergeJobRecords(primaryJob: any, secondaryJob: any): any {
+  const mergedDescription = (primaryJob.description?.length >= (secondaryJob.description?.length || 0))
+    ? primaryJob.description
+    : (secondaryJob.description || primaryJob.description);
+
+  const cleanSalary = (primaryJob.salary && primaryJob.salary !== 'Salary not disclosed')
+    ? primaryJob.salary
+    : (secondaryJob.salary && secondaryJob.salary !== 'Salary not disclosed')
+    ? secondaryJob.salary
+    : (primaryJob.salary || 'Salary not disclosed');
+
   return {
     ...primaryJob,
     title: (primaryJob.title?.length >= secondaryJob.title?.length) ? primaryJob.title : secondaryJob.title,
     company: primaryJob.company || secondaryJob.company,
-    description: (primaryJob.description?.length >= (secondaryJob.description?.length || 0))
-      ? primaryJob.description
-      : secondaryJob.description,
+    description: mergedDescription,
     requirements: Array.from(new Set([
       ...(primaryJob.requirements || []),
       ...(secondaryJob.requirements || [])
@@ -188,18 +267,23 @@ export function mergeJobRecords(primaryJob: any, secondaryJob: any): any {
       ...(primaryJob.tags || []),
       ...(secondaryJob.tags || [])
     ])),
-    salary: (primaryJob.salary && primaryJob.salary !== 'Salary not disclosed')
-      ? primaryJob.salary
-      : (secondaryJob.salary || 'Salary not disclosed'),
+    salary: cleanSalary,
     sourceUrl: primaryJob.sourceUrl || secondaryJob.sourceUrl,
-    secondarySourceUrl: secondaryJob.sourceUrl || undefined,
+    secondarySourceUrl: (secondaryJob.sourceUrl && secondaryJob.sourceUrl !== primaryJob.sourceUrl)
+      ? secondaryJob.sourceUrl
+      : primaryJob.secondarySourceUrl,
     applicationUrl: primaryJob.applicationUrl || secondaryJob.applicationUrl,
-    deadlineDate: primaryJob.deadlineDate || secondaryJob.deadlineDate,
+    deadlineDate: primaryJob.deadlineDate || secondaryJob.deadlineDate || primaryJob.deadline || secondaryJob.deadline,
+    deadline: primaryJob.deadline || secondaryJob.deadline || primaryJob.deadlineDate || secondaryJob.deadlineDate,
     isGovtJob: primaryJob.isGovtJob || secondaryJob.isGovtJob,
     govtScale: primaryJob.govtScale || secondaryJob.govtScale,
     govtDepartment: primaryJob.govtDepartment || secondaryJob.govtDepartment,
     mergedAt: new Date().toISOString(),
     isMerged: true,
-    mergedFromJobId: secondaryJob.id
+    mergedFromJobId: secondaryJob.id,
+    isDuplicate: false,
+    duplicateScore: 0,
+    duplicateCategory: 'NONE',
+    duplicateMatchReason: `Merged with job ${secondaryJob.id} on ${new Date().toISOString().substring(0, 10)}`
   };
 }

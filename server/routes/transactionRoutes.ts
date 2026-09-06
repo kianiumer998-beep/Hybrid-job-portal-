@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { PaymentRepository, AuditRepository, UserRepository } from '../db/repositories';
+import { PaymentRepository, AuditRepository, UserRepository, PricingRepository, JobRepository } from '../db/repositories';
 import { requireAdmin } from '../auth/authManager';
 
 export const transactionRouter = Router();
@@ -15,7 +15,7 @@ transactionRouter.get('/', (req, res) => {
   }
 });
 
-// 2. Submit payment proof with Idempotency Protection
+// 2. Submit payment proof with Idempotency Protection & Authoritative Pricing Authority
 transactionRouter.post('/', (req, res) => {
   try {
     const {
@@ -33,11 +33,34 @@ transactionRouter.post('/', (req, res) => {
       userName,
       userEmail,
       jobTitleRef,
+      jobIdRef,
+      jobPricingOptions,
+      adPricingOptions,
       idempotencyKey
     } = req.body;
 
-    if (!amount || Number(amount) <= 0 || !paymentMethod) {
-      return res.status(400).json({ success: false, message: 'Valid positive amount and payment method are required.' });
+    if (!paymentMethod) {
+      return res.status(400).json({ success: false, message: 'Payment method is required.' });
+    }
+
+    // AUTHORITATIVE PRICING CALCULATION
+    let enforcedAmount = Number(amount);
+    let pricingBreakdown: Array<{ name: string; amount: number }> = [];
+
+    if (type === 'Job Posting') {
+      const calc = PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
+      enforcedAmount = calc.finalPrice;
+      pricingBreakdown = calc.breakdown;
+    } else if (type === 'Advertisement') {
+      const calc = PricingRepository.calculateAdPrice(adPricingOptions || {});
+      enforcedAmount = calc.finalPrice;
+      pricingBreakdown = calc.breakdown;
+    } else {
+      // Wallet deposit: must be positive
+      if (!amount || Number(amount) <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
+      }
+      enforcedAmount = Number(amount);
     }
 
     // Check idempotency
@@ -58,18 +81,35 @@ transactionRouter.post('/', (req, res) => {
       if (existingTid) {
         return res.status(409).json({
           success: false,
-          message: `A transaction with ID ${transactionId} has already been recorded.`
+          message: `A transaction with reference ID ${transactionId} has already been recorded.`
         });
       }
     }
 
     const tid = transactionId || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
+    // Wallet direct payment check
+    let initialStatus: 'Pending' | 'Success' = 'Pending';
+    if (paymentMethod === 'Wallet Balance' && userId) {
+      const user = UserRepository.getById(userId);
+      if (!user || (user.walletBalance || 0) < enforcedAmount) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient wallet balance. Required: ${enforcedAmount} PKR, Available: ${user?.walletBalance || 0} PKR.`
+        });
+      }
+      // Deduct wallet balance directly
+      UserRepository.update(userId, {
+        walletBalance: (user.walletBalance || 0) - enforcedAmount
+      });
+      initialStatus = 'Success';
+    }
+
     const newTx = PaymentRepository.create({
-      amount: Number(amount),
+      amount: enforcedAmount,
       currency: currency || 'PKR',
       type: type || 'Wallet Deposit',
-      status: 'Pending',
+      status: initialStatus,
       paymentMethod,
       transactionId: tid,
       idempotencyKey: idempotencyKey || undefined,
@@ -82,22 +122,32 @@ transactionRouter.post('/', (req, res) => {
       userName,
       userEmail,
       jobTitleRef,
+      jobIdRef,
+      pricingBreakdown,
+      verifiedAt: initialStatus === 'Success' ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString()
     });
+
+    // If job posting paid from wallet successfully, approve pending job
+    if (initialStatus === 'Success' && jobIdRef) {
+      JobRepository.approvePending(jobIdRef);
+    }
 
     AuditRepository.add({
       user: userName || 'User',
       role: 'Member',
-      action: 'Payment Proof Submitted',
-      target: `${amount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
+      action: initialStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
+      target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
       status: 'Success',
-      metadata: { transactionId: tid, amount, paymentMethod }
+      metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, type }
     });
 
     res.status(201).json({
       success: true,
       transaction: newTx,
-      message: 'Payment proof submitted successfully! Administrator verification is pending.'
+      message: initialStatus === 'Success'
+        ? 'Payment processed and verified immediately via wallet balance!'
+        : 'Payment proof submitted successfully! Administrator verification is pending.'
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error creating transaction' });
@@ -115,6 +165,11 @@ transactionRouter.patch('/:id/verify', requireAdmin, (req, res) => {
     const tx = PaymentRepository.verify(req.params.id, action, note, reason);
     if (!tx) {
       return res.status(404).json({ success: false, message: 'Transaction not found.' });
+    }
+
+    // If approved and was for a pending job, publish it live
+    if (action === 'approve' && tx.jobIdRef) {
+      JobRepository.approvePending(tx.jobIdRef);
     }
 
     AuditRepository.add({

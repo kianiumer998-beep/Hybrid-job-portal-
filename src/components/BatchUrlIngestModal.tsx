@@ -20,7 +20,7 @@ import {
 import { OfficialGovtPdfPortal } from '../data/mockPdfConsolidatedAds';
 import { ConsolidatedPdfGazette, Job } from '../types/job';
 import { analyzeBatchUrls, BatchAnalysisSummary, AnalyzedUrlResult } from '../utils/urlDeduplicator';
-import { generateScrapedJobsForPortal } from '../data/mockPdfConsolidatedAds';
+import { api } from '../services/api';
 
 interface BatchUrlIngestModalProps {
   isOpen: boolean;
@@ -132,23 +132,27 @@ https://unicef.org/pakistan/careers/vacancies-2026`;
         };
       });
 
-      // If scrape immediately, extract jobs
-      let extractedJobs: Job[] = [];
+      // If scrape immediately, trigger genuine backend crawl
       if (scrapeImmediately) {
-        newPortals.forEach(portal => {
-          const jobs = generateScrapedJobsForPortal(portal);
-          extractedJobs = [...extractedJobs, ...jobs];
-        });
-        onAddJobs(extractedJobs);
+        // Register portals first
+        onAddPortals(newPortals, true);
+        api.scraper.run({ mode: 'complete' }).then(res => {
+          if (res && res.success) {
+            const harvested: Job[] = [...(res.publishedJobs || []), ...(res.pendingJobs || [])];
+            if (harvested.length > 0) {
+              onAddJobs(harvested);
+            }
+          }
+        }).catch(err => console.error('Real scraper trigger error:', err));
+      } else {
+        onAddPortals(newPortals, false);
       }
-
-      onAddPortals(newPortals, scrapeImmediately);
 
       alert(`✅ کامیابی سے ${newPortals.length} نئے یونیک پورٹلز ایڈ ہو گئے!\n` +
             `❌ ${analysis.duplicateCount} ڈپلیکیٹ لنکس کو خودکار طریقے سے چھوڑ دیا گیا (Skipped).\n` +
-            (scrapeImmediately ? `✨ ${extractedJobs.length} جابز اسکریپ کر کے پینڈنگ ریویو میں شامل کر دی گئی ہیں۔` : ''));
+            (scrapeImmediately ? `✨ بیک اینڈ اسکریپر کو ان پورٹلز کے لیے شیڈول کر دیا گیا ہے۔ حقیقی جابز ریویو کیو میں آئیں گی۔` : ''));
       onClose();
-    }, 1800);
+    }, 1200);
   };
 
   const filteredList = analysis.results.filter(item => {

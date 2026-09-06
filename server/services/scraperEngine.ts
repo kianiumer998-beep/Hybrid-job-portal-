@@ -1,10 +1,11 @@
-import { generateJobSlug } from '../db/database';
-import { detectJobDuplicate } from './duplicateEngine';
-import { scrapeTargetPortal, ScraperTargetConfig } from '../../src/services/scraperService';
-import { JobRepository, ScraperRepository, AuditRepository } from '../db/repositories';
+import { ScraperRepository } from '../db/repositories/ScraperRepository';
+import { JobRepository } from '../db/repositories/JobRepository';
+import { AuditRepository } from '../db/repositories/AuditRepository';
+import { scrapeTargetPortal, ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
+import { detectJobDuplicate, DuplicateMatchResult } from './duplicateEngine';
 
 export interface ScraperRunOptions {
-  mode: 'complete' | 'page_range' | 'since_last' | 'custom_date' | 'source_only';
+  mode: 'complete' | 'since_last' | 'page_range' | 'custom_date' | 'keyword_drill';
   sourceId?: string;
   sourceIds?: string[];
   startPage?: number;
@@ -15,78 +16,51 @@ export interface ScraperRunOptions {
   autoPublishTrusted?: boolean;
 }
 
-export interface JobQualityReport {
-  score: number; // 0 - 100
-  missingFields: string[];
-  warnings: string[];
-  isPublishReady: boolean;
-}
-
-export function evaluateJobQuality(job: any): JobQualityReport {
-  const missing: string[] = [];
-  const warnings: string[] = [];
-  let score = 100;
-
-  if (!job.title || job.title.trim().length < 3) {
-    missing.push('Title');
-    score -= 30;
-  }
-  if (!job.company || job.company.trim().length < 2) {
-    missing.push('Company');
-    score -= 25;
-  }
-  if (!job.description || job.description.trim().length < 20) {
-    missing.push('Detailed Description');
-    score -= 20;
-  }
-  if (!job.sourceUrl) {
-    missing.push('Original Source Link');
-    score -= 15;
-  }
-  if (!job.salary || job.salary === 'Salary not disclosed') {
-    warnings.push('Salary not disclosed by employer');
-    score -= 5;
-  }
-  if (!job.deadlineDate) {
-    warnings.push('Explicit application deadline not detected');
-    score -= 5;
-  }
-
-  score = Math.max(0, Math.min(100, score));
-
-  return {
-    score,
-    missingFields: missing,
-    warnings,
-    isPublishReady: score >= 60 && missing.length === 0
-  };
-}
-
-export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<{
+export interface ScraperRunSummary {
   runId: string;
+  startTime: string;
+  endTime: string;
   totalFound: number;
-  newJobs: any[];
-  duplicateJobs: any[];
+  totalNew: number;
+  totalDuplicates: number;
+  totalFailedSources: number;
+  pagesAttempted: number;
+  pagesSuccessful: number;
+  jobsAccepted: number;
+  jobsRejected: number;
   publishedJobs: any[];
   pendingJobs: any[];
-  failedCount: number;
+  duplicateJobs: any[];
   sourcesStats: Array<{
     sourceId: string;
     sourceName: string;
+    sourceUrl: string;
+    startedAt: string;
+    completedAt: string;
     found: number;
     newCount: number;
-    duplicateCount: number;
+    dupCount: number;
+    pagesAttempted: number;
+    pagesSuccessful: number;
     failed: boolean;
     error?: string;
+    lastSuccessfulScrapeAt?: string;
   }>;
-  summary: string;
-}> {
-  const runId = `RUN-${Date.now().toString(36).toUpperCase()}`;
-  const startTime = new Date().toISOString();
-  const allSources: ScraperTargetConfig[] = ScraperRepository.getConfigs();
+  executionDurationMs: number;
+}
 
-  // Filter sources based on options (support both sourceIds[] and sourceId)
+/**
+ * Authoritative Scraper Execution Engine with Multi-Source, Pagination, Cutoffs, and Duplication Control
+ */
+export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
+  const startTime = new Date();
+  const timestampStr = startTime.toISOString().replace('T', ' ').substring(0, 19);
+  const runId = `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+  const allSources = ScraperRepository.getConfigs();
   let targets: ScraperTargetConfig[] = [];
+
+  // Filter sources based on requested options
   if (options.sourceIds && options.sourceIds.length > 0) {
     targets = allSources.filter(s => options.sourceIds!.includes(s.id));
   } else if (options.sourceId) {
@@ -109,7 +83,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const publishedJobs: any[] = [];
   const pendingJobs: any[] = [];
   let failedCount = 0;
-  const sourcesStats: any[] = [];
+  let totalPagesAttempted = 0;
+  let totalPagesSuccessful = 0;
+  let totalJobsRejected = 0;
+
+  const sourcesStats: ScraperRunSummary['sourcesStats'] = [];
 
   for (const target of targets) {
     const sourceRunStart = new Date().toISOString();
@@ -121,179 +99,256 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     let sourceFound = 0;
     let sourceNew = 0;
     let sourceDup = 0;
+    let sourcePagesAttempted = 0;
+    let sourcePagesSuccessful = 0;
     let sourceFailed = false;
     let sourceError = '';
 
     try {
-      // Determine cutoff date for mode: 'since_last' or 'custom_date'
-      let sinceTimestamp = options.sinceTimestamp || options.fromTimestamp;
+      // 1. Determine cutoff date
+      let sinceTimestamp = options.sinceTimestamp;
       if (options.mode === 'since_last') {
+        // Use authoritative lastSuccessfulScrapeAt, fallback to 7 days if never scraped before
         sinceTimestamp = target.lastSuccessfulScrapeAt || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (options.mode === 'custom_date') {
+        sinceTimestamp = options.fromTimestamp;
       }
 
-      // Determine pages to scrape based on mode
-      const startPage = options.mode === 'page_range' ? Math.max(1, options.startPage || 1) : 1;
-      const endPage = options.mode === 'page_range' ? Math.max(startPage, options.endPage || startPage) : 1;
+      // 2. Determine pages to crawl
+      // Mode 'complete' (ALL AVAILABLE): crawl up to safe limit of 5 pages or until 0 jobs returned
+      // Mode 'page_range': crawl precisely from startPage to endPage
+      let startPage = 1;
+      let endPage = 1;
 
-      const rawResults: any[] = [];
+      if (options.mode === 'page_range') {
+        startPage = Math.max(1, options.startPage || 1);
+        endPage = Math.max(startPage, Math.min(startPage + 20, options.endPage || startPage));
+      } else if (options.mode === 'complete') {
+        startPage = 1;
+        endPage = 5; // Safe crawling ceiling for all available
+      }
+
+      const rawResults: ScrapedJobResult[] = [];
 
       for (let page = startPage; page <= endPage; page++) {
-        const pageResults = await scrapeTargetPortal(target, {
-          page,
-          startPage,
-          endPage,
-          sinceTimestamp
-        });
-        rawResults.push(...pageResults);
+        sourcePagesAttempted++;
+        totalPagesAttempted++;
+
+        try {
+          const pageResults = await scrapeTargetPortal(target, {
+            page,
+            startPage,
+            endPage,
+            sinceTimestamp
+          });
+
+          sourcePagesSuccessful++;
+          totalPagesSuccessful++;
+
+          if (pageResults && pageResults.length > 0) {
+            rawResults.push(...pageResults);
+          } else if (options.mode === 'complete') {
+            // Reached the end of available jobs for this source
+            break;
+          }
+        } catch (pageErr: any) {
+          console.warn(`[Scraper Engine] Page ${page} failed for source ${target.name}:`, pageErr?.message || pageErr);
+          // Continue to next page or next source without crashing
+        }
       }
 
-      sourceFound = rawResults.length;
+      // Custom date upper cutoff (toTimestamp) filter
+      let filteredResults = rawResults;
+      if (options.mode === 'custom_date' && options.toTimestamp) {
+        const toTime = new Date(options.toTimestamp).getTime();
+        if (!isNaN(toTime)) {
+          filteredResults = filteredResults.filter(j => {
+            if (!j.datePosted) return true;
+            const postTime = new Date(j.datePosted).getTime();
+            return isNaN(postTime) || postTime <= toTime;
+          });
+        }
+      }
 
-      for (const raw of rawResults) {
+      sourceFound = filteredResults.length;
+
+      for (const raw of filteredResults) {
         // Honest data standards: Never invent missing information
-        const standardizedSalary = (raw.salary && raw.salary.trim())
+        const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable')
           ? raw.salary
           : 'Salary not disclosed';
+
+        // Assess extraction quality
+        const isQualityAcceptable = raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2;
+        if (!isQualityAcceptable) {
+          totalJobsRejected++;
+          continue; // Reject low quality / invalid vacancies
+        }
 
         const standardizedJob: any = {
           ...raw,
           id: `scraped-${target.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-          slug: generateJobSlug(raw.title, raw.city, raw.id),
           salary: standardizedSalary,
           scraperSourceId: target.id,
           scraperSourceName: target.name,
-          scrapedAt: new Date().toISOString(),
-          firstSeenAt: new Date().toISOString(),
-          lastSeenAt: new Date().toISOString(),
-          scrapeRunId: runId,
-          sourceType: target.isGovtPortal ? 'Official Government Source' : target.isNewspaperClippingPortal ? 'Newspaper Source' : 'External Aggregator',
-          lastVerified: new Date().toISOString(),
-          extractionStatus: 'Extracted'
+          scrapedSourceDomain: target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com',
+          scrapedAt: timestampStr,
+          scrapedTime: startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+          sourceUrl: raw.sourceUrl || target.url,
+          jobCategory: (target as any).category || 'General',
+          region: raw.region || (target as any).region || 'Pakistan',
+          isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || raw.isGovtJob,
+          isNewspaperAd: (target as any).category === 'Newspaper Classified',
+          newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : undefined,
+          status: (target.autoApprove && options.autoPublishTrusted) ? 'Approved' : 'Pending'
         };
 
-        const quality = evaluateJobQuality(standardizedJob);
-        standardizedJob.qualityScore = quality.score;
+        // Multi-signal deduplication check
+        const dupCheck: DuplicateMatchResult = detectJobDuplicate(
+          standardizedJob,
+          combinedExisting,
+          harvestedJobs
+        );
 
-        // Multi-Signal Duplicate Detection against existing DB and current batch
-        const duplicateCheck = detectJobDuplicate(standardizedJob, combinedExisting, harvestedJobs);
-
-        if (duplicateCheck.isDuplicate) {
-          standardizedJob.isDuplicate = true;
-          standardizedJob.duplicateScore = duplicateCheck.confidence;
-          standardizedJob.duplicateCategory = duplicateCheck.duplicateCategory;
-          standardizedJob.duplicateMatchReason = duplicateCheck.reason;
-          standardizedJob.duplicateOfJobId = duplicateCheck.matchedExistingJob?.id;
-          standardizedJob.duplicateOfJobTitle = duplicateCheck.matchedExistingJob?.title;
-          duplicateJobs.push(standardizedJob);
-          sourceDup++;
-        } else {
-          standardizedJob.isDuplicate = false;
-          standardizedJob.duplicateScore = 0;
-          standardizedJob.duplicateCategory = 'NONE';
-          uniqueJobs.push(standardizedJob);
-          sourceNew++;
-        }
+        standardizedJob.isDuplicate = dupCheck.isDuplicate;
+        standardizedJob.duplicateScore = dupCheck.confidence;
+        standardizedJob.duplicateCategory = dupCheck.duplicateCategory;
+        standardizedJob.duplicateTags = dupCheck.duplicateTags;
+        standardizedJob.duplicateMatchReason = dupCheck.reason;
+        standardizedJob.duplicateOfJobId = dupCheck.matchedExistingJob?.id;
+        standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
 
         harvestedJobs.push(standardizedJob);
+
+        if (dupCheck.isDuplicate) {
+          sourceDup++;
+          duplicateJobs.push(standardizedJob);
+          // Duplicate saved into pending review queue with duplicate flag
+          JobRepository.addPending(standardizedJob);
+          combinedExisting.push(standardizedJob);
+        } else {
+          sourceNew++;
+          uniqueJobs.push(standardizedJob);
+
+          if (standardizedJob.status === 'Approved') {
+            JobRepository.create(standardizedJob);
+            publishedJobs.push(standardizedJob);
+          } else {
+            JobRepository.addPending(standardizedJob);
+            pendingJobs.push(standardizedJob);
+          }
+          combinedExisting.push(standardizedJob);
+        }
       }
 
-      // Record successful source completion
+      // Update source stats with successful run
+      const sourceCompletedAt = new Date().toISOString();
       ScraperRepository.updateSourceStats(target.id, {
-        lastSuccessfulScrapeAt: new Date().toISOString(),
-        lastCompletedAt: new Date().toISOString(),
-        scrapedCountIncrement: rawResults.length,
+        lastCompletedAt: sourceCompletedAt,
+        lastSuccessfulScrapeAt: sourceCompletedAt,
+        lastRunId: runId,
+        scrapedCountIncrement: sourceFound,
         healthStatus: 'healthy',
-        lastErrorMessage: ''
+        lastErrorMessage: undefined
+      });
+
+      sourcesStats.push({
+        sourceId: target.id,
+        sourceName: target.name,
+        sourceUrl: target.url,
+        startedAt: sourceRunStart,
+        completedAt: sourceCompletedAt,
+        found: sourceFound,
+        newCount: sourceNew,
+        dupCount: sourceDup,
+        pagesAttempted: sourcePagesAttempted,
+        pagesSuccessful: sourcePagesSuccessful,
+        failed: false,
+        lastSuccessfulScrapeAt: sourceCompletedAt
       });
     } catch (err: any) {
-      console.error(`[Scraper Engine] Error scraping target ${target.name}:`, err);
       failedCount++;
       sourceFailed = true;
-      sourceError = err?.message || 'Extraction error';
+      sourceError = err.message || 'Scraping target failed';
+      console.error(`[Scraper Engine] Source error on ${target.name} (${target.url}):`, err);
 
+      const sourceCompletedAt = new Date().toISOString();
       ScraperRepository.updateSourceStats(target.id, {
-        lastCompletedAt: new Date().toISOString(),
+        lastCompletedAt: sourceCompletedAt,
         healthStatus: 'error',
         lastErrorMessage: sourceError
       });
-    }
 
-    sourcesStats.push({
-      sourceId: target.id,
-      sourceName: target.name,
-      found: sourceFound,
-      newCount: sourceNew,
-      duplicateCount: sourceDup,
-      failed: sourceFailed,
-      error: sourceError || undefined
-    });
-  }
-
-  // Handle publishing vs pending review
-  for (const job of uniqueJobs) {
-    const target = targets.find(t => t.id === job.scraperSourceId);
-    const autoPublish = (target && target.autoApprove) || options.autoPublishTrusted;
-
-    if (autoPublish && job.qualityScore >= 75) {
-      job.status = 'Approved';
-      const live = JobRepository.create(job);
-      publishedJobs.push(live);
-    } else {
-      job.status = 'Pending';
-      const pending = JobRepository.addPending(job);
-      pendingJobs.push(pending);
+      sourcesStats.push({
+        sourceId: target.id,
+        sourceName: target.name,
+        sourceUrl: target.url,
+        startedAt: sourceRunStart,
+        completedAt: sourceCompletedAt,
+        found: 0,
+        newCount: 0,
+        dupCount: 0,
+        pagesAttempted: sourcePagesAttempted,
+        pagesSuccessful: sourcePagesSuccessful,
+        failed: true,
+        error: sourceError,
+        lastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt
+      });
     }
   }
 
-  // Also save duplicates to pending review queue so admin can inspect/override/merge them
-  for (const dup of duplicateJobs) {
-    dup.status = 'Pending';
-    JobRepository.addPending(dup);
-    pendingJobs.push(dup);
-  }
+  const endTime = new Date();
+  const duration = endTime.getTime() - startTime.getTime();
 
-  const endTime = new Date().toISOString();
-
-  // Save Scraper Run Record into Database
-  const runRecord = {
+  // Save audit log for the scraper execution run
+  ScraperRepository.addRun({
     id: runId,
-    startTime,
-    endTime,
+    batchId: runId,
+    startedAt: startTime.toISOString(),
+    completedAt: endTime.toISOString(),
     mode: options.mode,
-    sourceName: targets.length === 1 ? targets[0]?.name : `Multiple (${targets.length} Portals)`,
-    sourcesCount: targets.length,
-    pagesScraped: options.mode === 'page_range' ? (options.endPage || 1) - (options.startPage || 1) + 1 : targets.length,
+    targetsScraped: targets.length,
     totalFound: harvestedJobs.length,
-    newJobsCount: uniqueJobs.length,
-    duplicateCount: duplicateJobs.length,
-    publishedCount: publishedJobs.length,
-    pendingCount: pendingJobs.length,
-    failedCount,
-    sourcesStats,
-    status: failedCount === 0 ? 'Success' : failedCount < targets.length ? 'Partial' : 'Failed'
-  };
+    newPublished: publishedJobs.length,
+    newPending: pendingJobs.length,
+    duplicatesFlagged: duplicateJobs.length,
+    failedSources: failedCount,
+    executionTimeMs: duration,
+    sourcesStats
+  });
 
-  ScraperRepository.addRun(runRecord);
-
-  // Add system audit log
   AuditRepository.add({
-    user: 'Automated Scraper Engine',
-    role: 'Scraper Manager',
+    user: 'Administrator',
+    role: 'Scraper Hub',
     action: 'Scraper Run Completed',
-    target: `Run ${runId}: ${uniqueJobs.length} new jobs, ${duplicateJobs.length} duplicates from ${targets.length} sources`,
-    status: 'Success',
-    metadata: { runId, mode: options.mode, sourcesCount: targets.length }
+    target: `${targets.length} Source Portals (${harvestedJobs.length} Jobs Harvested)`,
+    status: failedCount > 0 ? 'Warning' : 'Success',
+    metadata: {
+      mode: options.mode,
+      totalFound: harvestedJobs.length,
+      published: publishedJobs.length,
+      pending: pendingJobs.length,
+      duplicates: duplicateJobs.length,
+      failedSources: failedCount
+    }
   });
 
   return {
     runId,
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
     totalFound: harvestedJobs.length,
-    newJobs: uniqueJobs,
-    duplicateJobs,
+    totalNew: uniqueJobs.length,
+    totalDuplicates: duplicateJobs.length,
+    totalFailedSources: failedCount,
+    pagesAttempted: totalPagesAttempted,
+    pagesSuccessful: totalPagesSuccessful,
+    jobsAccepted: uniqueJobs.length,
+    jobsRejected: totalJobsRejected,
     publishedJobs,
     pendingJobs,
-    failedCount,
+    duplicateJobs,
     sourcesStats,
-    summary: `Harvested ${harvestedJobs.length} real vacancies across ${targets.length} portals. ${uniqueJobs.length} unique, ${duplicateJobs.length} duplicates detected. ${publishedJobs.length} published directly, ${pendingJobs.length} ready in review queue.`
+    executionDurationMs: duration
   };
 }

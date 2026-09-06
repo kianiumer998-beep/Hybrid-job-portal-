@@ -14,11 +14,42 @@ export interface JobFilterOptions {
   isFeatured?: boolean;
   page?: number;
   limit?: number;
+  includeExpired?: boolean;
+}
+
+export function checkJobExpired(job: any): boolean {
+  if (job.status === 'Expired' || job.isExpired === true) {
+    return true;
+  }
+  const deadlineStr = job.deadline || job.deadlineDate || job.closingDeadline;
+  if (!deadlineStr) return false;
+
+  const deadlineTime = new Date(deadlineStr).getTime();
+  if (isNaN(deadlineTime)) return false;
+
+  return deadlineTime < Date.now();
 }
 
 export class JobRepository {
   static getAll(filter: JobFilterOptions = {}): { jobs: any[]; total: number; page: number; limit: number } {
-    let jobs = Database.getJobs().filter(j => j.status === 'Approved' || (!j.status && !j.isSuspended));
+    let rawJobs = Database.getJobs();
+
+    // Dynamically evaluate expiration for all jobs
+    let jobs = rawJobs.map(j => {
+      const isExpired = checkJobExpired(j);
+      return {
+        ...j,
+        isExpired,
+        status: isExpired ? 'Expired' : (j.status || 'Approved')
+      };
+    });
+
+    // Filter to approved / live jobs
+    if (!filter.includeExpired) {
+      jobs = jobs.filter(j => (j.status === 'Approved' || (!j.status && !j.isSuspended)) && !j.isExpired);
+    } else {
+      jobs = jobs.filter(j => (j.status === 'Approved' || j.status === 'Expired' || (!j.status && !j.isSuspended)));
+    }
 
     if (filter.search && filter.search.trim()) {
       const q = filter.search.toLowerCase().trim();
@@ -90,11 +121,25 @@ export class JobRepository {
   }
 
   static getById(id: string): any | null {
-    return Database.getJobById(id);
+    const job = Database.getJobById(id);
+    if (!job) return null;
+    const isExpired = checkJobExpired(job);
+    return {
+      ...job,
+      isExpired,
+      status: isExpired ? 'Expired' : (job.status || 'Approved')
+    };
   }
 
   static getBySlug(slug: string): any | null {
-    return Database.getJobBySlug(slug);
+    const job = Database.getJobBySlug(slug);
+    if (!job) return null;
+    const isExpired = checkJobExpired(job);
+    return {
+      ...job,
+      isExpired,
+      status: isExpired ? 'Expired' : (job.status || 'Approved')
+    };
   }
 
   static create(jobData: any): any {

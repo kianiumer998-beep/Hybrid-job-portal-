@@ -189,12 +189,17 @@ export interface Job {
   extractionSourceType?: 'pdf_gazette' | 'web_html' | 'hybrid_feed';
   isDuplicate?: boolean;
   duplicateScore?: number;
+  duplicateCategory?: string;
+  duplicateTags?: string[];
+  duplicateMatchReason?: string;
   duplicateOfJobId?: string;
   duplicateOfJobTitle?: string;
   duplicateMatchedCompany?: string;
   isDuplicateOverride?: boolean;
   duplicateOverrideNote?: string;
   duplicateDetectedAt?: string;
+  applicationType?: 'internal' | 'external' | 'both';
+  externalApplyUrl?: string;
 }
 
 export interface ChatMessage {

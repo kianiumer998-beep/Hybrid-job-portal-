@@ -82,12 +82,17 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     scraperSources.map((s) => s.id)
   );
 
-  // 2. Date & Time Filter Settings before Scraping
-  const [dateFilterMode, setDateFilterMode] = useState<'all' | '24h' | '3d' | '7d' | 'custom'>('24h');
+  // 2. Date, Time & Page Filter Settings before Scraping (Authoritative Modes)
+  const [dateFilterMode, setDateFilterMode] = useState<'all' | '24h' | '3d' | '7d' | 'since_last' | 'page_range' | 'custom'>('24h');
   const [customDateTime, setCustomDateTime] = useState<string>(() => {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     return yesterday.toISOString().slice(0, 16);
   });
+  const [customToDateTime, setCustomToDateTime] = useState<string>(() => {
+    return new Date().toISOString().slice(0, 16);
+  });
+  const [startPage, setStartPage] = useState<number>(1);
+  const [endPage, setEndPage] = useState<number>(3);
   const [skipAlreadyScraped, setSkipAlreadyScraped] = useState<boolean>(true);
 
   // 3. Execution / Scraping Simulation State
@@ -116,35 +121,21 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [newPortalRegion, setNewPortalRegion] = useState<Region>('Pakistan');
   const [newPortalAutoApprove, setNewPortalAutoApprove] = useState(false);
 
-  // Duplicate Checker Logic
+  // Authoritative Duplicate Status Reader (Backend duplicateEngine is the single source of truth)
   const checkIsDuplicate = (candidate: Job): { isDuplicate: boolean; matchReason?: string; matchingJobId?: string } => {
-    const allExisting = [...jobs, ...pendingJobs.filter(p => p.id !== candidate.id)];
-    const cleanCandTitle = candidate.title.toLowerCase().trim();
-    const cleanCandCompany = candidate.company.toLowerCase().trim();
-
-    for (const ex of allExisting) {
-      const cleanExTitle = ex.title.toLowerCase().trim();
-      const cleanExCompany = ex.company.toLowerCase().trim();
-
-      // Exact Match
-      if (cleanCandTitle === cleanExTitle && cleanCandCompany === cleanExCompany) {
-        return {
-          isDuplicate: true,
-          matchReason: `100% Identical Title & Employer: "${ex.title}" (${ex.company})`,
-          matchingJobId: ex.id
-        };
-      }
-
-      // High similarity
-      if (cleanCandTitle.includes(cleanExTitle) || cleanExTitle.includes(cleanCandTitle)) {
-        if (cleanCandCompany === cleanExCompany || candidate.city === ex.city) {
-          return {
-            isDuplicate: true,
-            matchReason: `Similar Vacancy Found: "${ex.title}" in ${ex.city || 'Pakistan'}`,
-            matchingJobId: ex.id
-          };
-        }
-      }
+    if (candidate.isDuplicate) {
+      return {
+        isDuplicate: true,
+        matchReason: candidate.duplicateMatchReason || `${candidate.duplicateCategory || 'Potential'} Duplicate (${candidate.duplicateScore || 70}% match)`,
+        matchingJobId: candidate.duplicateOfJobId
+      };
+    }
+    if (candidate.duplicateScore && candidate.duplicateScore >= 65) {
+      return {
+        isDuplicate: true,
+        matchReason: candidate.duplicateMatchReason || `High content similarity (${candidate.duplicateScore}%)`,
+        matchingJobId: candidate.duplicateOfJobId
+      };
     }
     return { isDuplicate: false };
   };
@@ -225,23 +216,36 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     // Calculate cutoff date string based on dateFilterMode
     let cutoffDescription = 'Any time';
     let sinceTimestamp: string | undefined = undefined;
-    const mode: 'complete' | 'since_last' | 'custom_date' = 
-      dateFilterMode === 'all' ? 'complete' :
-      dateFilterMode === 'custom' ? 'custom_date' :
-      'since_last';
+    let fromTimestamp: string | undefined = undefined;
+    let toTimestamp: string | undefined = undefined;
+    let mode: 'complete' | 'page_range' | 'since_last' | 'custom_date' = 'complete';
 
-    if (dateFilterMode === '24h') {
+    if (dateFilterMode === 'page_range') {
+      mode = 'page_range';
+      cutoffDescription = `Pages ${startPage} to ${endPage}`;
+    } else if (dateFilterMode === 'since_last') {
+      mode = 'since_last';
+      cutoffDescription = 'Since Last Successful Crawl';
+    } else if (dateFilterMode === '24h') {
+      mode = 'since_last';
       cutoffDescription = 'Past 24 Hours (پچھلے 24 گھنٹے)';
       sinceTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     } else if (dateFilterMode === '3d') {
+      mode = 'since_last';
       cutoffDescription = 'Past 3 Days (پچھلے 3 دن)';
       sinceTimestamp = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
     } else if (dateFilterMode === '7d') {
+      mode = 'since_last';
       cutoffDescription = 'Past 7 Days (پچھلے ایک ہفتے کی)';
       sinceTimestamp = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     } else if (dateFilterMode === 'custom') {
-      cutoffDescription = `After ${customDateTime}`;
-      sinceTimestamp = new Date(customDateTime).toISOString();
+      mode = 'custom_date';
+      cutoffDescription = `Between ${customDateTime} and ${customToDateTime}`;
+      fromTimestamp = new Date(customDateTime).toISOString();
+      toTimestamp = new Date(customToDateTime).toISOString();
+    } else {
+      mode = 'complete';
+      cutoffDescription = 'All Available Job Listings';
     }
 
     setStatusNotification(`⏳ Querying ${selectedSources.length} selected portals via backend scraper (${cutoffDescription})...`);
@@ -263,6 +267,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         mode,
         sourceIds: targetIds,
         sinceTimestamp,
+        fromTimestamp,
+        toTimestamp,
+        startPage,
+        endPage,
         autoPublishTrusted: false
       });
 
@@ -685,11 +693,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {[
-              { id: '24h', label: '⏱️ پچھلے 24 گھنٹے (Past 24 Hours)', sub: 'تازہ ترین' },
-              { id: '3d', label: '📅 پچھلے 3 دن (Past 3 Days)', sub: 'آخری 72 گھنٹے' },
-              { id: '7d', label: '🗓️ پچھلے 7 دن (Past 7 Days)', sub: 'ایک ہفتہ' },
-              { id: 'all', label: '⚡ تمام دستیاب جابز (All Available)', sub: 'بغیر تاریخ' },
-              { id: 'custom', label: '🕒 مخصوص تاریخ و وقت (Custom Date & Time)', sub: 'اپنی مرضی' }
+              { id: 'all', label: '⚡ تمام دستیاب جابز (All Available)' },
+              { id: 'since_last', label: '🔄 آخری کامیاب اسکریپ سے (Since Last Run)' },
+              { id: 'page_range', label: '📄 مخصوص صفحات (Page Range)' },
+              { id: '24h', label: '⏱️ پچھلے 24 گھنٹے (Past 24 Hours)' },
+              { id: '3d', label: '📅 پچھلے 3 دن (Past 3 Days)' },
+              { id: '7d', label: '🗓️ پچھلے 7 دن (Past 7 Days)' },
+              { id: 'custom', label: '🕒 مخصوص تاریخ کا وقفہ (Custom Date Range)' }
             ].map((option) => (
               <button
                 key={option.id}
@@ -705,13 +715,44 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </button>
             ))}
 
+            {dateFilterMode === 'page_range' && (
+              <div className="flex items-center gap-2 mt-1 sm:mt-0 p-1.5 bg-slate-900 border border-indigo-500/50 rounded-lg text-xs">
+                <span className="text-slate-400 font-bold">صفحہ نمبر:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={startPage}
+                  onChange={(e) => setStartPage(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-14 px-2 py-0.5 bg-slate-950 border border-slate-700 rounded text-center text-white font-mono"
+                />
+                <span className="text-slate-400 font-bold">تا</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={endPage}
+                  onChange={(e) => setEndPage(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-14 px-2 py-0.5 bg-slate-950 border border-slate-700 rounded text-center text-white font-mono"
+                />
+              </div>
+            )}
+
             {dateFilterMode === 'custom' && (
-              <div className="flex items-center space-x-2 mt-1 sm:mt-0">
+              <div className="flex flex-wrap items-center gap-2 mt-1 sm:mt-0 p-1.5 bg-slate-900 border border-indigo-500/50 rounded-lg text-xs">
+                <span className="text-slate-400 font-bold">از:</span>
                 <input
                   type="datetime-local"
                   value={customDateTime}
                   onChange={(e) => setCustomDateTime(e.target.value)}
-                  className="px-3 py-1 bg-slate-900 border border-indigo-500/50 rounded-lg text-xs text-white font-mono outline-none"
+                  className="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono outline-none"
+                />
+                <span className="text-slate-400 font-bold">تا:</span>
+                <input
+                  type="datetime-local"
+                  value={customToDateTime}
+                  onChange={(e) => setCustomToDateTime(e.target.value)}
+                  className="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono outline-none"
                 />
               </div>
             )}
@@ -1120,29 +1161,58 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       </button>
 
                       {isDup && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const overridden = {
-                              ...job,
-                              status: 'Approved' as const,
-                              isDuplicateOverride: true,
-                              title: `${job.title} (Re-announced / توسیع شدہ)`,
-                              postedAt: 'Just now (Re-advertised)'
-                            };
-                            if (onOverrideDuplicatesToLive) {
-                              onOverrideDuplicatesToLive([overridden]);
-                            } else {
-                              onAddJob(overridden);
-                            }
-                            setStatusNotification(`🔄 جاب اوور رائٹ کر کے نئی جاب کی صورت میں لائیو ہو گئی!`);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer flex items-center space-x-1"
-                          title="اس ڈپلیکیٹ کو تازہ جاب بنا کر شائع کریں"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          <span>اوور رائٹ (Overwrite)</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await api.jobs.overrideDuplicate(job.id, 'Manually confirmed unique by admin override');
+                              } catch (e) {
+                                console.warn('Backend duplicate override fallback:', e);
+                              }
+                              const overridden = {
+                                ...job,
+                                status: 'Approved' as const,
+                                isDuplicate: false,
+                                isDuplicateOverride: true,
+                                title: `${job.title} (Re-announced / توسیع شدہ)`,
+                                postedAt: 'Just now (Re-advertised)'
+                              };
+                              if (onOverrideDuplicatesToLive) {
+                                onOverrideDuplicatesToLive([overridden]);
+                              } else {
+                                onAddJob(overridden);
+                              }
+                              setStatusNotification(`🔄 جاب اوور رائٹ کر کے نئی منفرد جاب کے طور پر لائیو کر دی گئی!`);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer flex items-center space-x-1"
+                            title="اس ڈپلیکیٹ کو اوور رائٹ کر کے الگ منفرد جاب بنائیں"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>اوور رائٹ (Override)</span>
+                          </button>
+
+                          {dupInfo.matchingJobId && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await api.jobs.mergeJobs(dupInfo.matchingJobId!, job.id);
+                                  onRejectJob(job.id, `Merged into primary job ${dupInfo.matchingJobId}`);
+                                  setSessionScrapedJobs((prev) => prev.filter((j) => j.id !== job.id));
+                                  setStatusNotification(`🔗 جاب کو کامیابی سے بنیادی اشتہار کے ساتھ ضم (Merge) کر دیا گیا!`);
+                                } catch (err: any) {
+                                  alert(`ضم کرنے میں مسئلہ: ${err.message || 'Error merging duplicate'}`);
+                                }
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs cursor-pointer flex items-center space-x-1"
+                              title="اس جاب کو پرانے اشتہار کے ساتھ ضم کریں"
+                            >
+                              <Layers className="w-3.5 h-3.5" />
+                              <span>ضم کریں (Merge)</span>
+                            </button>
+                          )}
+                        </>
                       )}
 
                       <button

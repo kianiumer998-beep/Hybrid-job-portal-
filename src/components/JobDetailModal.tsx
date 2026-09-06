@@ -212,8 +212,40 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
         </div>
 
+        {/* External Application Notice & Warning if applicable */}
+        {(() => {
+          const externalUrl = job.externalApplyUrl || job.applicationUrl || (job.sourceUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType === 'external') ? job.sourceUrl : undefined);
+          const isExternal = job.applicationType === 'external' || (!!externalUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType !== 'internal'));
+
+          if (isExternal && externalUrl) {
+            return (
+              <div className="mx-6 mb-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2">
+                <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
+                  <ExternalLink className="w-4 h-4 shrink-0" />
+                  <span>External Department / Official Portal Application (سرکاری و دفتری پورٹل)</span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {applySettings.externalApplicationWarning || 'Notice: You can submit your application directly on the official employer/department recruitment website.'}
+                </p>
+                <div className="pt-1">
+                  <a
+                    href={externalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center space-x-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg transition-all"
+                  >
+                    <span>سرکاری پورٹل پر جائیں (Visit Official Portal)</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         {/* Modal Footer Actions */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-4">
+        <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4">
           <button
             onClick={() => onToggleSave(job.id)}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center space-x-1.5 ${
@@ -226,21 +258,36 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             <span>{isSaved ? 'Saved in Bookmarks' : 'Save Job'}</span>
           </button>
 
-          <button
-            onClick={() => {
-              onClose();
-              onApply(job);
-            }}
-            disabled={isExpired}
-            className={`px-6 py-3 rounded-xl font-extrabold text-sm shadow-xl transition-all flex items-center space-x-2 ${
-              isExpired
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20 hover:scale-105 active:scale-95'
-            }`}
-          >
-            <Send className="w-4 h-4 text-slate-950" />
-            <span>{applySettings.applyButtonText || 'Apply Now'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* If external URL is available and external apply is enabled */}
+            {(job.externalApplyUrl || job.applicationUrl || job.sourceUrl) && (
+              <a
+                href={job.externalApplyUrl || job.applicationUrl || job.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
+                <span>External Portal (باہر کا لنک)</span>
+              </a>
+            )}
+
+            <button
+              onClick={() => {
+                onClose();
+                onApply(job);
+              }}
+              disabled={isExpired || applySettings.enableApplyButton === false}
+              className={`px-6 py-3 rounded-xl font-extrabold text-sm shadow-xl transition-all flex items-center space-x-2 ${
+                isExpired || applySettings.enableApplyButton === false
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20 hover:scale-105 active:scale-95'
+              }`}
+            >
+              <Send className="w-4 h-4 text-slate-950" />
+              <span>{applySettings.applyButtonText || 'Apply Directly (پورٹل پر اپلائی کریں)'}</span>
+            </button>
+          </div>
         </div>
 
       </div>

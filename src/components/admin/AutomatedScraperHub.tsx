@@ -95,7 +95,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [endPage, setEndPage] = useState<number>(3);
   const [skipAlreadyScraped, setSkipAlreadyScraped] = useState<boolean>(true);
 
-  // 3. Execution / Scraping Simulation State
+  // 3. Authoritative Live Scraper Execution State
   const [isScrapingActive, setIsScrapingActive] = useState<boolean>(false);
   const [scrapingProgress, setScrapingProgress] = useState<number>(0);
   const [currentScrapingSource, setCurrentScrapingSource] = useState<string>('');

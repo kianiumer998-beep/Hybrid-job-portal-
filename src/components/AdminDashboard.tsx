@@ -1600,8 +1600,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return c && Array.isArray(c.districts) ? c.districts : [];
   }, [city, formCities]);
 
-  // Scraper Simulation Handler
-  // Scraper Manual / Scheduled Execution Handler with Real Backend Scraper Engine
+  // Authoritative Scraper Manual / Scheduled Execution Handler with Real Backend Scraper Engine
   const handleRunScraper = async (specificSourceId?: string) => {
     const source = specificSourceId ? (scraperSources || []).find(s => s && s.id === specificSourceId) : null;
     const targetUrl = source ? source.url : scraperUrl;

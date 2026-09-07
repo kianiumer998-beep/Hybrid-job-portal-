@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
-import cron from 'node-cron';
+import { initScraperScheduler } from './server/services/scraperScheduler';
+import { featureFlags, updateFeatureFlags } from './server/config/featureFlags';
 import { createServer as createViteServer } from 'vite';
 
 import { Database } from './server/db/database';
@@ -16,7 +17,6 @@ import { transactionRouter } from './server/routes/transactionRoutes';
 import { userRouter } from './server/routes/userRoutes';
 import { adRouter } from './server/routes/adRoutes';
 import { auditRouter } from './server/routes/auditRoutes';
-import { executeScraperWithWizard } from './server/services/scraperEngine';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -37,19 +37,6 @@ async function startServer() {
   // Global authentication & dev passkey inspection middleware
   app.use(authMiddleware);
 
-  // Global Feature Flags controlled by Administrator
-  let featureFlags: AdminFeatureFlags = {
-    enableWebScraper: true,
-    enableUniversalKeywordlessScraper: true,
-    enableNewspaperClippings: true,
-    enableScraperAutoApprove: false,
-    enableGovtJobsPortal: true,
-    enablePostingFeePaywall: true,
-    enableCvBuilderPaywall: true,
-    enableLiveSupportChat: true,
-    deduplicationEnabled: true,
-  };
-
   // API Route: Healthcheck
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', service: 'Hybrid Job & CV Portal API', uptime: process.uptime() });
@@ -61,7 +48,7 @@ async function startServer() {
   });
 
   app.post('/api/admin/feature-flags', (req, res) => {
-    featureFlags = { ...featureFlags, ...req.body };
+    const updated = updateFeatureFlags(req.body);
     Database.addAuditLog({
       user: 'Administrator',
       role: 'Admin',
@@ -93,23 +80,8 @@ async function startServer() {
   app.use('/api/ads', adRouter);
   app.use('/api/audit-logs', auditRouter);
 
-  // Schedule background cron task running every 30 mins
-  cron.schedule('*/30 * * * *', async () => {
-    if (!featureFlags.enableWebScraper) return;
-
-    const timestamp = new Date().toISOString();
-    console.log(`[Cron Scheduler Engine] Running scheduled scrape cycle at ${timestamp}...`);
-
-    try {
-      const result = await executeScraperWithWizard({
-        mode: 'since_last',
-        autoPublishTrusted: featureFlags.enableScraperAutoApprove
-      });
-      console.log(`[Cron Scheduler Engine] Completed scrape run. Found: ${result.totalFound}, Published: ${result.publishedJobs.length}, Pending: ${result.pendingJobs.length}`);
-    } catch (err) {
-      console.error('[Cron Error] Scraper run failed:', err);
-    }
-  });
+  // Initialize dynamic interval-aware scraper scheduler
+  initScraperScheduler();
 
   // Global Error Handler for API
   app.use((err: any, req: any, res: any, next: any) => {

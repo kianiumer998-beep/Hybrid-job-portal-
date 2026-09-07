@@ -19,6 +19,7 @@ import {
   Square
 } from 'lucide-react';
 import { Job, JobType, Region } from '../../types/job';
+import { api } from '../../services/api';
 
 interface AdminUrlScraperControllerProps {
   existingLiveJobs: Job[];
@@ -84,8 +85,8 @@ export const AdminUrlScraperController: React.FC<AdminUrlScraperControllerProps>
     return { isDuplicate: false };
   };
 
-  // Run on-demand URL Scraper
-  const handleStartUrlScrape = (e: React.FormEvent) => {
+  // Run on-demand URL Scraper via backend real scraper API (Zero-fake-job guarantee)
+  const handleStartUrlScrape = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetUrl.trim()) return;
 
@@ -94,121 +95,53 @@ export const AdminUrlScraperController: React.FC<AdminUrlScraperControllerProps>
       cleanUrl = 'https://' + cleanUrl;
     }
 
+    let hostname = '';
+    try {
+      hostname = new URL(cleanUrl).hostname.replace('www.', '');
+    } catch {
+      hostname = cleanUrl;
+    }
+
     setIsCrawlRunning(true);
-    setCrawlProgress(15);
-    setStatusMessage(`Connecting to ${new URL(cleanUrl).hostname}...`);
+    setCrawlProgress(20);
+    setStatusMessage(`Connecting to ${hostname} and executing backend scraper...`);
 
-    setTimeout(() => {
+    try {
       setCrawlProgress(50);
-      setStatusMessage('Parsing DOM and extracting job vacancies...');
-    }, 600);
+      setStatusMessage('Extracting verified vacancies from target source...');
 
-    setTimeout(() => {
+      const response = await api.scraper.parseUrl(cleanUrl, targetKeywords || hostname, targetKeywords);
+
       setCrawlProgress(85);
-      setStatusMessage('Analyzing keywords and identifying duplicates...');
-    }, 1100);
 
-    setTimeout(() => {
-      let hostname = '';
-      try {
-        hostname = new URL(cleanUrl).hostname.replace('www.', '');
-      } catch {
-        hostname = cleanUrl;
+      if (!response || !response.success) {
+        throw new Error(response?.message || 'Scraper execution failed on target URL.');
       }
 
-      // Generate intelligent extracted jobs from the target URL domain
-      const sampleDept = targetKeywords || 'Administrative & Technical Operations';
-      const extractedBatch: Job[] = [
-        {
-          id: `scraped-url-${Date.now()}-1`,
-          title: targetCategory === 'Government Sector' ? `Assistant Director (${sampleDept})` : `Senior Lead - ${sampleDept}`,
-          company: hostname.toUpperCase().replace(/\./g, ' '),
-          jobCategory: targetCategory,
-          jobType: 'On-site',
-          region: targetRegion,
-          province: targetProvince,
-          city: targetProvince === 'Punjab' ? 'Lahore' : targetProvince === 'Sindh' ? 'Karachi' : targetProvince === 'KPK' ? 'Peshawar' : 'Islamabad',
-          salary: targetCategory === 'Government Sector' ? 'BPS-17 Pay Scale (PKR 120,000 - 180,000)' : 'PKR 250,000 - 350,000 / month',
-          currency: 'PKR',
-          experienceLevel: 'Mid',
-          department: sampleDept,
-          requirements: ['Bachelors or Masters in relevant discipline', '2+ years professional experience', 'Valid CNIC / Domicile'],
-          benefits: ['Provincial Pension / Gratuity', 'Medical Allowance', 'Official Housing / Transport Allowance'],
-          applicationsCount: 0,
-          postedAt: 'Just now',
-          description: `Extracted directly from ${cleanUrl}. Candidates must have requisite qualifications and apply before the stipulated closing deadline. Official notifications published by ${hostname}.`,
-          tags: [targetCategory, sampleDept, hostname],
-          featured: false,
-          urgent: true,
-          status: 'Pending',
-          sourceUrl: cleanUrl,
-          scrapedSourceDomain: hostname,
-          govtScale: targetCategory === 'Government Sector' ? 'BPS-17' : undefined,
-          isGovtJob: targetCategory === 'Government Sector',
-          domicileQuota: 'Open Merit / Provincial Quota'
-        },
-        {
-          id: `scraped-url-${Date.now()}-2`,
-          title: `Project Coordinator & Field Inspector`,
-          company: hostname.toUpperCase().replace(/\./g, ' '),
-          jobCategory: targetCategory,
-          jobType: 'On-site',
-          region: targetRegion,
-          province: targetProvince,
-          city: 'Islamabad',
-          salary: 'PKR 95,000 - 145,000 / month',
-          currency: 'PKR',
-          experienceLevel: 'Mid',
-          department: 'Field Operations',
-          requirements: ['Graduation from HEC recognized institution', 'Field inspection track record', 'Computer literacy'],
-          benefits: ['Travel Allowance (TA/DA)', 'Health Insurance'],
-          applicationsCount: 0,
-          postedAt: '1 hour ago',
-          description: `Extracted from ${cleanUrl}. Key responsibilities include supervision of regional assignments, reporting to executive officers, and liaison with departments.`,
-          tags: ['Coordinator', 'Field Ops', hostname],
-          featured: false,
-          urgent: false,
-          status: 'Pending',
-          sourceUrl: cleanUrl,
-          scrapedSourceDomain: hostname,
-          govtScale: targetCategory === 'Government Sector' ? 'BPS-16' : undefined,
-          isGovtJob: targetCategory === 'Government Sector'
-        },
-        {
-          id: `scraped-url-${Date.now()}-3`,
-          title: targetCategory === 'Government Sector' ? 'Accountant & Financial Audit Officer' : 'Staff Financial Analyst',
-          company: hostname.toUpperCase().replace(/\./g, ' '),
-          jobCategory: targetCategory,
-          jobType: 'On-site',
-          region: targetRegion,
-          province: targetProvince,
-          city: 'Rawalpindi',
-          salary: 'PKR 85,000 - 130,000 / month',
-          currency: 'PKR',
-          experienceLevel: 'Entry',
-          department: 'Finance & Accounts',
-          requirements: ['B.Com / BBA Finance / CA Inter', 'Knowledge of SAP / Quickbooks'],
-          benefits: ['Annual Performance Bonus', 'Provident Fund'],
-          applicationsCount: 0,
-          postedAt: '2 hours ago',
-          description: `Vacancies advertised at ${cleanUrl}. Audit reconciliation, fiscal budgeting, and accounting oversight.`,
-          tags: ['Finance', 'Accounts', hostname],
-          featured: false,
-          urgent: false,
-          status: 'Pending',
-          sourceUrl: cleanUrl,
-          scrapedSourceDomain: hostname,
-          govtScale: targetCategory === 'Government Sector' ? 'BPS-16' : undefined,
-          isGovtJob: targetCategory === 'Government Sector'
-        }
-      ];
+      const rawJobs = response.jobs || [];
+      const extractedBatch: Job[] = rawJobs.map((j: any) => ({
+        ...j,
+        jobCategory: j.jobCategory || targetCategory,
+        region: j.region || targetRegion,
+        province: j.province || (targetRegion === 'Pakistan' ? targetProvince : undefined),
+        isGovtJob: targetCategory === 'Government Sector' || j.isGovtJob,
+        status: 'Pending'
+      }));
 
-      setStagedScrapedJobs((prev) => [...extractedBatch, ...prev]);
-      setSelectedJobIds(extractedBatch.map((j) => j.id));
+      if (extractedBatch.length === 0) {
+        setStatusMessage(`ℹ️ Scraped ${hostname} successfully, but 0 vacancies were found. Strict policy: No fake or synthetic jobs are generated.`);
+      } else {
+        setStagedScrapedJobs((prev) => [...extractedBatch, ...prev]);
+        setSelectedJobIds(extractedBatch.map((j) => j.id));
+        setStatusMessage(`✅ Authentically harvested ${extractedBatch.length} verified vacancies from ${hostname}!`);
+      }
+    } catch (err: any) {
+      console.error('Manual URL scraper error:', err);
+      setStatusMessage(`❌ Scraping failed: ${err.message || 'Unable to harvest jobs from target URL'}. No synthetic jobs generated.`);
+    } finally {
       setIsCrawlRunning(false);
       setCrawlProgress(100);
-      setStatusMessage(`✅ Successfully extracted ${extractedBatch.length} jobs from ${cleanUrl}!`);
-    }, 1500);
+    }
   };
 
   // Bulk Actions

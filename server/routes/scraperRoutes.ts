@@ -5,6 +5,8 @@ import { requireAdmin } from '../auth/authManager';
 import { ScraperRepository, AuditRepository } from '../db/repositories';
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
+import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
+import { getSchedulerStatus, runSchedulerTick } from '../services/scraperScheduler';
 import { Job } from '../../src/types/job';
 
 export const scraperRouter = Router();
@@ -36,7 +38,27 @@ scraperRouter.put('/configs', requireAdmin, (req, res) => {
   }
 });
 
-// 3. Parse a specific URL or PDF document with 100% factual integrity (NO demo/synthetic jobs)
+// 3. Scheduler Status & Diagnostics
+scraperRouter.get('/scheduler-status', (req, res) => {
+  try {
+    const status = getSchedulerStatus();
+    res.json({ success: true, status });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error getting scheduler status' });
+  }
+});
+
+// 4. Trigger Scheduler Tick Manually (Admin Only)
+scraperRouter.post('/scheduler-tick', requireAdmin, async (req, res) => {
+  try {
+    const tickResult = await runSchedulerTick();
+    res.json({ success: true, ...tickResult });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error executing scheduler tick' });
+  }
+});
+
+// 5. Parse a specific URL or PDF document with 100% factual integrity (NO demo/synthetic jobs)
 scraperRouter.post('/parse-url', requireAdmin, async (req, res) => {
   try {
     const { url, organization, title } = req.body;
@@ -45,6 +67,13 @@ scraperRouter.post('/parse-url', requireAdmin, async (req, res) => {
     }
 
     const cleanUrl = url.trim();
+
+    // SSRF Security Check
+    const ssrfCheck = validateSafeScrapeUrl(cleanUrl);
+    if (!ssrfCheck.safe) {
+      return res.status(400).json({ success: false, message: `Access denied: ${ssrfCheck.error}` });
+    }
+
     const isPdf = cleanUrl.toLowerCase().split('?')[0].endsWith('.pdf');
 
     if (isPdf) {
@@ -60,25 +89,22 @@ scraperRouter.post('/parse-url', requireAdmin, async (req, res) => {
       });
     }
 
-    // Web portal / HTML / ATS scraping
+    // Web portal / HTML / ATS scraping via unified scraper pipeline
+    const domain = new URL(cleanUrl).hostname;
     const tempConfig = {
-      id: `temp-${Date.now()}`,
-      name: organization || title || new URL(cleanUrl).hostname,
+      id: `manual-url-${Date.now()}`,
+      name: organization || title || domain,
       url: cleanUrl,
       category: 'Government Sector' as const,
       region: 'Pakistan' as const,
-      depth: 'Deep Crawl (50+ Jobs)' as const,
-      deduplication: true,
       interval: '24h' as const,
       autoApprove: false,
       status: 'Active Scheduled' as const,
       scrapedCount: 0,
-      successRate: 100,
       keywords: 'jobs, careers, recruitment, vacancies'
     };
 
-    const scraped = await scrapeTargetPortal(tempConfig);
-    const domain = new URL(cleanUrl).hostname;
+    const scraped = await scrapeTargetPortal(tempConfig, { runId: `MANUAL-${Date.now().toString(36).toUpperCase()}` });
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
     const jobs: Job[] = (scraped || []).map((r, idx) => ({
@@ -100,9 +126,12 @@ scraperRouter.post('/parse-url', requireAdmin, async (req, res) => {
       status: 'Pending',
       sourceUrl: r.sourceUrl || cleanUrl,
       originalApplyUrl: r.originalApplyUrl || r.sourceUrl || cleanUrl,
+      sourceJobId: r.sourceJobId || undefined,
       isGovtJob: r.isGovtJob ?? true,
       scrapedSourceDomain: domain,
       scraperSourceName: `${organization || domain} Scraper`,
+      sourcePortal: organization || domain,
+      extractionMethod: r.extractionMethod || 'html_cheerio',
       scrapedAt: now,
       paymentStatus: 'Exempt'
     }));
@@ -123,7 +152,7 @@ scraperRouter.post('/parse-url', requireAdmin, async (req, res) => {
   }
 });
 
-// 4. Trigger Real Scraper Run with Multi-Source & All Modes
+// 6. Trigger Real Scraper Run with Multi-Source & All Modes
 scraperRouter.post('/run', requireAdmin, async (req, res) => {
   try {
     const options: ScraperRunOptions = {
@@ -146,7 +175,7 @@ scraperRouter.post('/run', requireAdmin, async (req, res) => {
   }
 });
 
-// 4. Get Scraper Audit Runs History
+// 7. Get Scraper Audit Runs History
 scraperRouter.get('/runs', (req, res) => {
   try {
     const runs = ScraperRepository.getRuns();

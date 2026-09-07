@@ -289,11 +289,14 @@ export const api = {
       const res = await fetch(`${API_BASE}/scraper/runs`);
       return res.json();
     },
-    async parseUrl(data: { url: string; organization?: string; title?: string }) {
+    async parseUrl(dataOrUrl: { url: string; organization?: string; title?: string } | string, organization?: string, title?: string) {
+      const payload = typeof dataOrUrl === 'string'
+        ? { url: dataOrUrl, organization, title }
+        : dataOrUrl;
       const res = await fetch(`${API_BASE}/scraper/parse-url`, {
         method: 'POST',
         headers: getAuthHeader(),
-        body: JSON.stringify(data)
+        body: JSON.stringify(payload)
       });
       return res.json();
     }

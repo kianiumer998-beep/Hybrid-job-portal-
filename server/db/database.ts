@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { INITIAL_JOBS } from '../../src/data/mockJobs';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../../src/data/mockTransactions';
 import { INITIAL_ADVERTISEMENTS, DEFAULT_AD_PRICING_CONFIG } from '../../src/types/ad';
 import { DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../../src/types/job';
@@ -195,7 +194,7 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
 export class Database {
   // --- JOBS ---
   static getJobs(): any[] {
-    const list = safeReadJson<any[]>('jobs.json', INITIAL_JOBS);
+    const list = safeReadJson<any[]>('jobs.json', []);
     // Ensure all jobs have slugs
     return list.map((j) => {
       if (!j.slug) {

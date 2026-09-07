@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
 import { Filters } from './components/Filters';
@@ -17,6 +17,7 @@ import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
 import { WhatsAppStickyButton, WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './components/WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
+import { api } from './services/api';
 
 import { TopBannerAd } from './components/ads/TopBannerAd';
 import { PopupAdModal } from './components/ads/PopupAdModal';
@@ -44,7 +45,6 @@ import {
   JobPostingPricingConfig,
   DEFAULT_JOB_POSTING_PRICING_CONFIG
 } from './types/job';
-import { INITIAL_JOBS } from './data/mockJobs';
 import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X, Layers, Globe, MapPin, Zap } from 'lucide-react';
 import { SiteSeoConfig } from './types/adminSuite';
 import { INITIAL_SITE_SEO_CONFIG } from './data/mockAdminSuiteData';
@@ -390,182 +390,52 @@ export default function App() {
     return unique;
   };
 
-  // Approved Live Jobs
-  const [jobs, setJobs] = useState<Job[]>(() => {
-    const saved = localStorage.getItem('hybrid_jobs_list');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return deduplicateJobsById(parsed);
-        }
-      } catch {
-        // Fallback to initial
-      }
-    }
-    return INITIAL_JOBS;
-  });
+  // Approved Live Jobs (Single Backend Source of Truth via /api/jobs)
+  const [jobs, setJobs] = useState<Job[]>([]);
 
-  // Pending Jobs Queue for Admin Verification
-  const [pendingJobs, setPendingJobs] = useState<Job[]>(() => {
-    const saved = localStorage.getItem('hybrid_pending_jobs');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return deduplicateJobsById(parsed);
-        }
-      } catch {
-        // Fallback to initial
+  // Pending Jobs Queue for Admin Verification (Single Backend Source of Truth via /api/jobs/queue/pending)
+  const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
+  const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(true);
+
+  // Fetch jobs from backend Single Source of Truth
+  const loadBackendJobs = useCallback(async () => {
+    try {
+      const [liveRes, pendingRes] = await Promise.all([
+        api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
+        api.jobs.getPendingQueue()
+      ]);
+
+      if (liveRes && liveRes.success && Array.isArray(liveRes.jobs)) {
+        setJobs(liveRes.jobs);
+      } else if (Array.isArray(liveRes)) {
+        setJobs(liveRes);
+      } else {
+        setJobs([]);
       }
+
+      if (pendingRes && pendingRes.success && Array.isArray(pendingRes.pendingJobs)) {
+        setPendingJobs(pendingRes.pendingJobs);
+      } else if (Array.isArray(pendingRes)) {
+        setPendingJobs(pendingRes);
+      } else {
+        setPendingJobs([]);
+      }
+    } catch (err) {
+      console.error('[App] Failed to load jobs from backend /api/jobs:', err);
+    } finally {
+      setIsLoadingJobs(false);
     }
-    return [
-      {
-        id: 'job-pending-sc1-1',
-        title: 'Senior Full Stack React & Node.js Engineer',
-        company: 'DevSinc Pakistan',
-        jobType: 'Hybrid',
-        region: 'Pakistan',
-        province: 'Punjab',
-        city: 'Lahore',
-        district: 'Gulberg',
-        salary: 'PKR 350,000 - PKR 480,000 / month',
-        currency: 'PKR',
-        experienceLevel: 'Senior',
-        department: 'Software Engineering',
-        tags: ['React', 'Node.js', 'TypeScript', 'PostgreSQL', 'Tailwind CSS'],
-        description: 'Seeking a seasoned Full Stack Engineer to lead web platform architecture using React 18, Node.js microservices, and modern cloud deployment pipelines.',
-        requirements: ['4+ years hands-on React and Node.js', 'Experience with PostgreSQL & Redis', 'Agile squad leadership'],
-        benefits: ['Medical Insurance for Family', 'Annual Performance Bonus', 'Hybrid Flexibility'],
-        postedAt: '1 hour ago',
-        applicationsCount: 0,
-        status: 'Pending',
-        sourceUrl: 'https://www.rozee.pk/category/information-technology-jobs',
-        scraperSourceId: 'sc-1',
-        scraperSourceName: 'Rozee.pk Pakistan Tech Jobs'
-      },
-      {
-        id: 'job-pending-sc1-2',
-        title: 'MERN Stack Lead Architect',
-        company: 'NetSol Technologies',
-        jobType: 'On-site',
-        region: 'Pakistan',
-        province: 'Punjab',
-        city: 'Lahore',
-        district: 'Model Town',
-        salary: 'PKR 420,000 - PKR 550,000 / month',
-        currency: 'PKR',
-        experienceLevel: 'Lead',
-        department: 'Product Architecture',
-        tags: ['MongoDB', 'Express', 'React', 'Node', 'Docker'],
-        description: 'Seeking an experienced Lead Architect for our enterprise asset finance SaaS platform. You will direct technical strategy, system resilience, and database scaling.',
-        requirements: ['6+ years MERN stack architecture', 'Docker & Kubernetes orchestration'],
-        benefits: ['In-house Gym & Meals', 'Provident Fund', 'Annual Trips'],
-        postedAt: '2 hours ago',
-        applicationsCount: 0,
-        status: 'Pending',
-        sourceUrl: 'https://www.rozee.pk/category/information-technology-jobs',
-        scraperSourceId: 'sc-1',
-        scraperSourceName: 'Rozee.pk Pakistan Tech Jobs'
-      },
-      {
-        id: 'job-pending-sc2-1',
-        title: 'Assistant Director IT (BPS-17)',
-        company: 'Federal Public Service Commission (FPSC)',
-        jobType: 'On-site',
-        region: 'Pakistan',
-        province: 'Islamabad Capital Territory',
-        city: 'Islamabad',
-        salary: 'PKR 110,000 - PKR 160,000 / month (BPS-17 Pay Scale)',
-        currency: 'PKR',
-        experienceLevel: 'Mid',
-        department: 'National IT Wing',
-        tags: ['Govt Job', 'FPSC', 'BPS-17', 'Federal Govt', 'Public Sector'],
-        description: 'Official Federal Public Service Commission recruitment for Assistant Director IT. Responsible for network infrastructure, cybersecurity governance, and database management across federal ministries.',
-        requirements: ['Master or BS in Computer Science (HEC Recognized)', 'Age Limit: 22 - 30 years (+5 years general relaxation)', 'Domicile: Punjab / Sindh / KPK'],
-        benefits: ['Govt Accommodation / House Rent Allowance', 'Pension Scheme & EOBI', 'Medical Grade 1 Facilities'],
-        postedAt: '3 hours ago',
-        applicationsCount: 0,
-        status: 'Pending',
-        sourceUrl: 'https://fpsc.gov.pk/jobs/announcements',
-        scraperSourceId: 'sc-2',
-        scraperSourceName: 'FPSC & PPSC Federal Govt Jobs Scraper',
-        isGovtJob: true,
-        govtDepartment: 'Federal Public Service Commission',
-        govtScale: 'BPS-17',
-        govtCategory: 'Federal'
-      },
-      {
-        id: 'job-pending-sc3-1',
-        title: 'Urgent Computer Operator & Web Assistant',
-        company: 'Metro Trading Corp',
-        jobType: 'On-site',
-        region: 'Pakistan',
-        province: 'Punjab',
-        city: 'Rawalpindi',
-        district: 'Saddar',
-        salary: 'PKR 75,000 - PKR 105,000 / month',
-        currency: 'PKR',
-        experienceLevel: 'Entry',
-        department: 'Data Management & IT',
-        tags: ['Newspaper Classified', 'Daily Jang', 'Data Entry', 'MS Office'],
-        description: 'Urgent requirement for Computer Operator & Web Assistant in Rawalpindi Saddar. Key duties include database record-keeping, web catalog updates, and office administration.',
-        requirements: ['Typing speed 40+ WPM', 'Basic HTML/WordPress editing', 'Intermediate or Bachelor degree'],
-        benefits: ['Daily Lunch Allowance', 'Overtime Compensation'],
-        postedAt: 'Yesterday',
-        applicationsCount: 0,
-        status: 'Pending',
-        sourceUrl: 'https://e.jang.com.pk/classifieds',
-        scraperSourceId: 'sc-3',
-        scraperSourceName: 'Daily Jang Newspaper Classified Ads',
-        isNewspaperAd: true,
-        newspaperName: 'Daily Jang'
-      },
-      {
-        id: 'job-pending-sc4-1',
-        title: 'Senior AI & LLM Engineer (USD Remote)',
-        company: 'Anthropic Ecosystem Partner',
-        jobType: 'Remote',
-        region: 'Global',
-        salary: '$120,000 - $160,000 / year (USD)',
-        currency: 'USD',
-        experienceLevel: 'Senior',
-        department: 'AI Research & Deployment',
-        tags: ['AI Engineer', 'Python', 'LLM', 'Remote', 'PyTorch'],
-        description: 'We are seeking an AI & LLM Engineer to build agentic workflows, fine-tune open-weights models, and optimize retrieval-augmented generation pipelines across distributed systems.',
-        requirements: ['4+ years Python, PyTorch / LangChain / LlamaIndex', 'Production experience with vector DBs (Pinecone, Qdrant)'],
-        benefits: ['100% Worldwide Remote', 'Equipment Allowance $3,000', 'Unlimited PTO'],
-        postedAt: '4 hours ago',
-        applicationsCount: 0,
-        status: 'Pending',
-        sourceUrl: 'https://www.linkedin.com/jobs/search?keywords=remote+developer',
-        scraperSourceId: 'sc-4',
-        scraperSourceName: 'LinkedIn Global Remote Developer Feed'
-      },
-      {
-        id: 'job-pending-sc5-1',
-        title: 'Senior Cloud Solutions Architect (Dubai / Remote)',
-        company: 'Emirates NBD Tech',
-        jobType: 'Remote',
-        region: 'UAE',
-        city: 'Dubai',
-        salary: 'AED 24,000 - AED 32,000 / month',
-        currency: 'AED',
-        experienceLevel: 'Lead',
-        department: 'Enterprise Cloud Architecture',
-        tags: ['Cloud Architecture', 'AWS', 'Kubernetes', 'Microservices', 'DevOps'],
-        description: 'Seeking an experienced Cloud Solutions Architect to drive enterprise AWS & Azure hybrid cloud infrastructure, container orchestration, and high-availability systems.',
-        requirements: ['7+ years Cloud Infrastructure leadership', 'AWS Certified Solutions Architect Professional'],
-        benefits: ['Tax-free UAE Salary', 'Annual Flight Tickets to Home Country', 'Health Coverage'],
-        postedAt: '5 hours ago',
-        applicationsCount: 0,
-        status: 'Pending',
-        sourceUrl: 'https://www.gulftalent.com/uae/jobs/technology',
-        scraperSourceId: 'sc-5',
-        scraperSourceName: 'GulfTalent UAE & Saudi Opportunities'
-      }
-    ];
-  });
+  }, []);
+
+  useEffect(() => {
+    // Purge deprecated browser-specific localStorage jobs keys so they never pollute
+    try {
+      localStorage.removeItem('hybrid_jobs_list');
+      localStorage.removeItem('hybrid_pending_jobs');
+    } catch {}
+
+    loadBackendJobs();
+  }, [loadBackendJobs]);
 
   // Chat Messages State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
@@ -779,17 +649,6 @@ export default function App() {
   useEffect(() => {
     safeLocalStorageSet('hybrid_users_directory', users);
   }, [users]);
-
-  useEffect(() => {
-    // Keep most recent 150 jobs in storage to ensure plenty of quota headroom
-    const toSave = jobs.length > 150 ? jobs.slice(0, 150) : jobs;
-    safeLocalStorageSet('hybrid_jobs_list', toSave);
-  }, [jobs]);
-
-  useEffect(() => {
-    const toSave = pendingJobs.length > 150 ? pendingJobs.slice(0, 150) : pendingJobs;
-    safeLocalStorageSet('hybrid_pending_jobs', toSave);
-  }, [pendingJobs]);
 
   useEffect(() => {
     safeLocalStorageSet('hybrid_chat_messages', chatMessages.slice(-50));
@@ -1018,51 +877,58 @@ export default function App() {
   };
 
   // Admin Deactivates all jobs posted by a specific user
-  const handleDeactivateUserJobs = (userId: string) => {
+  const handleDeactivateUserJobs = async (userId: string) => {
     const user = users.find(u => u.id === userId);
     const userCompanyName = user?.name?.toLowerCase();
     const userEmail = user?.email?.toLowerCase();
 
-    setJobs(prev => prev.map(j => {
-      const match = j.submittedByUserId === userId || 
-                    (userCompanyName && j.company?.toLowerCase() === userCompanyName) ||
-                    (userEmail && j.company?.toLowerCase() === userEmail);
-      if (match) {
-        return { ...j, status: 'Suspended', isSuspended: true, rejectionReason: 'Suspended: Unpaid Employer Account' };
-      }
-      return j;
-    }));
+    const jobsToSuspend = [...jobs, ...pendingJobs].filter(j => {
+      return j.submittedByUserId === userId || 
+             (userCompanyName && j.company?.toLowerCase() === userCompanyName) ||
+             (userEmail && j.company?.toLowerCase() === userEmail);
+    });
 
-    setPendingJobs(prev => prev.map(j => {
-      const match = j.submittedByUserId === userId || 
-                    (userCompanyName && j.company?.toLowerCase() === userCompanyName) ||
-                    (userEmail && j.company?.toLowerCase() === userEmail);
-      if (match) {
-        return { ...j, status: 'Rejected', isSuspended: true, rejectionReason: 'Suspended: Unpaid Employer Account' };
+    if (jobsToSuspend.length > 0) {
+      const updated = jobsToSuspend.map(j => ({
+        ...j,
+        status: 'Suspended' as const,
+        isSuspended: true,
+        rejectionReason: 'Suspended: Unpaid Employer Account'
+      }));
+      try {
+        await api.jobs.bulkUpdate(updated);
+        await loadBackendJobs();
+      } catch (err) {
+        console.error('Error deactivating user jobs on backend:', err);
+        await loadBackendJobs();
       }
-      return j;
-    }));
+    }
 
     alert(`All posted jobs for user "${user?.name || userId}" have been suspended/deactivated.`);
   };
 
   // Admin Ends Both Membership and Deactivates Jobs
-  const handleEndUserMembershipAndJobs = (userId: string) => {
+  const handleEndUserMembershipAndJobs = async (userId: string) => {
     handleEndUserMembership(userId);
-    handleDeactivateUserJobs(userId);
+    await handleDeactivateUserJobs(userId);
     alert('Terminated membership and deactivated all associated job postings.');
   };
 
   // Admin Suspends an individual Job
-  const handleSuspendJob = (jobId: string, reason?: string) => {
+  const handleSuspendJob = async (jobId: string, reason?: string) => {
     const suspendReason = reason || 'Suspended by Admin (Unpaid Employer / Terms Violation)';
-    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Suspended', isSuspended: true, rejectionReason: suspendReason } : j));
-    setPendingJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Rejected', isSuspended: true, rejectionReason: suspendReason } : j));
-    alert(`Job has been suspended.`);
+    try {
+      await api.jobs.update(jobId, { status: 'Suspended', isSuspended: true, rejectionReason: suspendReason });
+      await loadBackendJobs();
+      alert(`Job has been suspended.`);
+    } catch (err) {
+      console.error('Error suspending job on backend:', err);
+      await loadBackendJobs();
+    }
   };
 
   // Bulk End All Unpaid Memberships & Deactivate Jobs
-  const handleBulkEndUnpaidMemberships = () => {
+  const handleBulkEndUnpaidMemberships = async () => {
     const unpaidUserIds = users.filter(u => u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now())).map(u => u.id);
     
     if (unpaidUserIds.length === 0) {
@@ -1084,19 +950,35 @@ export default function App() {
       return u;
     }));
 
-    setJobs(prev => prev.map(j => {
-      if (j.submittedByUserId && unpaidUserIds.includes(j.submittedByUserId)) {
-        return { ...j, status: 'Suspended', isSuspended: true, rejectionReason: 'Bulk Action: Suspended due to unpaid employer membership' };
+    const jobsToSuspend = [...jobs, ...pendingJobs].filter(j => j.submittedByUserId && unpaidUserIds.includes(j.submittedByUserId));
+    if (jobsToSuspend.length > 0) {
+      const updated = jobsToSuspend.map(j => ({
+        ...j,
+        status: 'Suspended' as const,
+        isSuspended: true,
+        rejectionReason: 'Bulk Action: Suspended due to unpaid employer membership'
+      }));
+      try {
+        await api.jobs.bulkUpdate(updated);
+        await loadBackendJobs();
+      } catch (err) {
+        console.error('Error suspending unpaid member jobs on backend:', err);
+        await loadBackendJobs();
       }
-      return j;
-    }));
+    }
 
     alert(`Enforced unpaid policy on ${unpaidUserIds.length} user account(s) and suspended their active jobs.`);
   };
 
   // User submits job for admin verification with optional Fee Payment
-  const handleSubmitJobForApproval = (newJob: Job, feePayment?: { amount: number; paymentMethod: string }) => {
-    setPendingJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)]);
+  const handleSubmitJobForApproval = async (newJob: Job, feePayment?: { amount: number; paymentMethod: string }) => {
+    try {
+      await api.jobs.create({ ...newJob, status: 'Pending' });
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error creating pending job on backend:', err);
+      await loadBackendJobs();
+    }
 
     if (feePayment && currentUser) {
       const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
@@ -1173,26 +1055,28 @@ export default function App() {
   };
 
   // Admin Approves Job
-  const handleApproveJob = (jobId: string) => {
-    const jobToApprove = pendingJobs.find(j => j.id === jobId);
-    if (jobToApprove) {
-      const approvedJob: Job = { ...jobToApprove, status: 'Approved' };
-      setJobs(prev => [approvedJob, ...prev.filter(j => j.id !== jobId)]);
-      setPendingJobs(prev => prev.filter(j => j.id !== jobId));
-      alert(`Job "${approvedJob.title}" is now LIVE on the public portal!`);
+  const handleApproveJob = async (jobId: string) => {
+    try {
+      const res = await api.jobs.approvePending(jobId);
+      await loadBackendJobs();
+      if (res && res.success) {
+        alert(`Job "${res.job?.title || 'Job'}" is now LIVE on the public portal!`);
+      }
+    } catch (err) {
+      console.error('Error approving job on backend:', err);
+      await loadBackendJobs();
     }
   };
 
   // Admin Rejects Job with Custom Reason
-  const handleRejectJob = (jobId: string, reason: string) => {
-    const rejectedJob = pendingJobs.find(j => j.id === jobId);
-    if (rejectedJob) {
-      const updatedJob: Job = { ...rejectedJob, status: 'Rejected', rejectionReason: reason };
-      setJobs(prev => [updatedJob, ...prev.filter(j => j.id !== jobId)]);
-      setPendingJobs(prev => prev.filter(j => j.id !== jobId));
+  const handleRejectJob = async (jobId: string, reason: string) => {
+    try {
+      const rejectedJob = pendingJobs.find(j => j.id === jobId);
+      await api.jobs.rejectPending(jobId, reason);
+      await loadBackendJobs();
 
       // Push notification message into user's chat thread
-      if (rejectedJob.submittedByUserId) {
+      if (rejectedJob && rejectedJob.submittedByUserId) {
         const chatMsg: ChatMessage = {
           id: 'msg-' + Date.now(),
           userId: rejectedJob.submittedByUserId,
@@ -1205,6 +1089,109 @@ export default function App() {
       }
 
       alert(`Job rejected. Reason notification sent to user chat.`);
+    } catch (err) {
+      console.error('Error rejecting job on backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleAddJob = async (newJob: Job) => {
+    try {
+      await api.jobs.create({ ...newJob, status: 'Approved' });
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error adding job to backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleAddPendingJob = async (newJob: Job) => {
+    try {
+      await api.jobs.create({ ...newJob, status: 'Pending' });
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error adding pending job to backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleDeleteJob = async (jobId: string) => {
+    try {
+      await api.jobs.delete(jobId);
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error deleting job from backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleUpdateJob = async (updatedJob: Job) => {
+    try {
+      await api.jobs.update(updatedJob.id, updatedJob);
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error updating job on backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleBulkDeleteJobs = async (jobIds: string[]) => {
+    try {
+      await api.jobs.bulkDelete(jobIds);
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error bulk deleting jobs on backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleBulkUpdateJobs = async (updatedList: Job[]) => {
+    try {
+      await api.jobs.bulkUpdate(updatedList);
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error bulk updating jobs on backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleBulkApprovePendingJobs = async (jobIds: string[]) => {
+    try {
+      await api.jobs.bulkApprove(jobIds);
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error bulk approving pending jobs on backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleBulkRejectPendingJobs = async (jobIds: string[], reason?: string) => {
+    try {
+      await api.jobs.bulkReject(jobIds, reason || 'Bulk rejected by administrator');
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error bulk rejecting pending jobs on backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleBulkAddJobs = async (newJobs: Job[]) => {
+    try {
+      await api.jobs.bulkAdd(newJobs, 'Approved');
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error bulk adding jobs to backend:', err);
+      await loadBackendJobs();
+    }
+  };
+
+  const handleBulkAddPendingJobs = async (newJobs: Job[]) => {
+    try {
+      await api.jobs.bulkAdd(newJobs, 'Pending');
+      await loadBackendJobs();
+    } catch (err) {
+      console.error('Error bulk adding pending jobs to backend:', err);
+      await loadBackendJobs();
     }
   };
 
@@ -1553,23 +1540,11 @@ export default function App() {
             onUpdateUserPassword={handleAdminUpdateUserPassword}
             onApproveJob={handleApproveJob}
             onRejectJob={handleRejectJob}
-            onAddJob={(newJob) => setJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)])}
-            onAddPendingJob={(newJob) => setPendingJobs(prev => [newJob, ...prev.filter(j => j.id !== newJob.id)])}
-            onBulkAddJobs={(newJobs) => {
-              setJobs(prev => {
-                const existing = new Set(prev.map(j => j.id));
-                const uniqueNew = newJobs.filter(j => !existing.has(j.id));
-                return [...uniqueNew, ...prev];
-              });
-            }}
-            onBulkAddPendingJobs={(newJobs) => {
-              setPendingJobs(prev => {
-                const existing = new Set(prev.map(j => j.id));
-                const uniqueNew = newJobs.filter(j => !existing.has(j.id));
-                return [...uniqueNew, ...prev];
-              });
-            }}
-            onDeleteJob={(jobId) => setJobs(prev => prev.filter(j => j.id !== jobId))}
+            onAddJob={handleAddJob}
+            onAddPendingJob={handleAddPendingJob}
+            onBulkAddJobs={handleBulkAddJobs}
+            onBulkAddPendingJobs={handleBulkAddPendingJobs}
+            onDeleteJob={handleDeleteJob}
             onSendMessageToUser={handleAdminSendMessage}
             onAddCustomField={handleAddCustomField}
             onToggleCustomField={handleToggleCustomField}
@@ -1579,20 +1554,11 @@ export default function App() {
             onEndUserMembershipAndJobs={handleEndUserMembershipAndJobs}
             onSuspendJob={handleSuspendJob}
             onBulkEndUnpaidMemberships={handleBulkEndUnpaidMemberships}
-            onUpdateJob={(updatedJob) => setJobs(prev => prev.map(j => j.id === updatedJob.id ? updatedJob : j))}
-            onBulkDeleteJobs={(jobIds) => setJobs(prev => prev.filter(j => !jobIds.includes(j.id)))}
-            onBulkUpdateJobs={(updatedList) => {
-              const map = new Map(updatedList.map(u => [u.id, u]));
-              setJobs(prev => prev.map(j => map.get(j.id) || j));
-            }}
-            onBulkApprovePendingJobs={(jobIds) => {
-              const toApprove = pendingJobs.filter(j => jobIds.includes(j.id)).map(j => ({ ...j, status: 'Approved' as const }));
-              setPendingJobs(prev => prev.filter(j => !jobIds.includes(j.id)));
-              setJobs(prev => [...toApprove, ...prev]);
-            }}
-            onBulkRejectPendingJobs={(jobIds) => {
-              setPendingJobs(prev => prev.filter(j => !jobIds.includes(j.id)));
-            }}
+            onUpdateJob={handleUpdateJob}
+            onBulkDeleteJobs={handleBulkDeleteJobs}
+            onBulkUpdateJobs={handleBulkUpdateJobs}
+            onBulkApprovePendingJobs={handleBulkApprovePendingJobs}
+            onBulkRejectPendingJobs={handleBulkRejectPendingJobs}
             onAddSubscriber={(newSub) => setSubscribers(prev => [newSub, ...prev.filter(s => s.id !== newSub.id)])}
             onUpdateSubscriber={(updatedSub) => setSubscribers(prev => prev.map(s => s.id === updatedSub.id ? updatedSub : s))}
             onDeleteSubscriber={(subId) => setSubscribers(prev => prev.filter(s => s.id !== subId))}

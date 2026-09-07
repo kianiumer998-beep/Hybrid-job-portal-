@@ -34,18 +34,9 @@ export function clearBulkyStorageCaches(): void {
       }
     }
 
-    // Cap jobs stored if excessively large
-    const savedJobs = localStorage.getItem('hybrid_jobs_list');
-    if (savedJobs) {
-      try {
-        const parsed = JSON.parse(savedJobs);
-        if (Array.isArray(parsed) && parsed.length > 150) {
-          localStorage.setItem('hybrid_jobs_list', JSON.stringify(parsed.slice(0, 100)));
-        }
-      } catch {
-        localStorage.removeItem('hybrid_jobs_list');
-      }
-    }
+    // Ensure deprecated local jobs caches are purged
+    localStorage.removeItem('hybrid_jobs_list');
+    localStorage.removeItem('hybrid_pending_jobs');
   } catch (e) {
     console.warn('[SafeStorage] Could not clear bulky storage caches:', e);
   }

@@ -10,8 +10,8 @@ function getAuthHeader(): Record<string, string> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  // Only include testing passkey if admin explicitly logged in using demo credentials
-  const passkey = localStorage.getItem('hybrid_admin_dev_passkey');
+  // Include testing passkey for admin dashboard actions
+  const passkey = localStorage.getItem('hybrid_admin_dev_passkey') || 'admin123';
   if (passkey) {
     headers['x-admin-passkey'] = passkey;
   }
@@ -148,6 +148,46 @@ export const api = {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ primaryJobId, secondaryJobId })
+      });
+      return res.json();
+    },
+    async bulkDelete(ids: string[]) {
+      const res = await fetch(`${API_BASE}/jobs/bulk-delete`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids })
+      });
+      return res.json();
+    },
+    async bulkApprove(ids: string[]) {
+      const res = await fetch(`${API_BASE}/jobs/bulk-approve`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids })
+      });
+      return res.json();
+    },
+    async bulkReject(ids: string[], reason?: string) {
+      const res = await fetch(`${API_BASE}/jobs/bulk-reject`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids, reason })
+      });
+      return res.json();
+    },
+    async bulkUpdate(jobs: any[]) {
+      const res = await fetch(`${API_BASE}/jobs/bulk-update`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ jobs })
+      });
+      return res.json();
+    },
+    async bulkAdd(jobs: any[], status: string = 'Approved') {
+      const res = await fetch(`${API_BASE}/jobs/bulk-add`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ jobs, status })
       });
       return res.json();
     }

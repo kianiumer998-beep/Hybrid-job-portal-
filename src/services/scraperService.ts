@@ -6,7 +6,8 @@ import { parsePdfFromUrl } from '../../server/services/pdfParserEngine';
 export interface ScraperTargetConfig {
   id: string;
   name: string;
-  url: string;
+  url?: string;
+  portalUrl?: string;
   keywords?: string;
   interval?: '15m' | '30m' | '1h' | '6h' | '24h' | '7d';
   autoApprove?: boolean;
@@ -179,16 +180,18 @@ export function extractNextPageUrl(html: string, currentUrl: string): string | n
  * ADAPTER 1: Greenhouse API Adapter (boards-api.greenhouse.io)
  */
 async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
-  const url = config.url.toLowerCase();
+  const targetUrl = config.url || config.portalUrl || '';
+  if (!targetUrl) return null;
+  const url = targetUrl.toLowerCase();
   if (!url.includes('boards.greenhouse.io') && !url.includes('api.greenhouse.io')) {
     return null;
   }
 
   let boardToken = '';
   if (url.includes('boards.greenhouse.io/')) {
-    boardToken = config.url.split('boards.greenhouse.io/')[1]?.split('/')[0]?.split('?')[0];
+    boardToken = targetUrl.split('boards.greenhouse.io/')[1]?.split('/')[0]?.split('?')[0];
   } else if (url.includes('api.greenhouse.io/v1/boards/')) {
-    boardToken = config.url.split('api.greenhouse.io/v1/boards/')[1]?.split('/')[0]?.split('?')[0];
+    boardToken = targetUrl.split('api.greenhouse.io/v1/boards/')[1]?.split('/')[0]?.split('?')[0];
   }
 
   if (!boardToken) return null;
@@ -226,9 +229,9 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
         datePosted: j.updated_at,
         applicationsCount: 0,
         status: config.autoApprove ? 'Approved' : 'Pending',
-        sourceUrl: j.absolute_url || config.url,
+        sourceUrl: j.absolute_url || targetUrl,
         sourceJobId: String(j.id),
-        originalApplyUrl: j.absolute_url || config.url,
+        originalApplyUrl: j.absolute_url || targetUrl,
         sourcePortal: config.name,
         extractionMethod: 'greenhouse_api',
         scrapeRunId: options.runId,
@@ -242,7 +245,7 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
       totalFoundOnPage: jobs.length
     };
   } catch (err: any) {
-    console.warn(`[Greenhouse Adapter] Extraction failed for ${config.url}:`, err?.message || err);
+    console.warn(`[Greenhouse Adapter] Extraction failed for ${targetUrl}:`, err?.message || err);
     return { jobs: [], extractionMethod: 'greenhouse_api', totalFoundOnPage: 0 };
   }
 }
@@ -251,12 +254,14 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
  * ADAPTER 2: Lever API Adapter (api.lever.co)
  */
 async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
-  const url = config.url.toLowerCase();
+  const targetUrl = config.url || config.portalUrl || '';
+  if (!targetUrl) return null;
+  const url = targetUrl.toLowerCase();
   if (!url.includes('jobs.lever.co')) {
     return null;
   }
 
-  const siteName = config.url.split('jobs.lever.co/')[1]?.split('/')[0]?.split('?')[0];
+  const siteName = targetUrl.split('jobs.lever.co/')[1]?.split('/')[0]?.split('?')[0];
   if (!siteName) return null;
 
   try {
@@ -291,9 +296,9 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
         datePosted: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
         applicationsCount: 0,
         status: config.autoApprove ? 'Approved' : 'Pending',
-        sourceUrl: j.hostedUrl || j.applyUrl || config.url,
+        sourceUrl: j.hostedUrl || j.applyUrl || targetUrl,
         sourceJobId: String(j.id),
-        originalApplyUrl: j.applyUrl || j.hostedUrl || config.url,
+        originalApplyUrl: j.applyUrl || j.hostedUrl || targetUrl,
         sourcePortal: config.name,
         extractionMethod: 'lever_api',
         scrapeRunId: options.runId,
@@ -307,7 +312,7 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
       totalFoundOnPage: jobs.length
     };
   } catch (err: any) {
-    console.warn(`[Lever Adapter] Extraction failed for ${config.url}:`, err?.message || err);
+    console.warn(`[Lever Adapter] Extraction failed for ${targetUrl}:`, err?.message || err);
     return { jobs: [], extractionMethod: 'lever_api', totalFoundOnPage: 0 };
   }
 }
@@ -316,11 +321,13 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
  * ADAPTER 3: SmartRecruiters & Ashby REST APIs
  */
 async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
-  const url = config.url.toLowerCase();
+  const targetUrl = config.url || config.portalUrl || '';
+  if (!targetUrl) return null;
+  const url = targetUrl.toLowerCase();
 
   // SmartRecruiters
   if (url.includes('smartrecruiters.com/')) {
-    const company = config.url.split('smartrecruiters.com/')[1]?.split('/')[0]?.split('?')[0];
+    const company = targetUrl.split('smartrecruiters.com/')[1]?.split('/')[0]?.split('?')[0];
     if (company && !['jobs', 'careers', 'search'].includes(company)) {
       try {
         const apiUrl = `https://api.smartrecruiters.com/v1/companies/${company}/postings`;
@@ -365,7 +372,7 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
 
   // Ashby
   if (url.includes('jobs.ashbyhq.com/')) {
-    const company = config.url.split('jobs.ashbyhq.com/')[1]?.split('/')[0]?.split('?')[0];
+    const company = targetUrl.split('jobs.ashbyhq.com/')[1]?.split('/')[0]?.split('?')[0];
     if (company) {
       try {
         const apiUrl = `https://api.ashbyhq.com/posting-api/job-board/${company}`;
@@ -392,9 +399,9 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               datePosted: j.publishedDate,
               applicationsCount: 0,
               status: config.autoApprove ? 'Approved' : 'Pending',
-              sourceUrl: j.jobUrl || config.url,
+              sourceUrl: j.jobUrl || targetUrl,
               sourceJobId: String(j.id),
-              originalApplyUrl: j.jobUrl || config.url,
+              originalApplyUrl: j.jobUrl || targetUrl,
               sourcePortal: config.name,
               extractionMethod: 'ashby_api',
               scrapeRunId: options.runId,
@@ -416,14 +423,16 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
  * Handles FPSC, PPSC, WAPDA, KPPSC, SPSC, BPSC, or any PDF recruitment gazette.
  */
 async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
+  const effectiveUrl = config.url || config.portalUrl || config.pdfUrl || '';
   const isExplicitPdf =
     (config.formatType && config.formatType.includes('PDF')) ||
     (config.pdfUrl && config.pdfUrl.trim().length > 0) ||
-    (config.url && config.url.toLowerCase().split('?')[0].endsWith('.pdf'));
+    (effectiveUrl && effectiveUrl.toLowerCase().split('?')[0].endsWith('.pdf'));
 
   if (!isExplicitPdf) return null;
 
-  const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : config.url;
+  const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : effectiveUrl;
+  if (!targetPdfUrl || !targetPdfUrl.startsWith('http')) return null;
 
   try {
     const pdfResult = await parsePdfFromUrl(targetPdfUrl, config.name);
@@ -790,6 +799,14 @@ export async function scrapeTargetPortal(
   config: ScraperTargetConfig,
   options: ScrapeOptions = {}
 ): Promise<ScrapedJobResult[]> {
+  const effectiveUrl = config.url || config.portalUrl || config.pdfUrl || '';
+  config.url = effectiveUrl;
+
+  if (!effectiveUrl) {
+    console.warn(`[Scraper Pipeline] Portal "${config.name}" has no valid URL configured.`);
+    return [];
+  }
+
   try {
     // 1. Check Government PDF Adapter
     const pdfResult = await scrapeGovernmentPdfPortal(config, options);
@@ -816,7 +833,7 @@ export async function scrapeTargetPortal(
     }
 
     // 5. Build paginated target URL if page > 1
-    let targetUrl = config.url;
+    let targetUrl = effectiveUrl;
     if (options.page && options.page > 1) {
       try {
         const urlObj = new URL(targetUrl);
@@ -826,7 +843,7 @@ export async function scrapeTargetPortal(
     }
 
     // 6. Safe Fetch with SSRF protection, timeout, and retries
-    const response = await safeFetchWithRetry(targetUrl, {}, 18000, 2);
+    const response = await safeFetchWithRetry(targetUrl, {}, 10000, 1);
     if (!response.ok) {
       console.warn(`[Scraper Pipeline] Target ${config.name} (${targetUrl}) responded with HTTP ${response.status}.`);
       return [];

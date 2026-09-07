@@ -1,5 +1,6 @@
 import { PDFParse } from 'pdf-parse';
 import { Job } from '../../src/types/job';
+import { safeFetchWithRetry } from '../utils/ssrfProtection';
 
 export interface ExtractedPdfResult {
   success: boolean;
@@ -159,22 +160,47 @@ export function extractJobsFromPdfText(
 
 /**
  * Downloads a PDF file from a URL and extracts factual job vacancies.
+ * Handles transient network timeouts, non-PDF/HTML responses, and corrupt streams gracefully.
  */
 export async function parsePdfFromUrl(url: string, orgName?: string): Promise<ExtractedPdfResult> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+  if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+    return {
+      success: false,
+      totalPages: 0,
+      extractedJobs: [],
+      rawTextSample: '',
+      sourceUrl: url,
+      message: 'Invalid or missing PDF URL'
+    };
+  }
 
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'application/pdf,application/octet-stream,*/*'
-      }
-    });
-    clearTimeout(timeout);
+  try {
+    let res: Response;
+    try {
+      res = await safeFetchWithRetry(
+        url,
+        {
+          headers: {
+            'Accept': 'application/pdf,application/octet-stream,*/*'
+          }
+        },
+        15000,
+        1
+      );
+    } catch (networkErr: any) {
+      console.warn(`[PDF Parser] Notice: Could not download PDF from ${url}: ${networkErr?.message || networkErr}`);
+      return {
+        success: false,
+        totalPages: 0,
+        extractedJobs: [],
+        rawTextSample: '',
+        sourceUrl: url,
+        message: `Unable to fetch PDF (${networkErr?.message || 'Network error'})`
+      };
+    }
 
     if (!res.ok) {
+      console.warn(`[PDF Parser] Notice: PDF URL responded with HTTP ${res.status} for ${url}`);
       return {
         success: false,
         totalPages: 0,
@@ -185,17 +211,59 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       };
     }
 
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
     const arrayBuffer = await res.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Parse PDF binary data using pdf-parse
-    const parser = new PDFParse({ data: buffer });
-    const parsedData = await parser.getText();
-    const text = parsedData.text || '';
-    const totalPages = parsedData.total || 1;
-    await parser.destroy();
-    const fileName = url.split('/').pop()?.split('?')[0] || 'ad.pdf';
+    if (buffer.length === 0) {
+      return {
+        success: false,
+        totalPages: 0,
+        extractedJobs: [],
+        rawTextSample: '',
+        sourceUrl: url,
+        message: 'Empty response received from PDF URL'
+      };
+    }
 
+    // Inspect first 1024 bytes for PDF Magic Byte Header "%PDF-"
+    const headerSnippet = buffer.subarray(0, Math.min(1024, buffer.length));
+    const isPdfBinary = headerSnippet.includes(Buffer.from('%PDF-')) || headerSnippet.toString('utf-8', 0, 8).startsWith('%PDF-');
+
+    if (!isPdfBinary) {
+      console.warn(`[PDF Parser] Notice: Target URL "${url}" returned non-PDF content (Content-Type: ${contentType || 'unknown'}). Bypassing binary PDF parser.`);
+      return {
+        success: false,
+        totalPages: 0,
+        extractedJobs: [],
+        rawTextSample: '',
+        sourceUrl: url,
+        message: `Target URL returned HTML or non-PDF content instead of a binary PDF document.`
+      };
+    }
+
+    // Parse PDF binary data using pdf-parse safely
+    let text = '';
+    let totalPages = 1;
+    try {
+      const parser = new PDFParse({ data: buffer });
+      const parsedData = await parser.getText();
+      text = parsedData.text || '';
+      totalPages = parsedData.total || 1;
+      await parser.destroy();
+    } catch (parseError: any) {
+      console.warn(`[PDF Parser] Notice: PDF binary decoding issue on ${url}: ${parseError?.message || parseError}`);
+      return {
+        success: false,
+        totalPages: 0,
+        extractedJobs: [],
+        rawTextSample: '',
+        sourceUrl: url,
+        message: `Could not parse PDF content: ${parseError?.message || 'Invalid PDF structure'}`
+      };
+    }
+
+    const fileName = url.split('/').pop()?.split('?')[0] || 'ad.pdf';
     const jobs = extractJobsFromPdfText(text, url, orgName, fileName);
 
     return {
@@ -210,7 +278,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         : `PDF processed (${totalPages} pages), but no structured vacancy listings were detected. No synthetic data was generated.`
     };
   } catch (error: any) {
-    console.error(`[PDF Parser] Error parsing PDF from ${url}:`, error?.message || error);
+    console.warn(`[PDF Parser] Notice: Processing completed with warning for ${url}: ${error?.message || error}`);
     return {
       success: false,
       totalPages: 0,

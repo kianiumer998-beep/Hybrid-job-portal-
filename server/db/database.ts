@@ -574,7 +574,12 @@ export class Database {
 
   // --- SCRAPER SOURCES & RUNS ---
   static getScraperSources(): any[] {
-    return safeReadJson<any[]>('scraper_sources.json', ALL_VERIFIED_SCRAPER_PORTALS);
+    const raw = safeReadJson<any[]>('scraper_sources.json', ALL_VERIFIED_SCRAPER_PORTALS);
+    return (raw || []).map(s => ({
+      ...s,
+      url: s.url || s.portalUrl || s.pdfUrl || '',
+      portalUrl: s.portalUrl || s.url || ''
+    }));
   }
 
   static saveScraperSources(sources: any[]): void {

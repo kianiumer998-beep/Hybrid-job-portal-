@@ -1,5 +1,65 @@
 [
   {
+    "id": "log-1788780383624-ekql",
+    "timestamp": "2026-09-07T11:26:23.625Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "6 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "page_range",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1788779844088-vidf",
+    "timestamp": "2026-09-07T11:17:24.088Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "447 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "complete",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1788778904199-jkbm",
+    "timestamp": "2026-09-07T11:01:44.199Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated (Testing Passkey)",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788777000098-t4b2",
+    "timestamp": "2026-09-07T10:30:00.098Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "5 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
     "id": "log-1788597278908-pvbw",
     "timestamp": "2026-09-05T08:34:38.908Z",
     "user": "Super Administrator (Testing Mode)",

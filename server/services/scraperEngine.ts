@@ -123,6 +123,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const sourcesStats: ScraperRunSummary['sourcesStats'] = [];
 
   for (const target of targets) {
+    const effectiveUrl = target.url || (target as any).portalUrl || (target as any).pdfUrl || '';
+    target.url = effectiveUrl;
     const sourceRunStart = new Date().toISOString();
     ScraperRepository.updateSourceStats(target.id, {
       lastStartedAt: sourceRunStart,

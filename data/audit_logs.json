@@ -1,5 +1,158 @@
 [
   {
+    "id": "log-1788873140012-r02j",
+    "timestamp": "2026-09-08T13:12:20.012Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Job Deleted",
+    "target": "Job ID job-1788873132672-gy316",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788873139502-o4xb",
+    "timestamp": "2026-09-08T13:12:19.502Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Job Moderator",
+    "action": "Job Approved & Published Live",
+    "target": "SCRAPER-PENDING-TEST-1788873132591 at Federal Scraper Source",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788873132925-9p1g",
+    "timestamp": "2026-09-08T13:12:12.925Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Job Created & Published (Admin Direct)",
+    "target": "MONGODB-PERSISTENCE-TEST-1788873132591 at Atlas QA Systems",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788873115272-06q6",
+    "timestamp": "2026-09-08T13:11:55.272Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Job Created & Published (Admin Direct)",
+    "target": "MONGODB-PERSISTENCE-TEST-1788873114895 at Atlas QA Systems",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788871004872-rkrj",
+    "timestamp": "2026-09-08T12:36:44.872Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870992511-fr03",
+    "timestamp": "2026-09-08T12:36:32.511Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870980678-afes",
+    "timestamp": "2026-09-08T12:36:20.678Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870965113-rsyn",
+    "timestamp": "2026-09-08T12:36:05.113Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870951331-ywwd",
+    "timestamp": "2026-09-08T12:35:51.331Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870935224-pkuj",
+    "timestamp": "2026-09-08T12:35:35.224Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870915946-x8zz",
+    "timestamp": "2026-09-08T12:35:15.946Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870897610-f57l",
+    "timestamp": "2026-09-08T12:34:57.610Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870873294-4g3j",
+    "timestamp": "2026-09-08T12:34:33.294Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870847073-70fh",
+    "timestamp": "2026-09-08T12:34:07.073Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870823444-avsp",
+    "timestamp": "2026-09-08T12:33:43.444Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870798816-hbjs",
+    "timestamp": "2026-09-08T12:33:18.816Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870772440-p3eb",
+    "timestamp": "2026-09-08T12:32:52.440Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Deleted",
+    "target": "3 of 3 jobs deleted",
+    "status": "Success"
+  },
+  {
     "id": "log-1788870599780-5rgb",
     "timestamp": "2026-09-08T12:29:59.780Z",
     "user": "Super Administrator (Testing Mode)",

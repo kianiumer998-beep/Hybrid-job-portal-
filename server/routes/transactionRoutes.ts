@@ -16,7 +16,7 @@ transactionRouter.get('/', (req, res) => {
 });
 
 // 2. Submit payment proof with Idempotency Protection & Authoritative Pricing Authority
-transactionRouter.post('/', (req, res) => {
+transactionRouter.post('/', async (req, res) => {
   try {
     const {
       amount,
@@ -130,7 +130,7 @@ transactionRouter.post('/', (req, res) => {
 
     // If job posting paid from wallet successfully, approve pending job
     if (initialStatus === 'Success' && jobIdRef) {
-      JobRepository.approvePending(jobIdRef);
+      await JobRepository.approvePending(jobIdRef);
     }
 
     AuditRepository.add({
@@ -155,7 +155,7 @@ transactionRouter.post('/', (req, res) => {
 });
 
 // 3. Admin Approve / Reject Payment Verification Proof
-transactionRouter.patch('/:id/verify', requireAdmin, (req, res) => {
+transactionRouter.patch('/:id/verify', requireAdmin, async (req, res) => {
   try {
     const { action, note, reason } = req.body; // action: 'approve' | 'reject'
     if (!['approve', 'reject'].includes(action)) {
@@ -169,7 +169,7 @@ transactionRouter.patch('/:id/verify', requireAdmin, (req, res) => {
 
     // If approved and was for a pending job, publish it live
     if (action === 'approve' && tx.jobIdRef) {
-      JobRepository.approvePending(tx.jobIdRef);
+      await JobRepository.approvePending(tx.jobIdRef);
     }
 
     AuditRepository.add({

@@ -20,10 +20,10 @@ function escapeXml(unsafe: string): string {
 }
 
 // 1. Authoritative Dynamic XML Sitemap Generator (Excludes Expired, Duplicate, Rejected, Suspended)
-seoRouter.get('/sitemap.xml', (req, res) => {
+seoRouter.get('/sitemap.xml', async (req, res) => {
   try {
     // Only include non-expired, approved, non-suspended jobs
-    const { jobs: activeApprovedJobs } = JobRepository.getAll({ limit: 1000, includeExpired: false });
+    const { jobs: activeApprovedJobs } = await JobRepository.getAll({ limit: 1000, includeExpired: false });
     const baseUrl = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
 
     interface SitemapEntry {
@@ -102,9 +102,9 @@ Sitemap: ${baseUrl}/sitemap.xml
 });
 
 // 3. Factual, Non-Invented JobPosting JSON-LD & Crawler Endpoint
-seoRouter.get('/job-meta/:id', (req, res) => {
+seoRouter.get('/job-meta/:id', async (req, res) => {
   try {
-    const job = JobRepository.getById(req.params.id) || JobRepository.getBySlug(req.params.id);
+    const job = (await JobRepository.getById(req.params.id)) || (await JobRepository.getBySlug(req.params.id));
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
@@ -224,9 +224,9 @@ seoRouter.get('/job-meta/:id', (req, res) => {
 });
 
 // 4. Crawlable Public Job SSR HTML Page for Search Engines & Social Bots
-seoRouter.get('/public-job/:idOrSlug', (req, res) => {
+seoRouter.get('/public-job/:idOrSlug', async (req, res) => {
   try {
-    const job = JobRepository.getById(req.params.idOrSlug) || JobRepository.getBySlug(req.params.idOrSlug);
+    const job = (await JobRepository.getById(req.params.idOrSlug)) || (await JobRepository.getBySlug(req.params.idOrSlug));
     if (!job) {
       return res.status(404).send(`<!DOCTYPE html><html><head><title>Job Not Found</title></head><body><h1>404 - Job Vacancy Not Found</h1><p>The requested vacancy may have been filled or expired.</p><p><a href="/">Return to Home</a></p></body></html>`);
     }

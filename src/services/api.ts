@@ -1,6 +1,7 @@
 // Centralized Production API Service for Hybrid Job Portal
 
-const API_BASE = '/api';
+const rawBase = (((import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_BACKEND_URL || '') as string).trim().replace(/\/+$/, '');
+const API_BASE = rawBase ? `${rawBase}/api` : '/api';
 
 function getAuthHeader(): Record<string, string> {
   const headers: Record<string, string> = {

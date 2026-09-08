@@ -106,8 +106,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
   }
 
-  const existingLiveJobs = JobRepository.getAll({ limit: 2000 }).jobs;
-  const existingPendingJobs = JobRepository.getPending();
+  const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
+  const existingPendingJobs = await JobRepository.getPending();
   const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
 
   const harvestedJobs: any[] = [];
@@ -286,17 +286,17 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           sourceDup++;
           duplicateJobs.push(standardizedJob);
           // Duplicates are NEVER published live. Saved to pending queue with flag
-          JobRepository.addPending(standardizedJob);
+          await JobRepository.addPending(standardizedJob);
           combinedExisting.push(standardizedJob);
         } else {
           sourceNew++;
           uniqueJobs.push(standardizedJob);
 
           if (standardizedJob.status === 'Approved') {
-            JobRepository.create(standardizedJob);
+            await JobRepository.create(standardizedJob);
             publishedJobs.push(standardizedJob);
           } else {
-            JobRepository.addPending(standardizedJob);
+            await JobRepository.addPending(standardizedJob);
             pendingJobs.push(standardizedJob);
           }
           combinedExisting.push(standardizedJob);

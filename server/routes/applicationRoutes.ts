@@ -223,7 +223,7 @@ applicationRouter.get('/', (req, res) => {
 });
 
 // 4. Submit Job Application (Server-side settings enforcement)
-applicationRouter.post('/', (req, res) => {
+applicationRouter.post('/', async (req, res) => {
   try {
     const {
       jobId,
@@ -247,7 +247,7 @@ applicationRouter.post('/', (req, res) => {
 
     // Check deadline enforcement
     if (settings.enforceDeadlines) {
-      const job = JobRepository.getById(jobId);
+      const job = await JobRepository.getById(jobId);
       if (job && (job.deadline || job.deadlineDate || job.closingDeadline)) {
         const deadlineStr = job.deadline || job.deadlineDate || job.closingDeadline;
         const deadlineTime = new Date(deadlineStr).getTime();
@@ -299,9 +299,9 @@ applicationRouter.post('/', (req, res) => {
     });
 
     // Increment applications count on the job
-    const job = JobRepository.getById(jobId);
+    const job = await JobRepository.getById(jobId);
     if (job) {
-      JobRepository.update(jobId, {
+      await JobRepository.update(jobId, {
         applicationsCount: (job.applicationsCount || 0) + 1
       });
     }

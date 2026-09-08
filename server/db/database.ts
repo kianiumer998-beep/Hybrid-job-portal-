@@ -552,12 +552,6 @@ export class Database {
     };
     apps.unshift(newApp);
     this.saveApplications(apps);
-
-    // Increment application count on the job
-    const job = this.getJobById(app.jobId);
-    if (job) {
-      this.updateJob(job.id, { applicationsCount: (job.applicationsCount || 0) + 1 });
-    }
     return newApp;
   }
 

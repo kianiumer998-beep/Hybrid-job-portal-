@@ -4,7 +4,7 @@ import {
   normalizeMongoJob,
   isMongoConfigured
 } from '../mongodb';
-import { generateJobSlug } from '../database';
+import { generateJobSlug } from '../../utils/slugify';
 
 export interface JobFilterOptions {
   search?: string;

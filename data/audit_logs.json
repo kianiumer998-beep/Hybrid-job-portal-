@@ -1,5 +1,41 @@
 [
   {
+    "id": "log-1788874026557-plfc",
+    "timestamp": "2026-09-08T13:27:06.557Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Job Deleted",
+    "target": "Job ID job-1788874025775-hj91m",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788874026031-jt66",
+    "timestamp": "2026-09-08T13:27:06.031Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Job Created & Published (Admin Direct)",
+    "target": "RESTART-TEST-1788874025608 at Persistence QA Corp",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788874008007-lcft",
+    "timestamp": "2026-09-08T13:26:48.007Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Job Moderator",
+    "action": "Job Approved & Published Live",
+    "target": "SCRAPER-DEV-JOB-1788873996832 at Automated Government Portal",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788874000932-ive0",
+    "timestamp": "2026-09-08T13:26:40.932Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Job Created & Published (Admin Direct)",
+    "target": "SENIOR-REACT-DEV-1788873996832 at Atlas Enterprise Systems",
+    "status": "Success"
+  },
+  {
     "id": "log-1788873140012-r02j",
     "timestamp": "2026-09-08T13:12:20.012Z",
     "user": "Super Administrator (Testing Mode)",

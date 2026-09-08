@@ -1,5 +1,50 @@
 [
   {
+    "id": "log-1788870599780-5rgb",
+    "timestamp": "2026-09-08T12:29:59.780Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Job Created & Published (Admin Direct)",
+    "target": "Senior React Engineer at Tech Global Inc",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870249872-1c5p",
+    "timestamp": "2026-09-08T12:24:09.872Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated (Testing Passkey)",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788870175673-s5p7",
+    "timestamp": "2026-09-08T12:22:55.673Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Job Created & Published (Admin Direct)",
+    "target": "TEST JOB POST at Test Corp",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788868199966-xzfc",
+    "timestamp": "2026-09-08T11:49:59.966Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Admin",
+    "action": "Bulk Jobs Approved",
+    "target": "26 jobs approved",
+    "status": "Success"
+  },
+  {
+    "id": "log-1788867244048-xflq",
+    "timestamp": "2026-09-08T11:34:04.048Z",
+    "user": "Super Administrator (Testing Mode)",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated (Testing Passkey)",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
     "id": "log-1788780383624-ekql",
     "timestamp": "2026-09-07T11:26:23.625Z",
     "user": "Administrator",

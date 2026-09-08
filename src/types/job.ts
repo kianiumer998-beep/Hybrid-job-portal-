@@ -137,6 +137,8 @@ export interface Job {
   priorityTier?: 'standard' | 'urgent' | 'featured_top' | 'vip_bundle';
   applicationsCount: number;
   status?: JobStatus;
+  createdAt?: string;
+  updatedAt?: string;
   rejectionReason?: string;
   suspensionReason?: string;
   isSuspended?: boolean;

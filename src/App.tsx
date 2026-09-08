@@ -683,9 +683,9 @@ export default function App() {
     return jobs.filter((job) => {
       if (filters.searchQuery) {
         const q = filters.searchQuery.toLowerCase();
-        const matchesTitle = job.title.toLowerCase().includes(q);
-        const matchesCompany = job.company.toLowerCase().includes(q);
-        const matchesTags = job.tags.some((t) => t.toLowerCase().includes(q));
+        const matchesTitle = (job.title || '').toLowerCase().includes(q);
+        const matchesCompany = (job.company || '').toLowerCase().includes(q);
+        const matchesTags = (job.tags || []).some((t) => (t || '').toLowerCase().includes(q));
         const matchesLocation = (job.city && job.city.toLowerCase().includes(q)) ||
                                 (job.district && job.district.toLowerCase().includes(q)) ||
                                 (job.province && job.province.toLowerCase().includes(q));
@@ -1097,21 +1097,31 @@ export default function App() {
 
   const handleAddJob = async (newJob: Job) => {
     try {
-      await api.jobs.create({ ...newJob, status: 'Approved' });
+      const res = await api.jobs.create({ ...newJob, status: 'Approved' });
+      if (!res || !res.success) {
+        throw new Error(res?.message || 'Server failed to publish job.');
+      }
       await loadBackendJobs();
+      return res;
     } catch (err) {
       console.error('Error adding job to backend:', err);
       await loadBackendJobs();
+      throw err;
     }
   };
 
   const handleAddPendingJob = async (newJob: Job) => {
     try {
-      await api.jobs.create({ ...newJob, status: 'Pending' });
+      const res = await api.jobs.create({ ...newJob, status: 'Pending' });
+      if (!res || !res.success) {
+        throw new Error(res?.message || 'Server failed to submit pending job.');
+      }
       await loadBackendJobs();
+      return res;
     } catch (err) {
       console.error('Error adding pending job to backend:', err);
       await loadBackendJobs();
+      throw err;
     }
   };
 
@@ -1542,6 +1552,7 @@ export default function App() {
             onRejectJob={handleRejectJob}
             onAddJob={handleAddJob}
             onAddPendingJob={handleAddPendingJob}
+            onReloadJobs={loadBackendJobs}
             onBulkAddJobs={handleBulkAddJobs}
             onBulkAddPendingJobs={handleBulkAddPendingJobs}
             onDeleteJob={handleDeleteJob}
@@ -1671,7 +1682,7 @@ export default function App() {
                         <div key="section-stats" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
                             <div className="p-3 text-center">
-                              <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length}+</div>
+                              <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
                               <div className="text-[11px] text-slate-400 font-semibold">{landingConfig.hero.statBadge1Text || 'Active Verified Vacancies'}</div>
                             </div>
                             <div className="p-3 text-center">

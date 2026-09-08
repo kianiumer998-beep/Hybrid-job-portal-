@@ -168,32 +168,36 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           </div>
 
           {/* Key Tags */}
-          <div>
-            <h3 className="text-base font-bold text-white mb-2">Required Skills & Stack</h3>
-            <div className="flex flex-wrap gap-2">
-              {job.tags.map((tag, idx) => (
-                <span
-                  key={idx}
-                  className="px-3 py-1 bg-slate-800 border border-slate-700 text-slate-200 rounded-lg text-xs font-semibold"
-                >
-                  {tag}
-                </span>
-              ))}
+          {job.tags && job.tags.length > 0 && (
+            <div>
+              <h3 className="text-base font-bold text-white mb-2">Required Skills & Stack</h3>
+              <div className="flex flex-wrap gap-2">
+                {job.tags.map((tag, idx) => (
+                  <span
+                    key={idx}
+                    className="px-3 py-1 bg-slate-800 border border-slate-700 text-slate-200 rounded-lg text-xs font-semibold"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Requirements */}
-          <div>
-            <h3 className="text-base font-bold text-white mb-2">Requirements & Qualifications</h3>
-            <ul className="space-y-2">
-              {job.requirements.map((req, idx) => (
-                <li key={idx} className="flex items-start space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                  <span>{req}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {job.requirements && job.requirements.length > 0 && (
+            <div>
+              <h3 className="text-base font-bold text-white mb-2">Requirements & Qualifications</h3>
+              <ul className="space-y-2">
+                {job.requirements.map((req, idx) => (
+                  <li key={idx} className="flex items-start space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>{req}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Benefits */}
           {job.benefits && job.benefits.length > 0 && (

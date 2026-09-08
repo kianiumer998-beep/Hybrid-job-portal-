@@ -390,7 +390,7 @@ jobRouter.post('/', (req, res) => {
 
     const newJob: any = {
       ...jobData,
-      slug: generateJobSlug(jobData.title, jobData.company, jobData.city),
+      slug: generateJobSlug(jobData.title, jobData.city, jobData.id),
       createdAt: new Date().toISOString(),
       applicationsCount: 0
     };

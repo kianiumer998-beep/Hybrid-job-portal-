@@ -371,8 +371,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     if (savedJobIds && savedJobIds.length > 0) {
       const saved = allJobs.filter((j) => savedJobIds.includes(j.id));
       saved.forEach((j) => {
-        keywords.push(...j.title.toLowerCase().split(/[\s,]+/));
-        j.tags.forEach((t) => keywords.push(t.toLowerCase()));
+        keywords.push(...(j.title || '').toLowerCase().split(/[\s,]+/));
+        (j.tags || []).forEach((t) => keywords.push((t || '').toLowerCase()));
       });
     }
 
@@ -385,7 +385,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         let matchScore = 60; // base fit
         const matchedReasons: string[] = [];
 
-        const jobText = `${job.title} ${job.description} ${job.tags.join(' ')} ${job.department || ''} ${job.city || ''} ${job.region}`.toLowerCase();
+        const jobText = `${job.title || ''} ${job.description || ''} ${(job.tags || []).join(' ')} ${job.department || ''} ${job.city || ''} ${job.region || ''}`.toLowerCase();
         
         let keywordHits = 0;
         uniqueKeywords.forEach((kw) => {

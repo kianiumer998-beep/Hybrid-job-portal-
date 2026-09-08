@@ -21,24 +21,41 @@ function safeReadJson<T>(filename: string, fallback: T): T {
     safeWriteJson(filename, fallback);
     return fallback;
   }
-  try {
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error(`[DB Error] Failed reading ${filename}:`, err);
-    return fallback;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      if (!raw || !raw.trim()) {
+        if (attempt < 3) {
+          continue;
+        }
+        return fallback;
+      }
+      return JSON.parse(raw);
+    } catch (err) {
+      if (attempt < 3) {
+        continue;
+      }
+      console.error(`[DB Error] Failed reading ${filename} after ${attempt + 1} attempts:`, err);
+      return fallback;
+    }
   }
+  return fallback;
 }
 
 function safeWriteJson<T>(filename: string, data: T): void {
   ensureDir(DATA_DIR);
   const filePath = path.join(DATA_DIR, filename);
-  const tempPath = `${filePath}.tmp.${Date.now()}`;
+  const tempPath = `${filePath}.tmp.${Date.now()}_${process.pid}_${Math.random().toString(36).substring(2, 9)}`;
   try {
     fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tempPath, filePath);
   } catch (err) {
-    console.error(`[DB Error] Failed writing ${filename}:`, err);
+    console.error(`[DB Error] Failed atomic rename for ${filename}, attempting direct write:`, err);
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (directErr) {
+      console.error(`[DB Error] Direct write fallback also failed for ${filename}:`, directErr);
+    }
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath); } catch {}
     }
@@ -195,10 +212,19 @@ export class Database {
   // --- JOBS ---
   static getJobs(): any[] {
     const list = safeReadJson<any[]>('jobs.json', []);
-    // Ensure all jobs have slugs
-    return list.map((j) => {
+    // Ensure all jobs have slugs and array fields
+    return (list || []).filter(Boolean).map((j) => {
       if (!j.slug) {
         j.slug = generateJobSlug(j.title, j.city, j.id);
+      }
+      if (!Array.isArray(j.tags)) {
+        j.tags = typeof j.tags === 'string' ? j.tags.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+      }
+      if (!Array.isArray(j.requirements)) {
+        j.requirements = typeof j.requirements === 'string' ? j.requirements.split('\n').map((s: string) => s.trim()).filter(Boolean) : [];
+      }
+      if (!Array.isArray(j.benefits)) {
+        j.benefits = typeof j.benefits === 'string' ? j.benefits.split('\n').map((s: string) => s.trim()).filter(Boolean) : [];
       }
       return j;
     });
@@ -371,7 +397,19 @@ export class Database {
 
   // --- PENDING JOBS ---
   static getPendingJobs(): any[] {
-    return safeReadJson<any[]>('pending_jobs.json', []);
+    const list = safeReadJson<any[]>('pending_jobs.json', []);
+    return (list || []).filter(Boolean).map((j) => {
+      if (!Array.isArray(j.tags)) {
+        j.tags = typeof j.tags === 'string' ? j.tags.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+      }
+      if (!Array.isArray(j.requirements)) {
+        j.requirements = typeof j.requirements === 'string' ? j.requirements.split('\n').map((s: string) => s.trim()).filter(Boolean) : [];
+      }
+      if (!Array.isArray(j.benefits)) {
+        j.benefits = typeof j.benefits === 'string' ? j.benefits.split('\n').map((s: string) => s.trim()).filter(Boolean) : [];
+      }
+      return j;
+    });
   }
 
   static savePendingJobs(jobs: any[]): void {

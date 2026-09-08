@@ -147,6 +147,7 @@ interface AdminDashboardProps {
   onChangeJobPostingFee: (newFee: number) => void;
   jobPostingFeeLogs: JobPostingFeeLog[];
   allApplications?: JobApplication[];
+  onReloadJobs?: () => Promise<void>;
   onApproveJob: (jobId: string) => void;
   onRejectJob: (jobId: string, reason: string) => void;
   onAddJob: (newJob: Job) => void;
@@ -217,6 +218,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   jobPostingPricing = DEFAULT_JOB_POSTING_PRICING_CONFIG,
   onChangeJobPostingPricing,
   allApplications = [],
+  onReloadJobs,
   onApproveJob,
   onRejectJob,
   onAddJob,
@@ -1427,111 +1429,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleBulkRunSelectedScraperTargets = () => {
+  const handleBulkRunSelectedScraperTargets = async () => {
     if (selectedScraperTargetIds.length === 0) return;
     const count = selectedScraperTargetIds.length;
     setIsScraping(true);
-    setScrapeProgress(10);
+    setScrapeProgress(15);
 
     const intervalTimer = setInterval(() => {
-      setScrapeProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(intervalTimer);
-          return 90;
-        }
-        return prev + 20;
-      });
+      setScrapeProgress((prev) => (prev >= 85 ? 85 : prev + 15));
     }, 400);
 
-    setTimeout(() => {
+    try {
+      const response = await api.scraper.run({
+        mode: 'complete',
+        sourceIds: selectedScraperTargetIds
+      });
       clearInterval(intervalTimer);
-      setIsScraping(false);
       setScrapeProgress(100);
 
-      const now = new Date();
-      const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
-
-      setScraperSources(prev => prev.map(s => {
-        if (selectedScraperTargetIds.includes(s.id)) {
-          return {
-            ...s,
-            lastRun: timestamp.substring(0, 16),
-            scrapedCount: s.scrapedCount + 2
-          };
+      if (response && response.success) {
+        if (onReloadJobs) {
+          await onReloadJobs();
         }
-        return s;
-      }));
-
-      const newJobsToAdd: Job[] = [];
-      const newBatchesToAdd: ScraperBatchRun[] = [];
-
-      // Generate batch runs and jobs
-      selectedScraperTargetIds.forEach((sourceId, idx) => {
-        const source = scraperSources.find(s => s.id === sourceId);
-        if (!source) return;
-        const batchId = 'BATCH-BULK-' + Date.now().toString(36) + '-' + idx;
-        const job1: Job = {
-          id: `job-bulk-${source.id}-${Date.now().toString(36)}-${idx}`,
-          title: `Senior Officer (${source.keywords.split(',')[0]?.trim() || 'Operations'})`,
-          company: `${source.name.split(' ')[0]} Enterprise`,
-          jobType: source.category === 'International Remote' ? 'Remote' : 'Hybrid',
-          region: source.region,
-          salary: source.region === 'Pakistan' ? 'PKR 180,000 - PKR 260,000 / month' : '$3,500 - $5,000 / month',
-          currency: source.region === 'Pakistan' ? 'PKR' : 'USD',
-          experienceLevel: 'Senior',
-          department: 'Executive Operations',
-          tags: [source.category, source.region, 'Full Time', 'Bulk Scraped'],
-          description: `Extracted via bulk scraper execution from ${source.url}.\nKey requirements include domain leadership, team management, and operations reporting.`,
-          requirements: ['3+ years domain experience', 'Strong communication skills', 'Bachelor\'s degree in relevant discipline'],
-          benefits: ['Health coverage', 'Performance bonus'],
-          postedAt: 'Just now',
-          applicationsCount: 0,
-          status: source.autoApprove ? 'Approved' : 'Pending',
-          sourceUrl: source.url,
-          scraperSourceId: source.id,
-          scraperSourceName: source.name,
-          scrapedSourceDomain: source.url.replace('https://', '').replace('http://', '').split('/')[0],
-          scrapedAt: timestamp,
-          jobCategory: source.category,
-          isGovtJob: source.category === 'Government Sector',
-          govtScale: source.category === 'Government Sector' ? 'BPS-17' : undefined,
-          isNewspaperAd: source.category === 'Newspaper Classified'
-        };
-        newJobsToAdd.push(job1);
-
-        const newBatch: ScraperBatchRun = {
-          batchId,
-          startTime: timestamp,
-          endTime: timestamp,
-          sourceId: source.id,
-          sourceName: source.name,
-          sourceUrl: source.url,
-          region: source.region,
-          category: source.category,
-          status: 'Completed',
-          totalExtracted: 1,
-          approvedCount: source.autoApprove ? 1 : 0,
-          pendingCount: source.autoApprove ? 0 : 1,
-          duplicatesSkipped: 0,
-          rejectionCount: 0,
-          executionDurationMs: 1800,
-          httpStatusCode: 200,
-          triggerType: 'Batch Rescrape',
-          logTrace: [`[${timestamp}] Bulk multi-source crawl finished for ${source.name}`]
-        };
-        newBatchesToAdd.push(newBatch);
-      });
-
-      if (onBulkAddJobs) {
-        onBulkAddJobs(newJobsToAdd);
+        alert(`Successfully executed scraper across ${count} selected source(s)! Discovered ${response.totalFound || 0} genuine jobs.`);
       } else {
-        newJobsToAdd.forEach(j => onAddJob(j));
+        alert(response?.message || 'Bulk scraper execution failed on backend.');
       }
-
-      setScraperBatchRuns(prev => [...newBatchesToAdd, ...prev].slice(0, 30));
-
-      alert(`Successfully executed bulk crawl across ${count} selected scraper sources! New jobs added to database.`);
-    }, 2000);
+    } catch (err: any) {
+      clearInterval(intervalTimer);
+      alert(`Bulk scraper execution failed: ${err.message || 'Network error'}`);
+    } finally {
+      setIsScraping(false);
+      setScrapeProgress(0);
+    }
   };
 
   // Chat Hub Selected User
@@ -1545,6 +1475,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [fieldRequired, setFieldRequired] = useState(false);
 
   // New Manual Job State
+  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
   const [title, setTitle] = useState('');
   const [company, setCompany] = useState('');
   const [jobCategory, setJobCategory] = useState<'Private Corporate' | 'Government Sector' | 'Newspaper Classified' | 'International Remote'>('Private Corporate');
@@ -1634,9 +1565,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const duplicates: any[] = response.duplicateJobs || [];
         const totalFound = response.totalFound || (published.length + pending.length + duplicates.length);
 
-        // Notify parent state of real scraped jobs
-        published.forEach(j => onAddJob({ ...j, status: 'Approved' }));
-        pending.forEach(j => onAddJob({ ...j, status: 'Pending' }));
+        // Backend persistence has already committed these jobs to the single database source of truth
+        if (onReloadJobs) {
+          await onReloadJobs();
+        }
 
         const batchId = response.runId || `BATCH-${now.toISOString().substring(0, 10).replace(/-/g, '')}-${Math.floor(Math.random() * 900 + 100)}`;
         const domainName = source ? new URL(source.url.startsWith('http') ? source.url : `https://${source.url}`).hostname : 'external-portals';
@@ -1878,7 +1810,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Manual Job Creation
-  const handleCreateJob = (e: React.FormEvent) => {
+  const handleCreateJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !company) {
       alert('Please fill out Job Title and Company');
@@ -1938,12 +1870,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       contactEmailOrPhone: contactEmailOrPhone || undefined
     };
 
-    onAddJob(createdJob);
-    alert(`Job "${title}" published directly to Live Portal!`);
-    setTitle('');
-    setCompany('');
-    setDescription('');
-    setAdminTab('jobs');
+    try {
+      setIsSubmittingJob(true);
+      await onAddJob(createdJob);
+      alert(`Job "${title}" published directly to Live Portal!`);
+      setTitle('');
+      setCompany('');
+      setDescription('');
+      setAdminTab('jobs');
+    } catch (err: any) {
+      alert(`Failed to save job: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsSubmittingJob(false);
+    }
   };
 
   const handleAdminSendReply = (e: React.FormEvent) => {
@@ -4079,6 +4018,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               pendingJobs={pendingJobs}
               onAddJob={onAddJob}
               onBulkAddJobs={onBulkAddJobs}
+              onReloadJobs={onReloadJobs}
               onApproveJob={handleAdminApproveJob}
               onRejectJob={handleAdminRejectJob}
               onOverrideDuplicatesToLive={(overrideJobs) => {
@@ -6311,10 +6251,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <button
             type="submit"
-            className="w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 cursor-pointer flex items-center justify-center space-x-2"
+            disabled={isSubmittingJob}
+            className="w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 cursor-pointer flex items-center justify-center space-x-2"
           >
             <Send className="w-4 h-4 text-slate-950" />
-            <span>Publish Job Directly to Live Portal</span>
+            <span>{isSubmittingJob ? 'Saving Job to Database...' : 'Publish Job Directly to Live Portal'}</span>
           </button>
         </form>
       )}
@@ -6348,10 +6289,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           return true;
         }).sort((a, b) => {
           if (jobsSortBy === 'newest') {
-            return new Date(b.postedAt || 0).getTime() - new Date(a.postedAt || 0).getTime();
+            const bTime = new Date(b.createdAt || 0).getTime() || (b.postedAt === 'Just now' ? Date.now() : new Date(b.postedAt || 0).getTime()) || 0;
+            const aTime = new Date(a.createdAt || 0).getTime() || (a.postedAt === 'Just now' ? Date.now() : new Date(a.postedAt || 0).getTime()) || 0;
+            return bTime - aTime;
           }
           if (jobsSortBy === 'oldest') {
-            return new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime();
+            const bTime = new Date(b.createdAt || 0).getTime() || (b.postedAt === 'Just now' ? Date.now() : new Date(b.postedAt || 0).getTime()) || 0;
+            const aTime = new Date(a.createdAt || 0).getTime() || (a.postedAt === 'Just now' ? Date.now() : new Date(a.postedAt || 0).getTime()) || 0;
+            return aTime - bTime;
           }
           if (jobsSortBy === 'title') {
             return (a.title || '').localeCompare(b.title || '');
@@ -6593,7 +6538,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {filteredLiveJobs.length === 0 ? (
               <div className="p-12 text-center bg-slate-950 rounded-2xl border border-slate-800 text-slate-400 space-y-2">
                 <Briefcase className="w-10 h-10 text-slate-600 mx-auto" />
-                <p className="font-bold text-slate-300">No active live jobs match your current search and filter criteria.</p>
+                <p className="font-bold text-slate-300">
+                  {jobs.length === 0 ? '0 Jobs in database. Post a job or run scraper to publish vacancies.' : 'No active live jobs match your current search and filter criteria.'}
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">

@@ -55,6 +55,7 @@ interface AutomatedScraperHubProps {
   pendingJobs: Job[];
   onAddJob: (job: Job) => void;
   onBulkAddJobs?: (jobs: Job[]) => void;
+  onReloadJobs?: () => Promise<void>;
   onApproveJob: (id: string) => void;
   onRejectJob: (id: string, reason?: string) => void;
   onOverrideDuplicatesToLive?: (jobsToOverride: Job[]) => void;
@@ -70,6 +71,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   pendingJobs,
   onAddJob,
   onBulkAddJobs,
+  onReloadJobs,
   onApproveJob,
   onRejectJob,
   onOverrideDuplicatesToLive,
@@ -284,9 +286,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         const duplicates = response.duplicateJobs || [];
         const allNewHarvested: Job[] = [...published, ...pending];
 
-        // Notify parent state of newly published or pending jobs
-        published.forEach((j: Job) => onAddJob({ ...j, status: 'Approved' }));
-        pending.forEach((j: Job) => onAddJob({ ...j, status: 'Pending' }));
+        // Sync parent state with backend source of truth
+        if (onReloadJobs) {
+          await onReloadJobs();
+        } else {
+          published.forEach((j: Job) => onAddJob({ ...j, status: 'Approved' }));
+          pending.forEach((j: Job) => onAddJob({ ...j, status: 'Pending' }));
+        }
 
         setSessionScrapedJobs((prev) => [...allNewHarvested, ...prev]);
         setSessionApprovedCount((prev) => prev + published.length);

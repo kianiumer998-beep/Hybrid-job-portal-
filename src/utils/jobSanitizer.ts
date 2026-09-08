@@ -62,13 +62,37 @@ export function sanitizeJobTags(tags: string[]): string[] {
   });
 }
 
+export function sanitizeJobRequirements(requirements?: any): string[] {
+  if (!requirements) return [];
+  if (Array.isArray(requirements)) {
+    return requirements.filter(Boolean).map(r => String(r).trim()).filter(Boolean);
+  }
+  if (typeof requirements === 'string') {
+    return requirements.split('\n').map(r => r.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+export function sanitizeJobBenefits(benefits?: any): string[] {
+  if (!benefits) return [];
+  if (Array.isArray(benefits)) {
+    return benefits.filter(Boolean).map(b => String(b).trim()).filter(Boolean);
+  }
+  if (typeof benefits === 'string') {
+    return benefits.split('\n').map(b => b.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export function sanitizeJob(job: Job): Job {
   if (!job) return job;
   return {
     ...job,
-    title: sanitizeJobTitle(job.title),
-    company: sanitizeJobCompanyName(job.company),
-    description: sanitizeJobDescription(job.description),
-    tags: sanitizeJobTags(job.tags)
+    title: sanitizeJobTitle(job.title || ''),
+    company: sanitizeJobCompanyName(job.company || ''),
+    description: sanitizeJobDescription(job.description || ''),
+    tags: sanitizeJobTags(job.tags || []),
+    requirements: sanitizeJobRequirements(job.requirements),
+    benefits: sanitizeJobBenefits(job.benefits)
   };
 }

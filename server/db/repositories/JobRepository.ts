@@ -18,6 +18,7 @@ export interface JobFilterOptions {
 }
 
 export function checkJobExpired(job: any): boolean {
+  if (!job) return false;
   if (job.status === 'Expired' || job.isExpired === true) {
     return true;
   }
@@ -32,7 +33,7 @@ export function checkJobExpired(job: any): boolean {
 
 export class JobRepository {
   static getAll(filter: JobFilterOptions = {}): { jobs: any[]; total: number; page: number; limit: number } {
-    let rawJobs = Database.getJobs();
+    let rawJobs = (Database.getJobs() || []).filter(Boolean);
 
     // Dynamically evaluate expiration for all jobs
     let jobs = rawJobs.map(j => {

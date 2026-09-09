@@ -21,6 +21,7 @@ export function hashPassword(password: string, salt?: string): { hash: string; s
 }
 
 export function verifyPassword(password: string, hash: string, salt: string): boolean {
+  // 1. Primary: crypto.scrypt (OWASP recommended memory-hard hashing)
   try {
     const derivedKey = crypto.scryptSync(password, salt, 64);
     const hashBuf = Buffer.from(hash, 'hex');
@@ -29,12 +30,22 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
     }
   } catch {}
 
-  // Fallback for legacy HMAC-SHA256 passwords
+  // 2. Fallback: HMAC-SHA256 with salt
   try {
     const computed = crypto.createHmac('sha256', salt).update(password).digest('hex');
     const computedBuf = Buffer.from(computed, 'hex');
     const hashBuf = Buffer.from(hash, 'hex');
     if (computedBuf.length === hashBuf.length && crypto.timingSafeEqual(computedBuf, hashBuf)) {
+      return true;
+    }
+  } catch {}
+
+  // 3. Fallback: Standard SHA-256 for initial seed accounts
+  try {
+    const plain = crypto.createHash('sha256').update(password).digest('hex');
+    const plainBuf = Buffer.from(plain, 'hex');
+    const hashBuf = Buffer.from(hash, 'hex');
+    if (plainBuf.length === hashBuf.length && crypto.timingSafeEqual(plainBuf, hashBuf)) {
       return true;
     }
   } catch {}
@@ -114,13 +125,6 @@ export function authMiddleware(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
-  // Check for admin development passkey header bypass for testing phase
-  const devPasskey = req.headers['x-admin-passkey'];
-  if (devPasskey && verifyAdminDevPasskey(devPasskey)) {
-    req.user = createAdminDevSession().user;
-    return next();
-  }
-
   if (!token) {
     req.user = null;
     return next();
@@ -139,13 +143,6 @@ export function requireAuth(req: any, res: any, next: any) {
 }
 
 export function requireAdmin(req: any, res: any, next: any) {
-  // Check if testing passkey header is provided
-  const devPasskey = req.headers['x-admin-passkey'];
-  if (devPasskey && verifyAdminDevPasskey(devPasskey)) {
-    req.user = createAdminDevSession().user;
-    return next();
-  }
-
   if (!req.user) {
     return res.status(401).json({ success: false, message: 'Admin authentication required.' });
   }

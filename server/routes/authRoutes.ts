@@ -123,39 +123,142 @@ authRouter.post('/login', (req, res) => {
   }
 });
 
-// 3. Admin Login (Development/Testing passkey preserved + Production credentials)
+// In-memory brute-force protection / rate limiter for admin and auth endpoints
+const loginAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
+const MAX_ATTEMPTS = 10; // Max failed attempts before temporary lockout
+const WINDOW_MS = 15 * 60 * 1000; // 15 minutes window
+const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes lockout
+
+function checkRateLimit(ip: string): { blocked: boolean; retryAfterSeconds?: number } {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry) return { blocked: false };
+
+  if (entry.lockedUntil && now < entry.lockedUntil) {
+    return { blocked: true, retryAfterSeconds: Math.ceil((entry.lockedUntil - now) / 1000) };
+  }
+
+  if (now - entry.firstAttempt > WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return { blocked: false };
+  }
+
+  if (entry.count >= MAX_ATTEMPTS) {
+    entry.lockedUntil = now + LOCKOUT_MS;
+    return { blocked: true, retryAfterSeconds: Math.ceil(LOCKOUT_MS / 1000) };
+  }
+
+  return { blocked: false };
+}
+
+function recordFailedAttempt(ip: string) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || (now - entry.firstAttempt > WINDOW_MS)) {
+    loginAttempts.set(ip, { count: 1, firstAttempt: now });
+  } else {
+    entry.count += 1;
+    if (entry.count >= MAX_ATTEMPTS) {
+      entry.lockedUntil = now + LOCKOUT_MS;
+    }
+  }
+}
+
+function clearAttempts(ip: string) {
+  loginAttempts.delete(ip);
+}
+
+// 3. Admin Login (Requires valid admin account credentials; verifies existing test admin 'admin123')
 authRouter.post('/admin-login', (req, res) => {
   try {
-    const { password, passkey } = req.body;
-    const testKey = passkey || password;
-
-    // Preserve existing testing admin passkey 'admin123'
-    if (testKey && verifyAdminDevPasskey(testKey)) {
-      const { user, token } = createAdminDevSession();
-
-      Database.addAuditLog({
-        user: user.name,
-        role: user.role,
-        action: 'Admin Panel Authenticated (Testing Passkey)',
-        target: 'System Management Suite',
-        status: 'Success'
-      });
-
-      return res.json({
-        success: true,
-        message: 'Admin access authorized via testing passkey!',
-        token,
-        user,
-        isDevelopmentMode: true
+    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const rateCheck = checkRateLimit(ip);
+    if (rateCheck.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed login attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`
       });
     }
 
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid administrative passkey. Hint: default dev passkey is "admin123"'
+    const { email, password, passkey } = req.body;
+    const adminPassword = (password || passkey || '').toString().trim();
+    const adminEmail = (email || 'admin@jobportal.com').toString().trim().toLowerCase();
+
+    if (!adminPassword) {
+      return res.status(400).json({ success: false, message: 'Password is required.' });
+    }
+
+    // Locate administrative account
+    const user = Database.getUserByEmail(adminEmail);
+    const adminRoles = [
+      'Super Admin',
+      'Admin',
+      'Job Moderator',
+      'Scraper Manager',
+      'Payment Manager',
+      'Finance Manager',
+      'SEO Manager',
+      'Advertisement Manager'
+    ];
+
+    if (!user || (!adminRoles.includes(user.role) && !user.isDemoAdmin)) {
+      recordFailedAttempt(ip);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid administrative credentials.'
+      });
+    }
+
+    // Verify password against stored hash or legacy verified password
+    let isValid = false;
+    if (user.passwordHash && user.salt) {
+      isValid = verifyPassword(adminPassword, user.passwordHash, user.salt);
+    } else if (user.password) {
+      isValid = user.password === adminPassword;
+    }
+
+    // Preserve existing test admin credentials (admin@jobportal.com / admin123)
+    if (!isValid && user.email === 'admin@jobportal.com' && adminPassword === 'admin123') {
+      isValid = true;
+    }
+
+    if (!isValid) {
+      recordFailedAttempt(ip);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid administrative credentials.'
+      });
+    }
+
+    // Successful login: reset rate limiter
+    clearAttempts(ip);
+
+    const token = createToken({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      permissions: user.permissions || ['all']
+    }, 168);
+
+    const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = user;
+
+    Database.addAuditLog({
+      user: safeUser.name,
+      role: safeUser.role,
+      action: 'Admin Panel Authenticated',
+      target: 'System Management Suite',
+      status: 'Success'
+    });
+
+    return res.json({
+      success: true,
+      message: 'Admin access authorized successfully.',
+      token,
+      user: safeUser
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Admin authentication error' });
+    res.status(500).json({ success: false, message: 'Admin authentication error.' });
   }
 });
 

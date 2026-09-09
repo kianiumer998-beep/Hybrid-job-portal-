@@ -11,11 +11,6 @@ function getAuthHeader(): Record<string, string> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  // Include testing passkey for admin dashboard actions
-  const passkey = localStorage.getItem('hybrid_admin_dev_passkey') || 'admin123';
-  if (passkey) {
-    headers['x-admin-passkey'] = passkey;
-  }
   return headers;
 }
 

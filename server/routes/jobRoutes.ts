@@ -212,8 +212,8 @@ jobRouter.post('/bulk-add', requireAdmin, async (req, res) => {
   }
 });
 
-// 10. Batch Ingest & Persist Jobs (Direct MongoDB Storage)
-jobRouter.post('/batch', async (req, res) => {
+// 10. Batch Ingest & Persist Jobs (Direct MongoDB Storage - Admin Only)
+jobRouter.post('/batch', requireAdmin, async (req, res) => {
   try {
     const { jobs: batchJobs, autoPublish = false, autoApprove = false } = req.body;
     if (!Array.isArray(batchJobs) || batchJobs.length === 0) {
@@ -416,10 +416,10 @@ jobRouter.post('/', async (req, res) => {
 
     const user = (req as any).user;
     const adminRoles = ['Super Admin', 'Admin', 'Job Moderator'];
-    const isAdmin = user && (adminRoles.includes(user.role) || user.isDemoAdmin);
+    const isAdmin = Boolean(user && (adminRoles.includes(user.role) || user.isDemoAdmin));
 
     let savedJob: any;
-    if (isAdmin || jobData.status === 'Approved') {
+    if (isAdmin) {
       newJob.status = 'Approved';
       savedJob = await JobRepository.create(newJob);
       AuditRepository.add({
@@ -430,6 +430,8 @@ jobRouter.post('/', async (req, res) => {
         status: 'Success'
       });
     } else {
+      // Non-admin / guest submissions MUST always become Pending -> MongoDB.pending_jobs
+      // Strictly ignore client-supplied "status=Approved" from non-admin users
       newJob.status = 'Pending';
       savedJob = await JobRepository.addPending(newJob);
       AuditRepository.add({
@@ -444,7 +446,7 @@ jobRouter.post('/', async (req, res) => {
     res.status(201).json({
       success: true,
       job: savedJob,
-      message: (isAdmin || jobData.status === 'Approved') ? 'Job published live!' : 'Job submitted for verification and review.'
+      message: isAdmin ? 'Job published live!' : 'Job submitted for verification and review.'
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs:', err);

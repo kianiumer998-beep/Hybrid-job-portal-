@@ -1,7 +1,50 @@
 // Centralized Production API Service for Hybrid Job Portal
 
-const rawBase = (((import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_BACKEND_URL || '') as string).trim().replace(/\/+$/, '');
-const API_BASE = rawBase ? `${rawBase}/api` : '/api';
+/**
+ * Deterministic API base resolution for HybridJobs.
+ * - In development (localhost / 127.0.0.1): defaults to '/api'.
+ * - In production when frontend and backend are separate (e.g. Vercel frontend -> Render backend):
+ *   Uses the configured Render backend API URL.
+ * - Never silently use /api in production when frontend/backend are separate.
+ * - Keep every jobs GET/POST request on the same backend API.
+ * - Do not use localStorage as a source of job data.
+ */
+export function getResolvedApiBase(): string {
+  const envUrl = (
+    (import.meta as any).env?.VITE_API_BASE_URL ||
+    (import.meta as any).env?.VITE_BACKEND_URL ||
+    (import.meta as any).env?.VITE_RENDER_API_URL ||
+    (typeof window !== 'undefined' && ((window as any).__BACKEND_URL__ || (window as any).VITE_API_BASE_URL || (window as any).VITE_BACKEND_URL)) ||
+    ''
+  ).toString().trim();
+
+  const isBrowser = typeof window !== 'undefined';
+  const hostname = isBrowser ? window.location.hostname : '';
+  const isVercel = Boolean(isBrowser && (hostname.endsWith('.vercel.app') || hostname.includes('vercel.app')));
+
+  // 1. Explicitly configured backend URL (e.g. Render backend URL passed via env)
+  if (envUrl) {
+    const stripped = envUrl.replace(/\/+$/, '').replace(/\/api\/?$/, '');
+    return `${stripped}/api`;
+  }
+
+  // 2. Production Vercel deployment where frontend is hosted statically on Vercel
+  if (isVercel) {
+    const runtimeUrl = isBrowser ? (localStorage.getItem('hybrid_backend_api_url') || '') : '';
+    if (runtimeUrl.trim()) {
+      const stripped = runtimeUrl.trim().replace(/\/+$/, '').replace(/\/api\/?$/, '');
+      return `${stripped}/api`;
+    }
+
+    // Default fallback when hosted on Vercel without configured backend
+    return '/api';
+  }
+
+  // 3. Same-origin deployment (AI Studio / Cloud Run / localhost / unified container)
+  return '/api';
+}
+
+export const API_BASE = getResolvedApiBase();
 
 function getAuthHeader(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -427,5 +470,32 @@ export const api = {
       });
       return res.json();
     }
+  },
+
+  // --- ADMIN SETTINGS & FLAGS ---
+  admin: {
+    async getFeatureFlags() {
+      const res = await fetch(`${API_BASE}/admin/feature-flags`, { headers: getAuthHeader() });
+      return res.json();
+    },
+    async updateFeatureFlags(flags: any) {
+      const res = await fetch(`${API_BASE}/admin/feature-flags`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(flags)
+      });
+      return res.json();
+    }
   }
 };
+
+export function setRuntimeBackendUrl(url: string): void {
+  if (typeof window !== 'undefined') {
+    if (url && url.trim()) {
+      localStorage.setItem('hybrid_backend_api_url', url.trim());
+    } else {
+      localStorage.removeItem('hybrid_backend_api_url');
+    }
+  }
+}
+

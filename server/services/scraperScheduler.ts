@@ -61,7 +61,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       return { triggeredSources: [], summary: 'Web scraper disabled by feature flag' };
     }
 
-    const sources = ScraperRepository.getConfigs();
+    const sources = await ScraperRepository.getConfigs();
     const now = Date.now();
     const updatedSources = [...sources];
     let hasUpdates = false;
@@ -114,7 +114,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
     }
 
     if (hasUpdates) {
-      ScraperRepository.saveConfigs(updatedSources);
+      await ScraperRepository.saveConfigs(updatedSources);
     }
 
     return {
@@ -150,8 +150,8 @@ export function initScraperScheduler(): void {
 /**
  * Returns the current runtime status of the scheduler and all configured sources.
  */
-export function getSchedulerStatus(): SchedulerStatusResponse {
-  const sources = ScraperRepository.getConfigs();
+export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
+  const sources = await ScraperRepository.getConfigs();
   const now = Date.now();
 
   const sourceStatuses: SchedulerSourceStatus[] = sources.map(src => {

@@ -83,7 +83,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const timestampStr = startTime.toISOString().replace('T', ' ').substring(0, 19);
   const runId = `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-  const allSources = ScraperRepository.getConfigs();
+  const allSources = await ScraperRepository.getConfigs();
   let targets: ScraperTargetConfig[] = [];
 
   // Filter sources based on requested options
@@ -126,7 +126,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     const effectiveUrl = target.url || (target as any).portalUrl || (target as any).pdfUrl || '';
     target.url = effectiveUrl;
     const sourceRunStart = new Date().toISOString();
-    ScraperRepository.updateSourceStats(target.id, {
+    await ScraperRepository.updateSourceStats(target.id, {
       lastStartedAt: sourceRunStart,
       lastRunId: runId
     });
@@ -307,7 +307,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       const sourceCompletedAt = new Date().toISOString();
       const isHealthy = sourceFound > 0;
 
-      ScraperRepository.updateSourceStats(target.id, {
+      await ScraperRepository.updateSourceStats(target.id, {
         lastCompletedAt: sourceCompletedAt,
         lastSuccessfulScrapeAt: isHealthy ? sourceCompletedAt : target.lastSuccessfulScrapeAt,
         lastRunId: runId,
@@ -337,7 +337,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       console.error(`[Scraper Engine] Source error on ${target.name} (${target.url}):`, err);
 
       const sourceCompletedAt = new Date().toISOString();
-      ScraperRepository.updateSourceStats(target.id, {
+      await ScraperRepository.updateSourceStats(target.id, {
         lastCompletedAt: sourceCompletedAt,
         healthStatus: 'error',
         lastErrorMessage: sourceError
@@ -365,7 +365,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const duration = endTime.getTime() - startTime.getTime();
 
   // Save audit log for the scraper execution run
-  ScraperRepository.addRun({
+  await ScraperRepository.addRun({
     id: runId,
     batchId: runId,
     startedAt: startTime.toISOString(),

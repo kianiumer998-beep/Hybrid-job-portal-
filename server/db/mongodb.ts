@@ -71,12 +71,24 @@ export async function getPendingJobsCollection(): Promise<Collection<any>> {
   return db.collection('pending_jobs');
 }
 
+export async function getScraperSourcesCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('scraper_sources');
+}
+
+export async function getScraperRunsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('scraper_runs');
+}
+
 let indexesInitialized = false;
 async function initMongoIndexes(db: Db): Promise<void> {
   if (indexesInitialized) return;
   try {
     const jobsColl = db.collection('jobs');
     const pendingColl = db.collection('pending_jobs');
+    const scraperSourcesColl = db.collection('scraper_sources');
+    const scraperRunsColl = db.collection('scraper_runs');
 
     await Promise.all([
       jobsColl.createIndex({ id: 1 }, { unique: true, background: true }),
@@ -88,9 +100,12 @@ async function initMongoIndexes(db: Db): Promise<void> {
       jobsColl.createIndex({ jobType: 1 }, { background: true }),
       pendingColl.createIndex({ id: 1 }, { unique: true, background: true }),
       pendingColl.createIndex({ status: 1, createdAt: -1 }, { background: true }),
+      scraperSourcesColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      scraperRunsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      scraperRunsColl.createIndex({ startedAt: -1 }, { background: true })
     ]);
     indexesInitialized = true;
-    console.log('[MongoDB] Jobs and pending_jobs indexes ensured.');
+    console.log('[MongoDB] Jobs, pending_jobs, scraper_sources, and scraper_runs indexes ensured.');
   } catch (err: any) {
     console.warn('[MongoDB] Index creation notice:', err.message);
   }

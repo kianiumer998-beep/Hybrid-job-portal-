@@ -12,9 +12,9 @@ import { Job } from '../../src/types/job';
 export const scraperRouter = Router();
 
 // 1. Get Scraper Sources
-scraperRouter.get('/configs', (req, res) => {
+scraperRouter.get('/configs', async (req, res) => {
   try {
-    const sources = ScraperRepository.getConfigs();
+    const sources = await ScraperRepository.getConfigs();
     res.json({ success: true, configs: sources });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching scraper configs' });
@@ -22,9 +22,9 @@ scraperRouter.get('/configs', (req, res) => {
 });
 
 // 2. Update Scraper Sources (Admin Only)
-scraperRouter.put('/configs', requireAdmin, (req, res) => {
+scraperRouter.put('/configs', requireAdmin, async (req, res) => {
   try {
-    ScraperRepository.saveConfigs(req.body);
+    await ScraperRepository.saveConfigs(req.body);
     AuditRepository.add({
       user: 'Administrator',
       role: 'Scraper Manager',
@@ -39,9 +39,9 @@ scraperRouter.put('/configs', requireAdmin, (req, res) => {
 });
 
 // 3. Scheduler Status & Diagnostics
-scraperRouter.get('/scheduler-status', (req, res) => {
+scraperRouter.get('/scheduler-status', async (req, res) => {
   try {
-    const status = getSchedulerStatus();
+    const status = await getSchedulerStatus();
     res.json({ success: true, status });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Error getting scheduler status' });
@@ -176,9 +176,9 @@ scraperRouter.post('/run', requireAdmin, async (req, res) => {
 });
 
 // 7. Get Scraper Audit Runs History
-scraperRouter.get('/runs', (req, res) => {
+scraperRouter.get('/runs', async (req, res) => {
   try {
-    const runs = ScraperRepository.getRuns();
+    const runs = await ScraperRepository.getRuns();
     res.json({ success: true, runs });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching scraper runs' });

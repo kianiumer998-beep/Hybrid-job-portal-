@@ -809,8 +809,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Fetch initial feature flags from backend API
   useEffect(() => {
-    fetch('/api/admin/feature-flags')
-      .then(res => res.json())
+    api.admin.getFeatureFlags()
       .then(data => {
         if (data && typeof data === 'object') {
           setFeatureFlags(prev => ({ ...prev, ...data }));
@@ -828,11 +827,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFeatureFlags(updated);
 
     try {
-      await fetch('/api/admin/feature-flags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated)
-      });
+      await api.admin.updateFeatureFlags(updated);
     } catch (e) {
       console.error('Failed to sync feature flags to backend API', e);
     }

@@ -1,16 +1,25 @@
-import { Database } from '../database';
 import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
   isMongoConfigured
 } from '../mongodb';
+import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
+
+function getDefaultSources(): any[] {
+  return (ALL_VERIFIED_SCRAPER_PORTALS || []).map((s: any) => ({
+    ...s,
+    url: s.url || s.portalUrl || s.pdfUrl || '',
+    portalUrl: s.portalUrl || s.url || ''
+  }));
+}
 
 export class ScraperRepository {
-  private static cachedSources: any[] | null = null;
+  private static cachedSources: any[] = getDefaultSources();
+  private static cachedRuns: any[] = [];
 
   /**
-   * Retrieves all scraper source configurations from MongoDB.
-   * On first run with empty collection, auto-seeds from verified sources.
+   * Retrieves all scraper source configurations from MongoDB scraper_sources collection.
+   * On first run with empty collection, auto-seeds from verified sources into MongoDB.
    */
   static async getConfigs(): Promise<any[]> {
     if (isMongoConfigured()) {
@@ -22,16 +31,16 @@ export class ScraperRepository {
           return docs;
         }
 
-        // Auto-seed initial sources from Database if MongoDB collection is empty
-        const defaultSources = Database.getScraperSources();
-        if (defaultSources && defaultSources.length > 0) {
+        // Auto-seed initial sources into MongoDB scraper_sources collection if empty
+        const defaults = getDefaultSources();
+        if (defaults.length > 0) {
           try {
-            const cleanDocs = defaultSources.map(s => {
-              const { _id, ...clean } = s;
+            const cleanDocs = defaults.map(s => {
+              const { _id, ...clean } = s as any;
               return clean;
             });
             await coll.insertMany(cleanDocs);
-            console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB.`);
+            console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
             this.cachedSources = cleanDocs;
             return cleanDocs;
           } catch (seedErr: any) {
@@ -39,17 +48,15 @@ export class ScraperRepository {
           }
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] Error reading scraper sources from MongoDB:', err.message);
+        console.error('[ScraperRepository] MongoDB error reading scraper_sources:', err.message);
       }
     }
 
-    const localSources = Database.getScraperSources();
-    this.cachedSources = localSources;
-    return localSources;
+    return this.cachedSources;
   }
 
   /**
-   * Persists all scraper source configurations to MongoDB.
+   * Persists all scraper source configurations directly to MongoDB scraper_sources collection.
    */
   static async saveConfigs(configs: any[]): Promise<void> {
     if (!Array.isArray(configs)) return;
@@ -64,18 +71,13 @@ export class ScraperRepository {
           await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] Error saving scraper sources to MongoDB:', err.message);
+        console.error('[ScraperRepository] MongoDB error saving scraper_sources:', err.message);
       }
     }
-
-    // Also persist to local database file as secondary safeguard
-    try {
-      Database.saveScraperSources(configs);
-    } catch {}
   }
 
   /**
-   * Retrieves scraper execution run history from MongoDB sorted by timestamp desc.
+   * Retrieves scraper execution run history from MongoDB scraper_runs collection sorted by timestamp desc.
    */
   static async getRuns(): Promise<any[]> {
     if (isMongoConfigured()) {
@@ -87,14 +89,15 @@ export class ScraperRepository {
           .toArray();
 
         if (runs && runs.length > 0) {
+          this.cachedRuns = runs;
           return runs;
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] Error reading scraper runs from MongoDB:', err.message);
+        console.error('[ScraperRepository] MongoDB error reading scraper_runs:', err.message);
       }
     }
 
-    return Database.getScraperRuns();
+    return this.cachedRuns;
   }
 
   /**
@@ -113,19 +116,20 @@ export class ScraperRepository {
         const coll = await getScraperRunsCollection();
         await coll.insertOne(clean);
       } catch (err: any) {
-        console.error('[ScraperRepository] Error adding scraper run to MongoDB:', err.message);
+        console.error('[ScraperRepository] MongoDB error adding to scraper_runs:', err.message);
       }
     }
 
-    try {
-      Database.addScraperRun(clean);
-    } catch {}
+    this.cachedRuns.unshift(clean);
+    if (this.cachedRuns.length > 100) {
+      this.cachedRuns = this.cachedRuns.slice(0, 100);
+    }
 
     return clean;
   }
 
   /**
-   * Updates health stats, counts, and run timestamps for a scraper source in MongoDB.
+   * Updates health stats, counts, and run timestamps for a scraper source in MongoDB scraper_sources collection.
    */
   static async updateSourceStats(sourceId: string, stats: {
     lastStartedAt?: string;
@@ -155,29 +159,22 @@ export class ScraperRepository {
           await coll.updateOne({ id: sourceId }, updateOps);
         }
       } catch (err: any) {
-        console.error(`[ScraperRepository] Error updating source stats for "${sourceId}" in MongoDB:`, err.message);
+        console.error(`[ScraperRepository] MongoDB error updating source stats for "${sourceId}":`, err.message);
       }
     }
 
-    // Also update local database file
-    try {
-      const configs = Database.getScraperSources();
-      const idx = configs.findIndex(s => s.id === sourceId);
-      if (idx !== -1) {
-        if (stats.lastStartedAt) configs[idx].lastStartedAt = stats.lastStartedAt;
-        if (stats.lastSuccessfulScrapeAt) configs[idx].lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
-        if (stats.lastCompletedAt) configs[idx].lastCompletedAt = stats.lastCompletedAt;
-        if (stats.lastRunId) configs[idx].lastRunId = stats.lastRunId;
-        if (stats.scrapedCountIncrement) {
-          configs[idx].scrapedCount = (configs[idx].scrapedCount || 0) + stats.scrapedCountIncrement;
-        }
-        if (stats.healthStatus) configs[idx].healthStatus = stats.healthStatus;
-        if (stats.lastErrorMessage !== undefined) configs[idx].lastErrorMessage = stats.lastErrorMessage;
-
-        Database.saveScraperSources(configs);
-        this.cachedSources = configs;
+    // Update in-memory cached representation
+    const idx = this.cachedSources.findIndex(s => s.id === sourceId);
+    if (idx !== -1) {
+      if (stats.lastStartedAt) this.cachedSources[idx].lastStartedAt = stats.lastStartedAt;
+      if (stats.lastSuccessfulScrapeAt) this.cachedSources[idx].lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
+      if (stats.lastCompletedAt) this.cachedSources[idx].lastCompletedAt = stats.lastCompletedAt;
+      if (stats.lastRunId) this.cachedSources[idx].lastRunId = stats.lastRunId;
+      if (stats.scrapedCountIncrement) {
+        this.cachedSources[idx].scrapedCount = (this.cachedSources[idx].scrapedCount || 0) + stats.scrapedCountIncrement;
       }
-    } catch {}
+      if (stats.healthStatus) this.cachedSources[idx].healthStatus = stats.healthStatus;
+      if (stats.lastErrorMessage !== undefined) this.cachedSources[idx].lastErrorMessage = stats.lastErrorMessage;
+    }
   }
 }
-

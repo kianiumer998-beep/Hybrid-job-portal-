@@ -415,11 +415,12 @@ jobRouter.post('/', async (req, res) => {
     };
 
     const user = (req as any).user;
-    const adminRoles = ['Super Admin', 'Admin', 'Job Moderator'];
-    const isAdmin = Boolean(user && (adminRoles.includes(user.role) || user.isDemoAdmin));
+    const canCreateApproved = Boolean(
+      user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role)
+    );
 
     let savedJob: any;
-    if (isAdmin) {
+    if (canCreateApproved) {
       newJob.status = 'Approved';
       savedJob = await JobRepository.create(newJob);
       AuditRepository.add({
@@ -430,8 +431,8 @@ jobRouter.post('/', async (req, res) => {
         status: 'Success'
       });
     } else {
-      // Non-admin / guest submissions MUST always become Pending -> MongoDB.pending_jobs
-      // Strictly ignore client-supplied "status=Approved" from non-admin users
+      // Non-admin / guest / user / employer submissions MUST always become Pending -> MongoDB.pending_jobs
+      // Strictly ignore any client-supplied status: 'Approved'
       newJob.status = 'Pending';
       savedJob = await JobRepository.addPending(newJob);
       AuditRepository.add({
@@ -446,7 +447,7 @@ jobRouter.post('/', async (req, res) => {
     res.status(201).json({
       success: true,
       job: savedJob,
-      message: isAdmin ? 'Job published live!' : 'Job submitted for verification and review.'
+      message: canCreateApproved ? 'Job published live!' : 'Job submitted for verification and review.'
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs:', err);

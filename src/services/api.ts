@@ -36,11 +36,12 @@ export function getResolvedApiBase(): string {
       return `${stripped}/api`;
     }
 
-    // Default fallback when hosted on Vercel without configured backend
-    return '/api';
+    throw new Error(
+      '[HybridJobs API Configuration Error] Production Vercel deployment detected without configured Render backend URL! Please configure VITE_API_BASE_URL or VITE_BACKEND_URL in your Vercel Project Environment Variables to your Render service URL (e.g. https://<app-name>.onrender.com).'
+    );
   }
 
-  // 3. Same-origin deployment (AI Studio / Cloud Run / localhost / unified container)
+  // 3. Keep /api fallback only for local/full-stack development/preview where Express serves the API
   return '/api';
 }
 

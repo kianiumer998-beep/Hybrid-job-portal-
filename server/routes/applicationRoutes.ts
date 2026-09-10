@@ -142,7 +142,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
         'Payment Manager',
         'Finance Manager'
       ];
-      if (adminRoles.includes(user.role) || user.isDemoAdmin) {
+      if (adminRoles.includes(user.role)) {
         isAuthorized = true;
       } else {
         // Check if user is the applicant or employer on the corresponding application
@@ -194,7 +194,7 @@ applicationRouter.get('/', (req, res) => {
 
     // If not admin, limit to user's own applications
     const adminRoles = ['Super Admin', 'Admin', 'Job Moderator'];
-    const isAdmin = user && (adminRoles.includes(user.role) || user.isDemoAdmin);
+    const isAdmin = user && adminRoles.includes(user.role);
 
     let filterApplicantId = applicantId;
     if (!isAdmin && user) {

@@ -199,7 +199,7 @@ authRouter.post('/admin-login', (req, res) => {
       'Advertisement Manager'
     ];
 
-    if (!user || (!adminRoles.includes(user.role) && !user.isDemoAdmin)) {
+    if (!user || !adminRoles.includes(user.role)) {
       recordFailedAttempt(ip);
       return res.status(401).json({
         success: false,
@@ -263,10 +263,6 @@ authRouter.post('/admin-login', (req, res) => {
 // 4. Current Authenticated User Session
 authRouter.get('/me', requireAuth, (req: any, res) => {
   try {
-    if (req.user.isDemoAdmin) {
-      return res.json({ success: true, user: req.user });
-    }
-
     const user = Database.getUserById(req.user.userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User record not found.' });

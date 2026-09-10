@@ -78,14 +78,12 @@ import { UserDetailModal } from './UserDetailModal';
 import { AdminJobDetailModal } from './AdminJobDetailModal';
 import { safeLocalStorageSet, safeLocalStorageGet, safeAlert, clearBulkyStorageCaches } from '../utils/safeStorage';
 import { AdminAdHub } from './ads/AdminAdHub';
-import { ScrapedJobHistoryModule } from './ScrapedJobHistoryModule';
 import { PdfConsolidatedScraperModal } from './PdfConsolidatedScraperModal';
 import { AdminQuickEditJobModal } from './admin/AdminQuickEditJobModal';
 import { AdminDuplicateCheckerModal, DuplicateCluster } from './admin/AdminDuplicateCheckerModal';
 import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
 import { BatchUrlIngestModal } from './BatchUrlIngestModal';
 import { AdminPaymentMethodsManager } from './admin/AdminPaymentMethodsManager';
-import { AdminUrlScraperController } from './admin/AdminUrlScraperController';
 import { AutomatedScraperHub } from './admin/AutomatedScraperHub';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 import { injectJobJsonLd } from '../utils/seoHelper';
@@ -1930,7 +1928,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {[
               { id: 'jobs' as AdminCategory, label: '💼 Jobs & Posts', urdu: 'ملازمتیں', count: pendingJobs.length > 0 ? `${pendingJobs.length} Pending` : undefined, countColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
-              { id: 'scraper' as AdminCategory, label: '🤖 Web Scrapers', urdu: 'سکریپرز', count: 'URL Tool', countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
+              { id: 'scraper' as AdminCategory, label: '🤖 Scraper Center', urdu: 'سکریپر سنٹر', count: undefined, countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
               { id: 'ads' as AdminCategory, label: '📢 Ads & Campaigns', urdu: 'اشتہارات', count: `${ads.filter(a => a.status === 'active').length} Live`, countColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
               { id: 'payments' as AdminCategory, label: '💳 Payments & Accounts', urdu: 'ادائیگیاں', count: currentTransactions.filter(t => t.status === 'Pending').length > 0 ? `${currentTransactions.filter(t => t.status === 'Pending').length} Proofs` : undefined, countColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
               { id: 'users' as AdminCategory, label: '👥 Users & KYC', urdu: 'صارفین', count: kycRequests.filter(r => r.status === 'Pending').length > 0 ? `${kycRequests.filter(r => r.status === 'Pending').length} KYC` : undefined, countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
@@ -2246,11 +2244,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   ]
                 },
                 {
-                  catTitle: '🤖 Web Scrapers & Gazettes (سکریپرز اور گزٹس)',
+                  catTitle: '🤖 Scraper Center (خودکار سکریپر سنٹر)',
                   items: [
-                    { id: 'url-scraper', label: 'Instant URL Scraper & Bulk Actions', urdu: 'براہِ راست لنک سے سکریپ اور بلک', icon: Globe, badge: 'NEW' },
-                    { id: 'scraper', label: 'Automated Scraper Controller', urdu: 'خودکار ویب سکریپر پورٹلز', icon: Bot },
-                    { id: 'scraped-history', label: 'Ingested Jobs Feed & Audit', urdu: 'حاصل کردہ جاب فیڈ', icon: History, badge: `${scrapedAuditLogs.length} Logs` }
+                    { id: 'scraper', label: 'Scraper Center', urdu: 'خودکار ویب سکریپر سنٹر', icon: Bot, badge: 'Unified' }
                   ]
                 },
                 {
@@ -3698,6 +3694,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             if (source?.id) setActiveSelectedPdfGazetteId(source.id);
             setIsPdfScraperModalOpen(true);
           }}
+          onOpenBatchIngestModal={() => setIsBatchIngestModalOpen(true)}
         />
       )}
 

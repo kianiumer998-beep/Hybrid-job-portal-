@@ -14,7 +14,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   onLoginSuccess
 }) => {
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
@@ -22,38 +22,21 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError(false);
+    setErrorMessage(null);
 
     try {
       // Call backend admin authentication endpoint
       const result = await api.auth.adminLogin(password);
-      if (result.success) {
-        setError(false);
+      if (result.success && result.token) {
+        setErrorMessage(null);
         setPassword('');
         onLoginSuccess();
         onClose();
       } else {
-        // Fallback check for exact demo passkey
-        if (password === 'admin123') {
-          localStorage.setItem('hybrid_admin_dev_passkey', 'admin123');
-          setError(false);
-          setPassword('');
-          onLoginSuccess();
-          onClose();
-        } else {
-          setError(true);
-        }
+        setErrorMessage(result.message || "Incorrect admin password. (Hint: default is 'admin123')");
       }
-    } catch {
-      if (password === 'admin123') {
-        localStorage.setItem('hybrid_admin_dev_passkey', 'admin123');
-        setError(false);
-        setPassword('');
-        onLoginSuccess();
-        onClose();
-      } else {
-        setError(true);
-      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Authentication error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -92,15 +75,15 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 autoFocus
                 required
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(false); }}
+                onChange={(e) => { setPassword(e.target.value); setErrorMessage(null); }}
                 placeholder="Enter password..."
                 className="w-full pl-9 pr-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
               />
             </div>
-            {error && (
+            {errorMessage && (
               <p className="text-xs text-rose-400 mt-1.5 flex items-center space-x-1 font-semibold">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>Incorrect password. Hint: default is 'admin123'</span>
+                <span>{errorMessage}</span>
               </p>
             )}
           </div>

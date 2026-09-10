@@ -10,7 +10,6 @@ export interface UserSession {
   name: string;
   role: string;
   permissions: string[];
-  isDemoAdmin?: boolean;
 }
 
 // Secure password hashing with salt using crypto.scrypt (OWASP recommended memory-hard hashing)
@@ -80,48 +79,9 @@ export function verifyToken(token: string): any | null {
   }
 }
 
-// Development / Testing Admin Authenticator (Controlled via environment & test-mode logic)
-export function verifyAdminDevPasskey(passkey: string): boolean {
-  if (!passkey) return false;
-  
-  // In production environments, dev passkey bypass is disabled unless explicitly permitted for staging/testing
-  const isProduction = process.env.NODE_ENV === 'production';
-  const allowDevPasskey = process.env.ALLOW_DEV_PASSKEY === 'true' || !isProduction;
-
-  if (!allowDevPasskey) {
-    return false;
-  }
-
-  const expectedKey = process.env.ADMIN_DEV_PASSKEY || 'admin123';
-  return passkey === expectedKey || passkey === 'admin123';
-}
-
-export function createAdminDevSession(): { user: any; token: string } {
-  const adminUser = {
-    id: 'user-demo-admin-1',
-    name: 'Super Administrator (Testing Mode)',
-    email: 'admin@jobportal.com',
-    role: 'Super Admin',
-    permissions: [
-      'all',
-      'jobs:manage',
-      'scraper:manage',
-      'payments:manage',
-      'users:manage',
-      'ads:manage',
-      'pricing:manage',
-      'seo:manage',
-      'system:manage'
-    ],
-    isDemoAdmin: true
-  };
-
-  const token = createToken(adminUser, 168); // 7 days
-  return { user: adminUser, token };
-}
-
 // Authentication & Authorization Middlewares for Express
 export function authMiddleware(req: any, res: any, next: any) {
+  // Disallow any bypass headers such as x-admin-passkey
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
@@ -158,7 +118,7 @@ export function requireAdmin(req: any, res: any, next: any) {
     'Advertisement Manager'
   ];
 
-  if (!adminRoles.includes(req.user.role) && !req.user.isDemoAdmin) {
+  if (!adminRoles.includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'Access denied: Administrative privileges required.' });
   }
 

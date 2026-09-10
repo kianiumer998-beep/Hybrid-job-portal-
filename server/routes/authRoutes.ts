@@ -4,8 +4,6 @@ import {
   hashPassword, 
   verifyPassword, 
   createToken, 
-  verifyAdminDevPasskey, 
-  createAdminDevSession,
   requireAuth 
 } from '../auth/authManager';
 

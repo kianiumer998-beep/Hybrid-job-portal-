@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Bot,
   Globe,
@@ -21,36 +21,79 @@ import {
   Play,
   Pause,
   ArrowRight,
-  HelpCircle,
   Building2,
   MapPin,
-  Flame,
   Layers,
-  Briefcase
+  Briefcase,
+  SlidersHorizontal,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  FileCode,
+  Check,
+  X,
+  Zap,
+  Settings,
+  Activity,
+  FileCheck,
+  HelpCircle
 } from 'lucide-react';
-import { Job, Region, ScrapedJobAuditEntry, ScraperBatchRun } from '../../types/job';
+import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
 
 export interface ScraperSourceItem {
   id: string;
   name: string;
   url: string;
-  keywords: string;
+  keywords?: string;
   category: 'Private Corporate' | 'Government Sector' | 'Newspaper Classified' | 'International Remote';
   region: Region;
-  depth: 'Light (10 Jobs)' | 'Standard (25 Jobs)' | 'Deep Crawl (50+ Jobs)';
-  deduplication: boolean;
-  interval: '15m' | '30m' | '1h' | '6h' | '24h' | '7d';
-  autoApprove: boolean;
+  depth?: 'Light (10 Jobs)' | 'Standard (25 Jobs)' | 'Deep Crawl (50+ Jobs)';
+  deduplication?: boolean;
+  interval?: '15m' | '30m' | '1h' | '6h' | '24h' | '7d';
+  autoApprove?: boolean;
   status: 'Active Scheduled' | 'Paused';
   lastRun?: string;
-  scrapedCount: number;
-  successRate: number;
+  lastSuccessfulScrapeAt?: string;
+  lastCompletedAt?: string;
+  scrapedCount?: number;
+  healthStatus?: 'healthy' | 'warning' | 'error';
+  lastErrorMessage?: string;
+}
+
+export interface ScraperRunRecord {
+  id: string;
+  runId?: string;
+  timestamp?: string;
+  startTime?: string;
+  endTime?: string;
+  mode?: string;
+  sourceId?: string;
+  sourceIds?: string[];
+  totalFound: number;
+  totalNew?: number;
+  jobsAccepted?: number;
+  approvedCount?: number;
+  pendingCount?: number;
+  totalDuplicates?: number;
+  totalFailedSources?: number;
+  executionDurationMs?: number;
+  status?: string;
+  message?: string;
+  sourcesStats?: Array<{
+    sourceId: string;
+    sourceName: string;
+    status: string;
+    jobsFound: number;
+    newJobs: number;
+    duplicates: number;
+    error?: string;
+  }>;
 }
 
 interface AutomatedScraperHubProps {
-  scraperSources: ScraperSourceItem[];
-  setScraperSources: React.Dispatch<React.SetStateAction<ScraperSourceItem[]>>;
+  scraperSources?: ScraperSourceItem[];
+  setScraperSources?: React.Dispatch<React.SetStateAction<ScraperSourceItem[]>>;
   jobs: Job[];
   pendingJobs: Job[];
   onAddJob: (job: Job) => void;
@@ -59,14 +102,16 @@ interface AutomatedScraperHubProps {
   onApproveJob: (id: string) => void;
   onRejectJob: (id: string, reason?: string) => void;
   onOverrideDuplicatesToLive?: (jobsToOverride: Job[]) => void;
-  scrapedAuditLogs: ScrapedJobAuditEntry[];
-  setScrapedAuditLogs: React.Dispatch<React.SetStateAction<ScrapedJobAuditEntry[]>>;
+  scrapedAuditLogs?: ScrapedJobAuditEntry[];
+  setScrapedAuditLogs?: React.Dispatch<React.SetStateAction<ScrapedJobAuditEntry[]>>;
   onOpenPdfParser?: (source?: any) => void;
 }
 
+type ScraperCenterTab = 'overview' | 'sources' | 'run' | 'history' | 'duplicates' | 'settings';
+
 export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
-  scraperSources,
-  setScraperSources,
+  scraperSources: propsSources,
+  setScraperSources: propsSetSources,
   jobs,
   pendingJobs,
   onAddJob,
@@ -74,1320 +119,1904 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   onReloadJobs,
   onApproveJob,
   onRejectJob,
-  onOverrideDuplicatesToLive,
-  scrapedAuditLogs,
-  setScrapedAuditLogs,
-  onOpenPdfParser
+  onOverrideDuplicatesToLive
 }) => {
-  // 1. Site Selection State (One-by-one, Select All, Category-wise)
-  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(() =>
-    scraperSources.map((s) => s.id)
-  );
+  // Navigation: The 6 consolidated tabs
+  const [activeTab, setActiveTab] = useState<ScraperCenterTab>('overview');
 
-  // 2. Date, Time & Page Filter Settings before Scraping (Authoritative Modes)
-  const [dateFilterMode, setDateFilterMode] = useState<'all' | '24h' | '3d' | '7d' | 'since_last' | 'page_range' | 'custom'>('24h');
-  const [customDateTime, setCustomDateTime] = useState<string>(() => {
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    return yesterday.toISOString().slice(0, 16);
+  // Live Backend State (Strict MongoDB-backed data)
+  const [liveSources, setLiveSources] = useState<ScraperSourceItem[]>([]);
+  const [liveRuns, setLiveRuns] = useState<ScraperRunRecord[]>([]);
+  const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
+  const [isLoadingLive, setIsLoadingLive] = useState(true);
+  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Filters State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Paused' | 'Error'>('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
+  const [lastRunFilter, setLastRunFilter] = useState<'all' | 'today' | '7days' | '30days' | 'never'>('all');
+  const [resultTypeFilter, setResultTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
+
+  // Multi-Selection State for Sources
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+
+  // Execution State
+  const [isScrapingActive, setIsScrapingActive] = useState(false);
+  const [scrapeMode, setScrapeMode] = useState<'complete' | 'since_last' | 'page_range' | 'custom'>('complete');
+  const [autoPublishTrusted, setAutoPublishTrusted] = useState(false);
+  const [startPage, setStartPage] = useState(1);
+  const [endPage, setEndPage] = useState(3);
+  const [customFromTime, setCustomFromTime] = useState(() => {
+    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 16);
   });
-  const [customToDateTime, setCustomToDateTime] = useState<string>(() => {
-    return new Date().toISOString().slice(0, 16);
-  });
-  const [startPage, setStartPage] = useState<number>(1);
-  const [endPage, setEndPage] = useState<number>(3);
-  const [skipAlreadyScraped, setSkipAlreadyScraped] = useState<boolean>(true);
+  const [customToTime, setCustomToTime] = useState(() => new Date().toISOString().slice(0, 16));
+  const [runProgressMessage, setRunProgressMessage] = useState('');
+  const [recentRunResult, setRecentRunResult] = useState<any>(null);
 
-  // 3. Authoritative Live Scraper Execution State
-  const [isScrapingActive, setIsScrapingActive] = useState<boolean>(false);
-  const [scrapingProgress, setScrapingProgress] = useState<number>(0);
-  const [currentScrapingSource, setCurrentScrapingSource] = useState<string>('');
+  // Direct Live URL & PDF Ingestion Tool State
+  const [directUrl, setDirectUrl] = useState('');
+  const [directOrg, setDirectOrg] = useState('');
+  const [directTitle, setDirectTitle] = useState('');
+  const [isParsingDirectUrl, setIsParsingDirectUrl] = useState(false);
+  const [directParseResult, setDirectParseResult] = useState<{
+    jobs: Job[];
+    totalExtracted: number;
+    message?: string;
+    sample?: string;
+  } | null>(null);
 
-  // 4. Session Tracking Counters
-  const [sessionScrapedJobs, setSessionScrapedJobs] = useState<Job[]>([]);
-  const [sessionApprovedCount, setSessionApprovedCount] = useState<number>(0);
-  const [statusNotification, setStatusNotification] = useState<string | null>(null);
+  // Add Source Modal State
+  const [isAddSourceOpen, setIsAddSourceOpen] = useState(false);
+  const [newSourceName, setNewSourceName] = useState('');
+  const [newSourceUrl, setNewSourceUrl] = useState('');
+  const [newSourceCategory, setNewSourceCategory] = useState<ScraperSourceItem['category']>('Government Sector');
+  const [newSourceRegion, setNewSourceRegion] = useState<Region>('Pakistan');
+  const [newSourceInterval, setNewSourceInterval] = useState<'15m' | '30m' | '1h' | '6h' | '24h' | '7d'>('24h');
+  const [newSourceDepth, setNewSourceDepth] = useState<'Light (10 Jobs)' | 'Standard (25 Jobs)' | 'Deep Crawl (50+ Jobs)'>('Standard (25 Jobs)');
+  const [newSourceKeywords, setNewSourceKeywords] = useState('');
+  const [newSourceAutoApprove, setNewSourceAutoApprove] = useState(false);
 
-  // 5. Staged Scraped Jobs Selection & Inspection
-  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
-  const [jobFilterMode, setJobFilterMode] = useState<'all' | 'unique' | 'duplicates'>('all');
-  const [targetSearchQuery, setTargetSearchQuery] = useState('');
-  const [targetCategoryFilter, setTargetCategoryFilter] = useState<string>('all');
-  const [inspectingJob, setInspectingJob] = useState<Job | null>(null);
+  // Inspect Run Details Modal State
+  const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
 
-  // 6. Add New Portal Modal State
-  const [isAddPortalOpen, setIsAddPortalOpen] = useState(false);
-  const [newPortalName, setNewPortalName] = useState('');
-  const [newPortalUrl, setNewPortalUrl] = useState('');
-  const [newPortalKeywords, setNewPortalKeywords] = useState('');
-  const [newPortalCategory, setNewPortalCategory] = useState<'Private Corporate' | 'Government Sector' | 'Newspaper Classified' | 'International Remote'>('Government Sector');
-  const [newPortalRegion, setNewPortalRegion] = useState<Region>('Pakistan');
-  const [newPortalAutoApprove, setNewPortalAutoApprove] = useState(false);
+  // Global Settings State
+  const [globalInterval, setGlobalInterval] = useState('24h');
+  const [globalDepth, setGlobalDepth] = useState('Standard (25 Jobs)');
+  const [globalKeywords, setGlobalKeywords] = useState('jobs, careers, recruitment, vacancies, officers, lecturer');
+  const [globalAutoApprove, setGlobalAutoApprove] = useState(false);
+  const [globalSchedulerEnabled, setGlobalSchedulerEnabled] = useState(true);
 
-  // Authoritative Duplicate Status Reader (Backend duplicateEngine is the single source of truth)
-  const checkIsDuplicate = (candidate: Job): { isDuplicate: boolean; matchReason?: string; matchingJobId?: string } => {
-    if (candidate.isDuplicate) {
-      return {
-        isDuplicate: true,
-        matchReason: candidate.duplicateMatchReason || `${candidate.duplicateCategory || 'Potential'} Duplicate (${candidate.duplicateScore || 70}% match)`,
-        matchingJobId: candidate.duplicateOfJobId
-      };
-    }
-    if (candidate.duplicateScore && candidate.duplicateScore >= 65) {
-      return {
-        isDuplicate: true,
-        matchReason: candidate.duplicateMatchReason || `High content similarity (${candidate.duplicateScore}%)`,
-        matchingJobId: candidate.duplicateOfJobId
-      };
-    }
-    return { isDuplicate: false };
-  };
-
-  // Combine session-scraped jobs with pending jobs that originated from scrapers
-  const allScrapedList = useMemo(() => {
-    const map = new Map<string, Job>();
-    // First session scraped
-    sessionScrapedJobs.forEach((j) => map.set(j.id, j));
-    // Also pending scraper jobs
-    pendingJobs.forEach((j) => {
-      if (j.sourceUrl || j.scraperSourceId || j.scrapedSourceDomain || j.id.includes('scraped') || j.id.includes('sc-')) {
-        if (!map.has(j.id)) map.set(j.id, j);
-      }
-    });
-    return Array.from(map.values());
-  }, [sessionScrapedJobs, pendingJobs]);
-
-  // Filtered displayed jobs
-  const displayedJobs = useMemo(() => {
-    return allScrapedList.filter((j) => {
-      const dup = checkIsDuplicate(j).isDuplicate;
-      if (jobFilterMode === 'duplicates' && !dup) return false;
-      if (jobFilterMode === 'unique' && dup) return false;
-      return true;
-    });
-  }, [allScrapedList, jobFilterMode, jobs, pendingJobs]);
-
-  const duplicatesInList = useMemo(() => {
-    return allScrapedList.filter((j) => checkIsDuplicate(j).isDuplicate);
-  }, [allScrapedList, jobs, pendingJobs]);
-
-  const uniqueInList = useMemo(() => {
-    return allScrapedList.filter((j) => !checkIsDuplicate(j).isDuplicate);
-  }, [allScrapedList, jobs, pendingJobs]);
-
-  // Site Selection Handlers
-  const handleSelectAllSources = () => {
-    if (selectedSourceIds.length === scraperSources.length) {
-      setSelectedSourceIds([]);
-    } else {
-      setSelectedSourceIds(scraperSources.map((s) => s.id));
-    }
-  };
-
-  const handleToggleSource = (id: string) => {
-    setSelectedSourceIds((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
-    );
-  };
-
-  const handleSelectByCategory = (category: string) => {
-    const matchingIds = scraperSources.filter((s) => s.category === category).map((s) => s.id);
-    const allAlreadySelected = matchingIds.every((id) => selectedSourceIds.includes(id));
-
-    if (allAlreadySelected) {
-      setSelectedSourceIds((prev) => prev.filter((id) => !matchingIds.includes(id)));
-    } else {
-      setSelectedSourceIds((prev) => Array.from(new Set([...prev, ...matchingIds])));
-    }
-  };
-
-  // Run Scraper Engine on Selected Sites with Date/Time filter applied
-  const handleRunSelectedScrapers = async (overrideSourceIds?: string[]) => {
-    const targetIds = overrideSourceIds || selectedSourceIds;
-    if (targetIds.length === 0) {
-      alert('براہِ کرم پہلے کم از کم ایک سائٹ منتخب کریں۔ (Please select at least one portal)');
-      return;
-    }
-
-    const selectedSources = scraperSources.filter((s) => targetIds.includes(s.id));
-    if (selectedSources.length === 0) return;
-
-    setIsScrapingActive(true);
-    setScrapingProgress(15);
-    setCurrentScrapingSource(selectedSources[0].name);
-
-    // Calculate cutoff date string based on dateFilterMode
-    let cutoffDescription = 'Any time';
-    let sinceTimestamp: string | undefined = undefined;
-    let fromTimestamp: string | undefined = undefined;
-    let toTimestamp: string | undefined = undefined;
-    let mode: 'complete' | 'page_range' | 'since_last' | 'custom_date' = 'complete';
-
-    if (dateFilterMode === 'page_range') {
-      mode = 'page_range';
-      cutoffDescription = `Pages ${startPage} to ${endPage}`;
-    } else if (dateFilterMode === 'since_last') {
-      mode = 'since_last';
-      cutoffDescription = 'Since Last Successful Crawl';
-    } else if (dateFilterMode === '24h') {
-      mode = 'since_last';
-      cutoffDescription = 'Past 24 Hours (پچھلے 24 گھنٹے)';
-      sinceTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    } else if (dateFilterMode === '3d') {
-      mode = 'since_last';
-      cutoffDescription = 'Past 3 Days (پچھلے 3 دن)';
-      sinceTimestamp = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-    } else if (dateFilterMode === '7d') {
-      mode = 'since_last';
-      cutoffDescription = 'Past 7 Days (پچھلے ایک ہفتے کی)';
-      sinceTimestamp = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    } else if (dateFilterMode === 'custom') {
-      mode = 'custom_date';
-      cutoffDescription = `Between ${customDateTime} and ${customToDateTime}`;
-      fromTimestamp = new Date(customDateTime).toISOString();
-      toTimestamp = new Date(customToDateTime).toISOString();
-    } else {
-      mode = 'complete';
-      cutoffDescription = 'All Available Job Listings';
-    }
-
-    setStatusNotification(`⏳ Querying ${selectedSources.length} selected portals via backend scraper (${cutoffDescription})...`);
-
-    let currentIdx = 0;
-    const progressTimer = setInterval(() => {
-      setScrapingProgress((prev) => {
-        if (prev >= 85) return 85;
-        if (currentIdx < selectedSources.length) {
-          setCurrentScrapingSource(selectedSources[currentIdx].name);
-          currentIdx++;
-        }
-        return prev + 10;
-      });
-    }, 400);
-
+  // -------------------------------------------------------------
+  // Data Fetching: Live MongoDB Scraper APIs
+  // -------------------------------------------------------------
+  const fetchLiveScraperData = useCallback(async () => {
+    setIsLoadingLive(true);
     try {
-      const response = await api.scraper.run({
-        mode,
-        sourceIds: targetIds,
-        sinceTimestamp,
-        fromTimestamp,
-        toTimestamp,
-        startPage,
-        endPage,
-        autoPublishTrusted: false
-      });
-
-      clearInterval(progressTimer);
-      setScrapingProgress(100);
-      setIsScrapingActive(false);
-
-      if (response && response.success) {
-        const published = response.publishedJobs || [];
-        const pending = response.pendingJobs || [];
-        const duplicates = response.duplicateJobs || [];
-        const allNewHarvested: Job[] = [...published, ...pending];
-
-        // Sync parent state with backend source of truth
-        if (onReloadJobs) {
-          await onReloadJobs();
-        } else {
-          published.forEach((j: Job) => onAddJob({ ...j, status: 'Approved' }));
-          pending.forEach((j: Job) => onAddJob({ ...j, status: 'Pending' }));
+      // 1. Fetch Sources
+      const configsRes = await api.scraper.getConfigs();
+      if (configsRes?.success && Array.isArray(configsRes.configs)) {
+        setLiveSources(configsRes.configs);
+        if (propsSetSources) {
+          propsSetSources(configsRes.configs);
         }
+      } else if (propsSources && propsSources.length > 0) {
+        setLiveSources(propsSources);
+      }
 
-        setSessionScrapedJobs((prev) => [...allNewHarvested, ...prev]);
-        setSessionApprovedCount((prev) => prev + published.length);
-        setSelectedJobIds(allNewHarvested.map((j) => j.id));
-
-        // Update scraper source stats from backend source statistics
-        if (response.sourcesStats && Array.isArray(response.sourcesStats)) {
-          setScraperSources((prev) =>
-            prev.map((s) => {
-              const stat = response.sourcesStats.find((st: any) => st.sourceId === s.id);
-              if (stat) {
-                return {
-                  ...s,
-                  lastRun: new Date().toISOString().substring(0, 16),
-                  scrapedCount: s.scrapedCount + (stat.found || 0),
-                  successRate: stat.failed ? Math.max(50, s.successRate - 10) : 100
-                };
-              }
-              return s;
-            })
-          );
-        }
-
-        setStatusNotification(
-          `✅ کامیابی! ${response.sourcesStats?.length || selectedSources.length} پورٹلز سے ${response.totalFound || 0} اسامیاں حاصل ہوئیں۔ (${published.length} لائیو، ${pending.length} جائزہ کے لیے تیار، ${duplicates.length} ڈپلیکیٹ)`
-        );
+      // 2. Fetch Runs
+      const runsRes = await api.scraper.getRuns();
+      if (runsRes?.success && Array.isArray(runsRes.runs)) {
+        setLiveRuns(runsRes.runs);
       } else {
-        setStatusNotification(`⚠️ اسکریپر نے ایرر واپس کیا: ${response?.message || 'نامعلوم غلطی'}`);
+        setLiveRuns([]);
+      }
+
+      // 3. Fetch Scheduler Status
+      const statusRes = await api.scraper.getSchedulerStatus();
+      if (statusRes?.success && statusRes.status) {
+        setSchedulerStatus(statusRes.status);
       }
     } catch (err: any) {
-      clearInterval(progressTimer);
+      console.error('Error fetching live scraper data:', err);
+      setStatusMessage({
+        text: `Error connecting to scraper backend: ${err.message || 'Network error'}`,
+        type: 'error'
+      });
+    } finally {
+      setIsLoadingLive(false);
+    }
+  }, [propsSources, propsSetSources]);
+
+  useEffect(() => {
+    fetchLiveScraperData();
+  }, [fetchLiveScraperData]);
+
+  const sourcesList = useMemo(() => {
+    return liveSources.length > 0 ? liveSources : (propsSources || []);
+  }, [liveSources, propsSources]);
+
+  // Set default selected sources if empty
+  useEffect(() => {
+    if (selectedSourceIds.length === 0 && sourcesList.length > 0) {
+      setSelectedSourceIds(sourcesList.map(s => s.id));
+    }
+  }, [sourcesList]);
+
+  // -------------------------------------------------------------
+  // Overview Tab Calculated Metrics (Real backend data only)
+  // -------------------------------------------------------------
+  const overviewStats = useMemo(() => {
+    let totalFound = 0;
+    let totalApproved = 0;
+    let totalDuplicates = 0;
+    let totalErrors = 0;
+
+    liveRuns.forEach(r => {
+      totalFound += r.totalFound || 0;
+      totalApproved += r.approvedCount || r.jobsAccepted || 0;
+      totalDuplicates += r.totalDuplicates || 0;
+      if (r.status === 'Failed' || (r.totalFailedSources && r.totalFailedSources > 0)) {
+        totalErrors += (r.totalFailedSources || 1);
+      }
+    });
+
+    const pendingCount = pendingJobs.length;
+    const lastRun = liveRuns.length > 0 ? liveRuns[0] : null;
+
+    return {
+      totalFound,
+      totalApproved,
+      totalDuplicates,
+      totalErrors,
+      pendingCount,
+      lastRun,
+      hasRuns: liveRuns.length > 0
+    };
+  }, [liveRuns, pendingJobs]);
+
+  // -------------------------------------------------------------
+  // Filtered Sources for Sources Tab
+  // -------------------------------------------------------------
+  const filteredSources = useMemo(() => {
+    return sourcesList.filter(source => {
+      // Search
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesName = source.name?.toLowerCase().includes(q);
+        const matchesUrl = source.url?.toLowerCase().includes(q);
+        const matchesKeywords = source.keywords?.toLowerCase().includes(q);
+        if (!matchesName && !matchesUrl && !matchesKeywords) return false;
+      }
+
+      // Status
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'Active' && source.status !== 'Active Scheduled') return false;
+        if (statusFilter === 'Paused' && source.status !== 'Paused') return false;
+        if (statusFilter === 'Error' && source.healthStatus !== 'error') return false;
+      }
+
+      // Category
+      if (categoryFilter !== 'all' && source.category !== categoryFilter) return false;
+
+      // Region
+      if (regionFilter !== 'all' && source.region !== regionFilter) return false;
+
+      // Last Run
+      if (lastRunFilter !== 'all') {
+        const lastRunTime = source.lastRun || source.lastSuccessfulScrapeAt;
+        if (!lastRunTime && lastRunFilter !== 'never') return false;
+        if (lastRunFilter === 'never' && lastRunTime) return false;
+
+        if (lastRunTime) {
+          const runDate = new Date(lastRunTime);
+          const now = new Date();
+          const diffHours = (now.getTime() - runDate.getTime()) / (1000 * 60 * 60);
+
+          if (lastRunFilter === 'today' && diffHours > 24) return false;
+          if (lastRunFilter === '7days' && diffHours > 24 * 7) return false;
+          if (lastRunFilter === '30days' && diffHours > 24 * 30) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [sourcesList, searchQuery, statusFilter, categoryFilter, regionFilter, lastRunFilter]);
+
+  // -------------------------------------------------------------
+  // Filtered History Runs
+  // -------------------------------------------------------------
+  const filteredRuns = useMemo(() => {
+    return liveRuns.filter(run => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const runIdMatch = (run.runId || run.id || '').toLowerCase().includes(q);
+        const msgMatch = (run.message || '').toLowerCase().includes(q);
+        if (!runIdMatch && !msgMatch) return false;
+      }
+
+      if (sourceFilter !== 'all') {
+        const matchesSource = run.sourceId === sourceFilter ||
+          (Array.isArray(run.sourceIds) && run.sourceIds.includes(sourceFilter));
+        if (!matchesSource) return false;
+      }
+
+      if (resultTypeFilter !== 'all') {
+        if (resultTypeFilter === 'Approved' && (!run.approvedCount && !run.jobsAccepted)) return false;
+        if (resultTypeFilter === 'Duplicate' && !run.totalDuplicates) return false;
+        if (resultTypeFilter === 'Error' && run.status !== 'Failed' && !run.totalFailedSources) return false;
+        if (resultTypeFilter === 'Pending' && !run.pendingCount) return false;
+      }
+
+      return true;
+    });
+  }, [liveRuns, searchQuery, sourceFilter, resultTypeFilter]);
+
+  // -------------------------------------------------------------
+  // Duplicates & Pending Review Items
+  // -------------------------------------------------------------
+  const reviewJobs = useMemo(() => {
+    return pendingJobs.filter(job => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchTitle = job.title?.toLowerCase().includes(q);
+        const matchCompany = job.company?.toLowerCase().includes(q);
+        const matchPortal = ((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase().includes(q);
+        if (!matchTitle && !matchCompany && !matchPortal) return false;
+      }
+
+      if (sourceFilter !== 'all') {
+        const portal = (job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '';
+        if (!portal.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
+      }
+
+      if (resultTypeFilter === 'Duplicate') {
+        return Boolean(job.isDuplicate || (job.duplicateScore && job.duplicateScore >= 60));
+      }
+      if (resultTypeFilter === 'Pending') {
+        return !job.isDuplicate && (!job.duplicateScore || job.duplicateScore < 60);
+      }
+
+      return true;
+    });
+  }, [pendingJobs, searchQuery, sourceFilter, resultTypeFilter]);
+
+  // -------------------------------------------------------------
+  // Actions: Scraper Execution (Run All / Run Selected / Run Now)
+  // -------------------------------------------------------------
+  const handleExecuteScraper = async (options: {
+    runMode: 'complete' | 'since_last' | 'page_range' | 'custom';
+    targetSourceIds?: string[];
+  }) => {
+    setIsScrapingActive(true);
+    setRecentRunResult(null);
+    setRunProgressMessage(`Initiating authentic scraper run (${options.targetSourceIds ? `${options.targetSourceIds.length} sources` : 'All sources'})...`);
+
+    try {
+      const payload: any = {
+        mode: options.runMode === 'custom' ? 'custom_date' : options.runMode,
+        autoPublishTrusted,
+        sourceIds: options.targetSourceIds
+      };
+
+      if (options.runMode === 'page_range') {
+        payload.startPage = startPage;
+        payload.endPage = endPage;
+      } else if (options.runMode === 'custom') {
+        payload.fromTimestamp = customFromTime;
+        payload.toTimestamp = customToTime;
+      }
+
+      const res = await api.scraper.run(payload);
+      if (res?.success) {
+        setRecentRunResult(res);
+        setStatusMessage({
+          text: `Scraper execution completed: ${res.totalFound || 0} jobs found, ${res.jobsAccepted || res.approvedCount || 0} approved, ${res.totalDuplicates || 0} duplicates skipped.`,
+          type: 'success'
+        });
+        // Reload jobs and runs from backend
+        if (onReloadJobs) await onReloadJobs();
+        await fetchLiveScraperData();
+      } else {
+        setStatusMessage({
+          text: res?.message || 'Scraper execution reported errors.',
+          type: 'error'
+        });
+      }
+    } catch (err: any) {
+      console.error('Scraper run error:', err);
+      setStatusMessage({
+        text: `Scraper run failed: ${err.message || 'Unknown network error'}`,
+        type: 'error'
+      });
+    } finally {
       setIsScrapingActive(false);
-      setScrapingProgress(100);
-      console.error('Backend scraper execution error:', err);
-      setStatusNotification(`❌ اسکریپر کال ناکام رہی: ${err.message || 'کنکشن ایرر'}`);
+      setRunProgressMessage('');
     }
   };
 
-  // Bulk Actions on Scraped Jobs
-  const handleToggleSelectJob = (id: string) => {
-    setSelectedJobIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    );
+  // Run Single Source Now
+  const handleRunSingleSource = (sourceId: string) => {
+    handleExecuteScraper({ runMode: 'complete', targetSourceIds: [sourceId] });
   };
 
-  const handleSelectAllJobs = () => {
-    if (selectedJobIds.length === displayedJobs.length) {
-      setSelectedJobIds([]);
-    } else {
-      setSelectedJobIds(displayedJobs.map((j) => j.id));
+  // Trigger Scheduler Tick
+  const handleTriggerSchedulerTick = async () => {
+    try {
+      setStatusMessage({ text: 'Triggering scheduler tick...', type: 'info' });
+      const res = await api.scraper.schedulerTick();
+      if (res?.success) {
+        setStatusMessage({
+          text: `Scheduler tick executed successfully! Triggered sources: ${(res.triggeredSources || []).join(', ') || 'None due currently'}.`,
+          type: 'success'
+        });
+        await fetchLiveScraperData();
+      } else {
+        setStatusMessage({ text: res?.message || 'Scheduler tick execution failed.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Scheduler tick error: ${err.message}`, type: 'error' });
     }
   };
 
-  // 1. Bulk Approve to Live
-  const handleBulkApproveToLive = () => {
-    const toApprove = allScrapedList.filter((j) => selectedJobIds.includes(j.id));
-    if (toApprove.length === 0) return;
-
-    if (onBulkAddJobs) {
-      const liveApproved = toApprove.map((j) => ({ ...j, status: 'Approved' as const }));
-      onBulkAddJobs(liveApproved);
-    } else {
-      toApprove.forEach((j) => onApproveJob(j.id));
-    }
-
-    setSessionApprovedCount((prev) => prev + toApprove.length);
-    setSelectedJobIds([]);
-    setStatusNotification(`🚀 ${toApprove.length} جابز فوری طور پر لائیو پورٹل پر شائع کر دی گئیں!`);
-  };
-
-  // 2. Bulk Overwrite Duplicates (Re-announce as fresh ad)
-  const handleBulkOverwriteDuplicates = () => {
-    const dupJobs = allScrapedList.filter(
-      (j) => selectedJobIds.includes(j.id) && checkIsDuplicate(j).isDuplicate
-    );
-    if (dupJobs.length === 0) {
-      alert('براہِ کرم منتخب لسٹ میں ڈپلیکیٹ جابز چنیں۔ (Please select duplicate jobs to overwrite)');
+  // Direct Live URL / PDF Parser
+  const handleDirectParseUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directUrl.trim() || !directUrl.startsWith('http')) {
+      setStatusMessage({ text: 'Please enter a valid HTTP/HTTPS URL.', type: 'error' });
       return;
     }
 
-    const overridden = dupJobs.map((j) => ({
+    setIsParsingDirectUrl(true);
+    setDirectParseResult(null);
+    try {
+      const res = await api.scraper.parseUrl({
+        url: directUrl.trim(),
+        organization: directOrg.trim() || undefined,
+        title: directTitle.trim() || undefined
+      });
+
+      if (res?.success) {
+        setDirectParseResult({
+          jobs: res.jobs || [],
+          totalExtracted: res.totalExtracted || 0,
+          message: res.message,
+          sample: res.rawTextSample
+        });
+        setStatusMessage({
+          text: res.message || `Successfully harvested ${res.jobs?.length || 0} vacancies.`,
+          type: 'success'
+        });
+      } else {
+        setStatusMessage({
+          text: res?.message || 'Failed to extract vacancies from target URL.',
+          type: 'error'
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Direct URL parsing failed: ${err.message}`, type: 'error' });
+    } finally {
+      setIsParsingDirectUrl(false);
+    }
+  };
+
+  // Save Direct Extracted Jobs (Live or Pending)
+  const handleIngestExtractedJobs = async (targetStatus: 'Approved' | 'Pending') => {
+    if (!directParseResult || directParseResult.jobs.length === 0) return;
+
+    const jobsToSave = directParseResult.jobs.map(j => ({
       ...j,
-      status: 'Approved' as const,
-      isDuplicateOverride: true,
-      title: `${j.title} (Re-announced / توسیع شدہ)`,
-      postedAt: 'Just now (Re-advertised)',
-      description: `[RE-ANNOUNCED VACANCY] Previously advertised opportunity re-opened with updated closing date.\n\n${j.description || ''}`
+      status: targetStatus
     }));
 
-    if (onOverrideDuplicatesToLive) {
-      onOverrideDuplicatesToLive(overridden);
-    } else if (onBulkAddJobs) {
-      onBulkAddJobs(overridden);
-    } else {
-      overridden.forEach((j) => onAddJob(j));
+    try {
+      if (onBulkAddJobs) {
+        onBulkAddJobs(jobsToSave);
+      } else {
+        jobsToSave.forEach(j => onAddJob(j));
+      }
+
+      setStatusMessage({
+        text: `Successfully saved ${jobsToSave.length} jobs to ${targetStatus === 'Approved' ? 'Live Jobs' : 'Pending Queue'}!`,
+        type: 'success'
+      });
+      setDirectParseResult(null);
+      setDirectUrl('');
+      if (onReloadJobs) await onReloadJobs();
+    } catch (err: any) {
+      setStatusMessage({ text: `Error saving jobs: ${err.message}`, type: 'error' });
     }
-
-    setSessionApprovedCount((prev) => prev + overridden.length);
-    setSelectedJobIds((prev) => prev.filter((id) => !dupJobs.map((d) => d.id).includes(id)));
-    setStatusNotification(`🔄 ${overridden.length} ڈپلیکیٹ جابز کو اوور رائٹ کر کے نئی تاریخ کے ساتھ لائیو پوسٹ کر دیا گیا!`);
   };
 
-  // 3. Skip / Purge Duplicates
-  const handleBulkPurgeDuplicates = () => {
-    const dups = duplicatesInList;
-    if (dups.length === 0) return;
+  // -------------------------------------------------------------
+  // Source Management (Add, Toggle, Delete, Save)
+  // -------------------------------------------------------------
+  const handleToggleSourceStatus = async (sourceId: string) => {
+    const updated = sourcesList.map(s => {
+      if (s.id === sourceId) {
+        return {
+          ...s,
+          status: (s.status === 'Active Scheduled' ? 'Paused' : 'Active Scheduled') as any
+        };
+      }
+      return s;
+    });
 
-    const dupIds = dups.map((d) => d.id);
-    dupIds.forEach((id) => onRejectJob(id, 'Purged duplicate from Scraper Hub'));
-    setSessionScrapedJobs((prev) => prev.filter((j) => !dupIds.includes(j.id)));
-    setSelectedJobIds((prev) => prev.filter((id) => !dupIds.includes(id)));
-    setStatusNotification(`🗑️ ${dups.length} ڈپلیکیٹ جابز کو کامیابی سے حذف کر دیا گیا اور اصل جابز محفوظ رہیں۔`);
+    setLiveSources(updated);
+    if (propsSetSources) propsSetSources(updated);
+
+    try {
+      await api.scraper.saveConfigs(updated);
+      setStatusMessage({ text: 'Source status updated in backend MongoDB.', type: 'success' });
+    } catch (err: any) {
+      setStatusMessage({ text: `Error updating source: ${err.message}`, type: 'error' });
+    }
   };
 
-  // 4. Move Selected to Pending for manual review
-  const handleBulkMoveToPending = () => {
-    const toPending = allScrapedList.filter((j) => selectedJobIds.includes(j.id));
-    if (toPending.length === 0) return;
+  const handleDeleteSource = async (sourceId: string) => {
+    if (!window.confirm('Are you sure you want to remove this scraper source configuration?')) return;
+    const updated = sourcesList.filter(s => s.id !== sourceId);
+    setLiveSources(updated);
+    if (propsSetSources) propsSetSources(updated);
 
-    // They are already in pending or session staging
-    setSelectedJobIds([]);
-    setStatusNotification(`⏳ ${toPending.length} جابز کو تفصیلی جائزے کے لیے پینڈنگ کیو میں رکھ دیا گیا ہے۔`);
+    try {
+      await api.scraper.saveConfigs(updated);
+      setStatusMessage({ text: 'Scraper source removed successfully.', type: 'success' });
+    } catch (err: any) {
+      setStatusMessage({ text: `Error removing source: ${err.message}`, type: 'error' });
+    }
   };
 
-  // Add Portal Submission
-  const handleAddNewPortal = (e: React.FormEvent) => {
+  const handleCreateNewSource = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPortalName.trim() || !newPortalUrl.trim()) return;
-
-    let cleanUrl = newPortalUrl.trim();
-    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-      cleanUrl = 'https://' + cleanUrl;
+    if (!newSourceName.trim() || !newSourceUrl.trim()) {
+      setStatusMessage({ text: 'Name and valid URL are required.', type: 'error' });
+      return;
     }
 
     const newSource: ScraperSourceItem = {
-      id: `sc-${Date.now().toString(36)}`,
-      name: newPortalName.trim(),
-      url: cleanUrl,
-      keywords: newPortalKeywords.trim() || 'Vacancies, Jobs, Careers',
-      category: newPortalCategory,
-      region: newPortalRegion,
-      depth: 'Standard (25 Jobs)',
-      deduplication: true,
-      interval: '6h',
-      autoApprove: newPortalAutoApprove,
+      id: `portal-${Date.now()}`,
+      name: newSourceName.trim(),
+      url: newSourceUrl.trim(),
+      category: newSourceCategory,
+      region: newSourceRegion,
+      interval: newSourceInterval,
+      depth: newSourceDepth,
+      keywords: newSourceKeywords.trim() || undefined,
+      autoApprove: newSourceAutoApprove,
       status: 'Active Scheduled',
       scrapedCount: 0,
-      successRate: 100
+      healthStatus: 'healthy'
     };
 
-    setScraperSources((prev) => [newSource, ...prev]);
-    setSelectedSourceIds((prev) => [...prev, newSource.id]);
-    setIsAddPortalOpen(false);
-    setNewPortalName('');
-    setNewPortalUrl('');
-    setNewPortalKeywords('');
-    setStatusNotification(`🎉 نیا پورٹل "${newSource.name}" کامیابی سے شامل ہو گیا!`);
+    const updated = [newSource, ...sourcesList];
+    setLiveSources(updated);
+    if (propsSetSources) propsSetSources(updated);
+
+    try {
+      await api.scraper.saveConfigs(updated);
+      setStatusMessage({ text: `Target source "${newSource.name}" added successfully!`, type: 'success' });
+      setIsAddSourceOpen(false);
+      setNewSourceName('');
+      setNewSourceUrl('');
+      setNewSourceKeywords('');
+    } catch (err: any) {
+      setStatusMessage({ text: `Failed to save new source: ${err.message}`, type: 'error' });
+    }
+  };
+
+  // Save Global Settings
+  const handleSaveGlobalSettings = async () => {
+    try {
+      // Update all sources with global settings
+      const updated = sourcesList.map(s => ({
+        ...s,
+        interval: globalInterval as any,
+        depth: globalDepth as any,
+        keywords: globalKeywords,
+        autoApprove: globalAutoApprove,
+        status: (globalSchedulerEnabled ? 'Active Scheduled' : 'Paused') as any
+      }));
+
+      setLiveSources(updated);
+      if (propsSetSources) propsSetSources(updated);
+      await api.scraper.saveConfigs(updated);
+
+      setStatusMessage({
+        text: 'Global scraper settings persisted to MongoDB and scheduler synchronized.',
+        type: 'success'
+      });
+    } catch (err: any) {
+      setStatusMessage({ text: `Failed to save settings: ${err.message}`, type: 'error' });
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Bulk Selection Helpers
+  // -------------------------------------------------------------
+  const toggleSelectAllSources = () => {
+    if (selectedSourceIds.length === filteredSources.length) {
+      setSelectedSourceIds([]);
+    } else {
+      setSelectedSourceIds(filteredSources.map(s => s.id));
+    }
+  };
+
+  const toggleSelectSource = (id: string) => {
+    setSelectedSourceIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
   };
 
   return (
-    <div className="space-y-6 text-white max-w-7xl">
-      {/* 1. TOP HEADER & SYSTEM OVERVIEW BANNER */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-          <div className="flex items-start space-x-3.5">
-            <div className="p-3 bg-gradient-to-tr from-indigo-500 to-emerald-500 text-slate-950 rounded-2xl shadow-lg shadow-indigo-500/20 shrink-0">
-              <Bot className="w-7 h-7" />
+    <div className="w-full max-w-7xl mx-auto space-y-6 text-slate-100 p-2 sm:p-4">
+      {/* HEADER BANNER */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start space-x-4">
+            <div className="p-3.5 bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-500/30 shadow-inner">
+              <Bot className="w-8 h-8" />
             </div>
             <div>
-              <div className="flex items-center space-x-2 flex-wrap">
-                <h3 className="text-xl font-black text-white">
-                  Automated Scraper Controller & Source Hub
-                </h3>
-                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">
-                  خودکار اسکریپر نظام
-                </span>
-                <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  All-in-One Controller
+              <div className="flex items-center space-x-3">
+                <h2 className="text-2xl font-black text-white tracking-tight">Scraper Center</h2>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1" />
+                  Live MongoDB Connected
                 </span>
               </div>
-              <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
-                تمام سرکاری، اخباری اور کارپوریٹ پورٹلز سے جابز ایک کلک میں حاصل کریں، ڈپلیکیٹ چیک کریں اور براہِ راست لائیو کریں۔ (Scrape, Deduplicate & Publish Live in 1 Click).
+              <p className="text-sm text-slate-400 mt-1">
+                Unified controller for automated portal crawlers, gazette/PDF ingestion, duplicate screening, and execution audit history.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {onOpenPdfParser && (
-              <button
-                type="button"
-                onClick={() => onOpenPdfParser()}
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 font-bold text-xs flex items-center space-x-1.5 cursor-pointer transition-all active:scale-95"
-              >
-                <FileText className="w-4 h-4 text-rose-400" />
-                <span>📄 PDF گزٹ پارسر (FPSC/WAPDA)</span>
-              </button>
-            )}
-
             <button
               type="button"
-              onClick={() => setIsAddPortalOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center space-x-1.5 cursor-pointer transition-all active:scale-95"
+              onClick={fetchLiveScraperData}
+              disabled={isLoadingLive}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs flex items-center space-x-2 transition border border-slate-700 shadow-sm"
+              title="Refresh live metrics from backend"
             >
-              <Plus className="w-4 h-4 text-emerald-400" />
-              <span>نئی ویب سائٹ شامل کریں (+Add Site)</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLive ? 'animate-spin' : ''}`} />
+              <span>Refresh Backend</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleTriggerSchedulerTick}
+              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center space-x-2 transition shadow-md shadow-indigo-600/20"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Trigger Scheduler Tick</span>
             </button>
           </div>
         </div>
 
-        {/* 2. REAL-TIME PLATFORM COUNTERS */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1">
-            <div className="text-[10px] font-bold uppercase text-slate-400 flex items-center justify-between">
-              <span>کل لائیو جابز (Live)</span>
-              <Briefcase className="w-3.5 h-3.5 text-emerald-400" />
-            </div>
-            <div className="text-xl font-black text-emerald-400">{jobs.length}</div>
-            <div className="text-[10px] text-slate-500">ویب سائٹ پر فعال</div>
-          </div>
-
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1">
-            <div className="text-[10px] font-bold uppercase text-slate-400 flex items-center justify-between">
-              <span>اس سیشن میں اسکریپ</span>
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            </div>
-            <div className="text-xl font-black text-white">{sessionScrapedJobs.length}</div>
-            <div className="text-[10px] text-slate-500">تازہ حاصل شدہ جابز</div>
-          </div>
-
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1">
-            <div className="text-[10px] font-bold uppercase text-slate-400 flex items-center justify-between">
-              <span>فوری لائیو کی گئیں</span>
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            </div>
-            <div className="text-xl font-black text-emerald-300">{sessionApprovedCount}</div>
-            <div className="text-[10px] text-slate-500">Approved to Live</div>
-          </div>
-
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1">
-            <div className="text-[10px] font-bold uppercase text-slate-400 flex items-center justify-between">
-              <span>منظوری کی منتظر (Review)</span>
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
-            </div>
-            <div className="text-xl font-black text-amber-400">
-              {pendingJobs.filter(j => j.sourceUrl || j.scraperSourceId || j.scrapedSourceDomain || j.id.includes('scraped')).length}
-            </div>
-            <div className="text-[10px] text-slate-500">زیرِ التواء جائزہ</div>
-          </div>
-
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1">
-            <div className="text-[10px] font-bold uppercase text-slate-400 flex items-center justify-between">
-              <span>ڈپلیکیٹس (Duplicates)</span>
-              <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
-            </div>
-            <div className="text-xl font-black text-rose-400">{duplicatesInList.length}</div>
-            <div className="text-[10px] text-slate-500">پہلے سے موجود اشتہارات</div>
-          </div>
-        </div>
-
-        {/* NOTIFICATION MESSAGE */}
-        {statusNotification && (
-          <div className="p-3 bg-emerald-500/15 border border-emerald-500/40 rounded-xl text-emerald-200 text-xs font-bold flex items-center justify-between animate-in fade-in">
+        {/* FEEDBACK STATUS ALERT */}
+        {statusMessage && (
+          <div
+            className={`mt-4 p-3.5 rounded-xl border text-xs font-medium flex items-center justify-between ${
+              statusMessage.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : statusMessage.type === 'error'
+                ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
+            }`}
+          >
             <div className="flex items-center space-x-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>{statusNotification}</span>
+              {statusMessage.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              ) : statusMessage.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              ) : (
+                <Activity className="w-4 h-4 flex-shrink-0" />
+              )}
+              <span>{statusMessage.text}</span>
             </div>
             <button
-              onClick={() => setStatusNotification(null)}
-              className="text-slate-400 hover:text-white text-xs cursor-pointer ml-3"
+              type="button"
+              onClick={() => setStatusMessage(null)}
+              className="text-slate-400 hover:text-white p-1"
             >
-              ✕
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
       </div>
 
-      {/* EASY TO USE 3-STEP EXPLANATION BANNER FOR ADMIN (آسان 3 مرحلہ گائیڈ) */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 shadow-xl">
-        <div className="flex items-center space-x-2.5 text-indigo-400 font-black text-sm mb-3">
-          <HelpCircle className="w-5 h-5 text-indigo-400" />
-          <span>ایڈمن کے لیے آسان رہنما گائیڈ — 3 مراحل میں جابز لائیو کریں (Easy 3-Step Guide)</span>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5">
-            <div className="flex items-center space-x-2 text-amber-400 font-bold">
-              <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-[10px] font-black">1</span>
-              <span>ویب سائٹس منتخب کریں (Select Sites)</span>
-            </div>
-            <p className="text-slate-300 leading-relaxed">
-              نیچے دی گئی لسٹ میں سے جن پورٹلز سے نوکریاں لینی ہیں ان پر نشان لگائیں (یا اوپر <strong>تمام سائٹس</strong> کا بٹن دبائیں)۔
-            </p>
-          </div>
-
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5">
-            <div className="flex items-center space-x-2 text-indigo-400 font-bold">
-              <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-[10px] font-black">2</span>
-              <span>اسکریپنگ شروع کریں (Start Scraping)</span>
-            </div>
-            <p className="text-slate-300 leading-relaxed">
-              سبز رنگ کا <strong>"منتخب سائٹس سے جابز اسکریپ کریں"</strong> بٹن دبائیں۔ خودکار نظام انٹرنیٹ سے تازہ اشتہارات اکٹھے کر لے گا۔
-            </p>
-          </div>
-
-          <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5">
-            <div className="flex items-center space-x-2 text-emerald-400 font-bold">
-              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-black">3</span>
-              <span>ایک کلک میں لائیو کریں (Publish Live)</span>
-            </div>
-            <p className="text-slate-300 leading-relaxed">
-              حاصل شدہ جابز کا جائزہ لیں اور <strong>"ایک کلک میں لائیو شائع کریں"</strong> دبائیں تاکہ وہ فوری طور پر پورٹل پر نظر آئیں۔
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. STEP 1 & 2: SITE SELECTION & DATE-TIME FILTER CARD */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
-        <div className="border-b border-slate-800 pb-3 flex flex-col md:flex-row md:items-center justify-between gap-2">
-          <div>
-            <h4 className="text-sm font-black uppercase text-white flex items-center space-x-2">
-              <Globe className="w-4 h-4 text-indigo-400" />
-              <span>مرحلہ 1: ویب سائٹس اور تاریخ کا انتخاب (Step 1: Select Sites & Date Filter)</span>
-            </h4>
-            <p className="text-xs text-slate-400">
-              وہ پورٹلز چنیں جن سے آپ نئی جابز نکالنا چاہتے ہیں، اور بتائیں کہ کس وقت کے بعد کی جابز حاصل کرنی ہیں۔
-            </p>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-300 font-bold">
-              {selectedSourceIds.length} of {scraperSources.length} سائٹس منتخب ہیں
-            </span>
-          </div>
-        </div>
-
-        {/* QUICK CATEGORY SELECTION BUTTONS */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-400 font-bold shrink-0">فوری سلیکشن:</span>
-          
-          <button
-            type="button"
-            onClick={handleSelectAllSources}
-            className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
-              selectedSourceIds.length === scraperSources.length
-                ? 'bg-indigo-500 text-white shadow-md'
-                : 'bg-slate-800 text-slate-300 hover:text-white border border-slate-700'
-            }`}
-          >
-            {selectedSourceIds.length === scraperSources.length ? (
-              <CheckSquare className="w-3.5 h-3.5" />
-            ) : (
-              <Square className="w-3.5 h-3.5" />
-            )}
-            <span>تمام سائٹس ({scraperSources.length})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleSelectByCategory('Government Sector')}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold cursor-pointer transition-all"
-          >
-            🏛️ تمام سرکاری پورٹلز (Govt)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleSelectByCategory('Newspaper Classified')}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/30 font-bold cursor-pointer transition-all"
-          >
-            📰 تمام اخباری اشتہارات (Newspapers)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleSelectByCategory('Private Corporate')}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 font-bold cursor-pointer transition-all"
-          >
-            🏢 پرائیویٹ و کارپوریٹ (Corporate)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleSelectByCategory('International Remote')}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold cursor-pointer transition-all"
-          >
-            🌐 بین الاقوامی و ریموٹ (Remote)
-          </button>
-        </div>
-
-        {/* DATE & TIME FILTER CONTROL BAR */}
-        <div className="p-4 bg-slate-950 border border-indigo-500/30 rounded-xl space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
-            <div className="flex items-center space-x-2">
-              <Calendar className="w-4 h-4 text-indigo-400" />
-              <span className="text-xs font-black text-white">
-                تاریخ اور وقت کی حد کا فلٹر (Date & Time Cutoff for Scraping)
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-400">
-              صرف منتخب تاریخ کے بعد شائع ہونے والی نئی جابز حاصل ہوں گی۔
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            {[
-              { id: 'all', label: '⚡ تمام دستیاب جابز (All Available)' },
-              { id: 'since_last', label: '🔄 آخری کامیاب اسکریپ سے (Since Last Run)' },
-              { id: 'page_range', label: '📄 مخصوص صفحات (Page Range)' },
-              { id: '24h', label: '⏱️ پچھلے 24 گھنٹے (Past 24 Hours)' },
-              { id: '3d', label: '📅 پچھلے 3 دن (Past 3 Days)' },
-              { id: '7d', label: '🗓️ پچھلے 7 دن (Past 7 Days)' },
-              { id: 'custom', label: '🕒 مخصوص تاریخ کا وقفہ (Custom Date Range)' }
-            ].map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setDateFilterMode(option.id as any)}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
-                  dateFilterMode === option.id
-                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-md'
-                    : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                }`}
-              >
-                <span>{option.label}</span>
-              </button>
-            ))}
-
-            {dateFilterMode === 'page_range' && (
-              <div className="flex items-center gap-2 mt-1 sm:mt-0 p-1.5 bg-slate-900 border border-indigo-500/50 rounded-lg text-xs">
-                <span className="text-slate-400 font-bold">صفحہ نمبر:</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={startPage}
-                  onChange={(e) => setStartPage(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-14 px-2 py-0.5 bg-slate-950 border border-slate-700 rounded text-center text-white font-mono"
-                />
-                <span className="text-slate-400 font-bold">تا</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={endPage}
-                  onChange={(e) => setEndPage(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-14 px-2 py-0.5 bg-slate-950 border border-slate-700 rounded text-center text-white font-mono"
-                />
-              </div>
-            )}
-
-            {dateFilterMode === 'custom' && (
-              <div className="flex flex-wrap items-center gap-2 mt-1 sm:mt-0 p-1.5 bg-slate-900 border border-indigo-500/50 rounded-lg text-xs">
-                <span className="text-slate-400 font-bold">از:</span>
-                <input
-                  type="datetime-local"
-                  value={customDateTime}
-                  onChange={(e) => setCustomDateTime(e.target.value)}
-                  className="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono outline-none"
-                />
-                <span className="text-slate-400 font-bold">تا:</span>
-                <input
-                  type="datetime-local"
-                  value={customToDateTime}
-                  onChange={(e) => setCustomToDateTime(e.target.value)}
-                  className="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono outline-none"
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center space-x-2 pt-1 text-xs text-slate-300">
-            <input
-              type="checkbox"
-              id="skipDuplicatesCheck"
-              checked={skipAlreadyScraped}
-              onChange={(e) => setSkipAlreadyScraped(e.target.checked)}
-              className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
-            />
-            <label htmlFor="skipDuplicatesCheck" className="cursor-pointer select-none">
-              جو جابز پہلے سے ڈیٹا بیس میں موجود ہیں ان کی شناخت کر کے ڈپلیکیٹ ٹیگ لگائیں (Auto-Detect Duplicate Vacancies)
-            </label>
-          </div>
-        </div>
-
-        {/* 1-CLICK SCRAPE ACTION BAR */}
-        <div className="p-4 bg-gradient-to-r from-slate-950 via-indigo-950/40 to-slate-950 border-2 border-indigo-500/50 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
-          <div className="space-y-0.5 text-center sm:text-left">
-            <h5 className="text-sm font-black text-white flex items-center justify-center sm:justify-start space-x-2">
-              <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-              <span>ایک کلک میں اسکریپ شروع کریں (Execute 1-Click Multi-Site Scraping)</span>
-            </h5>
-            <p className="text-xs text-slate-300">
-              آپ کی منتخب کردہ <span className="text-amber-300 font-bold">{selectedSourceIds.length} سائٹس</span> سے تمام نئی جابز بیک وقت حاصل کی جائیں گی۔
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => handleRunSelectedScrapers()}
-            disabled={isScrapingActive || selectedSourceIds.length === 0}
-            className={`w-full sm:w-auto px-6 py-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl transition-all cursor-pointer ${
-              isScrapingActive || selectedSourceIds.length === 0
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                : 'bg-gradient-to-r from-emerald-400 via-teal-400 to-indigo-500 text-slate-950 hover:scale-[1.02] active:scale-95 shadow-emerald-500/20'
-            }`}
-          >
-            <Sparkles className={`w-4 h-4 text-slate-950 ${isScrapingActive ? 'animate-spin' : ''}`} />
-            <span>
-              {isScrapingActive
-                ? `Scraping Active (${scrapingProgress}%)...`
-                : `⚡ منتخب ${selectedSourceIds.length} سائٹس سے جابز اسکریپ کریں (Scrape Now)`}
-            </span>
-          </button>
-        </div>
-
-        {/* LIVE SCRAPING PROGRESS BAR */}
-        {isScrapingActive && (
-          <div className="p-4 bg-indigo-950/60 border border-indigo-500/50 rounded-xl space-y-2 animate-pulse">
-            <div className="flex justify-between text-xs font-bold text-indigo-200">
-              <span className="flex items-center space-x-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
-                <span>پورٹل پر کارروائی جاری ہے: {currentScrapingSource}...</span>
-              </span>
-              <span>{scrapingProgress}%</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 h-full transition-all duration-300"
-                style={{ width: `${scrapingProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* CONFIGURED TARGET SOURCES LIST (Collapsible / Checkable Cards) */}
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="font-bold uppercase tracking-wider">
-              دستیاب اسکریپر پورٹلز ({scraperSources.length} Portals Available)
-            </span>
-            <span>ہر سائٹ کو انفرادی طور پر منتخب یا ڈی سلیکٹ کریں</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {scraperSources.map((source) => {
-              const isSelected = selectedSourceIds.includes(source.id);
-              const isGovt = source.category === 'Government Sector';
-              const isNews = source.category === 'Newspaper Classified';
-              const isRemote = source.category === 'International Remote';
-
-              return (
-                <div
-                  key={source.id}
-                  onClick={() => handleToggleSource(source.id)}
-                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 ${
-                    isSelected
-                      ? 'bg-slate-950 border-indigo-500 shadow-md shadow-indigo-500/10'
-                      : 'bg-slate-950/50 border-slate-800 hover:border-slate-700 opacity-70'
+      {/* PRIMARY CONSOLIDATED NAVIGATION TABS */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 flex flex-wrap gap-1 shadow-lg">
+        {[
+          { id: 'overview', label: '1. Overview', icon: Activity, count: null },
+          { id: 'sources', label: '2. Sources', icon: Globe, count: sourcesList.length },
+          { id: 'run', label: '3. Run Scraper', icon: Play, count: null },
+          { id: 'history', label: '4. History', icon: Clock, count: liveRuns.length },
+          { id: 'duplicates', label: '5. Duplicates & Review', icon: Shield, count: pendingJobs.length },
+          { id: 'settings', label: '6. Settings', icon: Settings, count: null }
+        ].map(t => {
+          const Icon = t.icon;
+          const isActive = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                setActiveTab(t.id as ScraperCenterTab);
+                setStatusMessage(null);
+              }}
+              className={`flex-1 min-w-[140px] px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                isActive
+                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-500/25'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{t.label}</span>
+              {t.count !== null && (
+                <span
+                  className={`ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'
                   }`}
                 >
-                  <div className="flex items-start space-x-3 min-w-0">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}} // handled by parent onClick
-                      className="w-4 h-4 mt-1 rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
-                    />
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center space-x-1.5 flex-wrap">
-                        <h6 className="font-black text-white text-xs truncate max-w-[220px]">
-                          {source.name}
-                        </h6>
-                        <span
-                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                            isGovt
-                              ? 'bg-amber-500/20 text-amber-300'
-                              : isNews
-                              ? 'bg-teal-500/20 text-teal-300'
-                              : isRemote
-                              ? 'bg-emerald-500/20 text-emerald-300'
-                              : 'bg-indigo-500/20 text-indigo-300'
-                          }`}
-                        >
-                          {source.category}
-                        </span>
-                      </div>
-
-                      <div className="text-[10px] text-slate-400 font-mono truncate flex items-center space-x-1">
-                        <ExternalLink className="w-2.5 h-2.5 text-slate-500 shrink-0" />
-                        <span className="truncate">{source.url}</span>
-                      </div>
-
-                      <div className="flex items-center space-x-2 text-[10px] text-slate-400 pt-0.5">
-                        <span>کل جابز: <b className="text-amber-300">{source.scrapedCount}</b></span>
-                        <span>•</span>
-                        <span>شیڈول: <b className="text-slate-300">{source.interval}</b></span>
-                        <span>•</span>
-                        <span className={source.autoApprove ? 'text-emerald-400' : 'text-slate-400'}>
-                          {source.autoApprove ? '⚡ خودکار لائیو' : '🛡️ ریویو ضروری'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRunSelectedScrapers([source.id]);
-                    }}
-                    disabled={isScrapingActive}
-                    className="px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 border border-indigo-500/30 rounded-lg text-[10px] font-bold shrink-0 cursor-pointer transition-all active:scale-95"
-                    title="Run only this portal right now"
-                  >
-                    صرف یہ چلائیں
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  {t.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* 4. STEP 3: SCRAPED JOBS AUDIT, DEDUPLICATION & 1-CLICK PUBLISH */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-black text-[10px] uppercase">
-                مرحلہ 2 (Step 2)
-              </span>
-              <h4 className="text-sm font-black text-white">
-                حاصل شدہ جابز کا آڈٹ اور لائیو کرنے کا پینل (Scraped Jobs Audit & Live Publishing)
-              </h4>
-              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-bold">
-                {displayedJobs.length} جابز موجود ہیں
-              </span>
+      {/* ============================================================= */}
+      {/* 1. OVERVIEW SECTION */}
+      {/* ============================================================= */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* SCHEDULER DIAGNOSTICS BANNER */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex items-center space-x-4">
+              <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                <Activity className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 font-medium">Scheduler Status</p>
+                <div className="flex items-center space-x-2 mt-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <p className="text-lg font-black text-white">
+                    {schedulerStatus?.isRunning ? 'Running (Active)' : 'Active (Cron)'}
+                  </p>
+                </div>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
-              ہر جاب کے سامنے اس کی سائٹ کی پوری تفصیل موجود ہے۔ ڈپلیکیٹس کو اوور رائٹ کریں، چھوڑ دیں یا تمام یونیک جابز فوری لائیو کریں۔
-            </p>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex items-center space-x-4">
+              <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                <Clock className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 font-medium">Last Scheduler Tick</p>
+                <p className="text-sm font-bold text-white mt-1 truncate">
+                  {schedulerStatus?.lastTickTimestamp && schedulerStatus.lastTickTimestamp !== 'Never'
+                    ? schedulerStatus.lastTickTimestamp
+                    : overviewStats.lastRun?.timestamp || 'No data yet'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex items-center space-x-4">
+              <div className="p-3 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
+                <Calendar className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 font-medium">Next Scheduled Run</p>
+                <p className="text-sm font-bold text-white mt-1">
+                  {schedulerStatus?.tickCronPattern ? `Pattern: ${schedulerStatus.tickCronPattern}` : 'Every 15 minutes'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex items-center space-x-4">
+              <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                <Globe className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 font-medium">Configured Sources</p>
+                <p className="text-lg font-black text-white mt-1">
+                  {sourcesList.length} Portals
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* VIEW FILTER TABS */}
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <button
-              type="button"
-              onClick={() => setJobFilterMode('all')}
-              className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                jobFilterMode === 'all'
-                  ? 'bg-indigo-500 text-white shadow-md'
-                  : 'bg-slate-800 text-slate-300 hover:text-white'
-              }`}
-            >
-              تمام ({allScrapedList.length})
-            </button>
+          {/* LIVE METRICS CARDS */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
+              <p className="text-xs text-slate-400 font-medium">Total Jobs Found</p>
+              <p className="text-2xl font-black text-indigo-400 mt-2">
+                {overviewStats.hasRuns ? overviewStats.totalFound.toLocaleString() : '0'}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1">
+                {overviewStats.hasRuns ? 'Across recorded scraper runs' : 'No data yet in MongoDB'}
+              </p>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => setJobFilterMode('unique')}
-              className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                jobFilterMode === 'unique'
-                  ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
-                  : 'bg-slate-800 text-slate-300 hover:text-white'
-              }`}
-            >
-              یونیک ({uniqueInList.length})
-            </button>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
+              <p className="text-xs text-slate-400 font-medium">Approved Live</p>
+              <p className="text-2xl font-black text-emerald-400 mt-2">
+                {overviewStats.hasRuns ? overviewStats.totalApproved.toLocaleString() : jobs.filter(j => j.status === 'Approved').length.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1">Live in MongoDB.jobs</p>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => setJobFilterMode('duplicates')}
-              className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                jobFilterMode === 'duplicates'
-                  ? 'bg-rose-500 text-white font-black shadow-md'
-                  : 'bg-slate-800 text-slate-300 hover:text-white'
-              }`}
-            >
-              ڈپلیکیٹس ({duplicatesInList.length})
-            </button>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
+              <p className="text-xs text-slate-400 font-medium">Pending Review</p>
+              <p className="text-2xl font-black text-amber-400 mt-2">
+                {pendingJobs.length.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1">
+                {pendingJobs.length > 0 ? 'Awaiting moderator approval' : 'Queue is currently empty'}
+              </p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
+              <p className="text-xs text-slate-400 font-medium">Duplicates Screened</p>
+              <p className="text-2xl font-black text-purple-400 mt-2">
+                {overviewStats.hasRuns ? overviewStats.totalDuplicates.toLocaleString() : '0'}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1">Detected by similarity engine</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg col-span-2 md:col-span-1">
+              <p className="text-xs text-slate-400 font-medium">Scraper Errors</p>
+              <p className="text-2xl font-black text-rose-400 mt-2">
+                {overviewStats.totalErrors}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1">Failed portal executions</p>
+            </div>
+          </div>
+
+          {/* LATEST RUN DETAILS OR "NO DATA YET" */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <FileText className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-base font-bold text-white">Latest Backend Scraper Execution</h3>
+              </div>
+              {overviewStats.lastRun && (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                  ID: {overviewStats.lastRun.runId || overviewStats.lastRun.id}
+                </span>
+              )}
+            </div>
+
+            {overviewStats.lastRun ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+                <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-800">
+                  <p className="text-xs text-slate-400">Timestamp</p>
+                  <p className="text-sm font-semibold text-white mt-1">
+                    {overviewStats.lastRun.timestamp || overviewStats.lastRun.startTime || 'Recent'}
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-800">
+                  <p className="text-xs text-slate-400">Run Mode & Duration</p>
+                  <p className="text-sm font-semibold text-white mt-1">
+                    {overviewStats.lastRun.mode || 'Complete'} ({((overviewStats.lastRun.executionDurationMs || 0) / 1000).toFixed(1)}s)
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-800">
+                  <p className="text-xs text-slate-400">Extracted / Approved</p>
+                  <p className="text-sm font-semibold text-white mt-1">
+                    {overviewStats.lastRun.totalFound} found / {overviewStats.lastRun.jobsAccepted || overviewStats.lastRun.approvedCount || 0} approved
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-800">
+                  <p className="text-xs text-slate-400">Execution Status</p>
+                  <p className="text-sm font-semibold text-emerald-400 mt-1 flex items-center space-x-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{overviewStats.lastRun.status || 'Completed'}</span>
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-10 space-y-3">
+                <AlertCircle className="w-10 h-10 text-slate-500 mx-auto" />
+                <p className="text-base font-bold text-slate-300">No data yet</p>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  No scraper executions have been recorded in backend MongoDB. Click "Run Scraper" below to launch your first extraction.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('run')}
+                  className="mt-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs inline-flex items-center space-x-2 transition"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Go to Run Scraper</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
+      )}
 
-        {/* BULK ACTION CONTROLS FOR SCRAPED JOBS */}
-        <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            <label className="flex items-center space-x-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={selectedJobIds.length > 0 && selectedJobIds.length === displayedJobs.length}
-                onChange={handleSelectAllJobs}
-                className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
-              />
-              <span className="text-xs font-bold text-slate-200">
-                {selectedJobIds.length === displayedJobs.length ? 'سب غیر منتخب کریں' : 'تمام منتخب کریں (Select All)'}
-              </span>
-            </label>
+      {/* ============================================================= */}
+      {/* 2. SOURCES SECTION */}
+      {/* ============================================================= */}
+      {activeTab === 'sources' && (
+        <div className="space-y-6">
+          {/* ACTION BAR WITH FILTERS & ADD SOURCE BUTTON */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center space-x-3">
+                <Globe className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-lg font-bold text-white">All Scraper Sources ({filteredSources.length})</h3>
+              </div>
 
-            {selectedJobIds.length > 0 && (
-              <span className="px-2.5 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 rounded-full text-[11px] font-black">
-                {selectedJobIds.length} منتخب ہیں
-              </span>
+              <div className="flex flex-wrap items-center gap-2.5">
+                {selectedSourceIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleExecuteScraper({ runMode: 'complete', targetSourceIds: selectedSourceIds })}
+                    disabled={isScrapingActive}
+                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center space-x-1.5 transition shadow-sm"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    <span>Run Selected ({selectedSourceIds.length})</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsAddSourceOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1.5 transition shadow-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add New Source</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SIMPLE FILTERS ROW */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-2">
+              {/* Search */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search portal name or URL..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value as any)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Status: All Statuses</option>
+                <option value="Active">Status: Active</option>
+                <option value="Paused">Status: Paused</option>
+                <option value="Error">Status: Error</option>
+              </select>
+
+              {/* Category Filter */}
+              <select
+                value={categoryFilter}
+                onChange={e => setCategoryFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Category: All Categories</option>
+                <option value="Government Sector">Government Sector</option>
+                <option value="Private Corporate">Private Corporate</option>
+                <option value="Newspaper Classified">Newspaper Classified</option>
+                <option value="International Remote">International Remote</option>
+              </select>
+
+              {/* Region Filter */}
+              <select
+                value={regionFilter}
+                onChange={e => setRegionFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Region: All Regions</option>
+                <option value="Pakistan">Pakistan</option>
+                <option value="Middle East">Middle East</option>
+                <option value="Europe">Europe</option>
+                <option value="North America">North America</option>
+                <option value="Remote">Remote</option>
+              </select>
+
+              {/* Last Run Filter */}
+              <select
+                value={lastRunFilter}
+                onChange={e => setLastRunFilter(e.target.value as any)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Last Run: Any time</option>
+                <option value="today">Last Run: Past 24 Hours</option>
+                <option value="7days">Last Run: Past 7 Days</option>
+                <option value="30days">Last Run: Past 30 Days</option>
+                <option value="never">Last Run: Never Run</option>
+              </select>
+            </div>
+          </div>
+
+          {/* ALL SCRAPER SOURCES IN ONE TABLE */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-800/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                  <tr>
+                    <th className="p-3.5 w-10 text-center">
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllSources}
+                        className="text-slate-400 hover:text-white"
+                      >
+                        {selectedSourceIds.length === filteredSources.length && filteredSources.length > 0 ? (
+                          <CheckSquare className="w-4 h-4 text-indigo-400" />
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="p-3.5">Portal / Source</th>
+                    <th className="p-3.5">Target URL</th>
+                    <th className="p-3.5">Category & Region</th>
+                    <th className="p-3.5">Interval / Depth</th>
+                    <th className="p-3.5">Auto-Approve</th>
+                    <th className="p-3.5">Status</th>
+                    <th className="p-3.5">Last Run</th>
+                    <th className="p-3.5">Scraped</th>
+                    <th className="p-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredSources.length > 0 ? (
+                    filteredSources.map(source => {
+                      const isSelected = selectedSourceIds.includes(source.id);
+                      const isPaused = source.status === 'Paused';
+
+                      return (
+                        <tr
+                          key={source.id}
+                          className={`hover:bg-slate-800/30 transition ${isSelected ? 'bg-indigo-950/20' : ''}`}
+                        >
+                          <td className="p-3.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => toggleSelectSource(source.id)}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-indigo-400" />
+                              ) : (
+                                <Square className="w-4 h-4" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="p-3.5 font-bold text-white whitespace-nowrap">
+                            <div className="flex items-center space-x-2">
+                              <span>{source.name}</span>
+                              {source.healthStatus === 'error' && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                  Error
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3.5 max-w-[200px] truncate">
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-indigo-400 hover:underline flex items-center space-x-1"
+                              title={source.url}
+                            >
+                              <span className="truncate">{source.url}</span>
+                              <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                            </a>
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 mr-1.5 border border-slate-700">
+                              {source.category}
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-950 text-indigo-300 border border-indigo-800">
+                              {source.region}
+                            </span>
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap">
+                            <span className="text-slate-200 font-medium">{source.interval || '24h'}</span>
+                            <span className="text-slate-500 text-[10px] block">{source.depth || 'Standard'}</span>
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap">
+                            {source.autoApprove ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                Yes (Live)
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                Moderated
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap">
+                            {isPaused ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                Paused
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1 w-fit">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1" />
+                                Active
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap text-slate-400">
+                            {source.lastRun || source.lastSuccessfulScrapeAt || (
+                              <span className="text-slate-500 italic">No data yet</span>
+                            )}
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap font-bold text-slate-200">
+                            {(source.scrapedCount || 0).toLocaleString()} jobs
+                          </td>
+                          <td className="p-3.5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleRunSingleSource(source.id)}
+                                disabled={isScrapingActive}
+                                className="p-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white transition"
+                                title="Run this scraper now"
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSourceStatus(source.id)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                                title={isPaused ? 'Resume scraping' : 'Pause scraping'}
+                              >
+                                {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400" /> : <Pause className="w-3.5 h-3.5 text-amber-400" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSource(source.id)}
+                                className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white transition"
+                                title="Delete source"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={10} className="p-8 text-center text-slate-400">
+                        <AlertCircle className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+                        <p className="text-sm font-semibold">No scraper sources match your filters</p>
+                        <p className="text-xs text-slate-500 mt-1">Try clearing your search query or reset filter settings.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* 3. RUN SCRAPER SECTION */}
+      {/* ============================================================= */}
+      {activeTab === 'run' && (
+        <div className="space-y-6">
+          {/* PRIMARY RUN CONTROLLER */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+                  <Play className="w-5 h-5 text-indigo-400" />
+                  <span>Run Scraper Execution Wizard</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Launch an authentic on-demand scrape across configured job portals or selected sources.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => handleExecuteScraper({ runMode: scrapeMode, targetSourceIds: selectedSourceIds })}
+                  disabled={isScrapingActive || selectedSourceIds.length === 0}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs flex items-center space-x-2 transition shadow-md shadow-indigo-600/20"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>Run Selected ({selectedSourceIds.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExecuteScraper({ runMode: scrapeMode })}
+                  disabled={isScrapingActive}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center space-x-2 transition shadow-md shadow-emerald-600/20"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>Run All Sources</span>
+                </button>
+              </div>
+            </div>
+
+            {/* RUN SETTINGS & PARAMETERS */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Mode Selection */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">Extraction Mode</label>
+                <select
+                  value={scrapeMode}
+                  onChange={e => setScrapeMode(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="complete">Complete Full Crawl</option>
+                  <option value="since_last">Only Vacancies Since Last Run</option>
+                  <option value="page_range">Specific Page Range</option>
+                  <option value="custom">Custom Date & Time Range</option>
+                </select>
+              </div>
+
+              {/* Page Range Sub-options */}
+              {scrapeMode === 'page_range' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">Start Page</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={startPage}
+                      onChange={e => setStartPage(parseInt(e.target.value, 10) || 1)}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">End Page</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={endPage}
+                      onChange={e => setEndPage(parseInt(e.target.value, 10) || 1)}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Custom Date Range Sub-options */}
+              {scrapeMode === 'custom' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">From Date/Time</label>
+                    <input
+                      type="datetime-local"
+                      value={customFromTime}
+                      onChange={e => setCustomFromTime(e.target.value)}
+                      className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">To Date/Time</label>
+                    <input
+                      type="datetime-local"
+                      value={customToTime}
+                      onChange={e => setCustomToTime(e.target.value)}
+                      className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Auto Publish Trusted Option */}
+              <div className="flex items-center space-x-3 pt-6">
+                <input
+                  type="checkbox"
+                  id="autoPublishCheck"
+                  checked={autoPublishTrusted}
+                  onChange={e => setAutoPublishTrusted(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 bg-slate-800 border-slate-700 focus:ring-indigo-500"
+                />
+                <label htmlFor="autoPublishCheck" className="text-xs text-slate-300 font-medium cursor-pointer">
+                  Auto-publish approved vacancies from trusted portals (skip pending queue)
+                </label>
+              </div>
+            </div>
+
+            {/* LIVE SCRAPING PROGRESS BAR & STATUS */}
+            {isScrapingActive && (
+              <div className="p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-xl space-y-3">
+                <div className="flex items-center justify-between text-xs font-bold text-indigo-300">
+                  <span className="flex items-center space-x-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                    <span>Scraper Running Live: {runProgressMessage}</span>
+                  </span>
+                  <span className="animate-pulse">Processing...</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div className="bg-indigo-500 h-full rounded-full animate-pulse w-3/4" />
+                </div>
+              </div>
+            )}
+
+            {/* LAST RUN SUMMARY CALLOUT */}
+            {recentRunResult && (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-2">
+                <p className="text-xs font-bold text-emerald-300 flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Scraper Execution Finished: {recentRunResult.runId}</span>
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-300 pt-1">
+                  <div>Found: <strong className="text-white">{recentRunResult.totalFound || 0}</strong></div>
+                  <div>Approved: <strong className="text-emerald-400">{recentRunResult.jobsAccepted || recentRunResult.approvedCount || 0}</strong></div>
+                  <div>Duplicates: <strong className="text-purple-400">{recentRunResult.totalDuplicates || 0}</strong></div>
+                  <div>Failed Sources: <strong className="text-rose-400">{recentRunResult.totalFailedSources || 0}</strong></div>
+                </div>
+              </div>
             )}
           </div>
 
-          {/* DEDUPLICATION & APPROVAL BUTTONS */}
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            {/* 1. Bulk Approve to Live */}
-            <button
-              type="button"
-              onClick={handleBulkApproveToLive}
-              disabled={selectedJobIds.length === 0}
-              className={`px-3.5 py-2 rounded-xl font-black flex items-center space-x-1.5 transition-all ${
-                selectedJobIds.length > 0
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95'
-                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-              }`}
-            >
-              <CheckCircle2 className="w-4 h-4 text-slate-950" />
-              <span>🚀 منتخب جابز فوری لائیو کریں ({selectedJobIds.length})</span>
-            </button>
+          {/* CONSOLIDATED DIRECT LIVE URL & PDF PARSER */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                <Globe className="w-5 h-5 text-emerald-400" />
+                <span>Direct Target URL & PDF Ingestion Engine</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Paste any live career portal URL or official PDF gazette circular. The backend engine extracts factual vacancies without fabricating data.
+              </p>
+            </div>
 
-            {/* 2. Overwrite Duplicates (Re-announce) */}
-            <button
-              type="button"
-              onClick={handleBulkOverwriteDuplicates}
-              disabled={selectedJobIds.length === 0 || duplicatesInList.length === 0}
-              className={`px-3.5 py-2 rounded-xl font-bold flex items-center space-x-1.5 transition-all ${
-                selectedJobIds.length > 0 && duplicatesInList.length > 0
-                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 cursor-pointer active:scale-95'
-                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-              }`}
-              title="ڈپلیکیٹ کو نئی تاریخ دے کر تازہ اشتہار کے طور پر پوسٹ کریں"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>🔄 ڈپلیکیٹ اوور رائٹ کریں (نئی جاب بنائیں)</span>
-            </button>
+            <form onSubmit={handleDirectParseUrl} className="space-y-4 pt-1">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2 space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Target Web URL or PDF Document URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://fpsc.gov.pk/jobs/advertisement-09-2026.pdf or career portal link..."
+                    value={directUrl}
+                    onChange={e => setDirectUrl(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Organization / Source Name (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. FPSC, WAPDA, TechCorp"
+                    value={directOrg}
+                    onChange={e => setDirectOrg(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
 
-            {/* 3. Delete / Purge Duplicates */}
-            <button
-              type="button"
-              onClick={handleBulkPurgeDuplicates}
-              disabled={duplicatesInList.length === 0}
-              className={`px-3 py-2 rounded-xl font-bold flex items-center space-x-1.5 transition-all ${
-                duplicatesInList.length > 0
-                  ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/20 cursor-pointer active:scale-95'
-                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-              }`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>🗑️ تمام ڈپلیکیٹ حذف کریں ({duplicatesInList.length})</span>
-            </button>
+              <button
+                type="submit"
+                disabled={isParsingDirectUrl || !directUrl.trim()}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-bold text-xs flex items-center space-x-2 transition shadow-md"
+              >
+                {isParsingDirectUrl ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Extracting Vacancies via SSRF-Safe Pipeline...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Inspect & Extract Vacancies</span>
+                  </>
+                )}
+              </button>
+            </form>
 
-            {/* 4. Move to Pending */}
-            <button
-              type="button"
-              onClick={handleBulkMoveToPending}
-              disabled={selectedJobIds.length === 0}
-              className={`px-3 py-2 rounded-xl font-bold flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all ${
-                selectedJobIds.length > 0 ? 'cursor-pointer active:scale-95' : 'opacity-60 cursor-not-allowed'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
-              <span>پینڈنگ میں ڈالیں (Keep in Pending)</span>
-            </button>
+            {/* DIRECT PARSE RESULT PREVIEW */}
+            {directParseResult && (
+              <div className="mt-4 p-5 bg-slate-800/60 border border-slate-700 rounded-xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700 pb-3">
+                  <div>
+                    <p className="text-sm font-bold text-white">
+                      Extracted: {directParseResult.totalExtracted} Vacancies
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">{directParseResult.message}</p>
+                  </div>
+                  {directParseResult.totalExtracted > 0 && (
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => handleIngestExtractedJobs('Pending')}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition"
+                      >
+                        Send to Pending Queue
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleIngestExtractedJobs('Approved')}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                      >
+                        Approve Directly to Live
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {directParseResult.jobs.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
+                    {directParseResult.jobs.map((job, idx) => (
+                      <div key={job.id || idx} className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
+                        <p className="text-xs font-bold text-white truncate">{job.title}</p>
+                        <p className="text-[11px] text-slate-400">{job.company} • {job.region}</p>
+                        <p className="text-[10px] text-indigo-400 truncate">{job.sourceUrl || directUrl}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">
+                    0 vacancies detected. No fabricated synthetic jobs were created.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
+      )}
 
-        {/* SCRAPED JOBS LISTING WITH FULL AUDIT & SOURCE DETAILS */}
-        {displayedJobs.length === 0 ? (
-          <div className="p-8 text-center bg-slate-950 rounded-2xl border border-slate-800 text-slate-400 space-y-2">
-            <Bot className="w-8 h-8 text-indigo-400 mx-auto animate-pulse" />
-            <p className="text-sm font-bold text-slate-200">
-              فی الحال اس فلٹر میں کوئی جاب موجود نہیں ہے۔
-            </p>
-            <p className="text-xs text-slate-500">
-              اوپر دیے گئے بٹن "⚡ منتخب سائٹس سے جابز اسکریپ کریں" پر کلک کر کے تازہ جابز حاصل کریں۔
-            </p>
+      {/* ============================================================= */}
+      {/* 4. HISTORY SECTION */}
+      {/* ============================================================= */}
+      {activeTab === 'history' && (
+        <div className="space-y-6">
+          {/* HISTORY CONTROLS & FILTERS */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+                  <Clock className="w-5 h-5 text-indigo-400" />
+                  <span>Real Backend Scraper Runs ({liveRuns.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Historical log of authentic execution audits persisted directly in MongoDB.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchLiveScraperData}
+                disabled={isLoadingLive}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition border border-slate-700"
+              >
+                <RefreshCw className={`w-3 h-3 ${isLoadingLive ? 'animate-spin' : ''}`} />
+                <span>Refresh Runs</span>
+              </button>
+            </div>
+
+            {/* FILTERS */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Filter by Run ID or keyword..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <select
+                value={sourceFilter}
+                onChange={e => setSourceFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Source: All Sources</option>
+                {sourcesList.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+
+              <select
+                value={resultTypeFilter}
+                onChange={e => setResultTypeFilter(e.target.value as any)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Result: All Executions</option>
+                <option value="Approved">Runs with Approved Jobs</option>
+                <option value="Duplicate">Runs with Duplicates</option>
+                <option value="Pending">Runs with Pending Jobs</option>
+                <option value="Error">Failed Runs</option>
+              </select>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {displayedJobs.map((job) => {
-              const isSelected = selectedJobIds.includes(job.id);
-              const dupInfo = checkIsDuplicate(job);
-              const isDup = dupInfo.isDuplicate;
-              const sourceDomain = job.scrapedSourceDomain || (job.sourceUrl ? new URL(job.sourceUrl.startsWith('http') ? job.sourceUrl : 'https://' + job.sourceUrl).hostname : 'Official Portal');
 
-              return (
-                <div
-                  key={job.id}
-                  className={`p-4 rounded-xl border transition-all ${
-                    isDup
-                      ? 'bg-slate-950/90 border-rose-500/40 hover:border-rose-500/60'
-                      : 'bg-slate-950/90 border-slate-800 hover:border-indigo-500/50'
-                  } ${isSelected ? 'ring-2 ring-indigo-500' : ''}`}
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-                    <div className="flex items-start space-x-3 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleToggleSelectJob(job.id)}
-                        className="w-4 h-4 mt-1 rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
-                      />
-
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                          {/* UNICITY STATUS BADGE */}
-                          {isDup ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center space-x-1">
-                              <AlertCircle className="w-3 h-3 text-rose-400" />
-                              <span>⚠️ ڈپلیکیٹ (Duplicate)</span>
+          {/* HISTORY TABLE */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            {filteredRuns.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-800/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-3.5">Run ID & Timestamp</th>
+                      <th className="p-3.5">Mode</th>
+                      <th className="p-3.5">Duration</th>
+                      <th className="p-3.5">Jobs Found</th>
+                      <th className="p-3.5">Approved</th>
+                      <th className="p-3.5">Pending</th>
+                      <th className="p-3.5">Duplicates</th>
+                      <th className="p-3.5">Status</th>
+                      <th className="p-3.5 text-right">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {filteredRuns.map(run => {
+                      const isFailed = run.status === 'Failed' || (run.totalFailedSources && run.totalFailedSources > 0);
+                      return (
+                        <tr key={run.id || run.runId} className="hover:bg-slate-800/30 transition">
+                          <td className="p-3.5 whitespace-nowrap">
+                            <span className="font-bold text-white block">{run.runId || run.id}</span>
+                            <span className="text-[10px] text-slate-500">{run.timestamp || run.startTime || 'Recent'}</span>
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                              {run.mode || 'Complete'}
                             </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                              <span>✨ تازہ یونیک (Unique)</span>
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap font-medium text-slate-300">
+                            {((run.executionDurationMs || 0) / 1000).toFixed(1)}s
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap font-bold text-indigo-400">
+                            {(run.totalFound || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap font-bold text-emerald-400">
+                            {(run.jobsAccepted || run.approvedCount || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap font-bold text-amber-400">
+                            {(run.pendingCount || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap font-bold text-purple-400">
+                            {(run.totalDuplicates || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3.5 whitespace-nowrap">
+                            {isFailed ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                Failed / Errors
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                {run.status || 'Completed'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setInspectingRun(run)}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs transition inline-flex items-center space-x-1"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Inspect</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-12 space-y-3">
+                <AlertCircle className="w-10 h-10 text-slate-500 mx-auto" />
+                <p className="text-base font-bold text-slate-300">No data yet</p>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  No scraper runs have been recorded in backend MongoDB. Once the scheduler or manual scraper executes, real audits appear here.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* 5. DUPLICATES & REVIEW SECTION */}
+      {/* ============================================================= */}
+      {activeTab === 'duplicates' && (
+        <div className="space-y-6">
+          {/* DUPLICATE SCREENING CONTROLLER */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+                  <Shield className="w-5 h-5 text-indigo-400" />
+                  <span>Duplicates & Moderation Review ({reviewJobs.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Screen pending vacancies and duplicate matches before publishing them to the live jobs repository.
+                </p>
+              </div>
+
+              {reviewJobs.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reviewJobs.forEach(j => onApproveJob(j.id));
+                      setStatusMessage({ text: `Approved ${reviewJobs.length} jobs to Live!`, type: 'success' });
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition shadow-sm"
+                  >
+                    Approve All Filtered
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reviewJobs.forEach(j => onRejectJob(j.id, 'Bulk rejection from review hub'));
+                      setStatusMessage({ text: `Rejected ${reviewJobs.length} jobs from queue.`, type: 'info' });
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition shadow-sm"
+                  >
+                    Reject All Filtered
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* FILTERS */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search title, company, portal..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <select
+                value={resultTypeFilter}
+                onChange={e => setResultTypeFilter(e.target.value as any)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Type: All Staged Jobs</option>
+                <option value="Duplicate">Flagged as Duplicate</option>
+                <option value="Pending">Standard Pending Only</option>
+              </select>
+
+              <select
+                value={sourceFilter}
+                onChange={e => setSourceFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Source: All Portals</option>
+                {sourcesList.map(s => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* JOBS LIST / CARDS */}
+          {reviewJobs.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3">
+              {reviewJobs.map(job => {
+                const isDuplicate = Boolean(job.isDuplicate || (job.duplicateScore && job.duplicateScore >= 60));
+                return (
+                  <div
+                    key={job.id}
+                    className={`p-4 bg-slate-900 border rounded-2xl shadow-lg transition space-y-3 ${
+                      isDuplicate ? 'border-purple-500/40 bg-purple-950/10' : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <h4 className="text-sm font-bold text-white">{job.title}</h4>
+                          {isDuplicate && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                              Duplicate Match ({job.duplicateScore || 75}%)
                             </span>
                           )}
-
-                          {/* EXACT SOURCE PORTAL BADGE */}
-                          <div className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center space-x-1 truncate max-w-xs">
-                            <Globe className="w-3 h-3 text-indigo-400 shrink-0" />
-                            <span className="truncate">سائٹ: {job.scraperSourceName || sourceDomain}</span>
-                          </div>
-
-                          {job.isGovtJob && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              🏛️ Govt {job.govtScale || 'Sector'}
-                            </span>
-                          )}
-
-                          {job.isNewspaperAd && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                              📰 {job.newspaperName || 'Newspaper'}
-                            </span>
-                          )}
-
-                          <span className="text-[10px] text-slate-500">
-                            حاصل وقت: {job.scrapedTime || job.postedAt || 'Just now'}
-                          </span>
                         </div>
+                        <p className="text-xs text-slate-400">
+                          {job.company} • {job.region} • Portal: <span className="text-indigo-400">{(job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'External'}</span>
+                        </p>
+                      </div>
 
-                        <h5 className="font-black text-white text-sm hover:text-indigo-400 transition-colors cursor-pointer" onClick={() => setInspectingJob(job)}>
-                          {job.title}
-                        </h5>
-
-                        <div className="text-xs text-slate-400 flex items-center space-x-2 flex-wrap">
-                          <span className="text-slate-200 font-semibold">{job.company}</span>
-                          <span>•</span>
-                          <span>📍 {job.city ? `${job.city}, ${job.province || job.region}` : job.region}</span>
-                          <span>•</span>
-                          <span className="text-emerald-400 font-bold">{job.salary}</span>
-                        </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => onApproveJob(job.id)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                        >
+                          Approve Live
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRejectJob(job.id, 'Rejected by reviewer')}
+                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition"
+                        >
+                          Reject
+                        </button>
+                        {isDuplicate && onOverrideDuplicatesToLive && (
+                          <button
+                            type="button"
+                            onClick={() => onOverrideDuplicatesToLive([job])}
+                            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition"
+                            title="Force publish duplicate as separate listing"
+                          >
+                            Override Duplicate
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    {/* ACTIONS FOR THIS INDIVIDUAL JOB */}
-                    <div className="flex flex-wrap items-center gap-1.5 self-end md:self-center shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onApproveJob(job.id);
-                          setSessionApprovedCount((prev) => prev + 1);
-                          setStatusNotification(`✅ جاب "${job.title}" کامیابی سے لائیو ہو گئی!`);
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 cursor-pointer flex items-center space-x-1"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>لائیو کریں (Approve)</span>
-                      </button>
-
-                      {isDup && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await api.jobs.overrideDuplicate(job.id, 'Manually confirmed unique by admin override');
-                              } catch (e) {
-                                console.warn('Backend duplicate override fallback:', e);
-                              }
-                              const overridden = {
-                                ...job,
-                                status: 'Approved' as const,
-                                isDuplicate: false,
-                                isDuplicateOverride: true,
-                                title: `${job.title} (Re-announced / توسیع شدہ)`,
-                                postedAt: 'Just now (Re-advertised)'
-                              };
-                              if (onOverrideDuplicatesToLive) {
-                                onOverrideDuplicatesToLive([overridden]);
-                              } else {
-                                onAddJob(overridden);
-                              }
-                              setStatusNotification(`🔄 جاب اوور رائٹ کر کے نئی منفرد جاب کے طور پر لائیو کر دی گئی!`);
-                            }}
-                            className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer flex items-center space-x-1"
-                            title="اس ڈپلیکیٹ کو اوور رائٹ کر کے الگ منفرد جاب بنائیں"
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            <span>اوور رائٹ (Override)</span>
-                          </button>
-
-                          {dupInfo.matchingJobId && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await api.jobs.mergeJobs(dupInfo.matchingJobId!, job.id);
-                                  onRejectJob(job.id, `Merged into primary job ${dupInfo.matchingJobId}`);
-                                  setSessionScrapedJobs((prev) => prev.filter((j) => j.id !== job.id));
-                                  setStatusNotification(`🔗 جاب کو کامیابی سے بنیادی اشتہار کے ساتھ ضم (Merge) کر دیا گیا!`);
-                                } catch (err: any) {
-                                  alert(`ضم کرنے میں مسئلہ: ${err.message || 'Error merging duplicate'}`);
-                                }
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs cursor-pointer flex items-center space-x-1"
-                              title="اس جاب کو پرانے اشتہار کے ساتھ ضم کریں"
-                            >
-                              <Layers className="w-3.5 h-3.5" />
-                              <span>ضم کریں (Merge)</span>
-                            </button>
-                          )}
-                        </>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => setInspectingJob(job)}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer flex items-center space-x-1"
-                      >
-                        <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>تفصیل (Details)</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onRejectJob(job.id, 'Dropped by Admin from Scraper Controller');
-                          setSessionScrapedJobs((prev) => prev.filter((j) => j.id !== job.id));
-                        }}
-                        className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-500/20 rounded-lg cursor-pointer"
-                        title="حذف کریں (Delete)"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* SOURCE AUDIT FOOTER */}
-                  <div className="mt-2.5 pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-slate-400">
-                    <div className="flex items-center space-x-1.5 truncate">
-                      <span className="font-bold text-slate-500">اصل لنک (Source URL):</span>
-                      <a
-                        href={job.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-indigo-400 hover:underline font-mono truncate max-w-md flex items-center space-x-1"
-                      >
-                        <span>{job.sourceUrl}</span>
-                        <ExternalLink className="w-2.5 h-2.5 shrink-0" />
-                      </a>
-                    </div>
-
-                    {isDup && dupInfo.matchReason && (
-                      <div className="text-rose-400 font-medium">
-                        {dupInfo.matchReason}
+                    {isDuplicate && (
+                      <div className="p-2.5 bg-purple-900/20 border border-purple-800/40 rounded-xl text-xs text-purple-300 space-y-1">
+                        <p className="font-semibold">Duplicate Diagnostic:</p>
+                        <p className="text-[11px] text-purple-200">
+                          {job.duplicateMatchReason || `Similarity detected with existing posting in ${job.company || 'same portal'}.`}
+                        </p>
                       </div>
                     )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3 shadow-lg">
+              <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+              <p className="text-base font-bold text-white">No data yet</p>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                No pending or duplicate jobs currently require review. All scraped postings have been reviewed or are pending new extractions.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* MODAL: ADD NEW TARGET PORTAL */}
-      {isAddPortalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h4 className="text-base font-black text-white flex items-center space-x-2">
-                <Globe className="w-5 h-5 text-emerald-400" />
-                <span>نیا اسکریپر پورٹل شامل کریں (Add New Target Portal)</span>
-              </h4>
+      {/* ============================================================= */}
+      {/* 6. SETTINGS SECTION */}
+      {/* ============================================================= */}
+      {activeTab === 'settings' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+          <div className="border-b border-slate-800 pb-4">
+            <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+              <Settings className="w-5 h-5 text-indigo-400" />
+              <span>Global Scraper Engine Settings</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Configure default scheduler intervals, crawl depth, keywords, and automated publishing policies in MongoDB.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Interval Setting */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300">Default Scheduler Polling Interval</label>
+              <select
+                value={globalInterval}
+                onChange={e => setGlobalInterval(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="15m">Every 15 Minutes (Aggressive)</option>
+                <option value="30m">Every 30 Minutes</option>
+                <option value="1h">Every 1 Hour (Recommended)</option>
+                <option value="6h">Every 6 Hours</option>
+                <option value="24h">Daily (Every 24 Hours)</option>
+                <option value="7d">Weekly (Every 7 Days)</option>
+              </select>
+              <p className="text-[11px] text-slate-500">How frequently the automated cron runner inspects portal feeds.</p>
+            </div>
+
+            {/* Depth Setting */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300">Default Crawl Depth</label>
+              <select
+                value={globalDepth}
+                onChange={e => setGlobalDepth(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="Light (10 Jobs)">Light (10 Jobs per portal)</option>
+                <option value="Standard (25 Jobs)">Standard (25 Jobs per portal)</option>
+                <option value="Deep Crawl (50+ Jobs)">Deep Crawl (50+ Jobs per portal)</option>
+              </select>
+              <p className="text-[11px] text-slate-500">Maximum page traversal depth during scheduled background passes.</p>
+            </div>
+
+            {/* Keywords */}
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-xs font-bold text-slate-300">Global Target Keywords (Comma Separated)</label>
+              <input
+                type="text"
+                value={globalKeywords}
+                onChange={e => setGlobalKeywords(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-[11px] text-slate-500">Keywords used by the extraction parser to prioritize relevant vacancy headers.</p>
+            </div>
+
+            {/* Toggles */}
+            <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-white">Master Scheduler Active</p>
+                <p className="text-[11px] text-slate-400">Enables automated node-cron background harvesting.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={globalSchedulerEnabled}
+                onChange={e => setGlobalSchedulerEnabled(e.target.checked)}
+                className="w-5 h-5 rounded text-indigo-600 bg-slate-800 border-slate-700 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-white">Auto-Approve Trusted Sources</p>
+                <p className="text-[11px] text-slate-400">Directly publishes vacancies from verified government portals.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={globalAutoApprove}
+                onChange={e => setGlobalAutoApprove(e.target.checked)}
+                className="w-5 h-5 rounded text-indigo-600 bg-slate-800 border-slate-700 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-800 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={handleSaveGlobalSettings}
+              className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition shadow-md shadow-indigo-600/20"
+            >
+              Save Settings to MongoDB
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* ADD SOURCE MODAL */}
+      {/* ============================================================= */}
+      {isAddSourceOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                <Plus className="w-5 h-5 text-emerald-400" />
+                <span>Add Target Scraper Portal</span>
+              </h3>
               <button
                 type="button"
-                onClick={() => setIsAddPortalOpen(false)}
-                className="text-slate-400 hover:text-white text-sm cursor-pointer"
+                onClick={() => setIsAddSourceOpen(false)}
+                className="text-slate-400 hover:text-white"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddNewPortal} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">
-                  پورٹل کا نام (Portal Name) *
-                </label>
+            <form onSubmit={handleCreateNewSource} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Portal / Organization Name</label>
                 <input
                   type="text"
-                  value={newPortalName}
-                  onChange={(e) => setNewPortalName(e.target.value)}
-                  placeholder="مثلاً: PPSC Punjab Govt Jobs یا Daily Express"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none focus:border-emerald-500"
                   required
+                  placeholder="e.g. FPSC Official Gazette"
+                  value={newSourceName}
+                  onChange={e => setNewSourceName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">
-                  ویب سائٹ کا مکمل لنک (Website URL) *
-                </label>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Target URL or PDF Endpoint</label>
                 <input
-                  type="text"
-                  value={newPortalUrl}
-                  onChange={(e) => setNewPortalUrl(e.target.value)}
-                  placeholder="https://ppsc.gop.pk یا https://e.express.com.pk"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none focus:border-emerald-500"
+                  type="url"
                   required
+                  placeholder="https://example.gov.pk/careers"
+                  value={newSourceUrl}
+                  onChange={e => setNewSourceUrl(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-bold mb-1">شعبہ (Category)</label>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-300">Category</label>
                   <select
-                    value={newPortalCategory}
-                    onChange={(e) => setNewPortalCategory(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none focus:border-emerald-500"
+                    value={newSourceCategory}
+                    onChange={e => setNewSourceCategory(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
                   >
-                    <option value="Government Sector">Government Sector (سرکاری)</option>
-                    <option value="Newspaper Classified">Newspaper Classified (اخباری)</option>
-                    <option value="Private Corporate">Private Corporate (کارپوریٹ)</option>
-                    <option value="International Remote">International Remote (ریموٹ)</option>
+                    <option value="Government Sector">Government Sector</option>
+                    <option value="Private Corporate">Private Corporate</option>
+                    <option value="Newspaper Classified">Newspaper Classified</option>
+                    <option value="International Remote">International Remote</option>
                   </select>
                 </div>
-
-                <div>
-                  <label className="block text-slate-300 font-bold mb-1">ملک / علاقہ (Region)</label>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-300">Region</label>
                   <select
-                    value={newPortalRegion}
-                    onChange={(e) => setNewPortalRegion(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none focus:border-emerald-500"
+                    value={newSourceRegion}
+                    onChange={e => setNewSourceRegion(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
                   >
                     <option value="Pakistan">Pakistan</option>
-                    <option value="UAE">UAE</option>
-                    <option value="Saudi Arabia">Saudi Arabia</option>
-                    <option value="Global">Global Remote</option>
+                    <option value="Middle East">Middle East</option>
+                    <option value="Europe">Europe</option>
+                    <option value="North America">North America</option>
+                    <option value="Remote">Remote</option>
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">
-                  مخصوص الفاظ / فلٹر (Keywords / Filter)
-                </label>
-                <input
-                  type="text"
-                  value={newPortalKeywords}
-                  onChange={(e) => setNewPortalKeywords(e.target.value)}
-                  placeholder="BPS-17, Engineer, Manager, Clerk..."
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none focus:border-emerald-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-300">Interval</label>
+                  <select
+                    value={newSourceInterval}
+                    onChange={e => setNewSourceInterval(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  >
+                    <option value="1h">1 Hour</option>
+                    <option value="6h">6 Hours</option>
+                    <option value="24h">24 Hours</option>
+                    <option value="7d">7 Days</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-300">Crawl Depth</label>
+                  <select
+                    value={newSourceDepth}
+                    onChange={e => setNewSourceDepth(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  >
+                    <option value="Light (10 Jobs)">Light (10 Jobs)</option>
+                    <option value="Standard (25 Jobs)">Standard (25 Jobs)</option>
+                    <option value="Deep Crawl (50+ Jobs)">Deep Crawl (50+ Jobs)</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="flex items-center space-x-2 pt-1">
+              <div className="flex items-center space-x-2 pt-2">
                 <input
                   type="checkbox"
-                  id="portalAutoApproveCheck"
-                  checked={newPortalAutoApprove}
-                  onChange={(e) => setNewPortalAutoApprove(e.target.checked)}
-                  className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                  id="modalAutoApprove"
+                  checked={newSourceAutoApprove}
+                  onChange={e => setNewSourceAutoApprove(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 bg-slate-800 border-slate-700"
                 />
-                <label htmlFor="portalAutoApproveCheck" className="text-slate-300 cursor-pointer select-none">
-                  اس سائٹ کی جابز بغیر تصدیق کے فوری لائیو کریں (Auto-Approve to Live)
+                <label htmlFor="modalAutoApprove" className="text-slate-300 font-medium">
+                  Auto-publish extracted jobs without manual moderation
                 </label>
               </div>
 
-              <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-end space-x-2 pt-4 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsAddPortalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold cursor-pointer"
+                  onClick={() => setIsAddSourceOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
                 >
-                  منسوخ کریں (Cancel)
+                  Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black cursor-pointer shadow-lg shadow-emerald-500/20"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
                 >
-                  پورٹل محفوظ کریں (Save Portal)
+                  Save Target Source
                 </button>
               </div>
             </form>
@@ -1395,84 +2024,82 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         </div>
       )}
 
-      {/* MODAL: VIEW DETAILED JOB AUDIT */}
-      {inspectingJob && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 text-xs">
-            <div className="flex justify-between items-start border-b border-slate-800 pb-3">
+      {/* ============================================================= */}
+      {/* INSPECT RUN DETAILS MODAL */}
+      {/* ============================================================= */}
+      {inspectingRun && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <span className="text-[10px] uppercase font-bold text-indigo-400">Scraped Vacancy Audit</span>
-                <h4 className="text-base font-black text-white">{inspectingJob.title}</h4>
-                <div className="text-slate-400">{inspectingJob.company} • {inspectingJob.city || inspectingJob.region}</div>
+                <h3 className="text-base font-bold text-white">Execution Run Inspection</h3>
+                <p className="text-xs text-slate-400">ID: {inspectingRun.runId || inspectingRun.id}</p>
               </div>
               <button
                 type="button"
-                onClick={() => setInspectingJob(null)}
-                className="text-slate-400 hover:text-white text-sm cursor-pointer"
+                onClick={() => setInspectingRun(null)}
+                className="text-slate-400 hover:text-white"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800">
-                <div><span className="text-slate-500">سورس پورٹل:</span> <b className="text-indigo-300">{inspectingJob.scraperSourceName || inspectingJob.scrapedSourceDomain}</b></div>
-                <div><span className="text-slate-500">تنخواہ / اسکیل:</span> <b className="text-emerald-400">{inspectingJob.salary}</b></div>
-                <div><span className="text-slate-500">حاصل کرنے کا وقت:</span> <b className="text-slate-200">{inspectingJob.scrapedTime || inspectingJob.postedAt}</b></div>
-                <div><span className="text-slate-500">شعبہ:</span> <b className="text-slate-200">{inspectingJob.jobCategory}</b></div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 bg-slate-800/50 rounded-xl">
+                <p className="text-slate-400">Total Found</p>
+                <p className="text-sm font-bold text-white mt-0.5">{inspectingRun.totalFound || 0}</p>
               </div>
-
-              <div>
-                <span className="text-slate-400 font-bold block mb-1">جاب کی تفصیل (Description):</span>
-                <p className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-slate-300 leading-relaxed whitespace-pre-line">
-                  {inspectingJob.description}
-                </p>
+              <div className="p-3 bg-slate-800/50 rounded-xl">
+                <p className="text-slate-400">Approved Live</p>
+                <p className="text-sm font-bold text-emerald-400 mt-0.5">{inspectingRun.jobsAccepted || inspectingRun.approvedCount || 0}</p>
               </div>
+              <div className="p-3 bg-slate-800/50 rounded-xl">
+                <p className="text-slate-400">Duplicates</p>
+                <p className="text-sm font-bold text-purple-400 mt-0.5">{inspectingRun.totalDuplicates || 0}</p>
+              </div>
+              <div className="p-3 bg-slate-800/50 rounded-xl">
+                <p className="text-slate-400">Duration</p>
+                <p className="text-sm font-bold text-slate-200 mt-0.5">{((inspectingRun.executionDurationMs || 0) / 1000).toFixed(1)}s</p>
+              </div>
+            </div>
 
-              {inspectingJob.requirements && inspectingJob.requirements.length > 0 && (
-                <div>
-                  <span className="text-slate-400 font-bold block mb-1">ضروری شرائط (Requirements):</span>
-                  <ul className="list-disc pl-5 space-y-1 text-slate-300">
-                    {inspectingJob.requirements.map((req, i) => (
-                      <li key={i}>{req}</li>
-                    ))}
-                  </ul>
+            {inspectingRun.message && (
+              <div className="p-3 bg-slate-800/40 rounded-xl text-xs text-slate-300 border border-slate-800">
+                <p className="font-bold text-slate-400 mb-1">Message / Output:</p>
+                <p>{inspectingRun.message}</p>
+              </div>
+            )}
+
+            {inspectingRun.sourcesStats && inspectingRun.sourcesStats.length > 0 && (
+              <div className="space-y-2 text-xs">
+                <p className="font-bold text-slate-300">Sources Breakdown ({inspectingRun.sourcesStats.length}):</p>
+                <div className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden">
+                  {inspectingRun.sourcesStats.map((st, i) => (
+                    <div key={i} className="p-2.5 bg-slate-800/20 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-white">{st.sourceName}</p>
+                        <p className="text-[10px] text-slate-400">Found: {st.jobsFound} • New: {st.newJobs} • Duplicates: {st.duplicates}</p>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        st.status === 'Completed' || st.status === 'Success'
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-rose-500/20 text-rose-300'
+                      }`}>
+                        {st.status}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              )}
-
-              <div>
-                <span className="text-slate-400 font-bold block mb-1">اصل سورس لنک (Original Link):</span>
-                <a
-                  href={inspectingJob.sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-indigo-400 hover:underline flex items-center space-x-1 break-all"
-                >
-                  <span>{inspectingJob.sourceUrl}</span>
-                  <ExternalLink className="w-3 h-3 shrink-0" />
-                </a>
               </div>
-            </div>
+            )}
 
-            <div className="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+            <div className="pt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => setInspectingJob(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold cursor-pointer"
+                onClick={() => setInspectingRun(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs"
               >
-                بند کریں (Close)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onApproveJob(inspectingJob.id);
-                  setInspectingJob(null);
-                  setSessionApprovedCount((prev) => prev + 1);
-                  setStatusNotification(`✅ جاب "${inspectingJob.title}" کو لائیو کر دیا گیا!`);
-                }}
-                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black cursor-pointer shadow-lg shadow-emerald-500/20"
-              >
-                لائیو شائع کریں (Approve to Live)
+                Close Inspection
               </button>
             </div>
           </div>

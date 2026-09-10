@@ -53,8 +53,8 @@ jobRouter.get('/', async (req, res) => {
   }
 });
 
-// 2. Get Pending Jobs Queue
-jobRouter.get('/queue/pending', async (req, res) => {
+// 2. Get Pending Jobs Queue (Admin Only)
+jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
   try {
     const pending = await JobRepository.getPending();
     res.json({ success: true, pendingJobs: pending });

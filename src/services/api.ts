@@ -369,6 +369,17 @@ export const api = {
       const res = await fetch(`${API_BASE}/scraper/runs`);
       return res.json();
     },
+    async getSchedulerStatus() {
+      const res = await fetch(`${API_BASE}/scraper/scheduler-status`);
+      return res.json();
+    },
+    async schedulerTick() {
+      const res = await fetch(`${API_BASE}/scraper/scheduler-tick`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+      return res.json();
+    },
     async parseUrl(dataOrUrl: { url: string; organization?: string; title?: string } | string, organization?: string, title?: string) {
       const payload = typeof dataOrUrl === 'string'
         ? { url: dataOrUrl, organization, title }

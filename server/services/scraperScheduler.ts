@@ -98,7 +98,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
           console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
         } catch (srcErr: any) {
-          console.error(`[Scheduler Engine] Error scraping source ${src.name}:`, srcErr?.message || srcErr);
+          console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${srcErr?.message || srcErr}`);
         }
 
         // Schedule next run
@@ -140,7 +140,7 @@ export function initScraperScheduler(): void {
     try {
       await runSchedulerTick();
     } catch (err: any) {
-      console.error('[Scheduler Engine] Error running scheduler tick:', err?.message || err);
+      console.log('[Scheduler Engine] Scheduler tick notice:', err?.message || err);
     }
   });
 

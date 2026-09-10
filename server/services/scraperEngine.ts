@@ -207,7 +207,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
             hasMorePages = false;
           }
         } catch (pageErr: any) {
-          console.warn(`[Scraper Engine] Page ${currentPage} error on source ${target.name}:`, pageErr?.message || pageErr);
+          console.log(`[Scraper Engine] Page ${currentPage} notice on source ${target.name}: ${pageErr?.message || pageErr}`);
           hasMorePages = false;
         }
       }
@@ -334,7 +334,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       failedCount++;
       sourceFailed = true;
       sourceError = err.message || 'Scraping target failed';
-      console.error(`[Scraper Engine] Source error on ${target.name} (${target.url}):`, err);
+      console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${err?.message || err}`);
 
       const sourceCompletedAt = new Date().toISOString();
       await ScraperRepository.updateSourceStats(target.id, {

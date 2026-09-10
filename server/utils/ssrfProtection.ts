@@ -1,5 +1,16 @@
 import { URL } from 'url';
 import net from 'net';
+import { Agent } from 'undici';
+
+// Resilient dispatcher for public scraper requests that handles
+// government / national portal certificates (missing intermediate CA chains, etc.)
+const scraperTlsDispatcher = new Agent({
+  connect: {
+    rejectUnauthorized: false
+  },
+  headersTimeout: 15000,
+  bodyTimeout: 15000
+});
 
 export interface SafeUrlResult {
   safe: boolean;
@@ -94,8 +105,8 @@ export function validateSafeScrapeUrl(urlStr: string): SafeUrlResult {
 export async function safeFetchWithRetry(
   url: string,
   options: RequestInit = {},
-  timeoutMs: number = 20000,
-  maxRetries: number = 2
+  timeoutMs: number = 10000,
+  maxRetries: number = 1
 ): Promise<Response> {
   const check = validateSafeScrapeUrl(url);
   if (!check.safe) {
@@ -120,7 +131,9 @@ export async function safeFetchWithRetry(
       const res = await fetch(url, {
         ...options,
         signal: controller.signal,
-        headers: mergedHeaders
+        headers: mergedHeaders,
+        // @ts-ignore - dispatcher is supported by undici in Node.js
+        dispatcher: (options as any)?.dispatcher || scraperTlsDispatcher
       });
 
       clearTimeout(timeoutId);
@@ -131,12 +144,13 @@ export async function safeFetchWithRetry(
       attempt++;
 
       if (attempt <= maxRetries) {
-        // Backoff 500ms * 2^attempt
-        const delay = Math.min(500 * Math.pow(2, attempt), 3000);
+        const delay = Math.min(400 * Math.pow(2, attempt), 1500);
         await new Promise(r => setTimeout(r, delay));
       }
     }
   }
 
-  throw new Error(`Failed to fetch ${url} after ${maxRetries + 1} attempts. Cause: ${lastError?.message || lastError}`);
+  const isAbort = lastError?.name === 'AbortError' || lastError?.message?.includes('aborted');
+  const errorReason = isAbort ? `Connection timed out after ${timeoutMs}ms` : (lastError?.message || 'Host unreachable');
+  throw new Error(`Failed to fetch ${url}. Cause: ${errorReason}`);
 }

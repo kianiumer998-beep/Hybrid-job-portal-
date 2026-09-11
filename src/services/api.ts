@@ -72,7 +72,13 @@ function getAuthHeader(): Record<string, string> {
 
 export async function safeFetchJson<T = any>(url: string, init?: RequestInit): Promise<T> {
   try {
-    const res = await fetch(url, init);
+    const res = await fetch(url, {
+      cache: 'no-store',
+      ...init,
+      headers: {
+        ...(init?.headers || {})
+      }
+    });
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       const text = await res.text();

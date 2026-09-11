@@ -396,9 +396,12 @@ export default function App() {
   // Pending Jobs Queue for Admin Verification (Single Backend Source of Truth via /api/jobs/queue/pending)
   const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(true);
+  const [jobsApiError, setJobsApiError] = useState<string | null>(null);
 
   // Fetch jobs from backend Single Source of Truth
   const loadBackendJobs = useCallback(async () => {
+    setIsLoadingJobs(true);
+    setJobsApiError(null);
     try {
       const [liveRes, pendingRes] = await Promise.all([
         api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
@@ -410,6 +413,9 @@ export default function App() {
       } else if (Array.isArray(liveRes)) {
         setJobs(liveRes);
       } else {
+        if (liveRes && liveRes.message && !liveRes.success) {
+          setJobsApiError(liveRes.message);
+        }
         setJobs([]);
       }
 
@@ -421,8 +427,9 @@ export default function App() {
       } else {
         setPendingJobs([]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[App] Failed to load jobs from backend /api/jobs:', err);
+      setJobsApiError(err?.message || 'Failed to connect to backend jobs API. Please check your network connection.');
     } finally {
       setIsLoadingJobs(false);
     }
@@ -1767,6 +1774,25 @@ export default function App() {
                                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] border border-amber-500/20 transition-all cursor-pointer shrink-0"
                               >
                                 Change Country
+                              </button>
+                            </div>
+                          )}
+
+                          {/* API Connection Error Banner */}
+                          {jobsApiError && (
+                            <div className="p-4 bg-rose-950/80 border border-rose-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-rose-200 shadow-lg">
+                              <div className="flex items-center space-x-3">
+                                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                                <div>
+                                  <p className="font-bold text-white">Backend Connection Notice</p>
+                                  <p className="text-xs text-rose-300">{jobsApiError}</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => loadBackendJobs()}
+                                className="px-4 py-2 bg-rose-800 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow"
+                              >
+                                Retry Connection
                               </button>
                             </div>
                           )}

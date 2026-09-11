@@ -97,7 +97,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   } else if (options.sourceId) {
     targets = allSources.filter(s => s.id === options.sourceId);
   } else {
-    targets = allSources.filter(s => s.status === 'Active Scheduled');
+    targets = allSources.filter(s => s.status === 'Active Scheduled' || s.status === 'Active');
   }
 
   // If no matching sources exist, return early. NEVER automatically default to first 5 sources!

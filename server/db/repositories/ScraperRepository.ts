@@ -9,7 +9,10 @@ function getDefaultSources(): any[] {
   return (ALL_VERIFIED_SCRAPER_PORTALS || []).map((s: any) => ({
     ...s,
     url: s.url || s.portalUrl || s.pdfUrl || '',
-    portalUrl: s.portalUrl || s.url || ''
+    portalUrl: s.portalUrl || s.url || '',
+    status: s.status || 'Active Scheduled',
+    interval: s.interval || '24h',
+    healthStatus: s.healthStatus || 'healthy'
   }));
 }
 
@@ -27,8 +30,32 @@ export class ScraperRepository {
         const coll = await getScraperSourcesCollection();
         const docs = await coll.find({}, { projection: { _id: 0 } }).toArray();
         if (docs && docs.length > 0) {
-          this.cachedSources = docs;
-          return docs;
+          let hasMissingStatus = false;
+          const normalized = docs.map((s: any) => {
+            const status = s.status || 'Active Scheduled';
+            const interval = s.interval || '24h';
+            if (!s.status || !s.interval) {
+              hasMissingStatus = true;
+            }
+            return {
+              ...s,
+              status,
+              interval,
+              url: s.url || s.portalUrl || s.pdfUrl || '',
+              portalUrl: s.portalUrl || s.url || '',
+              healthStatus: s.healthStatus || 'healthy'
+            };
+          });
+
+          if (hasMissingStatus) {
+            coll.updateMany(
+              { $or: [{ status: { $exists: false } }, { status: null }, { status: '' }, { interval: { $exists: false } }] },
+              { $set: { status: 'Active Scheduled', interval: '24h' } }
+            ).catch(e => console.warn('[ScraperRepository] Notice updating missing statuses:', e.message));
+          }
+
+          this.cachedSources = normalized;
+          return normalized;
         }
 
         // Auto-seed initial sources into MongoDB scraper_sources collection if empty
@@ -37,7 +64,12 @@ export class ScraperRepository {
           try {
             const cleanDocs = defaults.map(s => {
               const { _id, ...clean } = s as any;
-              return clean;
+              return {
+                ...clean,
+                status: clean.status || 'Active Scheduled',
+                interval: clean.interval || '24h',
+                healthStatus: clean.healthStatus || 'healthy'
+              };
             });
             await coll.insertMany(cleanDocs);
             console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);

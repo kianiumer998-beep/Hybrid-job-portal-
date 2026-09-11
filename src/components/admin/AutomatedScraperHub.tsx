@@ -93,7 +93,7 @@ interface AutomatedScraperHubProps {
   onOpenBatchIngestModal?: () => void;
 }
 
-export type ScraperStep = 'sources' | 'run' | 'results' | 'review' | 'history' | 'settings';
+export type ScraperStep = 'overview' | 'sources' | 'run' | 'history' | 'review' | 'settings';
 
 export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   scraperSources: propsSources,
@@ -110,7 +110,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   onOpenBatchIngestModal
 }) => {
   // Navigation: Step 1 through Step 6
-  const [activeStep, setActiveStep] = useState<ScraperStep>('sources');
+  const [activeStep, setActiveStep] = useState<ScraperStep>('overview');
 
   // Live Backend State (Strict MongoDB-backed data)
   const [liveSources, setLiveSources] = useState<ScraperSourceItem[]>([]);
@@ -264,6 +264,73 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       hasRuns: liveRuns.length > 0
     };
   }, [liveRuns, jobs, pendingJobs]);
+
+  const [isTriggeringTick, setIsTriggeringTick] = useState(false);
+
+  const handleTriggerTick = async () => {
+    setIsTriggeringTick(true);
+    setStatusMessage({ text: 'Triggering dynamic scheduler tick...', type: 'info' });
+    try {
+      const res = await api.scraper.schedulerTick();
+      if (res?.success) {
+        setStatusMessage({
+          text: `Scheduler tick executed successfully! ${res.summary || ''}`,
+          type: 'success'
+        });
+        await fetchLiveScraperData();
+      } else {
+        setStatusMessage({
+          text: res?.message || 'Scheduler tick failed to execute.',
+          type: 'error'
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        text: `Error executing scheduler tick: ${err?.message || 'Network error'}`,
+        type: 'error'
+      });
+    } finally {
+      setIsTriggeringTick(false);
+    }
+  };
+
+  const lastRunDisplay = useMemo(() => {
+    if (liveRuns.length > 0 && (liveRuns[0].completedAt || liveRuns[0].startedAt || liveRuns[0].timestamp)) {
+      const ts = liveRuns[0].completedAt || liveRuns[0].startedAt || liveRuns[0].timestamp;
+      try {
+        return new Date(ts).toLocaleString();
+      } catch {
+        return ts;
+      }
+    }
+    const runsWithDate = (schedulerStatus?.sources || [])
+      .map((s: any) => s.lastRunAt)
+      .filter(Boolean)
+      .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime());
+    if (runsWithDate.length > 0) {
+      try {
+        return new Date(runsWithDate[0]).toLocaleString();
+      } catch {
+        return runsWithDate[0];
+      }
+    }
+    return 'Not run yet';
+  }, [liveRuns, schedulerStatus]);
+
+  const nextRunDisplay = useMemo(() => {
+    const activeFuture = (schedulerStatus?.sources || [])
+      .filter((s: any) => s.status === 'Active Scheduled' && s.nextRunAt)
+      .map((s: any) => s.nextRunAt)
+      .sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime());
+    if (activeFuture.length > 0) {
+      try {
+        return new Date(activeFuture[0]).toLocaleString();
+      } catch {
+        return activeFuture[0];
+      }
+    }
+    return schedulerStatus?.isRunning ? 'Dynamic (checks every 2m)' : 'Scheduler paused';
+  }, [schedulerStatus]);
 
   // -------------------------------------------------------------
   // Filtered Sources for Step 1
@@ -797,12 +864,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // STEP DEFINITIONS (Ordered strictly Step 1 through Step 6)
   // -------------------------------------------------------------
   const STEPS: { id: ScraperStep; stepNumber: string; label: string; sub: string; icon: any; count?: number | null }[] = [
-    { id: 'sources', stepNumber: 'Step 1', label: 'Sources', sub: 'Select & enable sources', icon: Globe, count: sourcesList.length },
-    { id: 'run', stepNumber: 'Step 2', label: 'Run Scraper', sub: 'Run All / Selected / Now', icon: Play, count: null },
-    { id: 'results', stepNumber: 'Step 3', label: 'Results', sub: 'Approved, Pending, Duplicates', icon: BarChart2, count: metrics.totalFound || null },
-    { id: 'review', stepNumber: 'Step 4', label: 'Review', sub: 'Approve or reject pending', icon: CheckCircle2, count: pendingJobs.length || null },
-    { id: 'history', stepNumber: 'Step 5', label: 'History', sub: 'Previous runs & logs', icon: Clock, count: liveRuns.length || null },
-    { id: 'settings', stepNumber: 'Step 6', label: 'Settings', sub: 'Scheduler & preferences', icon: Settings, count: null }
+    { id: 'overview', stepNumber: '1. Overview', label: 'Overview', sub: 'Scheduler & Metrics', icon: BarChart2, count: null },
+    { id: 'sources', stepNumber: '2. Sources', label: 'Sources', sub: 'All sources in 1 table', icon: Globe, count: sourcesList.length },
+    { id: 'run', stepNumber: '3. Run Scraper', label: 'Run Scraper', sub: 'Run All / Selected / Now', icon: Play, count: null },
+    { id: 'history', stepNumber: '4. History', label: 'History', sub: 'Real backend scraper runs', icon: Clock, count: liveRuns.length || null },
+    { id: 'review', stepNumber: '5. Duplicates & Review', label: 'Duplicates & Review', sub: 'Pending & duplicate jobs', icon: CheckCircle2, count: pendingJobs.length || null },
+    { id: 'settings', stepNumber: '6. Settings', label: 'Settings', sub: 'Interval, depth, rules', icon: Settings, count: null }
   ];
 
   return (
@@ -931,7 +998,319 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       </div>
 
       {/* ============================================================= */}
-      {/* STEP 1: SOURCES (Select & Enable Sources)                     */}
+      {/* 1. OVERVIEW (Scheduler Status, Stats, Recent Runs, Discovered) */}
+      {/* ============================================================= */}
+      {activeStep === 'overview' && (
+        <div className="space-y-6">
+          {/* Top Scheduler & Live Health Status Card */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/5 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2.5">
+                  <span className={`w-3 h-3 rounded-full ${schedulerStatus?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  <span className="text-xs uppercase font-black tracking-wider text-slate-400">Automated Pipeline Status</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                    schedulerStatus?.isRunning ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  }`}>
+                    {schedulerStatus?.isRunning ? 'Scheduler Active (Tick: */2 * * * *)' : 'Scheduler Paused'}
+                  </span>
+                </div>
+                <h3 className="text-lg font-black text-white">Universal Job Scraper & Ingestion Center</h3>
+                <p className="text-xs text-slate-400">
+                  Continuous pipeline monitoring federal commissions (FPSC, PPSC), provincial portals, and newspaper classifieds.
+                </p>
+              </div>
+
+              {/* Timing details & Action */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="px-4 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs space-y-0.5">
+                  <span className="text-slate-500 text-[10px] uppercase font-bold block">Last Run</span>
+                  <span className="text-white font-bold block">{lastRunDisplay}</span>
+                </div>
+
+                <div className="px-4 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs space-y-0.5">
+                  <span className="text-slate-500 text-[10px] uppercase font-bold block">Next Scheduled Run</span>
+                  <span className="text-indigo-300 font-bold block">{nextRunDisplay}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTriggerTick}
+                  disabled={isTriggeringTick}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-600/30 flex items-center space-x-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isTriggeringTick ? 'animate-spin' : ''}`} />
+                  <span>{isTriggeringTick ? 'Triggering...' : 'Trigger Scheduler Now'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 6 Core Metric Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {/* 1. Jobs Found */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Jobs Found</span>
+                <Globe className="w-4 h-4 text-indigo-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl font-black text-white">{metrics.totalFound.toLocaleString()}</div>
+                <p className="text-[10px] text-slate-500 mt-0.5">Harvested across portals</p>
+              </div>
+            </div>
+
+            {/* 2. Approved */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Approved</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl font-black text-white">{metrics.approvedCount.toLocaleString()}</div>
+                <p className="text-[10px] text-emerald-500/80 mt-0.5">Live on public website</p>
+              </div>
+            </div>
+
+            {/* 3. Pending */}
+            <div
+              onClick={() => setActiveStep('review')}
+              className={`bg-slate-900 border rounded-2xl p-4 shadow-lg flex flex-col justify-between transition-all cursor-pointer ${
+                metrics.pendingCount > 0 ? 'border-amber-500/50 hover:border-amber-400' : 'border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Pending</span>
+                <Clock className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="mt-3">
+                <div className="flex items-center space-x-2">
+                  <span className="text-2xl font-black text-white">{metrics.pendingCount.toLocaleString()}</span>
+                  {metrics.pendingCount > 0 && (
+                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                      Review →
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-amber-500/80 mt-0.5">Awaiting confirmation</p>
+              </div>
+            </div>
+
+            {/* 4. Duplicates */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">Duplicates</span>
+                <Shield className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl font-black text-white">{metrics.duplicatesCount.toLocaleString()}</div>
+                <p className="text-[10px] text-purple-400/80 mt-0.5">Screened & prevented</p>
+              </div>
+            </div>
+
+            {/* 5. Errors */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Errors</span>
+                <AlertTriangle className="w-4 h-4 text-rose-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl font-black text-white">{metrics.errorsCount.toLocaleString()}</div>
+                <p className="text-[10px] text-rose-400/80 mt-0.5">Portal access notices</p>
+              </div>
+            </div>
+
+            {/* 6. Active Sources */}
+            <div
+              onClick={() => setActiveStep('sources')}
+              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 shadow-lg flex flex-col justify-between transition-all cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider">Sources</span>
+                <Sliders className="w-4 h-4 text-blue-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl font-black text-white">
+                  {sourcesList.filter(s => s.status === 'Active Scheduled').length}
+                  <span className="text-xs text-slate-500 font-normal"> / {sourcesList.length}</span>
+                </div>
+                <p className="text-[10px] text-blue-400/80 mt-0.5">Active targets in table</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Action Navigation Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <button
+              type="button"
+              onClick={() => setActiveStep('sources')}
+              className="p-4 bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl text-left transition-all cursor-pointer group shadow-lg flex items-center justify-between"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl group-hover:bg-indigo-500/20 transition-all">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">Manage Sources</h4>
+                  <p className="text-[11px] text-slate-400">{sourcesList.length} targets in one table</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-all" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveStep('run')}
+              className="p-4 bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl text-left transition-all cursor-pointer group shadow-lg flex items-center justify-between"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:bg-emerald-500/20 transition-all">
+                  <Play className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">Run Scraper</h4>
+                  <p className="text-[11px] text-slate-400">Run All, Selected, or Now</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-all" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveStep('review')}
+              className="p-4 bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl text-left transition-all cursor-pointer group shadow-lg flex items-center justify-between"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl group-hover:bg-amber-500/20 transition-all">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">Duplicates & Review</h4>
+                  <p className="text-[11px] text-slate-400">{pendingJobs.length} jobs awaiting review</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-all" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveStep('history')}
+              className="p-4 bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl text-left transition-all cursor-pointer group shadow-lg flex items-center justify-between"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl group-hover:bg-purple-500/20 transition-all">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">Scraper History</h4>
+                  <p className="text-[11px] text-slate-400">{liveRuns.length} recorded runs</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-all" />
+            </button>
+          </div>
+
+          {/* Recent Runs Table (Real backend scraper runs only) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-indigo-400" />
+                  <span>Recent Backend Scraper Runs</span>
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Real runs logged directly in MongoDB storage.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveStep('history')}
+                className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
+              >
+                <span>View Full History ({liveRuns.length})</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {liveRuns.length === 0 ? (
+              <div className="p-8 text-center bg-slate-950/50 rounded-xl border border-slate-800/80">
+                <Clock className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                <div className="text-xs font-bold text-slate-300">No scraper runs recorded yet</div>
+                <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
+                  Click below to execute your first live scraping run across enabled portals.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveStep('run')}
+                  className="mt-3 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md inline-flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Run Scraper Now</span>
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/60 text-slate-400 font-bold border-b border-slate-800">
+                    <tr>
+                      <th className="p-3">Run ID</th>
+                      <th className="p-3">Executed At</th>
+                      <th className="p-3">Mode</th>
+                      <th className="p-3 text-center">Jobs Discovered</th>
+                      <th className="p-3 text-center">Approved</th>
+                      <th className="p-3 text-center">Duplicates</th>
+                      <th className="p-3 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                    {liveRuns.slice(0, 5).map(r => (
+                      <tr key={r.runId || r.id} className="hover:bg-slate-800/30 transition-all">
+                        <td className="p-3 font-mono text-[11px] text-indigo-400 font-bold">
+                          {r.runId?.slice(0, 16) || 'run-latest'}
+                        </td>
+                        <td className="p-3 text-slate-400">
+                          {r.startedAt || r.timestamp ? new Date(r.startedAt || r.timestamp!).toLocaleString() : 'Recent'}
+                        </td>
+                        <td className="p-3 text-slate-300 capitalize">
+                          {r.mode ? r.mode.replace(/_/g, ' ') : 'Standard'}
+                        </td>
+                        <td className="p-3 text-center font-bold text-white">
+                          {r.totalFound || 0}
+                        </td>
+                        <td className="p-3 text-center text-emerald-400 font-bold">
+                          {r.approvedCount || r.jobsAccepted || 0}
+                        </td>
+                        <td className="p-3 text-center text-purple-400 font-bold">
+                          {r.totalDuplicates || 0}
+                        </td>
+                        <td className="p-3 text-right">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              r.status === 'Completed'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : r.status === 'Partial'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}
+                          >
+                            {r.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* 2. SOURCES (All scraper sources in ONE table)                 */}
       {/* ============================================================= */}
       {activeStep === 'sources' && (
         <div className="space-y-6">
@@ -939,7 +1318,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <span>Step 1: Choose & Enable Job Sources</span>
+                <span>Step 2: Sources — All Scraper Sources in ONE Table</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">
                   {sourcesList.length} configured
                 </span>
@@ -958,12 +1337,32 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <Plus className="w-4 h-4" />
                 <span>Add Source</span>
               </button>
+              {onOpenPdfParser && (
+                <button
+                  type="button"
+                  onClick={() => onOpenPdfParser()}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all border border-slate-700 cursor-pointer"
+                >
+                  <FileText className="w-4 h-4 text-amber-400" />
+                  <span>Import PDF Gazette</span>
+                </button>
+              )}
+              {onOpenBatchIngestModal && (
+                <button
+                  type="button"
+                  onClick={onOpenBatchIngestModal}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all border border-slate-700 cursor-pointer"
+                >
+                  <Layers className="w-4 h-4 text-indigo-400" />
+                  <span>Batch URL Import</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setActiveStep('run')}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md cursor-pointer"
               >
-                <span>Continue to Step 2: Run Scraper</span>
+                <span>Continue to Step 3: Run Scraper</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -1223,7 +1622,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       )}
 
       {/* ============================================================= */}
-      {/* STEP 2: RUN SCRAPER (Run All / Selected / Now / Links / PDF) */}
+      {/* 3. RUN SCRAPER (Run All / Selected / Now / Links / PDF)       */}
       {/* ============================================================= */}
       {activeStep === 'run' && (
         <div className="space-y-6">
@@ -1231,7 +1630,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <span>Step 2: Run Job Scraper</span>
+                <span>Step 3: Run Scraper — Run All / Run Selected / Run Now</span>
                 {isScrapingActive && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
                     Crawler Running...
@@ -1246,10 +1645,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             <div className="flex items-center space-x-2">
               <button
                 type="button"
-                onClick={() => setActiveStep('results')}
+                onClick={() => setActiveStep('history')}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md cursor-pointer"
               >
-                <span>View Results in Step 3</span>
+                <span>Continue to Step 4: History</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -1608,236 +2007,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       )}
 
       {/* ============================================================= */}
-      {/* STEP 3: RESULTS (Approved / Pending / Duplicate / Error)      */}
-      {/* ============================================================= */}
-      {activeStep === 'results' && (
-        <div className="space-y-6">
-          {/* Step Helper Banner */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <span>Step 3: Discovered Jobs & Results</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Summary of all discovered jobs. Filter by Approved, Pending Review, Duplicates Screened, or Errors.
-              </p>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={() => setActiveStep('review')}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md cursor-pointer"
-              >
-                <span>Continue to Step 4: Review Queue</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* 4 Primary Results Metric Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {/* Approved */}
-            <div
-              onClick={() => setResultsTypeFilter(resultsTypeFilter === 'Approved' ? 'all' : 'Approved')}
-              className={`p-5 rounded-2xl border transition-all cursor-pointer shadow-lg ${
-                resultsTypeFilter === 'Approved'
-                  ? 'bg-emerald-950/40 border-emerald-500'
-                  : 'bg-slate-900 border-slate-800 hover:border-emerald-500/50'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Approved Live</span>
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              </div>
-              <div className="text-2xl font-black text-white mt-2">
-                {metrics.approvedCount.toLocaleString()}
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Published directly to active listings
-              </p>
-            </div>
-
-            {/* Pending */}
-            <div
-              onClick={() => setResultsTypeFilter(resultsTypeFilter === 'Pending' ? 'all' : 'Pending')}
-              className={`p-5 rounded-2xl border transition-all cursor-pointer shadow-lg ${
-                resultsTypeFilter === 'Pending'
-                  ? 'bg-amber-950/40 border-amber-500'
-                  : 'bg-slate-900 border-slate-800 hover:border-amber-500/50'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Pending Review</span>
-                <Clock className="w-4 h-4 text-amber-400" />
-              </div>
-              <div className="text-2xl font-black text-white mt-2">
-                {metrics.pendingCount.toLocaleString()}
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Waiting for admin confirmation
-              </p>
-            </div>
-
-            {/* Duplicates */}
-            <div
-              onClick={() => setResultsTypeFilter(resultsTypeFilter === 'Duplicate' ? 'all' : 'Duplicate')}
-              className={`p-5 rounded-2xl border transition-all cursor-pointer shadow-lg ${
-                resultsTypeFilter === 'Duplicate'
-                  ? 'bg-purple-950/40 border-purple-500'
-                  : 'bg-slate-900 border-slate-800 hover:border-purple-500/50'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">Duplicates</span>
-                <Shield className="w-4 h-4 text-purple-400" />
-              </div>
-              <div className="text-2xl font-black text-white mt-2">
-                {metrics.duplicatesCount.toLocaleString()}
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Screened out to prevent repeats
-              </p>
-            </div>
-
-            {/* Errors */}
-            <div
-              onClick={() => setResultsTypeFilter(resultsTypeFilter === 'Error' ? 'all' : 'Error')}
-              className={`p-5 rounded-2xl border transition-all cursor-pointer shadow-lg ${
-                resultsTypeFilter === 'Error'
-                  ? 'bg-rose-950/40 border-rose-500'
-                  : 'bg-slate-900 border-slate-800 hover:border-rose-500/50'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">Errors / Alerts</span>
-                <AlertTriangle className="w-4 h-4 text-rose-400" />
-              </div>
-              <div className="text-2xl font-black text-white mt-2">
-                {metrics.errorsCount.toLocaleString()}
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Inaccessible pages or parsing warnings
-              </p>
-            </div>
-          </div>
-
-          {/* Results Filter Bar */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs text-slate-400 font-bold">Filter By:</span>
-              {(['all', 'Approved', 'Pending', 'Duplicate'] as const).map(type => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setResultsTypeFilter(type)}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    resultsTypeFilter === type
-                      ? 'bg-indigo-600 text-white shadow'
-                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
-                  }`}
-                >
-                  {type === 'all' ? 'All Discovered' : type}
-                </button>
-              ))}
-            </div>
-
-            {resultsTypeFilter !== 'all' && (
-              <button
-                type="button"
-                onClick={() => setResultsTypeFilter('all')}
-                className="text-xs text-slate-400 hover:text-white underline"
-              >
-                Reset Filter
-              </button>
-            )}
-          </div>
-
-          {/* Results List */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-            {resultsItems.length === 0 ? (
-              <div className="p-12 text-center space-y-3">
-                <BarChart2 className="w-10 h-10 text-slate-600 mx-auto" />
-                <h4 className="text-sm font-bold text-slate-300">No data yet</h4>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Run the scraper in Step 2 to harvest and view discovered jobs here.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('run')}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold inline-block"
-                >
-                  Go to Step 2: Run Scraper
-                </button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950/80 text-slate-400 font-bold border-b border-slate-800">
-                    <tr>
-                      <th className="p-4">Job Title & Employer</th>
-                      <th className="p-4">Source Website</th>
-                      <th className="p-4">Discovery Date</th>
-                      <th className="p-4 text-center">Status</th>
-                      <th className="p-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                    {resultsItems.map(item => (
-                      <tr key={item.id} className="hover:bg-slate-800/40 transition-all">
-                        <td className="p-4">
-                          <div className="font-bold text-white text-sm">{item.title}</div>
-                          <span className="text-slate-400 text-xs">{item.company}</span>
-                        </td>
-                        <td className="p-4 text-slate-400">
-                          <span className="text-indigo-400 font-semibold">{item.portal}</span>
-                        </td>
-                        <td className="p-4 text-slate-500">
-                          {item.date ? new Date(item.date).toLocaleDateString() : 'Recent'}
-                        </td>
-                        <td className="p-4 text-center">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              item.status === 'Approved'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : item.status === 'Pending'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                : item.status === 'Duplicate'
-                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            }`}
-                          >
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right">
-                          {(item.status === 'Pending' || item.status === 'Duplicate') ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSearchQuery(item.title);
-                                setActiveStep('review');
-                              }}
-                              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-bold cursor-pointer"
-                            >
-                              Review in Step 4 →
-                            </button>
-                          ) : (
-                            <span className="text-emerald-400 text-[11px] font-semibold">Active Live</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================= */}
-      {/* STEP 4: REVIEW (Approve / Reject Pending & Duplicates)         */}
+      {/* 5. DUPLICATES & REVIEW (Pending & Duplicate Jobs Queue)       */}
       {/* ============================================================= */}
       {activeStep === 'review' && (
         <div className="space-y-6">
@@ -1845,7 +2015,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <span>Step 4: Review Queue</span>
+                <span>Step 5: Duplicates & Review — Pending & Duplicate Jobs Queue</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                   {pendingJobs.length} waiting
                 </span>
@@ -1875,10 +2045,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setActiveStep('history')}
+                onClick={() => setActiveStep('settings')}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md cursor-pointer"
               >
-                <span>Continue to Step 5: History</span>
+                <span>Continue to Step 6: Settings</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -2018,7 +2188,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       )}
 
       {/* ============================================================= */}
-      {/* STEP 5: HISTORY (Previous Runs & Audit Trail)                 */}
+      {/* 4. HISTORY (Real backend scraper runs only)                   */}
       {/* ============================================================= */}
       {activeStep === 'history' && (
         <div className="space-y-6">
@@ -2026,7 +2196,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <span>Step 5: Run History & Database Logs</span>
+                <span>Step 4: History — Real Backend Scraper Runs</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">
                   {liveRuns.length} recorded
                 </span>
@@ -2048,10 +2218,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
               <button
                 type="button"
-                onClick={() => setActiveStep('settings')}
+                onClick={() => setActiveStep('review')}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md cursor-pointer"
               >
-                <span>Continue to Step 6: Settings</span>
+                <span>Continue to Step 5: Duplicates & Review</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -2180,14 +2350,23 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={handleSaveSettings}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
-            >
-              <Check className="w-4 h-4" />
-              <span>Save Settings to Database</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setActiveStep('overview')}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Back to Step 1: Overview
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>Save Settings to Database</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

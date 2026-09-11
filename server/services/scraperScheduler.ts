@@ -68,7 +68,8 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
     for (let i = 0; i < updatedSources.length; i++) {
       const src = updatedSources[i];
-      if (src.status !== 'Active Scheduled') continue;
+      const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
+      if (!isActive) continue;
 
       const intervalMs = parseIntervalToMs(src.interval);
       let nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
@@ -157,7 +158,8 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
   const sourceStatuses: SchedulerSourceStatus[] = sources.map(src => {
     const intervalMs = parseIntervalToMs(src.interval);
     const nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
-    const isDue = src.status === 'Active Scheduled' && (nextRunMs <= now);
+    const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
+    const isDue = isActive && (nextRunMs <= now);
 
     return {
       sourceId: src.id,
@@ -175,7 +177,7 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
   return {
     isRunning: scheduledTask !== null,
     tickCronPattern: '*/2 * * * *',
-    activeSourcesCount: sources.filter(s => s.status === 'Active Scheduled').length,
+    activeSourcesCount: sources.filter(s => s.status === 'Active Scheduled' || s.status === 'Active').length,
     dueSourcesCount: sourceStatuses.filter(s => s.isDue).length,
     lastTickTimestamp: lastTickTime,
     sources: sourceStatuses

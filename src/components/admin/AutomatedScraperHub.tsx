@@ -25,10 +25,25 @@ import {
   Layers,
   ArrowRight,
   BarChart2,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Folder,
+  FolderPlus,
+  Edit3,
+  RotateCcw,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
+
+export interface SourceGroup {
+  id: string;
+  name: string;
+  description?: string;
+  sourceIds: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface ScraperSourceItem {
   id: string;
@@ -43,9 +58,11 @@ export interface ScraperSourceItem {
   autoApprove: boolean;
   lastRun?: string;
   scrapedCount?: number;
-  healthStatus?: 'healthy' | 'warning' | 'error';
+  healthStatus?: 'Healthy' | 'Jobs Found' | 'No Jobs' | '404' | '403' | 'Timeout' | 'Invalid PDF' | 'HTML' | 'Fetch Error' | 'Disabled' | 'healthy' | 'warning' | 'error' | string;
+  lastHttpStatus?: number;
   lastSuccessfulScrapeAt?: string;
   lastErrorMessage?: string;
+  groupId?: string;
   [key: string]: any;
 }
 
@@ -177,9 +194,39 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [globalAutoApprove, setGlobalAutoApprove] = useState(false);
   const [globalSchedulerEnabled, setGlobalSchedulerEnabled] = useState(true);
 
+  // Source Groups State
+  const [sourceGroups, setSourceGroups] = useState<SourceGroup[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
+  const [healthFilter, setHealthFilter] = useState<string>('all');
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [groupModalMode, setGroupModalMode] = useState<'create' | 'edit'>('create');
+  const [editingGroup, setEditingGroup] = useState<SourceGroup | null>(null);
+  const [groupNameInput, setGroupNameInput] = useState('');
+  const [groupDescInput, setGroupDescInput] = useState('');
+
+  // Pending Queue Real-Time MongoDB State (Step 5)
+  const [localPendingJobs, setLocalPendingJobs] = useState<Job[]>(pendingJobs || []);
+  const [isProcessingReview, setIsProcessingReview] = useState(false);
+  const [isRefreshingReview, setIsRefreshingReview] = useState(false);
+
   // -------------------------------------------------------------
   // Data Fetching: Live MongoDB Scraper APIs
   // -------------------------------------------------------------
+  const fetchPendingQueue = useCallback(async () => {
+    try {
+      const res = await api.jobs.getPendingQueue();
+      const list = res?.pendingJobs || res?.jobs;
+      if (res?.success && Array.isArray(list)) {
+        setLocalPendingJobs(list);
+      }
+    } catch (err: any) {
+      console.error('Error fetching pending queue:', err);
+    }
+    if (onReloadJobs) {
+      await onReloadJobs();
+    }
+  }, [onReloadJobs]);
+
   const fetchLiveScraperData = useCallback(async () => {
     setIsLoadingLive(true);
     try {
@@ -207,6 +254,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (statusRes?.success && statusRes.status) {
         setSchedulerStatus(statusRes.status);
       }
+
+      // 4. Fetch Source Groups
+      const groupsRes = await api.scraper.getGroups();
+      if (groupsRes?.success && Array.isArray(groupsRes.groups)) {
+        setSourceGroups(groupsRes.groups);
+      }
+
+      // 5. Fetch Pending Jobs Queue
+      const pendingRes = await api.jobs.getPendingQueue();
+      const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
+      if (pendingRes?.success && Array.isArray(pendingList)) {
+        setLocalPendingJobs(pendingList);
+      }
     } catch (err: any) {
       console.error('Error fetching live scraper data:', err);
       setStatusMessage({
@@ -217,6 +277,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       setIsLoadingLive(false);
     }
   }, [propsSources, propsSetSources]);
+
+  useEffect(() => {
+    if (pendingJobs && pendingJobs.length > 0) {
+      setLocalPendingJobs(pendingJobs);
+    }
+  }, [pendingJobs]);
 
   useEffect(() => {
     fetchLiveScraperData();
@@ -348,15 +414,32 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (statusFilter !== 'all') {
         if (statusFilter === 'Active' && source.status !== 'Active Scheduled') return false;
         if (statusFilter === 'Paused' && source.status !== 'Paused') return false;
-        if (statusFilter === 'Error' && source.healthStatus !== 'error') return false;
+        if (statusFilter === 'Error' && source.healthStatus !== 'error' && !['404', '403', 'Timeout', 'Invalid PDF', 'HTML', 'Fetch Error'].includes(source.healthStatus || '')) return false;
       }
 
       if (categoryFilter !== 'all' && source.category !== categoryFilter) return false;
       if (regionFilter !== 'all' && source.region !== regionFilter) return false;
 
+      // Group filter
+      if (selectedGroupId !== 'all') {
+        const group = sourceGroups.find(g => g.id === selectedGroupId);
+        if (!group || !group.sourceIds.includes(source.id)) return false;
+      }
+
+      // Granular Health filter
+      if (healthFilter !== 'all') {
+        const isPaused = source.status === 'Paused' || source.status === 'Disabled';
+        const actualHealth = source.healthStatus || (isPaused ? 'Disabled' : (source.scrapedCount && source.scrapedCount > 0 ? 'Jobs Found' : 'Healthy'));
+        if (healthFilter === 'Failed') {
+          if (!['404', '403', 'Timeout', 'Invalid PDF', 'HTML', 'Fetch Error', 'error'].includes(actualHealth)) return false;
+        } else if (actualHealth !== healthFilter) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [sourcesList, searchQuery, statusFilter, categoryFilter, regionFilter]);
+  }, [sourcesList, searchQuery, statusFilter, categoryFilter, regionFilter, selectedGroupId, healthFilter, sourceGroups]);
 
   // -------------------------------------------------------------
   // Filtered Runs for Step 5: History
@@ -387,10 +470,26 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   }, [liveRuns, searchQuery, dateFilter]);
 
   // -------------------------------------------------------------
-  // Review Queue Items (Pending jobs & duplicate warnings)
+  // Review Queue Items (Pending jobs & duplicate warnings from MongoDB)
   // -------------------------------------------------------------
+  const effectivePendingList = useMemo(() => {
+    return localPendingJobs.length > 0 ? localPendingJobs : (pendingJobs || []);
+  }, [localPendingJobs, pendingJobs]);
+
+  const pendingOnlyCount = useMemo(() => {
+    return effectivePendingList.filter(j => !((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
+  }, [effectivePendingList]);
+
+  const duplicateCount = useMemo(() => {
+    return effectivePendingList.filter(j => (j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate')).length;
+  }, [effectivePendingList]);
+
+  const selectedDuplicateCount = useMemo(() => {
+    return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && ((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
+  }, [effectivePendingList, selectedReviewIds]);
+
   const reviewItems = useMemo(() => {
-    return pendingJobs.filter(job => {
+    return effectivePendingList.filter(job => {
       const isDuplicate = (job as any).isDuplicate || (job as any).duplicateWarning ||
         job.description?.toLowerCase().includes('duplicate') ||
         ((job as any).confidenceScore && (job as any).confidenceScore < 60);
@@ -413,7 +512,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       return true;
     });
-  }, [pendingJobs, reviewTypeFilter, searchQuery, sourceFilter]);
+  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter]);
 
   // -------------------------------------------------------------
   // Results Feed Items (Discovered Jobs from recent runs & live db)
@@ -783,26 +882,406 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   };
 
   // -------------------------------------------------------------
-  // Review Queue Handlers (Step 4)
+  // Source Group Management Handlers
   // -------------------------------------------------------------
-  const handleApproveSelectedReview = () => {
-    if (selectedReviewIds.length === 0) return;
-    selectedReviewIds.forEach(id => onApproveJob(id));
+  const fetchGroups = useCallback(async () => {
+    try {
+      const res = await api.scraper.getGroups();
+      if (res?.success && Array.isArray(res.groups)) {
+        setSourceGroups(res.groups);
+      }
+    } catch (err: any) {
+      console.error('Error fetching source groups:', err);
+    }
+  }, []);
+
+  const handleOpenCreateGroupModal = () => {
+    setGroupModalMode('create');
+    setEditingGroup(null);
+    setGroupNameInput('');
+    setGroupDescInput('');
+    setIsGroupModalOpen(true);
+  };
+
+  const handleOpenEditGroupModal = (group: SourceGroup) => {
+    setGroupModalMode('edit');
+    setEditingGroup(group);
+    setGroupNameInput(group.name);
+    setGroupDescInput(group.description || '');
+    setIsGroupModalOpen(true);
+  };
+
+  const handleCreateOrUpdateGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!groupNameInput.trim()) {
+      setStatusMessage({ text: 'Please enter a group name.', type: 'error' });
+      return;
+    }
+    try {
+      if (groupModalMode === 'create') {
+        const res = await api.scraper.createGroup({
+          name: groupNameInput.trim(),
+          description: groupDescInput.trim(),
+          sourceIds: selectedSourceIds
+        });
+        if (res?.success) {
+          setStatusMessage({ text: `Group "${res.group.name}" created successfully!`, type: 'success' });
+          await fetchGroups();
+          setIsGroupModalOpen(false);
+        } else {
+          setStatusMessage({ text: res?.message || 'Failed to create group.', type: 'error' });
+        }
+      } else if (editingGroup) {
+        const res = await api.scraper.updateGroup(editingGroup.id, {
+          name: groupNameInput.trim(),
+          description: groupDescInput.trim()
+        });
+        if (res?.success) {
+          setStatusMessage({ text: `Group "${res.group.name}" updated successfully!`, type: 'success' });
+          await fetchGroups();
+          setIsGroupModalOpen(false);
+        } else {
+          setStatusMessage({ text: res?.message || 'Failed to update group.', type: 'error' });
+        }
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Group error: ${err.message}`, type: 'error' });
+    }
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    const grp = sourceGroups.find(g => g.id === groupId);
+    const grpName = grp?.name || 'this group';
+    if (!confirm(`Are you sure you want to delete "${grpName}"? (The sources themselves will NOT be deleted).`)) return;
+    try {
+      const res = await api.scraper.deleteGroup(groupId);
+      if (res?.success) {
+        setStatusMessage({ text: `Group "${grpName}" deleted.`, type: 'success' });
+        if (selectedGroupId === groupId) setSelectedGroupId('all');
+        await fetchGroups();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to delete group.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Delete group error: ${err.message}`, type: 'error' });
+    }
+  };
+
+  const handleAddSelectedToGroup = async (groupId: string) => {
+    if (selectedSourceIds.length === 0) {
+      setStatusMessage({ text: 'Please select one or more sources first.', type: 'info' });
+      return;
+    }
+    try {
+      const res = await api.scraper.addSourcesToGroup(groupId, selectedSourceIds);
+      if (res?.success) {
+        setStatusMessage({ text: `Added ${selectedSourceIds.length} sources to group.`, type: 'success' });
+        await fetchGroups();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to add sources to group.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Add to group error: ${err.message}`, type: 'error' });
+    }
+  };
+
+  const handleRemoveSelectedFromGroup = async (groupId: string) => {
+    if (selectedSourceIds.length === 0) return;
+    try {
+      const res = await api.scraper.removeSourcesFromGroup(groupId, selectedSourceIds);
+      if (res?.success) {
+        setStatusMessage({ text: `Removed selected sources from group.`, type: 'success' });
+        await fetchGroups();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to remove sources.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Remove from group error: ${err.message}`, type: 'error' });
+    }
+  };
+
+  const handleSaveGroup = async (e?: React.FormEvent) => {
+    if (e && e.preventDefault) e.preventDefault();
+    return handleCreateOrUpdateGroup(e as any);
+  };
+
+  const handleAddSourcesToGroup = async (groupId: string, sourceIds: string[]) => {
+    if (!sourceIds || sourceIds.length === 0) return;
+    try {
+      const res = await api.scraper.addSourcesToGroup(groupId, sourceIds);
+      if (res?.success) {
+        setStatusMessage({ text: `Added ${sourceIds.length} sources to group.`, type: 'success' });
+        await fetchGroups();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to add sources to group.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Add to group error: ${err.message}`, type: 'error' });
+    }
+  };
+
+  const handleRemoveSourcesFromGroup = async (groupId: string, sourceIds: string[]) => {
+    if (!sourceIds || sourceIds.length === 0) return;
+    try {
+      const res = await api.scraper.removeSourcesFromGroup(groupId, sourceIds);
+      if (res?.success) {
+        setStatusMessage({ text: `Removed sources from group.`, type: 'success' });
+        await fetchGroups();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to remove sources.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Remove from group error: ${err.message}`, type: 'error' });
+    }
+  };
+
+  const handleRunGroup = async (groupId: string) => {
+    if (isScrapingActive) return;
+    const targetGroup = sourceGroups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+    setIsScrapingActive(true);
+    setRunProgressMessage(`Running group "${targetGroup.name}" (${targetGroup.sourceIds.length} sources)...`);
+    logMessage(`Starting group run: ${targetGroup.name} (${targetGroup.sourceIds.length} sources)`);
+
+    try {
+      const res = await api.scraper.runGroup(groupId);
+      if (res?.success) {
+        setStatusMessage({
+          text: `Group "${targetGroup.name}" scraped! Found ${res.totalFound || 0} jobs, ${res.duplicatesFound || 0} duplicates.`,
+          type: 'success'
+        });
+        if (onReloadJobs) await onReloadJobs();
+        await fetchLiveScraperData();
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Error running group scraper.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Run group error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsScrapingActive(false);
+      setRunProgressMessage('');
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Real Scraper Retry Handlers (Retry Selected / Failed / All Failed)
+  // -------------------------------------------------------------
+  const handleRetrySources = async (targetSourceIds?: string[], retryAllFailed?: boolean) => {
+    if (isScrapingActive) return;
+    setIsScrapingActive(true);
+    const count = targetSourceIds?.length || 0;
+    const label = retryAllFailed ? 'All Failed Sources' : `${count} Selected Source(s)`;
+    setRunProgressMessage(`Retrying ${label} via real scraper engine...`);
+    logMessage(`[RETRY] Launching real scraper engine for ${label}`);
+
+    try {
+      const res = await api.scraper.retrySources(targetSourceIds, retryAllFailed);
+      if (res?.success) {
+        logMessage(`[RETRY COMPLETED] Found ${res.totalFound || 0} jobs, ${res.duplicatesFound || 0} duplicates`);
+        setStatusMessage({
+          text: `Retry completed! Harvested ${res.totalFound || 0} jobs across ${res.retriedCount || count} retried sources.`,
+          type: 'success'
+        });
+        if (onReloadJobs) await onReloadJobs();
+        await fetchLiveScraperData();
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Retry completed with notice.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Retry error: ${err.message || 'Network error'}`, type: 'error' });
+    } finally {
+      setIsScrapingActive(false);
+      setRunProgressMessage('');
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Step 5: Duplicates & Review Multi-Select MongoDB Bulk Actions
+  // -------------------------------------------------------------
+  const handleSelectAllPending = () => {
+    const pendingOnlyIds = effectivePendingList
+      .filter(j => !((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate')))
+      .map(j => j.id);
+    setSelectedReviewIds(pendingOnlyIds);
+    setStatusMessage({ text: `Selected all ${pendingOnlyIds.length} pending items.`, type: 'info' });
+  };
+
+  const handleSelectAllDuplicates = () => {
+    const duplicateOnlyIds = effectivePendingList
+      .filter(j => (j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))
+      .map(j => j.id);
+    setSelectedReviewIds(duplicateOnlyIds);
+    setStatusMessage({ text: `Selected all ${duplicateOnlyIds.length} duplicate warning items.`, type: 'info' });
+  };
+
+  const handleDeselectAllReview = () => {
     setSelectedReviewIds([]);
-    setStatusMessage({ text: `Approved ${selectedReviewIds.length} jobs to live site.`, type: 'success' });
   };
 
-  const handleApproveAllPending = () => {
-    if (pendingJobs.length === 0) return;
-    pendingJobs.forEach(j => onApproveJob(j.id));
-    setStatusMessage({ text: `Approved all ${pendingJobs.length} pending jobs to live site!`, type: 'success' });
+  const handleApproveSelected = async () => {
+    if (selectedReviewIds.length === 0) return;
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.bulkApprove(selectedReviewIds);
+      if (res?.success) {
+        if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
+          const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
+          setStatusMessage({
+            text: `Approved ${res.successCount} job(s), but ${res.failureCount} failed: ${errDetails}`,
+            type: 'error'
+          });
+        } else {
+          setStatusMessage({
+            text: `Successfully approved ${res.successCount || selectedReviewIds.length} jobs to live listings!`,
+            type: 'success'
+          });
+        }
+        setSelectedReviewIds([]);
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to approve selected jobs.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
   };
 
-  const handleRejectAllPending = () => {
-    if (pendingJobs.length === 0) return;
-    if (!confirm(`Are you sure you want to reject all ${pendingJobs.length} pending jobs?`)) return;
-    pendingJobs.forEach(j => onRejectJob(j.id, 'Bulk admin rejection'));
-    setStatusMessage({ text: `Rejected ${pendingJobs.length} jobs from queue.`, type: 'info' });
+  const handleRejectSelected = async () => {
+    if (selectedReviewIds.length === 0) return;
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.bulkReject(selectedReviewIds, 'Bulk admin rejection from Duplicates & Review');
+      if (res?.success) {
+        if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
+          const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
+          setStatusMessage({
+            text: `Rejected ${res.successCount} job(s), but ${res.failureCount} failed: ${errDetails}`,
+            type: 'error'
+          });
+        } else {
+          setStatusMessage({
+            text: `Successfully rejected ${res.successCount || selectedReviewIds.length} jobs.`,
+            type: 'info'
+          });
+        }
+        setSelectedReviewIds([]);
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to reject selected jobs.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
+  const handleDeleteSelectedDuplicates = async () => {
+    if (selectedReviewIds.length === 0) return;
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.bulkDeleteDuplicates(selectedReviewIds);
+      if (res?.success) {
+        if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
+          const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
+          setStatusMessage({
+            text: `Deleted ${res.successCount} duplicate(s), but ${res.failureCount} failed: ${errDetails}`,
+            type: 'error'
+          });
+        } else {
+          setStatusMessage({
+            text: `Successfully deleted ${res.successCount || selectedReviewIds.length} duplicate jobs from MongoDB.`,
+            type: 'success'
+          });
+        }
+        setSelectedReviewIds([]);
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to delete duplicate jobs.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Delete duplicates error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
+  const handleKeepOriginalDeleteDuplicates = async (singleId?: string) => {
+    const targetIds = singleId ? [singleId] : selectedReviewIds;
+    if (targetIds.length === 0) return;
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.keepOriginal(targetIds);
+      if (res?.success) {
+        if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
+          const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
+          setStatusMessage({
+            text: `Original kept. Purged ${res.successCount} duplicate(s), but ${res.failureCount} failed: ${errDetails}`,
+            type: 'error'
+          });
+        } else {
+          setStatusMessage({
+            text: `Original active job(s) kept intact; removed ${res.successCount || targetIds.length} duplicate job(s) from pending queue.`,
+            type: 'success'
+          });
+        }
+        if (!singleId) setSelectedReviewIds([]);
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to keep original jobs.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Keep original error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
+  const handleOverwriteOriginalWithDuplicates = async (singleId?: string) => {
+    const targetIds = singleId ? [singleId] : selectedReviewIds;
+    if (targetIds.length === 0) return;
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.overwriteOriginal(targetIds);
+      if (res?.success) {
+        if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
+          const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
+          setStatusMessage({
+            text: `Overwrote ${res.successCount} original job(s), but ${res.failureCount} failed: ${errDetails}`,
+            type: 'error'
+          });
+        } else {
+          setStatusMessage({
+            text: `Successfully overwritten ${res.successCount || targetIds.length} active job(s) with new duplicate details. Duplicate removed from queue.`,
+            type: 'success'
+          });
+        }
+        if (!singleId) setSelectedReviewIds([]);
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to overwrite original jobs.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Overwrite original error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
+  const handleRefreshReviewQueue = async () => {
+    setIsRefreshingReview(true);
+    try {
+      await fetchPendingQueue();
+      setStatusMessage({ text: 'Pending review queue reloaded fresh from MongoDB.', type: 'info' });
+    } catch (err: any) {
+      setStatusMessage({ text: `Refresh error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsRefreshingReview(false);
+    }
   };
 
   // -------------------------------------------------------------
@@ -1384,6 +1863,52 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
 
             <div className="flex items-center space-x-2 flex-wrap gap-2">
+              {/* Source Group Filter & Manager */}
+              <select
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
+                aria-label="Filter by Source Group"
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="all">All Groups ({sourcesList.length})</option>
+                {sourceGroups.map(g => (
+                  <option key={g.id} value={g.id}>
+                    📁 {g.name} ({g.sourceIds?.length || 0})
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setIsGroupModalOpen(true)}
+                className="px-3 py-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-xs font-semibold text-slate-300 hover:text-white flex items-center space-x-1.5 cursor-pointer transition-all"
+                title="Manage source groups"
+              >
+                <Folder className="w-3.5 h-3.5 text-amber-400" />
+                <span>Groups ({sourceGroups.length})</span>
+              </button>
+
+              {/* Health Status Filter */}
+              <select
+                value={healthFilter}
+                onChange={(e) => setHealthFilter(e.target.value)}
+                aria-label="Filter by Health Status"
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="all">All Health</option>
+                <option value="Healthy">Healthy Only</option>
+                <option value="Jobs Found">Jobs Found</option>
+                <option value="No Jobs">No Jobs</option>
+                <option value="404">404 Not Found</option>
+                <option value="403">403 Forbidden</option>
+                <option value="Timeout">Timeout</option>
+                <option value="Invalid PDF">Invalid PDF</option>
+                <option value="HTML">HTML / JS Only</option>
+                <option value="Fetch Error">Fetch Error</option>
+                <option value="Disabled">Disabled</option>
+                <option value="All Failed">All Failed (Errors)</option>
+              </select>
+
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
@@ -1425,6 +1950,20 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <option value="Federal / Islamabad">Federal</option>
                 <option value="Gulf / Middle East">Gulf</option>
               </select>
+
+              {/* Retry All Failed Button */}
+              {sourcesList.some(s => ['404', '403', 'Timeout', 'Invalid PDF', 'Fetch Error'].includes(s.healthStatus || '')) && (
+                <button
+                  type="button"
+                  disabled={isScrapingActive}
+                  onClick={() => handleRetrySources(undefined, true)}
+                  className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer transition-all disabled:opacity-50"
+                  title="Run real scraper engine on all failed sources (skips permanently disabled & blocked)"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isScrapingActive ? 'animate-spin' : ''}`} />
+                  <span>Retry All Failed ({sourcesList.filter(s => ['404', '403', 'Timeout', 'Invalid PDF', 'Fetch Error'].includes(s.healthStatus || '')).length})</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1463,6 +2002,50 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 >
                   Auto-Approve: Off
                 </button>
+
+                {/* Retry Selected Sources via Real Scraper Engine */}
+                <button
+                  type="button"
+                  disabled={isScrapingActive}
+                  onClick={() => handleRetrySources(selectedSourceIds, false)}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold flex items-center space-x-1 cursor-pointer disabled:opacity-50"
+                  title="Run real scraper engine on selected sources"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isScrapingActive ? 'animate-spin' : ''}`} />
+                  <span>Retry Selected ({selectedSourceIds.length})</span>
+                </button>
+
+                {/* Add to Group Dropdown */}
+                {sourceGroups.length > 0 && (
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleAddSourcesToGroup(e.target.value, selectedSourceIds);
+                        e.target.value = '';
+                      }
+                    }}
+                    aria-label="Add selected to group"
+                    className="px-2.5 py-1.5 bg-slate-900 border border-indigo-700/60 rounded-lg text-xs text-indigo-200 focus:outline-none"
+                  >
+                    <option value="" disabled>+ Add to Group...</option>
+                    {sourceGroups.map(g => (
+                      <option key={g.id} value={g.id}>Group: {g.name}</option>
+                    ))}
+                  </select>
+                )}
+
+                {selectedGroupId !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSourcesFromGroup(selectedGroupId, selectedSourceIds)}
+                    className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-lg font-semibold cursor-pointer"
+                    title="Remove selected sources from current group"
+                  >
+                    Remove from Group
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -1471,7 +2054,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold flex items-center space-x-1 cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  <span>Run Selected in Step 2</span>
+                  <span>Run Selected in Step 3</span>
                 </button>
               </div>
             </div>
@@ -1510,6 +2093,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       <th className="p-4">Source Name & Category</th>
                       <th className="p-4">Website Link</th>
                       <th className="p-4">Region</th>
+                      <th className="p-4">Health & Diagnostics</th>
                       <th className="p-4">Run Frequency</th>
                       <th className="p-4 text-center">Auto-Approve</th>
                       <th className="p-4 text-center">Status</th>
@@ -1560,6 +2144,39 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                               {source.region}
                             </span>
                           </td>
+                          <td className="p-4">
+                            <div className="flex flex-col space-y-1">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold w-fit ${
+                                source.healthStatus === 'Healthy' || source.healthStatus === 'Jobs Found'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : source.healthStatus === '404'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  : source.healthStatus === '403'
+                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                  : source.healthStatus === 'Timeout'
+                                  ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                                  : source.healthStatus === 'Invalid PDF'
+                                  ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                                  : source.healthStatus === 'HTML'
+                                  ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+                                  : source.healthStatus === 'No Jobs'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                              }`}>
+                                {source.healthStatus || 'Healthy'}
+                              </span>
+                              {source.lastHttpStatus && (
+                                <span className="text-[10px] text-slate-500 font-mono">
+                                  HTTP {source.lastHttpStatus}
+                                </span>
+                              )}
+                              {source.lastErrorMessage && (
+                                <span className="text-[10px] text-rose-400/90 line-clamp-1 max-w-[140px]" title={source.lastErrorMessage}>
+                                  {source.lastErrorMessage}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="p-4 text-slate-400">
                             Every {source.interval || '24h'}
                           </td>
@@ -1600,6 +2217,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                               title="Run Now"
                             >
                               <Play className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isScrapingActive}
+                              onClick={() => handleRetrySources([source.id], false)}
+                              className="p-1.5 bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 rounded-lg transition-all cursor-pointer inline-flex items-center disabled:opacity-50"
+                              title="Retry with Real Scraper Engine"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
                             </button>
                             <button
                               type="button"
@@ -1655,7 +2281,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           </div>
 
           {/* Quick Action Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             {/* Card 1: Run All Enabled */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg flex flex-col justify-between">
               <div className="space-y-2">
@@ -1708,7 +2334,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 </div>
                 <h4 className="text-base font-bold text-white">Run Selected Sources</h4>
                 <p className="text-xs text-slate-400">
-                  Only scrape the websites you checked in Step 1.
+                  Only scrape the websites you checked in Step 2.
                 </p>
               </div>
 
@@ -1736,44 +2362,79 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            {/* Card 3: Run Single Source Now */}
+            {/* Card 3: Run by Source Group */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg flex flex-col justify-between">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Option C</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300">
-                    Single Source
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300">
+                    {sourceGroups.length} Groups
                   </span>
                 </div>
-                <h4 className="text-base font-bold text-white">Run One Specific Source</h4>
+                <h4 className="text-base font-bold text-white">Run by Source Group</h4>
                 <p className="text-xs text-slate-400">
-                  Pick any configured portal and test or scrape it immediately.
+                  Crawl all portals clustered inside a specific named source group.
                 </p>
               </div>
 
               <div className="space-y-3 pt-2">
                 <select
-                  value={selectedSingleSourceId}
-                  onChange={(e) => setSelectedSingleSourceId(e.target.value)}
-                  aria-label="Select source to run"
+                  value={selectedGroupId === 'all' ? '' : selectedGroupId}
+                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                  aria-label="Select group to run"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
                 >
-                  <option value="">-- Choose a portal --</option>
-                  {sourcesList.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.category})
+                  <option value="">-- Choose a group --</option>
+                  {sourceGroups.map(g => (
+                    <option key={g.id} value={g.id}>
+                      📁 {g.name} ({g.sourceIds?.length || 0} sources)
                     </option>
                   ))}
                 </select>
 
                 <button
                   type="button"
-                  disabled={isScrapingActive || !selectedSingleSourceId}
-                  onClick={() => handleRunSingleSource(selectedSingleSourceId)}
-                  className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                  disabled={isScrapingActive || !selectedGroupId || selectedGroupId === 'all'}
+                  onClick={() => handleRunGroup(selectedGroupId)}
+                  className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  <Play className="w-4 h-4" />
-                  <span>Run This Source Now</span>
+                  <Folder className="w-4 h-4" />
+                  <span>Run Group Now</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 4: Retry Failed Sources */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Option D</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300">
+                    Real Scraper Retry
+                  </span>
+                </div>
+                <h4 className="text-base font-bold text-white">Retry Failed Sources</h4>
+                <p className="text-xs text-slate-400">
+                  Execute the real scraper engine against sources with HTTP or extraction errors.
+                </p>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <div className="text-[11px] text-slate-400 p-2 bg-slate-950 rounded-lg border border-slate-800">
+                  <span>Failed: </span>
+                  <span className="font-bold text-rose-300">
+                    {sourcesList.filter(s => ['404', '403', 'Timeout', 'Invalid PDF', 'Fetch Error'].includes(s.healthStatus || '')).length} sources
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isScrapingActive}
+                  onClick={() => handleRetrySources(undefined, true)}
+                  className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  <RotateCcw className={`w-4 h-4 ${isScrapingActive ? 'animate-spin' : ''}`} />
+                  <span>Retry All Failed</span>
                 </button>
               </div>
             </div>
@@ -2017,32 +2678,26 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
                 <span>Step 5: Duplicates & Review — Pending & Duplicate Jobs Queue</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  {pendingJobs.length} waiting
+                  {effectivePendingList.length} in queue ({pendingOnlyCount} pending, {duplicateCount} duplicates)
                 </span>
               </h3>
               <p className="text-xs text-slate-400 mt-1">
-                Approve or reject scraped jobs before they appear on the public website. You can also override duplicate warnings.
+                Approve, reject, or resolve duplicate scraped jobs using direct MongoDB operations. Changes sync immediately with the database.
               </p>
             </div>
 
             <div className="flex items-center space-x-2 flex-wrap gap-2">
               <button
                 type="button"
-                disabled={pendingJobs.length === 0}
-                onClick={handleApproveAllPending}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                disabled={isRefreshingReview}
+                onClick={handleRefreshReviewQueue}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 border border-slate-700"
+                title="Reload fresh queue from MongoDB"
               >
-                <Check className="w-4 h-4" />
-                <span>Approve All Pending ({pendingJobs.length})</span>
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingReview ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
               </button>
-              <button
-                type="button"
-                disabled={pendingJobs.length === 0}
-                onClick={handleRejectAllPending}
-                className="px-4 py-2 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-              >
-                Reject All
-              </button>
+
               <button
                 type="button"
                 onClick={() => setActiveStep('settings')}
@@ -2050,6 +2705,104 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               >
                 <span>Continue to Step 6: Settings</span>
                 <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Real Multi-Select Bulk Actions Toolbar */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+              <div className="flex items-center space-x-2 flex-wrap gap-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Multi-Select:</span>
+                <button
+                  type="button"
+                  onClick={handleSelectAllPending}
+                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>Select All Pending ({pendingOnlyCount})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectAllDuplicates}
+                  className="px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Select All Duplicates ({duplicateCount})</span>
+                </button>
+                {selectedReviewIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllReview}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg text-xs transition-all cursor-pointer"
+                  >
+                    Clear Selection
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-semibold text-indigo-300 bg-indigo-950/60 border border-indigo-800/50 px-3 py-1 rounded-full">
+                  {selectedReviewIds.length} Selected ({selectedReviewIds.length - selectedDuplicateCount} Pending, {selectedDuplicateCount} Duplicates)
+                </span>
+              </div>
+            </div>
+
+            {/* Execution Buttons (MongoDB Operations) */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                onClick={handleApproveSelected}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5 shadow-sm"
+                title="Publish selected jobs to live listings via MongoDB"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Approve Selected ({selectedReviewIds.length})</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                onClick={handleRejectSelected}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5 border border-slate-700"
+                title="Reject selected jobs in MongoDB"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Reject Selected</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedDuplicateCount === 0 || isProcessingReview}
+                onClick={handleDeleteSelectedDuplicates}
+                className="px-3.5 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                title="Delete selected duplicate jobs permanently from MongoDB pending collection"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Selected Duplicates ({selectedDuplicateCount})</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedDuplicateCount === 0 || isProcessingReview}
+                onClick={() => handleKeepOriginalDeleteDuplicates()}
+                className="px-3.5 py-2 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                title="Keep original active listing untouched, and remove selected duplicate from pending collection"
+              >
+                <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Keep Original + Delete Duplicates</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedDuplicateCount === 0 || isProcessingReview}
+                onClick={() => handleOverwriteOriginalWithDuplicates()}
+                className="px-3.5 py-2 bg-amber-950/40 hover:bg-amber-900/60 text-amber-200 border border-amber-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                title="Overwrite active job with scraped duplicate data, and delete duplicate from queue"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                <span>Overwrite Original</span>
               </button>
             </div>
           </div>
@@ -2081,7 +2834,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
                   }`}
                 >
-                  {type === 'all' ? 'All Review Items' : type === 'pending' ? 'Pending Only' : 'Duplicates Only'}
+                  {type === 'all' ? `All (${effectivePendingList.length})` : type === 'pending' ? `Pending Only (${pendingOnlyCount})` : `Duplicates Only (${duplicateCount})`}
                 </button>
               ))}
             </div>
@@ -2092,9 +2845,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             {reviewItems.length === 0 ? (
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3 shadow-lg">
                 <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                <h4 className="text-sm font-bold text-white">No data yet</h4>
+                <h4 className="text-sm font-bold text-white">No items in review</h4>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  The review queue is clear! All scraped jobs have either been published or screened out.
+                  The review queue is clear! All scraped jobs have either been approved to live listings or screened out.
                 </p>
               </div>
             ) : (
@@ -2152,29 +2905,96 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onApproveJob(job.id)}
-                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Approve to Live</span>
-                      </button>
+                      {isDup ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isProcessingReview}
+                            onClick={() => handleKeepOriginalDeleteDuplicates(job.id)}
+                            className="px-3 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-200 border border-indigo-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                            title="Keep original active job and delete duplicate"
+                          >
+                            <Shield className="w-3 h-3 text-indigo-400" />
+                            <span>Keep Original</span>
+                          </button>
 
-                      {isDup && onOverrideDuplicatesToLive && (
+                          <button
+                            type="button"
+                            disabled={isProcessingReview}
+                            onClick={() => handleOverwriteOriginalWithDuplicates(job.id)}
+                            className="px-3 py-1.5 bg-amber-950/60 hover:bg-amber-900/80 text-amber-200 border border-amber-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                            title="Overwrite original active job with this duplicate's data"
+                          >
+                            <Edit3 className="w-3 h-3 text-amber-400" />
+                            <span>Overwrite Original</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isProcessingReview}
+                            onClick={async () => {
+                              setIsProcessingReview(true);
+                              try {
+                                const res = await api.jobs.bulkDeleteDuplicates([job.id]);
+                                if (res?.success) {
+                                  setStatusMessage({ text: 'Duplicate job removed from MongoDB.', type: 'success' });
+                                  await fetchPendingQueue();
+                                }
+                              } catch (err: any) {
+                                setStatusMessage({ text: `Delete error: ${err.message}`, type: 'error' });
+                              } finally {
+                                setIsProcessingReview(false);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                            title="Delete this duplicate"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      ) : (
                         <button
                           type="button"
-                          onClick={() => onOverrideDuplicatesToLive([job])}
-                          className="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                          disabled={isProcessingReview}
+                          onClick={async () => {
+                            setIsProcessingReview(true);
+                            try {
+                              const res = await api.jobs.bulkApprove([job.id]);
+                              if (res?.success) {
+                                setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
+                                await fetchPendingQueue();
+                              }
+                            } catch (err: any) {
+                              setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
+                            } finally {
+                              setIsProcessingReview(false);
+                            }
+                          }}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
                         >
-                          Force Publish
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Approve to Live</span>
                         </button>
                       )}
 
                       <button
                         type="button"
-                        onClick={() => onRejectJob(job.id, 'Admin discarded from review')}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        disabled={isProcessingReview}
+                        onClick={async () => {
+                          setIsProcessingReview(true);
+                          try {
+                            const res = await api.jobs.bulkReject([job.id], 'Rejected from Duplicates & Review');
+                            if (res?.success) {
+                              setStatusMessage({ text: `Rejected "${job.title}".`, type: 'info' });
+                              await fetchPendingQueue();
+                            }
+                          } catch (err: any) {
+                            setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
+                          } finally {
+                            setIsProcessingReview(false);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
                       >
                         Reject
                       </button>
@@ -2609,6 +3429,192 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* MODAL: SOURCE GROUPS MANAGEMENT                               */}
+      {/* ============================================================= */}
+      {isGroupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Folder className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">Source Groups Manager</h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300">
+                  {sourceGroups.length} Groups
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsGroupModalOpen(false);
+                  setEditingGroup(null);
+                  setGroupNameInput('');
+                  setGroupDescInput('');
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Create / Edit Group Inline Form */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 space-y-3">
+              <h4 className="text-xs font-bold text-slate-200">
+                {groupModalMode === 'edit' ? `Rename Group: ${editingGroup?.name}` : 'Create New Group'}
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  placeholder="Group Name (e.g. Government Portals, Punjab Exams)..."
+                  value={groupNameInput}
+                  onChange={(e) => setGroupNameInput(e.target.value)}
+                  className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Description (optional)..."
+                  value={groupDescInput}
+                  onChange={(e) => setGroupDescInput(e.target.value)}
+                  className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div className="flex justify-end space-x-2 pt-1">
+                {groupModalMode === 'edit' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGroupModalMode('create');
+                      setEditingGroup(null);
+                      setGroupNameInput('');
+                      setGroupDescInput('');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!groupNameInput.trim()}
+                  onClick={handleSaveGroup}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {groupModalMode === 'edit' ? 'Save Changes' : '+ Create Group'}
+                </button>
+              </div>
+            </div>
+
+            {/* List of Existing Groups */}
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                Configured Groups
+              </span>
+              {sourceGroups.length === 0 ? (
+                <div className="p-6 text-center border border-dashed border-slate-800 rounded-xl text-xs text-slate-500">
+                  No source groups configured yet. Create one above to organize your portals!
+                </div>
+              ) : (
+                sourceGroups.map(group => {
+                  const memberSources = sourcesList.filter(s => group.sourceIds?.includes(s.id));
+
+                  return (
+                    <div
+                      key={group.id}
+                      className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm font-bold text-white">{group.name}</span>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800 text-slate-300">
+                            {group.sourceIds?.length || 0} sources
+                          </span>
+                        </div>
+                        {group.description && (
+                          <p className="text-xs text-slate-400">{group.description}</p>
+                        )}
+                        {memberSources.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {memberSources.map(s => (
+                              <span
+                                key={s.id}
+                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] bg-indigo-950/50 text-indigo-300 border border-indigo-800/40"
+                              >
+                                <span>{s.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSourcesFromGroup(group.id, [s.id])}
+                                  className="text-slate-400 hover:text-rose-300 ml-1 cursor-pointer"
+                                  title={`Remove ${s.name} from ${group.name}`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center space-x-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          disabled={isScrapingActive || group.sourceIds.length === 0}
+                          onClick={() => {
+                            setIsGroupModalOpen(false);
+                            handleRunGroup(group.id);
+                            setActiveStep('run');
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer disabled:opacity-50"
+                          title="Run all sources in this group"
+                        >
+                          <Play className="w-3 h-3" />
+                          <span>Run</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGroupModalMode('edit');
+                            setEditingGroup(group);
+                            setGroupNameInput(group.name);
+                            setGroupDescInput(group.description || '');
+                          }}
+                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
+                          title="Rename / Edit"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGroup(group.id)}
+                          className="p-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 rounded-lg text-xs cursor-pointer"
+                          title="Delete group"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsGroupModalOpen(false);
+                  setEditingGroup(null);
+                  setGroupNameInput('');
+                  setGroupDescInput('');
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

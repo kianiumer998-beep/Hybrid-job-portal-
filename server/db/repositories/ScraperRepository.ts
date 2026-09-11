@@ -1,9 +1,91 @@
 import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
+  getScraperGroupsCollection,
   isMongoConfigured
 } from '../mongodb';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
+
+export interface ScraperSourceGroup {
+  id: string;
+  name: string;
+  description?: string;
+  sourceIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+function getDefaultGroups(): ScraperSourceGroup[] {
+  const portals = ALL_VERIFIED_SCRAPER_PORTALS || [];
+  const now = new Date().toISOString();
+
+  const govtIds = portals.filter(p => p.category === 'Public Service Commission' || p.category === 'Federal Ministry' || p.sector === 'Federal & Autonomous').map(p => p.id);
+  const federalIds = portals.filter(p => p.jurisdiction === 'Federal').map(p => p.id);
+  const punjabIds = portals.filter(p => p.jurisdiction === 'Punjab').map(p => p.id);
+  const sindhIds = portals.filter(p => p.jurisdiction === 'Sindh').map(p => p.id);
+  const eduIds = portals.filter(p => p.category === 'Higher Education & Universities').map(p => p.id);
+  const healthIds = portals.filter(p => p.category === 'Healthcare & Medical Cadres').map(p => p.id);
+  const testingIds = portals.filter(p => p.category === 'Testing & Assessment Service').map(p => p.id);
+
+  return [
+    {
+      id: 'group-government',
+      name: 'Government',
+      description: 'Federal ministries, commissions, and core constitutional authorities',
+      sourceIds: govtIds,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'group-federal',
+      name: 'Federal',
+      description: 'All Federal jurisdiction departments and autonomous agencies',
+      sourceIds: federalIds,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'group-punjab',
+      name: 'Punjab',
+      description: 'Punjab Provincial departments, authorities, and testing services',
+      sourceIds: punjabIds,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'group-sindh',
+      name: 'Sindh',
+      description: 'Sindh Provincial departments, health networks, and public bodies',
+      sourceIds: sindhIds,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'group-education',
+      name: 'Education',
+      description: 'Public sector universities, academic colleges, and education directorates',
+      sourceIds: eduIds,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'group-healthcare',
+      name: 'Healthcare',
+      description: 'Medical colleges, specialized healthcare directorates, and hospital cadres',
+      sourceIds: healthIds,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'group-testing-services',
+      name: 'Testing Services',
+      description: 'NTS, PTS, OTS, ETEA, UTS, and recruitment screening testing services',
+      sourceIds: testingIds,
+      createdAt: now,
+      updatedAt: now
+    }
+  ];
+}
 
 function getDefaultSources(): any[] {
   return (ALL_VERIFIED_SCRAPER_PORTALS || []).map((s: any) => ({
@@ -169,8 +251,9 @@ export class ScraperRepository {
     lastCompletedAt?: string;
     lastRunId?: string;
     scrapedCountIncrement?: number;
-    healthStatus?: 'healthy' | 'warning' | 'error';
+    healthStatus?: 'Healthy' | 'Jobs Found' | 'No Jobs' | '404' | '403' | 'Timeout' | 'Invalid PDF' | 'HTML' | 'Fetch Error' | 'Disabled' | string;
     lastErrorMessage?: string;
+    lastHttpStatus?: number;
   }): Promise<void> {
     if (isMongoConfigured()) {
       try {
@@ -182,6 +265,7 @@ export class ScraperRepository {
         if (stats.lastRunId) $set.lastRunId = stats.lastRunId;
         if (stats.healthStatus) $set.healthStatus = stats.healthStatus;
         if (stats.lastErrorMessage !== undefined) $set.lastErrorMessage = stats.lastErrorMessage;
+        if (stats.lastHttpStatus !== undefined) $set.lastHttpStatus = stats.lastHttpStatus;
 
         const updateOps: any = {};
         if (Object.keys($set).length > 0) updateOps.$set = $set;
@@ -207,6 +291,201 @@ export class ScraperRepository {
       }
       if (stats.healthStatus) this.cachedSources[idx].healthStatus = stats.healthStatus;
       if (stats.lastErrorMessage !== undefined) this.cachedSources[idx].lastErrorMessage = stats.lastErrorMessage;
+      if (stats.lastHttpStatus !== undefined) this.cachedSources[idx].lastHttpStatus = stats.lastHttpStatus;
     }
+  }
+
+  // --- SOURCE GROUPS MANAGEMENT (MongoDB scraper_groups) ---
+
+  private static cachedGroups: ScraperSourceGroup[] = getDefaultGroups();
+
+  /**
+   * Retrieves all source groups from MongoDB. Auto-seeds defaults on first run.
+   */
+  static async getGroups(): Promise<ScraperSourceGroup[]> {
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getScraperGroupsCollection();
+        const docs = await coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray();
+        if (docs && docs.length > 0) {
+          this.cachedGroups = docs as ScraperSourceGroup[];
+          return docs as ScraperSourceGroup[];
+        }
+
+        // Auto-seed default groups if empty
+        const defaults = getDefaultGroups();
+        if (defaults.length > 0) {
+          await coll.insertMany(defaults);
+          console.log(`[ScraperRepository] Seeded ${defaults.length} default source groups into MongoDB.`);
+          this.cachedGroups = defaults;
+          return defaults;
+        }
+      } catch (err: any) {
+        console.error('[ScraperRepository] MongoDB error reading scraper_groups:', err.message);
+      }
+    }
+    return this.cachedGroups;
+  }
+
+  /**
+   * Creates a new source group in MongoDB.
+   */
+  static async createGroup(data: { name: string; description?: string; sourceIds?: string[] }): Promise<ScraperSourceGroup> {
+    const now = new Date().toISOString();
+    const id = `group-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newGroup: ScraperSourceGroup = {
+      id,
+      name: data.name.trim(),
+      description: data.description?.trim() || '',
+      sourceIds: Array.isArray(data.sourceIds) ? data.sourceIds : [],
+      createdAt: now,
+      updatedAt: now
+    };
+
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getScraperGroupsCollection();
+        await coll.insertOne(newGroup);
+      } catch (err: any) {
+        console.error('[ScraperRepository] Error inserting group:', err.message);
+      }
+    }
+
+    this.cachedGroups.push(newGroup);
+    return newGroup;
+  }
+
+  /**
+   * Renames or updates a source group in MongoDB.
+   */
+  static async updateGroup(id: string, updates: { name?: string; description?: string; sourceIds?: string[] }): Promise<ScraperSourceGroup | null> {
+    const now = new Date().toISOString();
+    const $set: any = { updatedAt: now };
+    if (updates.name !== undefined) $set.name = updates.name.trim();
+    if (updates.description !== undefined) $set.description = updates.description.trim();
+    if (Array.isArray(updates.sourceIds)) $set.sourceIds = updates.sourceIds;
+
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getScraperGroupsCollection();
+        const updated = await coll.findOneAndUpdate(
+          { id },
+          { $set },
+          { returnDocument: 'after', projection: { _id: 0 } }
+        );
+        if (updated) {
+          const idx = this.cachedGroups.findIndex(g => g.id === id);
+          if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
+          return updated as ScraperSourceGroup;
+        }
+      } catch (err: any) {
+        console.error(`[ScraperRepository] Error updating group "${id}":`, err.message);
+      }
+    }
+
+    const idx = this.cachedGroups.findIndex(g => g.id === id);
+    if (idx !== -1) {
+      this.cachedGroups[idx] = { ...this.cachedGroups[idx], ...$set };
+      return this.cachedGroups[idx];
+    }
+    return null;
+  }
+
+  /**
+   * Deletes a source group from MongoDB.
+   */
+  static async deleteGroup(id: string): Promise<boolean> {
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getScraperGroupsCollection();
+        const res = await coll.deleteOne({ id });
+        this.cachedGroups = this.cachedGroups.filter(g => g.id !== id);
+        return (res.deletedCount || 0) > 0;
+      } catch (err: any) {
+        console.error(`[ScraperRepository] Error deleting group "${id}":`, err.message);
+      }
+    }
+    const initialLen = this.cachedGroups.length;
+    this.cachedGroups = this.cachedGroups.filter(g => g.id !== id);
+    return this.cachedGroups.length < initialLen;
+  }
+
+  /**
+   * Adds sources to a group in MongoDB.
+   */
+  static async addSourcesToGroup(id: string, sourceIds: string[]): Promise<ScraperSourceGroup | null> {
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+      return this.cachedGroups.find(g => g.id === id) || null;
+    }
+    const now = new Date().toISOString();
+
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getScraperGroupsCollection();
+        const updated = await coll.findOneAndUpdate(
+          { id },
+          {
+            $addToSet: { sourceIds: { $each: sourceIds } },
+            $set: { updatedAt: now }
+          },
+          { returnDocument: 'after', projection: { _id: 0 } }
+        );
+        if (updated) {
+          const idx = this.cachedGroups.findIndex(g => g.id === id);
+          if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
+          return updated as ScraperSourceGroup;
+        }
+      } catch (err: any) {
+        console.error(`[ScraperRepository] Error adding sources to group "${id}":`, err.message);
+      }
+    }
+
+    const idx = this.cachedGroups.findIndex(g => g.id === id);
+    if (idx !== -1) {
+      const merged = Array.from(new Set([...this.cachedGroups[idx].sourceIds, ...sourceIds]));
+      this.cachedGroups[idx].sourceIds = merged;
+      this.cachedGroups[idx].updatedAt = now;
+      return this.cachedGroups[idx];
+    }
+    return null;
+  }
+
+  /**
+   * Removes sources from a group in MongoDB.
+   */
+  static async removeSourcesFromGroup(id: string, sourceIds: string[]): Promise<ScraperSourceGroup | null> {
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+      return this.cachedGroups.find(g => g.id === id) || null;
+    }
+    const now = new Date().toISOString();
+
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getScraperGroupsCollection();
+        const updated = await coll.findOneAndUpdate(
+          { id },
+          {
+            $pull: { sourceIds: { $in: sourceIds } } as any,
+            $set: { updatedAt: now }
+          },
+          { returnDocument: 'after', projection: { _id: 0 } }
+        );
+        if (updated) {
+          const idx = this.cachedGroups.findIndex(g => g.id === id);
+          if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
+          return updated as ScraperSourceGroup;
+        }
+      } catch (err: any) {
+        console.error(`[ScraperRepository] Error removing sources from group "${id}":`, err.message);
+      }
+    }
+
+    const idx = this.cachedGroups.findIndex(g => g.id === id);
+    if (idx !== -1) {
+      this.cachedGroups[idx].sourceIds = this.cachedGroups[idx].sourceIds.filter(sid => !sourceIds.includes(sid));
+      this.cachedGroups[idx].updatedAt = now;
+      return this.cachedGroups[idx];
+    }
+    return null;
   }
 }

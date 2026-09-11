@@ -97,7 +97,23 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   } else if (options.sourceId) {
     targets = allSources.filter(s => s.id === options.sourceId);
   } else {
-    targets = allSources.filter(s => s.status === 'Active Scheduled' || s.status === 'Active');
+    // Run All Enabled: skip Disabled, Invalid/404, permanently blocked sources
+    // Failed sources (Timeout, HTML, Fetch Error, No Jobs) remain available through Retry
+    targets = allSources.filter(s => {
+      if (s.status === 'Disabled' || s.status === 'Paused') return false;
+      const isActive = s.status === 'Active Scheduled' || s.status === 'Active';
+      if (!isActive) return false;
+
+      // Skip Invalid / 404
+      const h = s.healthStatus || '';
+      const errMsg = (s.lastErrorMessage || '').toLowerCase();
+      if (h === '404' || h === 'Invalid PDF' || errMsg.includes('404') || errMsg.includes('invalid pdf')) return false;
+
+      // Skip permanently blocked sources (403, permanently blocked)
+      if (h === '403' || errMsg.includes('permanently blocked') || errMsg.includes('access denied')) return false;
+
+      return true;
+    });
   }
 
   // If no matching sources exist, return early. NEVER automatically default to first 5 sources!
@@ -303,17 +319,18 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         }
       }
 
-      // Update source stats honestly (0 jobs is a warning, not an unblemished success)
+      // Update source stats honestly: Jobs Found vs No Jobs
       const sourceCompletedAt = new Date().toISOString();
-      const isHealthy = sourceFound > 0;
+      const isJobsFound = sourceFound > 0;
+      const successHealth = isJobsFound ? 'Jobs Found' : 'No Jobs';
 
       await ScraperRepository.updateSourceStats(target.id, {
         lastCompletedAt: sourceCompletedAt,
-        lastSuccessfulScrapeAt: isHealthy ? sourceCompletedAt : target.lastSuccessfulScrapeAt,
+        lastSuccessfulScrapeAt: isJobsFound ? sourceCompletedAt : target.lastSuccessfulScrapeAt,
         lastRunId: runId,
         scrapedCountIncrement: sourceFound,
-        healthStatus: isHealthy ? 'healthy' : 'warning',
-        lastErrorMessage: isHealthy ? undefined : '0 vacancies extracted from target source'
+        healthStatus: successHealth,
+        lastErrorMessage: isJobsFound ? undefined : '0 vacancies extracted from target source'
       });
 
       sourcesStats.push({
@@ -328,7 +345,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         pagesAttempted: sourcePagesAttempted,
         pagesSuccessful: sourcePagesSuccessful,
         failed: false,
-        lastSuccessfulScrapeAt: isHealthy ? sourceCompletedAt : target.lastSuccessfulScrapeAt
+        lastSuccessfulScrapeAt: isJobsFound ? sourceCompletedAt : target.lastSuccessfulScrapeAt
       });
     } catch (err: any) {
       failedCount++;
@@ -336,11 +353,32 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       sourceError = err.message || 'Scraping target failed';
       console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${err?.message || err}`);
 
+      const errLower = sourceError.toLowerCase();
+      let classifiedHealth: string = 'Fetch Error';
+      let httpStatus: number | undefined = err.status || err.statusCode || err.httpStatus;
+
+      if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
+        classifiedHealth = '404';
+        if (!httpStatus) httpStatus = 404;
+      } else if (httpStatus === 403 || errLower.includes('403') || errLower.includes('forbidden') || errLower.includes('access denied')) {
+        classifiedHealth = '403';
+        if (!httpStatus) httpStatus = 403;
+      } else if (errLower.includes('timeout') || errLower.includes('timed out') || errLower.includes('etimedout') || errLower.includes('aborterror')) {
+        classifiedHealth = 'Timeout';
+      } else if (errLower.includes('invalid pdf') || errLower.includes('pdf error') || errLower.includes('corrupt pdf') || (errLower.includes('pdf') && errLower.includes('fail'))) {
+        classifiedHealth = 'Invalid PDF';
+      } else if (errLower.includes('cheerio') || errLower.includes('html parse') || errLower.includes('invalid html') || errLower.includes('selector')) {
+        classifiedHealth = 'HTML';
+      } else {
+        classifiedHealth = 'Fetch Error';
+      }
+
       const sourceCompletedAt = new Date().toISOString();
       await ScraperRepository.updateSourceStats(target.id, {
         lastCompletedAt: sourceCompletedAt,
-        healthStatus: 'error',
-        lastErrorMessage: sourceError
+        healthStatus: classifiedHealth,
+        lastErrorMessage: sourceError,
+        lastHttpStatus: httpStatus
       });
 
       sourcesStats.push({

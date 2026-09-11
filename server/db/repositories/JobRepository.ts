@@ -487,4 +487,242 @@ export class JobRepository {
 
     return res.matchedCount > 0;
   }
+
+  /**
+   * Bulk approves pending jobs:
+   * Moves each from pending_jobs into jobs collection with status 'Approved'.
+   * Returns exact success/failure counts and per-ID errors.
+   */
+  static async bulkApprovePending(ids: string[]): Promise<{
+    successCount: number;
+    failureCount: number;
+    errors: { id: string; error: string }[];
+    approvedJobs: any[];
+  }> {
+    assertMongoAvailable();
+    const approvedJobs: any[] = [];
+    const errors: { id: string; error: string }[] = [];
+
+    for (const id of ids) {
+      try {
+        const approved = await this.approvePending(id);
+        if (approved) {
+          approvedJobs.push(approved);
+        } else {
+          errors.push({ id, error: `Pending job with ID "${id}" could not be found or processed.` });
+        }
+      } catch (err: any) {
+        errors.push({ id, error: err.message || `Error approving job "${id}".` });
+      }
+    }
+
+    return {
+      successCount: approvedJobs.length,
+      failureCount: errors.length,
+      errors,
+      approvedJobs
+    };
+  }
+
+  /**
+   * Bulk rejects pending jobs:
+   * Sets status to 'Rejected' with timestamp and optional reason.
+   * Returns exact success/failure counts and per-ID errors.
+   */
+  static async bulkRejectPending(ids: string[], reason?: string): Promise<{
+    successCount: number;
+    failureCount: number;
+    errors: { id: string; error: string }[];
+  }> {
+    assertMongoAvailable();
+    let successCount = 0;
+    const errors: { id: string; error: string }[] = [];
+
+    for (const id of ids) {
+      try {
+        const rejected = await this.rejectPending(id, reason);
+        if (rejected) {
+          successCount++;
+        } else {
+          errors.push({ id, error: `Pending job with ID "${id}" could not be found or marked rejected.` });
+        }
+      } catch (err: any) {
+        errors.push({ id, error: err.message || `Error rejecting job "${id}".` });
+      }
+    }
+
+    return {
+      successCount,
+      failureCount: errors.length,
+      errors
+    };
+  }
+
+  /**
+   * Bulk deletes duplicate jobs directly from pending_jobs (and jobs if present).
+   * Operates strictly on duplicate IDs without touching originals.
+   */
+  static async bulkDeleteDuplicates(ids: string[]): Promise<{
+    successCount: number;
+    failureCount: number;
+    errors: { id: string; error: string }[];
+  }> {
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    let successCount = 0;
+    const errors: { id: string; error: string }[] = [];
+
+    for (const id of ids) {
+      try {
+        const res = await pendingColl.deleteOne({ id });
+        if (res.deletedCount && res.deletedCount > 0) {
+          successCount++;
+        } else {
+          errors.push({ id, error: `Duplicate job with ID "${id}" was not found in pending queue.` });
+        }
+      } catch (err: any) {
+        errors.push({ id, error: err.message || `Failed to delete duplicate job "${id}".` });
+      }
+    }
+
+    return {
+      successCount,
+      failureCount: errors.length,
+      errors
+    };
+  }
+
+  /**
+   * Keep Original + Delete Duplicates:
+   * The original job remains active and untouched.
+   * The selected duplicate jobs are deleted from MongoDB pending queue.
+   * Never deletes original jobs.
+   */
+  static async keepOriginalAndDeleteDuplicates(duplicateIds: string[]): Promise<{
+    successCount: number;
+    failureCount: number;
+    errors: { id: string; error: string }[];
+  }> {
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    let successCount = 0;
+    const errors: { id: string; error: string }[] = [];
+
+    for (const dupId of duplicateIds) {
+      try {
+        const dupDoc = await pendingColl.findOne({ id: dupId });
+        if (!dupDoc) {
+          errors.push({ id: dupId, error: `Duplicate job "${dupId}" was not found in pending queue.` });
+          continue;
+        }
+
+        const originalId = dupDoc.duplicateOfJobId || dupDoc.duplicateMatchedJob?.id;
+        if (originalId && originalId === dupId) {
+          errors.push({ id: dupId, error: `Target duplicate ID is identical to original ID (${dupId}). Operation blocked to preserve original.` });
+          continue;
+        }
+
+        // Delete duplicate record only. Original is untouched and preserved.
+        const delRes = await pendingColl.deleteOne({ id: dupId });
+        if (delRes.deletedCount && delRes.deletedCount > 0) {
+          successCount++;
+        } else {
+          errors.push({ id: dupId, error: `Failed to remove duplicate job "${dupId}".` });
+        }
+      } catch (err: any) {
+        errors.push({ id: dupId, error: err.message || `Error preserving original and deleting duplicate "${dupId}".` });
+      }
+    }
+
+    return {
+      successCount,
+      failureCount: errors.length,
+      errors
+    };
+  }
+
+  /**
+   * Overwrite Original:
+   * Selected duplicate's content replaces the original job's content in the live jobs collection.
+   * Original's unique ID and creation metadata are preserved.
+   * The duplicate is then deleted from the pending queue.
+   * Never deletes the original.
+   */
+  static async overwriteOriginalWithDuplicates(duplicateIds: string[]): Promise<{
+    successCount: number;
+    failureCount: number;
+    errors: { id: string; error: string }[];
+  }> {
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const jobsColl = await getJobsCollection();
+    let successCount = 0;
+    const errors: { id: string; error: string }[] = [];
+
+    for (const dupId of duplicateIds) {
+      try {
+        const dupDoc = await pendingColl.findOne({ id: dupId });
+        if (!dupDoc) {
+          errors.push({ id: dupId, error: `Duplicate job "${dupId}" was not found in pending queue.` });
+          continue;
+        }
+
+        const originalId = dupDoc.duplicateOfJobId || dupDoc.duplicateMatchedJob?.id;
+        if (!originalId) {
+          errors.push({ id: dupId, error: `No original job linked to duplicate "${dupId}". Cannot overwrite.` });
+          continue;
+        }
+
+        if (originalId === dupId) {
+          errors.push({ id: dupId, error: `Duplicate ID and original ID are identical (${dupId}). Operation aborted.` });
+          continue;
+        }
+
+        const originalDoc = await jobsColl.findOne({ id: originalId });
+        if (!originalDoc) {
+          errors.push({ id: dupId, error: `Linked original job "${originalId}" was not found in live listings.` });
+          continue;
+        }
+
+        const now = new Date().toISOString();
+        const {
+          _id,
+          id: _ignoredId,
+          createdAt: _ignoredCreatedAt,
+          applicationsCount: _ignoredAppsCount,
+          isDuplicate: _ignoredDup,
+          duplicateOfJobId: _ignoredDupOf,
+          duplicateMatchedJob: _ignoredMatchedJob,
+          ...replacementData
+        } = dupDoc;
+
+        const updatedOriginal = {
+          ...originalDoc,
+          ...replacementData,
+          id: originalId, // Always keep original ID
+          createdAt: originalDoc.createdAt || now,
+          updatedAt: now,
+          status: 'Approved',
+          verifiedDate: now,
+          isDuplicate: false
+        };
+        delete updatedOriginal._id;
+
+        // Atomically replace the original doc with updated data
+        await jobsColl.replaceOne({ id: originalId }, updatedOriginal);
+
+        // Delete duplicate from pending queue
+        await pendingColl.deleteOne({ id: dupId });
+        successCount++;
+      } catch (err: any) {
+        errors.push({ id: dupId, error: err.message || `Error overwriting original with duplicate "${dupId}".` });
+      }
+    }
+
+    return {
+      successCount,
+      failureCount: errors.length,
+      errors
+    };
+  }
 }

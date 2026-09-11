@@ -58,47 +58,66 @@ function getAuthHeader(): Record<string, string> {
   return headers;
 }
 
+export async function safeFetchJson<T = any>(url: string, init?: RequestInit): Promise<T> {
+  try {
+    const res = await fetch(url, init);
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await res.text();
+      console.warn(`[API] Expected JSON but received ${contentType} (${res.status}) from ${url}:`, text.slice(0, 120));
+      return {
+        success: false,
+        message: `API endpoint returned non-JSON response (${res.status} ${res.statusText || ''})`.trim()
+      } as unknown as T;
+    }
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    console.error(`[API] Network error for ${url}:`, err);
+    return {
+      success: false,
+      message: err?.message || 'Network error occurred while communicating with server'
+    } as unknown as T;
+  }
+}
+
 export const api = {
   // --- AUTH ---
   auth: {
     async register(data: { name: string; email: string; password: string; role?: string; phone?: string; companyName?: string }) {
-      const res = await fetch(`${API_BASE}/auth/register`, {
+      return safeFetchJson(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      return res.json();
     },
     async login(data: { email: string; password: string }) {
-      const res = await fetch(`${API_BASE}/auth/login`, {
+      return safeFetchJson(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      return res.json();
     },
     async adminLogin(passkey: string) {
-      const res = await fetch(`${API_BASE}/auth/admin-login`, {
+      const data = await safeFetchJson(`${API_BASE}/auth/admin-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ passkey })
       });
-      const data = await res.json();
-      if (data.token) {
+      if (data?.token) {
         localStorage.setItem('hybrid_auth_token', data.token);
         localStorage.setItem('hybrid_admin_dev_passkey', passkey);
       }
       return data;
     },
     async me() {
-      const res = await fetch(`${API_BASE}/auth/me`, {
+      return safeFetchJson(`${API_BASE}/auth/me`, {
         headers: getAuthHeader()
       });
-      return res.json();
     },
     async logout() {
       try {
-        await fetch(`${API_BASE}/auth/logout`, {
+        await safeFetchJson(`${API_BASE}/auth/logout`, {
           method: 'POST',
           headers: getAuthHeader()
         });
@@ -112,124 +131,128 @@ export const api = {
   jobs: {
     async getAll(params?: Record<string, string>) {
       const qs = params ? new URLSearchParams(params).toString() : '';
-      const res = await fetch(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`);
     },
     async getById(id: string) {
-      const res = await fetch(`${API_BASE}/jobs/${id}`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/jobs/${id}`);
     },
     async getBySlug(slug: string) {
-      const res = await fetch(`${API_BASE}/jobs/slug/${slug}`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/jobs/slug/${slug}`);
     },
     async create(jobData: any) {
-      const res = await fetch(`${API_BASE}/jobs`, {
+      return safeFetchJson(`${API_BASE}/jobs`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(jobData)
       });
-      return res.json();
     },
     async update(id: string, updates: any) {
-      const res = await fetch(`${API_BASE}/jobs/${id}`, {
+      return safeFetchJson(`${API_BASE}/jobs/${id}`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(updates)
       });
-      return res.json();
     },
     async delete(id: string) {
-      const res = await fetch(`${API_BASE}/jobs/${id}`, {
+      return safeFetchJson(`${API_BASE}/jobs/${id}`, {
         method: 'DELETE',
         headers: getAuthHeader()
       });
-      return res.json();
     },
     async getPendingQueue() {
-      const res = await fetch(`${API_BASE}/jobs/queue/pending`, {
+      return safeFetchJson(`${API_BASE}/jobs/queue/pending`, {
         headers: getAuthHeader()
       });
-      return res.json();
     },
     async approvePending(id: string) {
-      const res = await fetch(`${API_BASE}/jobs/queue/pending/${id}/approve`, {
+      return safeFetchJson(`${API_BASE}/jobs/queue/pending/${id}/approve`, {
         method: 'POST',
         headers: getAuthHeader()
       });
-      return res.json();
     },
     async rejectPending(id: string, reason?: string) {
-      const res = await fetch(`${API_BASE}/jobs/queue/pending/${id}/reject`, {
+      return safeFetchJson(`${API_BASE}/jobs/queue/pending/${id}/reject`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ reason })
       });
-      return res.json();
     },
     async detectDuplicates(jobData: any) {
-      const res = await fetch(`${API_BASE}/jobs/detect-duplicates`, {
+      return safeFetchJson(`${API_BASE}/jobs/detect-duplicates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jobData)
       });
-      return res.json();
     },
     async overrideDuplicate(jobId: string, reason?: string) {
-      const res = await fetch(`${API_BASE}/jobs/override-duplicate`, {
+      return safeFetchJson(`${API_BASE}/jobs/override-duplicate`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ jobId, reason })
       });
-      return res.json();
     },
     async mergeJobs(primaryJobId: string, secondaryJobId: string) {
-      const res = await fetch(`${API_BASE}/jobs/merge`, {
+      return safeFetchJson(`${API_BASE}/jobs/merge`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ primaryJobId, secondaryJobId })
       });
-      return res.json();
     },
     async bulkDelete(ids: string[]) {
-      const res = await fetch(`${API_BASE}/jobs/bulk-delete`, {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-delete`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })
       });
-      return res.json();
     },
     async bulkApprove(ids: string[]) {
-      const res = await fetch(`${API_BASE}/jobs/bulk-approve`, {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-approve`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })
       });
-      return res.json();
     },
     async bulkReject(ids: string[], reason?: string) {
-      const res = await fetch(`${API_BASE}/jobs/bulk-reject`, {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-reject`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ ids, reason })
       });
-      return res.json();
     },
     async bulkUpdate(jobs: any[]) {
-      const res = await fetch(`${API_BASE}/jobs/bulk-update`, {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-update`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ jobs })
       });
-      return res.json();
     },
     async bulkAdd(jobs: any[], status: string = 'Approved') {
-      const res = await fetch(`${API_BASE}/jobs/bulk-add`, {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-add`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ jobs, status })
       });
-      return res.json();
+    },
+    async bulkDeleteDuplicates(ids: string[]) {
+      return safeFetchJson(`${API_BASE}/jobs/duplicates/bulk-delete`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids })
+      });
+    },
+    async keepOriginal(ids: string[]) {
+      return safeFetchJson(`${API_BASE}/jobs/duplicates/keep-original`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids })
+      });
+    },
+    async overwriteOriginal(ids: string[]) {
+      return safeFetchJson(`${API_BASE}/jobs/duplicates/overwrite-original`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids })
+      });
     }
   },
 
@@ -239,16 +262,14 @@ export const api = {
       const params = new URLSearchParams();
       if (jobId) params.append('jobId', jobId);
       if (applicantId) params.append('applicantId', applicantId);
-      const res = await fetch(`${API_BASE}/applications?${params.toString()}`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/applications?${params.toString()}`);
     },
     async submit(data: any) {
-      const res = await fetch(`${API_BASE}/applications`, {
+      return safeFetchJson(`${API_BASE}/applications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      return res.json();
     },
     async uploadCv(file: File): Promise<{ success: boolean; fileUrl?: string; fileName?: string; fileSize?: number; message?: string }> {
       return new Promise((resolve, reject) => {
@@ -256,7 +277,7 @@ export const api = {
         reader.onload = async () => {
           try {
             const base64 = reader.result as string;
-            const res = await fetch(`${API_BASE}/applications/upload-cv`, {
+            const data = await safeFetchJson(`${API_BASE}/applications/upload-cv`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -265,7 +286,6 @@ export const api = {
                 fileBase64: base64
               })
             });
-            const data = await res.json();
             resolve(data);
           } catch (err) {
             reject(err);
@@ -276,136 +296,166 @@ export const api = {
       });
     },
     async updateStatus(id: string, status: string, notes?: string) {
-      const res = await fetch(`${API_BASE}/applications/${id}/status`, {
+      return safeFetchJson(`${API_BASE}/applications/${id}/status`, {
         method: 'PATCH',
         headers: getAuthHeader(),
         body: JSON.stringify({ status, notes })
       });
-      return res.json();
     }
   },
 
   // --- PRICING ---
   pricing: {
     async get() {
-      const res = await fetch(`${API_BASE}/pricing`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/pricing`);
     },
     async calculateJob(options: any) {
-      const res = await fetch(`${API_BASE}/pricing/calculate-job`, {
+      return safeFetchJson(`${API_BASE}/pricing/calculate-job`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options)
       });
-      return res.json();
     },
     async calculateAd(options: any) {
-      const res = await fetch(`${API_BASE}/pricing/calculate-ad`, {
+      return safeFetchJson(`${API_BASE}/pricing/calculate-ad`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options)
       });
-      return res.json();
     },
     async update(pricingData: any) {
-      const res = await fetch(`${API_BASE}/pricing`, {
+      return safeFetchJson(`${API_BASE}/pricing`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(pricingData)
       });
-      return res.json();
     }
   },
 
   // --- APPLY SETTINGS ---
   applySettings: {
     async get() {
-      const res = await fetch(`${API_BASE}/apply-settings`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/apply-settings`);
     },
     async update(settingsData: any) {
-      const res = await fetch(`${API_BASE}/apply-settings`, {
+      return safeFetchJson(`${API_BASE}/apply-settings`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(settingsData)
       });
-      return res.json();
     }
   },
 
   // --- SCRAPER ---
   scraper: {
     async getConfigs() {
-      const res = await fetch(`${API_BASE}/scraper/configs`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/scraper/configs`, { headers: getAuthHeader() });
     },
     async saveConfigs(configs: any[]) {
-      const res = await fetch(`${API_BASE}/scraper/configs`, {
+      return safeFetchJson(`${API_BASE}/scraper/configs`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(configs)
       });
-      return res.json();
     },
-    async run(options: {
-      mode: 'complete' | 'page_range' | 'since_last' | 'custom_date' | 'source_only';
-      sourceId?: string;
-      sourceIds?: string[];
-      startPage?: number;
-      endPage?: number;
-      sinceTimestamp?: string;
-      fromTimestamp?: string;
-      toTimestamp?: string;
-      autoPublishTrusted?: boolean;
-    }) {
-      const res = await fetch(`${API_BASE}/scraper/run`, {
+    async run(options: any) {
+      return safeFetchJson(`${API_BASE}/scraper/run`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(options)
       });
-      return res.json();
     },
     async getRuns() {
-      const res = await fetch(`${API_BASE}/scraper/runs`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/scraper/runs`, { headers: getAuthHeader() });
     },
-    async getSchedulerStatus() {
-      const res = await fetch(`${API_BASE}/scraper/scheduler-status`);
-      return res.json();
+    async retrySources(sourceIds?: string[], retryAllFailed?: boolean) {
+      return safeFetchJson(`${API_BASE}/scraper/retry`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ sourceIds, retryAllFailed })
+      });
     },
-    async schedulerTick() {
-      const res = await fetch(`${API_BASE}/scraper/scheduler-tick`, {
+    async getGroups() {
+      return safeFetchJson(`${API_BASE}/scraper/groups`, { headers: getAuthHeader() });
+    },
+    async createGroup(data: { name: string; description?: string; sourceIds?: string[] }) {
+      return safeFetchJson(`${API_BASE}/scraper/groups`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async updateGroup(id: string, updates: { name?: string; description?: string; sourceIds?: string[] }) {
+      return safeFetchJson(`${API_BASE}/scraper/groups/${id}`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(updates)
+      });
+    },
+    async deleteGroup(id: string) {
+      return safeFetchJson(`${API_BASE}/scraper/groups/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
+    },
+    async addSourcesToGroup(id: string, sourceIds: string[]) {
+      return safeFetchJson(`${API_BASE}/scraper/groups/${id}/add-sources`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ sourceIds })
+      });
+    },
+    async removeSourcesFromGroup(id: string, sourceIds: string[]) {
+      return safeFetchJson(`${API_BASE}/scraper/groups/${id}/remove-sources`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ sourceIds })
+      });
+    },
+    async runGroup(id: string) {
+      return safeFetchJson(`${API_BASE}/scraper/groups/${id}/run`, {
         method: 'POST',
         headers: getAuthHeader()
       });
-      return res.json();
+    },
+    async getSchedulerStatus() {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-status`, { headers: getAuthHeader() });
+    },
+    async schedulerTick() {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-tick`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async triggerSchedulerTick() {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-tick`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
     },
     async parseUrl(dataOrUrl: { url: string; organization?: string; title?: string } | string, organization?: string, title?: string) {
       const payload = typeof dataOrUrl === 'string'
         ? { url: dataOrUrl, organization, title }
         : dataOrUrl;
-      const res = await fetch(`${API_BASE}/scraper/parse-url`, {
+      return safeFetchJson(`${API_BASE}/scraper/parse-url`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
       });
-      return res.json();
     }
   },
 
   // --- SEO ---
   seo: {
     async getConfig() {
-      const res = await fetch(`${API_BASE}/seo/config`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/seo/config`);
     },
     async updateConfig(configData: any) {
-      const res = await fetch(`${API_BASE}/seo/config`, {
+      return safeFetchJson(`${API_BASE}/seo/config`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(configData)
       });
-      return res.json();
     }
   },
 
@@ -413,24 +463,21 @@ export const api = {
   transactions: {
     async getAll(userId?: string) {
       const qs = userId ? `?userId=${userId}` : '';
-      const res = await fetch(`${API_BASE}/transactions${qs}`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/transactions${qs}`);
     },
     async submit(txData: any) {
-      const res = await fetch(`${API_BASE}/transactions`, {
+      return safeFetchJson(`${API_BASE}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(txData)
       });
-      return res.json();
     },
     async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string) {
-      const res = await fetch(`${API_BASE}/transactions/${id}/verify`, {
+      return safeFetchJson(`${API_BASE}/transactions/${id}/verify`, {
         method: 'PATCH',
         headers: getAuthHeader(),
         body: JSON.stringify({ action, note, reason })
       });
-      return res.json();
     }
   },
 
@@ -440,63 +487,60 @@ export const api = {
       const params = new URLSearchParams();
       if (status) params.append('status', status);
       if (placement) params.append('placement', placement);
-      const res = await fetch(`${API_BASE}/ads?${params.toString()}`);
-      return res.json();
+      return safeFetchJson(`${API_BASE}/ads?${params.toString()}`);
     },
     async create(adData: any) {
-      const res = await fetch(`${API_BASE}/ads`, {
+      return safeFetchJson(`${API_BASE}/ads`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(adData)
       });
-      return res.json();
     },
     async update(id: string, adData: any) {
-      const res = await fetch(`${API_BASE}/ads/${id}`, {
+      return safeFetchJson(`${API_BASE}/ads/${id}`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(adData)
       });
-      return res.json();
     },
     async delete(id: string) {
-      const res = await fetch(`${API_BASE}/ads/${id}`, {
+      return safeFetchJson(`${API_BASE}/ads/${id}`, {
         method: 'DELETE',
         headers: getAuthHeader()
       });
-      return res.json();
     },
     async recordClick(id: string) {
-      await fetch(`${API_BASE}/ads/${id}/click`, { method: 'POST' });
+      try {
+        await fetch(`${API_BASE}/ads/${id}/click`, { method: 'POST' });
+      } catch {}
     },
     async recordImpression(id: string) {
-      await fetch(`${API_BASE}/ads/${id}/impression`, { method: 'POST' });
+      try {
+        await fetch(`${API_BASE}/ads/${id}/impression`, { method: 'POST' });
+      } catch {}
     }
   },
 
   // --- AUDIT LOGS ---
   audit: {
     async getLogs() {
-      const res = await fetch(`${API_BASE}/audit-logs`, {
+      return safeFetchJson(`${API_BASE}/audit-logs`, {
         headers: getAuthHeader()
       });
-      return res.json();
     }
   },
 
   // --- ADMIN SETTINGS & FLAGS ---
   admin: {
     async getFeatureFlags() {
-      const res = await fetch(`${API_BASE}/admin/feature-flags`, { headers: getAuthHeader() });
-      return res.json();
+      return safeFetchJson(`${API_BASE}/admin/feature-flags`, { headers: getAuthHeader() });
     },
     async updateFeatureFlags(flags: any) {
-      const res = await fetch(`${API_BASE}/admin/feature-flags`, {
+      return safeFetchJson(`${API_BASE}/admin/feature-flags`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(flags)
       });
-      return res.json();
     }
   }
 };

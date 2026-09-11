@@ -57,7 +57,7 @@ jobRouter.get('/', async (req, res) => {
 jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
   try {
     const pending = await JobRepository.getPending();
-    res.json({ success: true, pendingJobs: pending });
+    res.json({ success: true, pendingJobs: pending, jobs: pending });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);
     res.status(500).json({ success: false, message: err.message || 'Error fetching pending jobs' });
@@ -135,19 +135,22 @@ jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Array of job IDs is required.' });
     }
-    const approved: any[] = [];
-    for (const id of ids) {
-      const app = await JobRepository.approvePending(id);
-      if (app) approved.push(app);
-    }
+    const result = await JobRepository.bulkApprovePending(ids);
     AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Approved',
-      target: `${approved.length} jobs approved`,
-      status: 'Success'
+      target: `${result.successCount} jobs approved (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
     });
-    res.json({ success: true, approvedCount: approved.length, approvedJobs: approved });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors,
+      approvedCount: result.successCount,
+      approvedJobs: result.approvedJobs
+    });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-approve:', err);
     res.status(500).json({ success: false, message: err.message || 'Error in bulk approve' });
@@ -161,21 +164,105 @@ jobRouter.post('/bulk-reject', requireAdmin, async (req, res) => {
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Array of job IDs is required.' });
     }
-    let rejectedCount = 0;
-    for (const id of ids) {
-      if (await JobRepository.rejectPending(id, reason)) rejectedCount++;
-    }
+    const result = await JobRepository.bulkRejectPending(ids, reason);
     AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Rejected',
-      target: `${rejectedCount} jobs rejected`,
-      status: 'Success'
+      target: `${result.successCount} jobs rejected (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
     });
-    res.json({ success: true, rejectedCount });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors,
+      rejectedCount: result.successCount
+    });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-reject:', err);
     res.status(500).json({ success: false, message: err.message || 'Error in bulk reject' });
+  }
+});
+
+// 8. Bulk Delete Duplicates (Delete Selected Duplicates)
+jobRouter.post('/duplicates/bulk-delete', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
+    }
+    const result = await JobRepository.bulkDeleteDuplicates(ids);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Bulk Duplicate Jobs Deleted',
+      target: `${result.successCount} duplicate jobs deleted (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
+    });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/duplicates/bulk-delete:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error deleting duplicate jobs' });
+  }
+});
+
+// 9. Keep Original + Delete Duplicates
+jobRouter.post('/duplicates/keep-original', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
+    }
+    const result = await JobRepository.keepOriginalAndDeleteDuplicates(ids);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Keep Original + Delete Duplicates Processed',
+      target: `${result.successCount} duplicates removed while original preserved (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
+    });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/duplicates/keep-original:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error processing keep original' });
+  }
+});
+
+// 10. Overwrite Original with Duplicate Data
+jobRouter.post('/duplicates/overwrite-original', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
+    }
+    const result = await JobRepository.overwriteOriginalWithDuplicates(ids);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Overwrite Original with Duplicate Data',
+      target: `${result.successCount} originals overwritten with duplicate data (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
+    });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/duplicates/overwrite-original:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error overwriting original with duplicate' });
   }
 });
 

@@ -83,6 +83,14 @@ async function startServer() {
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();
 
+  // Catch-all 404 handler for unhandled /api/* routes so they NEVER return HTML / index.html
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({
+      success: false,
+      message: `API endpoint not found: ${req.method} ${req.originalUrl}`
+    });
+  });
+
   // Global Error Handler for API
   app.use((err: any, req: any, res: any, next: any) => {
     console.error('[API Server Error]', err);

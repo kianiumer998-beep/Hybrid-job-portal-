@@ -413,8 +413,9 @@ export default function App() {
         setJobs([]);
       }
 
-      if (pendingRes && pendingRes.success && Array.isArray(pendingRes.pendingJobs)) {
-        setPendingJobs(pendingRes.pendingJobs);
+      const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
+      if (pendingRes && pendingRes.success && Array.isArray(pendingList)) {
+        setPendingJobs(pendingList);
       } else if (Array.isArray(pendingRes)) {
         setPendingJobs(pendingRes);
       } else {

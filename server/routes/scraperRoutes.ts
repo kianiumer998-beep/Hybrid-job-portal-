@@ -184,3 +184,161 @@ scraperRouter.get('/runs', async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error fetching scraper runs' });
   }
 });
+
+// 8. Retry Scraper Sources (Retry Selected, Retry Failed, Retry All Failed)
+scraperRouter.post('/retry', requireAdmin, async (req, res) => {
+  try {
+    const { sourceIds, retryAllFailed } = req.body;
+    let targetIds: string[] = [];
+    const allSources = await ScraperRepository.getConfigs();
+
+    if (retryAllFailed) {
+      targetIds = allSources.filter(s => {
+        const h = s.healthStatus || '';
+        return ['404', '403', 'Timeout', 'Invalid PDF', 'HTML', 'Fetch Error', 'error', 'warning'].includes(h) ||
+               (s.lastErrorMessage && s.lastErrorMessage.length > 0 && s.lastErrorMessage !== '0 vacancies extracted from target source');
+      }).map(s => s.id);
+    } else if (Array.isArray(sourceIds) && sourceIds.length > 0) {
+      targetIds = sourceIds;
+    } else {
+      return res.status(400).json({ success: false, message: 'sourceIds or retryAllFailed is required.' });
+    }
+
+    if (targetIds.length === 0) {
+      return res.json({ success: true, message: 'No failed sources found to retry.', totalFound: 0, newJobsCount: 0, duplicatesFound: 0, sourcesStats: [] });
+    }
+
+    const result = await executeScraperWithWizard({
+      mode: 'complete',
+      sourceIds: targetIds
+    });
+
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Scraper Sources Retried',
+      target: `${targetIds.length} sources retried`,
+      status: 'Success'
+    });
+
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error('Error in /api/scraper/retry:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error retrying scraper sources' });
+  }
+});
+
+// 9. Source Groups CRUD & Execution
+scraperRouter.get('/groups', async (req, res) => {
+  try {
+    const groups = await ScraperRepository.getGroups();
+    res.json({ success: true, groups });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error fetching source groups' });
+  }
+});
+
+scraperRouter.post('/groups', requireAdmin, async (req, res) => {
+  try {
+    const { name, description, sourceIds } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Group name is required' });
+    }
+    const group = await ScraperRepository.createGroup({ name, description, sourceIds });
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Scraper Source Group Created',
+      target: group.name,
+      status: 'Success'
+    });
+    res.json({ success: true, group });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error creating source group' });
+  }
+});
+
+scraperRouter.put('/groups/:id', requireAdmin, async (req, res) => {
+  try {
+    const group = await ScraperRepository.updateGroup(req.params.id, req.body);
+    if (!group) return res.status(404).json({ success: false, message: 'Group not found' });
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Scraper Source Group Updated',
+      target: group.name,
+      status: 'Success'
+    });
+    res.json({ success: true, group });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error updating source group' });
+  }
+});
+
+scraperRouter.delete('/groups/:id', requireAdmin, async (req, res) => {
+  try {
+    const deleted = await ScraperRepository.deleteGroup(req.params.id);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Scraper Source Group Deleted',
+      target: req.params.id,
+      status: 'Success'
+    });
+    res.json({ success: true, deleted });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error deleting source group' });
+  }
+});
+
+scraperRouter.post('/groups/:id/add-sources', requireAdmin, async (req, res) => {
+  try {
+    const { sourceIds } = req.body;
+    const group = await ScraperRepository.addSourcesToGroup(req.params.id, sourceIds);
+    if (!group) return res.status(404).json({ success: false, message: 'Group not found' });
+    res.json({ success: true, group });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error adding sources to group' });
+  }
+});
+
+scraperRouter.post('/groups/:id/remove-sources', requireAdmin, async (req, res) => {
+  try {
+    const { sourceIds } = req.body;
+    const group = await ScraperRepository.removeSourcesFromGroup(req.params.id, sourceIds);
+    if (!group) return res.status(404).json({ success: false, message: 'Group not found' });
+    res.json({ success: true, group });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error removing sources from group' });
+  }
+});
+
+scraperRouter.post('/groups/:id/run', requireAdmin, async (req, res) => {
+  try {
+    const groups = await ScraperRepository.getGroups();
+    const group = groups.find(g => g.id === req.params.id);
+    if (!group) return res.status(404).json({ success: false, message: 'Group not found' });
+
+    if (!group.sourceIds || group.sourceIds.length === 0) {
+      return res.status(400).json({ success: false, message: `Group "${group.name}" contains no sources.` });
+    }
+
+    const result = await executeScraperWithWizard({
+      mode: 'complete',
+      sourceIds: group.sourceIds
+    });
+
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Scraper Source Group Executed',
+      target: `${group.name} (${group.sourceIds.length} sources)`,
+      status: 'Success'
+    });
+
+    res.json({ success: true, group: group.name, ...result });
+  } catch (err: any) {
+    console.error('Error running group:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error executing group scraper' });
+  }
+});

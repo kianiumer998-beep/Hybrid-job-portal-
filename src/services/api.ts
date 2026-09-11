@@ -18,15 +18,24 @@ export function getResolvedApiBase(): string {
     ''
   ).toString().trim();
 
-  const isBrowser = typeof window !== 'undefined';
-  const hostname = isBrowser ? window.location.hostname : '';
-  const isVercel = Boolean(isBrowser && (hostname.endsWith('.vercel.app') || hostname.includes('vercel.app')));
-
   // 1. Explicitly configured backend URL (e.g. Render backend URL passed via env)
   if (envUrl) {
     const stripped = envUrl.replace(/\/+$/, '').replace(/\/api\/?$/, '');
     return `${stripped}/api`;
   }
+
+  const isBrowser = typeof window !== 'undefined';
+  const hostname = isBrowser ? window.location.hostname : '';
+  const isVercel = Boolean(isBrowser && (hostname.endsWith('.vercel.app') || hostname.includes('vercel.app')));
+  const isLocal = Boolean(
+    isBrowser &&
+    (hostname === 'localhost' ||
+     hostname === '127.0.0.1' ||
+     hostname === '0.0.0.0' ||
+     hostname.includes('.run.app') ||
+     hostname.includes('.preview.') ||
+     hostname.includes('localhost'))
+  );
 
   // 2. Production Vercel deployment where frontend is hosted statically on Vercel
   if (isVercel) {
@@ -35,13 +44,16 @@ export function getResolvedApiBase(): string {
       const stripped = runtimeUrl.trim().replace(/\/+$/, '').replace(/\/api\/?$/, '');
       return `${stripped}/api`;
     }
-
-    throw new Error(
-      '[HybridJobs API Configuration Error] Production Vercel deployment detected without configured Render backend URL! Please configure VITE_API_BASE_URL or VITE_BACKEND_URL in your Vercel Project Environment Variables to your Render service URL (e.g. https://<app-name>.onrender.com).'
-    );
+    // Production Render backend
+    return 'https://hybrid-job-portal.onrender.com/api';
   }
 
-  // 3. Keep /api fallback only for local/full-stack development/preview where Express serves the API
+  // 3. Custom domain / standalone production deployment outside local dev
+  if (isBrowser && !isLocal && (hostname.includes('.com') || hostname.includes('.org') || hostname.includes('.io') || hostname.includes('.app'))) {
+    return 'https://hybrid-job-portal.onrender.com/api';
+  }
+
+  // 4. Local dev / container preview where Express serves the API on /api
   return '/api';
 }
 

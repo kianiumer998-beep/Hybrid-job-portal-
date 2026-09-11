@@ -560,7 +560,7 @@ export class JobRepository {
 
   /**
    * Bulk deletes duplicate jobs directly from pending_jobs (and jobs if present).
-   * Operates strictly on duplicate IDs without touching originals.
+   * Operates strictly on duplicate IDs (verifying isDuplicate === true) without touching originals.
    */
   static async bulkDeleteDuplicates(ids: string[]): Promise<{
     successCount: number;
@@ -574,11 +574,29 @@ export class JobRepository {
 
     for (const id of ids) {
       try {
+        const doc = await pendingColl.findOne({ id });
+        if (!doc) {
+          errors.push({ id, error: `Duplicate job with ID "${id}" was not found in pending queue.` });
+          continue;
+        }
+
+        const isDuplicate = Boolean(
+          doc.isDuplicate === true ||
+          doc.duplicateOfJobId ||
+          doc.duplicateMatchedJob ||
+          doc.duplicateWarning
+        );
+
+        if (!isDuplicate) {
+          errors.push({ id, error: `Job "${id}" is not marked as a duplicate in MongoDB. Deletion blocked to preserve original.` });
+          continue;
+        }
+
         const res = await pendingColl.deleteOne({ id });
         if (res.deletedCount && res.deletedCount > 0) {
           successCount++;
         } else {
-          errors.push({ id, error: `Duplicate job with ID "${id}" was not found in pending queue.` });
+          errors.push({ id, error: `Failed to delete duplicate job "${id}".` });
         }
       } catch (err: any) {
         errors.push({ id, error: err.message || `Failed to delete duplicate job "${id}".` });
@@ -595,7 +613,7 @@ export class JobRepository {
   /**
    * Keep Original + Delete Duplicates:
    * The original job remains active and untouched.
-   * The selected duplicate jobs are deleted from MongoDB pending queue.
+   * The selected duplicate jobs (verified isDuplicate === true) are deleted from MongoDB pending queue.
    * Never deletes original jobs.
    */
   static async keepOriginalAndDeleteDuplicates(duplicateIds: string[]): Promise<{
@@ -613,6 +631,18 @@ export class JobRepository {
         const dupDoc = await pendingColl.findOne({ id: dupId });
         if (!dupDoc) {
           errors.push({ id: dupId, error: `Duplicate job "${dupId}" was not found in pending queue.` });
+          continue;
+        }
+
+        const isDuplicate = Boolean(
+          dupDoc.isDuplicate === true ||
+          dupDoc.duplicateOfJobId ||
+          dupDoc.duplicateMatchedJob ||
+          dupDoc.duplicateWarning
+        );
+
+        if (!isDuplicate) {
+          errors.push({ id: dupId, error: `Job "${dupId}" is not verified as a duplicate in MongoDB. Operation blocked to protect original.` });
           continue;
         }
 
@@ -664,6 +694,18 @@ export class JobRepository {
         const dupDoc = await pendingColl.findOne({ id: dupId });
         if (!dupDoc) {
           errors.push({ id: dupId, error: `Duplicate job "${dupId}" was not found in pending queue.` });
+          continue;
+        }
+
+        const isDuplicate = Boolean(
+          dupDoc.isDuplicate === true ||
+          dupDoc.duplicateOfJobId ||
+          dupDoc.duplicateMatchedJob ||
+          dupDoc.duplicateWarning
+        );
+
+        if (!isDuplicate) {
+          errors.push({ id: dupId, error: `Job "${dupId}" is not a duplicate. Cannot overwrite original.` });
           continue;
         }
 

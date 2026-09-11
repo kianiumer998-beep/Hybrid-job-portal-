@@ -11,8 +11,8 @@ import { Job } from '../../src/types/job';
 
 export const scraperRouter = Router();
 
-// 1. Get Scraper Sources
-scraperRouter.get('/configs', async (req, res) => {
+// 1. Get Scraper Sources (Admin Only)
+scraperRouter.get('/configs', requireAdmin, async (req, res) => {
   try {
     const sources = await ScraperRepository.getConfigs();
     res.json({ success: true, configs: sources });
@@ -38,8 +38,8 @@ scraperRouter.put('/configs', requireAdmin, async (req, res) => {
   }
 });
 
-// 3. Scheduler Status & Diagnostics
-scraperRouter.get('/scheduler-status', async (req, res) => {
+// 3. Scheduler Status & Diagnostics (Admin Only)
+scraperRouter.get('/scheduler-status', requireAdmin, async (req, res) => {
   try {
     const status = await getSchedulerStatus();
     res.json({ success: true, status });
@@ -175,8 +175,8 @@ scraperRouter.post('/run', requireAdmin, async (req, res) => {
   }
 });
 
-// 7. Get Scraper Audit Runs History
-scraperRouter.get('/runs', async (req, res) => {
+// 7. Get Scraper Audit Runs History (Admin Only)
+scraperRouter.get('/runs', requireAdmin, async (req, res) => {
   try {
     const runs = await ScraperRepository.getRuns();
     res.json({ success: true, runs });
@@ -228,8 +228,8 @@ scraperRouter.post('/retry', requireAdmin, async (req, res) => {
   }
 });
 
-// 9. Source Groups CRUD & Execution
-scraperRouter.get('/groups', async (req, res) => {
+// 9. Source Groups CRUD & Execution (Admin Only)
+scraperRouter.get('/groups', requireAdmin, async (req, res) => {
   try {
     const groups = await ScraperRepository.getGroups();
     res.json({ success: true, groups });

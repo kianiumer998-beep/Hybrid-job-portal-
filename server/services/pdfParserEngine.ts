@@ -1,17 +1,6 @@
 import { PDFParse } from 'pdf-parse';
 import { Job } from '../../src/types/job';
 import { safeFetchWithRetry } from '../utils/ssrfProtection';
-import { MOCK_CONSOLIDATED_PDF_GAZETTES } from '../../src/data/mockPdfConsolidatedAds';
-
-function findKnownGazette(url: string, fileName: string) {
-  const normUrl = url.toLowerCase();
-  const normFile = fileName.toLowerCase();
-  return MOCK_CONSOLIDATED_PDF_GAZETTES.find(g =>
-    (g.pdfUrl && g.pdfUrl.toLowerCase() === normUrl) ||
-    (g.pdfFileName && g.pdfFileName.toLowerCase() === normFile) ||
-    (g.pdfFileName && normUrl.includes(g.pdfFileName.toLowerCase()))
-  );
-}
 
 export interface ExtractedPdfResult {
   success: boolean;
@@ -202,20 +191,6 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       );
     } catch (networkErr: any) {
       console.log(`[PDF Parser] PDF not accessible from ${url}: ${networkErr?.message || networkErr}`);
-      // Check for verified official gazette record
-      const known = findKnownGazette(url, fileName);
-      if (known && known.extractedVacancies && known.extractedVacancies.length > 0) {
-        return {
-          success: true,
-          totalPages: known.totalPages || 1,
-          extractedJobs: known.extractedVacancies,
-          rawTextSample: known.rawTextSample || '',
-          sourceUrl: url,
-          fileName: known.pdfFileName || fileName,
-          message: `Retrieved ${known.extractedVacancies.length} verified vacancies from official gazette repository.`
-        };
-      }
-
       return {
         success: false,
         totalPages: 0,
@@ -229,19 +204,6 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
 
     if (!res.ok) {
       console.log(`[PDF Parser] PDF URL responded with HTTP ${res.status} for ${url}`);
-      const known = findKnownGazette(url, fileName);
-      if (known && known.extractedVacancies && known.extractedVacancies.length > 0) {
-        return {
-          success: true,
-          totalPages: known.totalPages || 1,
-          extractedJobs: known.extractedVacancies,
-          rawTextSample: known.rawTextSample || '',
-          sourceUrl: url,
-          fileName: known.pdfFileName || fileName,
-          message: `Retrieved ${known.extractedVacancies.length} verified vacancies from official gazette repository.`
-        };
-      }
-
       return {
         success: false,
         totalPages: 0,
@@ -275,19 +237,6 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
 
     if (!isPdfBinary) {
       console.log(`[PDF Parser] Target URL "${url}" returned non-PDF content (Content-Type: ${contentType || 'unknown'}).`);
-      const known = findKnownGazette(url, fileName);
-      if (known && known.extractedVacancies && known.extractedVacancies.length > 0) {
-        return {
-          success: true,
-          totalPages: known.totalPages || 1,
-          extractedJobs: known.extractedVacancies,
-          rawTextSample: known.rawTextSample || '',
-          sourceUrl: url,
-          fileName: known.pdfFileName || fileName,
-          message: `Retrieved ${known.extractedVacancies.length} verified vacancies from official gazette repository.`
-        };
-      }
-
       return {
         success: false,
         totalPages: 0,
@@ -310,19 +259,6 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       await parser.destroy();
     } catch (parseError: any) {
       console.log(`[PDF Parser] PDF binary decoding issue on ${url}: ${parseError?.message || parseError}`);
-      const known = findKnownGazette(url, fileName);
-      if (known && known.extractedVacancies && known.extractedVacancies.length > 0) {
-        return {
-          success: true,
-          totalPages: known.totalPages || 1,
-          extractedJobs: known.extractedVacancies,
-          rawTextSample: known.rawTextSample || '',
-          sourceUrl: url,
-          fileName: known.pdfFileName || fileName,
-          message: `Retrieved ${known.extractedVacancies.length} verified vacancies from official gazette repository.`
-        };
-      }
-
       return {
         success: false,
         totalPages: 0,

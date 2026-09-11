@@ -2,12 +2,8 @@ import { URL } from 'url';
 import net from 'net';
 import { Agent } from 'undici';
 
-// Resilient dispatcher for public scraper requests that handles
-// government / national portal certificates (missing intermediate CA chains, etc.)
+// Resilient dispatcher for public scraper requests with standard TLS verification
 const scraperTlsDispatcher = new Agent({
-  connect: {
-    rejectUnauthorized: false
-  },
   headersTimeout: 15000,
   bodyTimeout: 15000
 });

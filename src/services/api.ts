@@ -234,21 +234,28 @@ export const api = {
       });
     },
     async bulkDeleteDuplicates(ids: string[]) {
-      return safeFetchJson(`${API_BASE}/jobs/duplicates/bulk-delete`, {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-delete-duplicates`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })
       });
     },
     async keepOriginal(ids: string[]) {
-      return safeFetchJson(`${API_BASE}/jobs/duplicates/keep-original`, {
+      return safeFetchJson(`${API_BASE}/jobs/keep-original-delete-duplicates`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids })
+      });
+    },
+    async keepOriginalDeleteDuplicates(ids: string[]) {
+      return safeFetchJson(`${API_BASE}/jobs/keep-original-delete-duplicates`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })
       });
     },
     async overwriteOriginal(ids: string[]) {
-      return safeFetchJson(`${API_BASE}/jobs/duplicates/overwrite-original`, {
+      return safeFetchJson(`${API_BASE}/jobs/overwrite-original`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })

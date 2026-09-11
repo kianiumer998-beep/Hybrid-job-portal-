@@ -186,6 +186,31 @@ jobRouter.post('/bulk-reject', requireAdmin, async (req, res) => {
 });
 
 // 8. Bulk Delete Duplicates (Delete Selected Duplicates)
+jobRouter.post('/bulk-delete-duplicates', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
+    }
+    const result = await JobRepository.bulkDeleteDuplicates(ids);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Bulk Duplicate Jobs Deleted',
+      target: `${result.successCount} duplicate jobs deleted (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
+    });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/bulk-delete-duplicates:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error deleting duplicate jobs' });
+  }
+});
 jobRouter.post('/duplicates/bulk-delete', requireAdmin, async (req, res) => {
   try {
     const { ids } = req.body;
@@ -213,6 +238,31 @@ jobRouter.post('/duplicates/bulk-delete', requireAdmin, async (req, res) => {
 });
 
 // 9. Keep Original + Delete Duplicates
+jobRouter.post('/keep-original-delete-duplicates', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
+    }
+    const result = await JobRepository.keepOriginalAndDeleteDuplicates(ids);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Keep Original + Delete Duplicates Processed',
+      target: `${result.successCount} duplicates removed while original preserved (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
+    });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/keep-original-delete-duplicates:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error processing keep original' });
+  }
+});
 jobRouter.post('/duplicates/keep-original', requireAdmin, async (req, res) => {
   try {
     const { ids } = req.body;
@@ -240,6 +290,31 @@ jobRouter.post('/duplicates/keep-original', requireAdmin, async (req, res) => {
 });
 
 // 10. Overwrite Original with Duplicate Data
+jobRouter.post('/overwrite-original', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
+    }
+    const result = await JobRepository.overwriteOriginalWithDuplicates(ids);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Overwrite Original with Duplicate Data',
+      target: `${result.successCount} originals overwritten with duplicate data (${result.failureCount} failed)`,
+      status: result.failureCount === 0 ? 'Success' : 'Warning'
+    });
+    res.json({
+      success: true,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/overwrite-original:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error overwriting original with duplicate' });
+  }
+});
 jobRouter.post('/duplicates/overwrite-original', requireAdmin, async (req, res) => {
   try {
     const { ids } = req.body;

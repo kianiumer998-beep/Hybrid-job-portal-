@@ -134,41 +134,41 @@ export const Filters: React.FC<FiltersProps> = ({
       </div>
 
       {/* Main Filter Grid */}
-      <div className="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         
         {/* Job Type */}
         <div>
-          <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
+          <label className="block text-[11px] sm:text-xs font-semibold text-slate-400 mb-1 sm:mb-1.5 uppercase tracking-wider truncate">
             Job Type
           </label>
           <select
             value={filters.jobType}
             onChange={(e) => onChange({ ...filters, jobType: e.target.value })}
-            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="w-full px-2.5 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           >
-            <option value="All">All Job Types</option>
+            <option value="All">All Types</option>
             <option value="Remote">100% Remote</option>
-            <option value="Hybrid">Hybrid (Office + Remote)</option>
+            <option value="Hybrid">Hybrid</option>
             <option value="On-site">On-site Office</option>
           </select>
         </div>
 
         {/* Region */}
         <div>
-          <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
+          <label className="block text-[11px] sm:text-xs font-semibold text-slate-400 mb-1 sm:mb-1.5 uppercase tracking-wider truncate">
             Region / Location
           </label>
           <select
             value={filters.region}
             onChange={(e) => handleRegionChange(e.target.value)}
-            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="w-full px-2.5 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           >
             <option value="All">All Regions Worldwide</option>
             <option value="Global">🌐 Global International Remote</option>
-            <option value="Pakistan">🇵🇰 Pakistan (Provinces & Districts)</option>
+            <option value="Pakistan">🇵🇰 Pakistan</option>
             <option value="US">🇺🇸 United States</option>
             <option value="UK">🇬🇧 United Kingdom</option>
-            <option value="UAE">🇦🇪 United Arab Emirates</option>
+            <option value="UAE">🇦🇪 UAE</option>
             <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
             <option value="Canada">🇨🇦 Canada</option>
             <option value="Europe">🇪🇺 Europe</option>
@@ -178,19 +178,19 @@ export const Filters: React.FC<FiltersProps> = ({
 
         {/* Experience Level */}
         <div>
-          <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
+          <label className="block text-[11px] sm:text-xs font-semibold text-slate-400 mb-1 sm:mb-1.5 uppercase tracking-wider truncate">
             Experience Level
           </label>
           <select
             value={filters.experienceLevel}
             onChange={(e) => onChange({ ...filters, experienceLevel: e.target.value })}
-            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="w-full px-2.5 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           >
             <option value="All">All Levels</option>
-            <option value="Entry">Entry Level / Junior</option>
-            <option value="Mid">Mid Level (2-4 yrs)</option>
-            <option value="Senior">Senior Level (5+ yrs)</option>
-            <option value="Lead">Team Lead / Principal</option>
+            <option value="Entry">Entry Level</option>
+            <option value="Mid">Mid Level (2-4y)</option>
+            <option value="Senior">Senior (5+y)</option>
+            <option value="Lead">Lead / Principal</option>
           </select>
         </div>
 
@@ -199,15 +199,15 @@ export const Filters: React.FC<FiltersProps> = ({
           {hasActiveFilters ? (
             <button
               onClick={onReset}
-              className="w-full py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors border border-slate-700"
+              className="w-full py-2 sm:py-2.5 px-2.5 sm:px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors border border-slate-700"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset All Filters</span>
+              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Reset Filters</span>
             </button>
           ) : (
-            <div className="w-full py-2.5 px-3 bg-slate-950/50 rounded-lg text-xs text-slate-500 flex items-center justify-center space-x-1 border border-slate-800/40">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-              <span>Filter instantly</span>
+            <div className="w-full py-2 sm:py-2.5 px-2 sm:px-3 bg-slate-950/50 rounded-lg text-xs text-slate-500 flex items-center justify-center space-x-1 border border-slate-800/40">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span className="truncate">Filter instantly</span>
             </div>
           )}
         </div>

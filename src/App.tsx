@@ -1674,9 +1674,16 @@ export default function App() {
                       ? 'block md:hidden'
                       : 'block';
 
+                    const secWidthClass = section.width || 'max-w-7xl';
+                    const secHeightClass = section.height && section.height !== 'auto' ? section.height : '';
+                    const secPaddingClass = section.padding || 'py-0';
+                    const secSpacingClass = section.spacing || 'space-y-6';
+                    const secMobileSizeClass = section.mobileSize === 'compact' ? 'px-2 py-1' : section.mobileSize === 'large' ? 'px-6 py-4' : 'px-4 sm:px-6 lg:px-8';
+                    const secDesktopSizeClass = section.desktopSize === 'compact' ? 'md:px-4' : section.desktopSize === 'large' ? 'md:px-8' : '';
+
                     if (section.id === 'hero') {
                       return (
-                        <div key="section-hero" className={secResponsiveClass}>
+                        <div key="section-hero" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secHeightClass} ${secPaddingClass}`}>
                           <HeroSection
                             heroConfig={landingConfig.hero}
                             totalJobsCount={jobs.length}
@@ -1695,7 +1702,7 @@ export default function App() {
                       const activeBanners = (campaignConfig.promoBanners || []).filter(b => b.isEnabled);
                       if (activeBanners.length === 0) return null;
                       return (
-                        <div key="section-promo" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3`}>
+                        <div key="section-promo" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
                           {activeBanners.map((banner) => {
                             const isBannerMobileHidden = banner.mobileVisible === false;
                             const isBannerDesktopHidden = banner.desktopVisible === false;
@@ -1777,7 +1784,7 @@ export default function App() {
 
                     if (section.id === 'quick-stats') {
                       return (
-                        <div key="section-stats" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8`}>
+                        <div key="section-stats" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
                             <div className="p-3 text-center">
                               <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
@@ -1804,7 +1811,7 @@ export default function App() {
                       const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
                       if (activeCards.length === 0) return null;
                       return (
-                        <div key="section-cards" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8`}>
+                        <div key="section-cards" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {activeCards.sort((a, b) => a.order - b.order).map((card) => {
                               const isCardMobileHidden = card.mobileVisible === false;
@@ -1812,18 +1819,22 @@ export default function App() {
                               if (isCardMobileHidden && isCardDesktopHidden) return null;
 
                               const cardRespClass = isCardMobileHidden
-                                ? 'hidden md:flex'
-                                : isCardDesktopHidden
-                                ? 'flex md:hidden'
-                                : 'flex';
+                                  ? 'hidden md:flex'
+                                  : isCardDesktopHidden
+                                  ? 'flex md:hidden'
+                                  : 'flex';
 
                               const isCompactMobile = card.mobileSize === 'compact';
                               const isLargeDesktop = card.desktopSize === 'large';
+                              const cardWidth = card.width || 'w-full';
+                              const cardHeight = card.height && card.height !== 'auto' ? card.height : 'h-auto';
+                              const cardPadding = card.padding || (isCompactMobile ? 'p-4 sm:p-6' : 'p-5 sm:p-6');
+                              const cardSpacing = card.spacing || 'space-y-4';
 
                               return (
                                 <div
                                   key={card.id}
-                                  className={`rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white ${cardRespClass} flex-col justify-between space-y-4 shadow-xl ${isCompactMobile ? 'p-4 sm:p-6' : 'p-5 sm:p-6'} ${isLargeDesktop ? 'md:p-8' : ''}`}
+                                  className={`rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white ${cardRespClass} ${cardWidth} ${cardHeight} ${cardPadding} ${cardSpacing} flex-col justify-between shadow-xl ${isLargeDesktop ? 'md:p-8' : ''}`}
                                 >
                                   <div className="space-y-3">
                                     <div className="flex items-center justify-between gap-2">
@@ -1869,7 +1880,7 @@ export default function App() {
 
                     if (section.id === 'jobs-feed') {
                       return (
-                        <div key="section-jobs-feed" id="jobs-section" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6`}>
+                        <div key="section-jobs-feed" id="jobs-section" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
                           
                           {/* Active Country Filter Notification Badge */}
                           {userSelectedCountry && userSelectedCountry.code !== 'GL' && (

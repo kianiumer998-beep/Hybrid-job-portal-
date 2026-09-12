@@ -78,7 +78,10 @@ export interface ScrapedJobResult {
   isNewspaperAd?: boolean;
   newspaperName?: string;
   clippingImageUrl?: string;
+  mediaUrl?: string;
   newspaperDate?: string;
+  extractedText?: string;
+  rawText?: string;
 
   // Next page pagination discovery
   nextPageUrl?: string;

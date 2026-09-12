@@ -279,90 +279,190 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     : 'bg-slate-950/40 border-slate-800/60 opacity-60'
                 }`}
               >
-                <div className="flex items-center space-x-3.5">
-                  <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 text-indigo-400 flex items-center justify-center font-black font-mono text-sm shrink-0">
-                    {index + 1}
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-sm font-black text-white">{section.name}</h4>
-                      {!section.isEnabled && (
-                        <span className="text-[10px] font-bold px-2 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
-                          Hidden
-                        </span>
-                      )}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3.5">
+                    <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 text-indigo-400 flex items-center justify-center font-black font-mono text-sm shrink-0">
+                      {index + 1}
                     </div>
-                    <p className="text-xs text-slate-400">{section.description}</p>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h4 className="text-sm font-black text-white">{section.name}</h4>
+                        {!section.isEnabled && (
+                          <span className="text-[10px] font-bold px-2 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
+                            Hidden
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400">{section.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    {/* Mobile Visibility Toggle */}
+                    <button
+                      onClick={() => {
+                        setSections(prev =>
+                          prev.map(s => (s.id === section.id ? { ...s, mobileVisible: s.mobileVisible === false ? true : false } : s))
+                        );
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                        section.mobileVisible !== false
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-slate-800 text-slate-500 line-through'
+                      }`}
+                      title="Toggle Mobile Visibility"
+                    >
+                      📱 {section.mobileVisible !== false ? 'Mobile' : 'No Mobile'}
+                    </button>
+
+                    {/* Desktop Visibility Toggle */}
+                    <button
+                      onClick={() => {
+                        setSections(prev =>
+                          prev.map(s => (s.id === section.id ? { ...s, desktopVisible: s.desktopVisible === false ? true : false } : s))
+                        );
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                        section.desktopVisible !== false
+                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                          : 'bg-slate-800 text-slate-500 line-through'
+                      }`}
+                      title="Toggle Desktop Visibility"
+                    >
+                      💻 {section.desktopVisible !== false ? 'Desktop' : 'No Desktop'}
+                    </button>
+
+                    {/* Toggle Global Visibility */}
+                    <button
+                      onClick={() => toggleSectionEnabled(section.id)}
+                      className={`p-2 rounded-xl transition-all cursor-pointer ${
+                        section.isEnabled
+                          ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                          : 'bg-slate-800 text-slate-500 hover:text-slate-300'
+                      }`}
+                      title={section.isEnabled ? 'Hide on Landing Page' : 'Show on Landing Page'}
+                    >
+                      {section.isEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    </button>
+
+                    {/* Move Up */}
+                    <button
+                      onClick={() => moveSection(index, 'up')}
+                      disabled={index === 0}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
+                      title="Move Up"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+
+                    {/* Move Down */}
+                    <button
+                      onClick={() => moveSection(index, 'down')}
+                      disabled={index === sections.length - 1}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
+                      title="Move Down"
+                    >
+                      <ArrowDown className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
-                  <div className="flex items-center space-x-2 shrink-0">
-                  {/* Mobile Visibility Toggle */}
-                  <button
-                    onClick={() => {
-                      setSections(prev =>
-                        prev.map(s => (s.id === section.id ? { ...s, mobileVisible: s.mobileVisible === false ? true : false } : s))
-                      );
-                    }}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                      section.mobileVisible !== false
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : 'bg-slate-800 text-slate-500 line-through'
-                    }`}
-                    title="Toggle Mobile Visibility"
-                  >
-                    📱 {section.mobileVisible !== false ? 'Mobile' : 'No Mobile'}
-                  </button>
-
-                  {/* Desktop Visibility Toggle */}
-                  <button
-                    onClick={() => {
-                      setSections(prev =>
-                        prev.map(s => (s.id === section.id ? { ...s, desktopVisible: s.desktopVisible === false ? true : false } : s))
-                      );
-                    }}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                      section.desktopVisible !== false
-                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                        : 'bg-slate-800 text-slate-500 line-through'
-                    }`}
-                    title="Toggle Desktop Visibility"
-                  >
-                    💻 {section.desktopVisible !== false ? 'Desktop' : 'No Desktop'}
-                  </button>
-
-                  {/* Toggle Global Visibility */}
-                  <button
-                    onClick={() => toggleSectionEnabled(section.id)}
-                    className={`p-2 rounded-xl transition-all cursor-pointer ${
-                      section.isEnabled
-                        ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                        : 'bg-slate-800 text-slate-500 hover:text-slate-300'
-                    }`}
-                    title={section.isEnabled ? 'Hide on Landing Page' : 'Show on Landing Page'}
-                  >
-                    {section.isEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                  </button>
-
-                  {/* Move Up */}
-                  <button
-                    onClick={() => moveSection(index, 'up')}
-                    disabled={index === 0}
-                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
-                    title="Move Up"
-                  >
-                    <ArrowUp className="w-4 h-4" />
-                  </button>
-
-                  {/* Move Down */}
-                  <button
-                    onClick={() => moveSection(index, 'down')}
-                    disabled={index === sections.length - 1}
-                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-all cursor-pointer"
-                    title="Move Down"
-                  >
-                    <ArrowDown className="w-4 h-4" />
-                  </button>
+                {/* Section Granular Dimensions & Layout Controls */}
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2.5 mt-2 border-t border-slate-800/80 text-[10px]">
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-0.5">Width:</label>
+                    <select
+                      value={section.width || 'max-w-7xl'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSections(prev => prev.map(s => s.id === section.id ? { ...s, width: val } : s));
+                      }}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="max-w-7xl">Standard (7XL)</option>
+                      <option value="max-w-5xl">Compact (5XL)</option>
+                      <option value="max-w-full">Full Width</option>
+                      <option value="max-w-4xl">Narrow (4XL)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-0.5">Height:</label>
+                    <select
+                      value={section.height || 'auto'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSections(prev => prev.map(s => s.id === section.id ? { ...s, height: val } : s));
+                      }}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="min-h-[140px]">Compact</option>
+                      <option value="min-h-[220px]">Standard</option>
+                      <option value="min-h-[320px]">Tall</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-0.5">Padding:</label>
+                    <select
+                      value={section.padding || 'py-6'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSections(prev => prev.map(s => s.id === section.id ? { ...s, padding: val } : s));
+                      }}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="py-6">Standard (py-6)</option>
+                      <option value="py-2">Compact (py-2)</option>
+                      <option value="py-10">Spacious (py-10)</option>
+                      <option value="py-0">None (py-0)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-0.5">Spacing:</label>
+                    <select
+                      value={section.spacing || 'space-y-6'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSections(prev => prev.map(s => s.id === section.id ? { ...s, spacing: val } : s));
+                      }}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="space-y-6">Standard (space-y-6)</option>
+                      <option value="space-y-3">Compact (space-y-3)</option>
+                      <option value="space-y-10">Relaxed (space-y-10)</option>
+                      <option value="space-y-0">None</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-0.5">Mobile Size:</label>
+                    <select
+                      value={section.mobileSize || 'standard'}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setSections(prev => prev.map(s => s.id === section.id ? { ...s, mobileSize: val } : s));
+                      }}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="compact">Compact</option>
+                      <option value="standard">Standard</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-0.5">Desktop Size:</label>
+                    <select
+                      value={section.desktopSize || 'standard'}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setSections(prev => prev.map(s => s.id === section.id ? { ...s, desktopSize: val } : s));
+                      }}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="compact">Compact</option>
+                      <option value="standard">Standard</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             ))}
@@ -677,6 +777,58 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                       {gradientOptions.map(g => (
                         <option key={g.value} value={g.value}>{g.label}</option>
                       ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Card Width:</label>
+                    <select
+                      value={card.width || 'w-full'}
+                      onChange={(e) => handleUpdateCard(card.id, { width: e.target.value })}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="w-full">Full (w-full)</option>
+                      <option value="w-1/2">Half (w-1/2)</option>
+                      <option value="w-auto">Auto</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Card Height:</label>
+                    <select
+                      value={card.height || 'h-auto'}
+                      onChange={(e) => handleUpdateCard(card.id, { height: e.target.value })}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="h-auto">Auto</option>
+                      <option value="min-h-[160px]">Compact (160px)</option>
+                      <option value="min-h-[220px]">Standard (220px)</option>
+                      <option value="min-h-[280px]">Tall (280px)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Card Padding:</label>
+                    <select
+                      value={card.padding || 'p-5 sm:p-6'}
+                      onChange={(e) => handleUpdateCard(card.id, { padding: e.target.value })}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="p-5 sm:p-6">Standard (p-5)</option>
+                      <option value="p-3 sm:p-4">Compact (p-3)</option>
+                      <option value="p-7 sm:p-8">Spacious (p-7)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Card Spacing:</label>
+                    <select
+                      value={card.spacing || 'space-y-4'}
+                      onChange={(e) => handleUpdateCard(card.id, { spacing: e.target.value })}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="space-y-4">Standard (space-y-4)</option>
+                      <option value="space-y-2">Compact (space-y-2)</option>
+                      <option value="space-y-6">Spacious (space-y-6)</option>
                     </select>
                   </div>
                 </div>

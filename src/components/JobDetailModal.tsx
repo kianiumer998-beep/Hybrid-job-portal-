@@ -132,7 +132,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           )}
 
           {/* Real Newspaper Clipping or Image Media Preview (if authentic media exists) */}
-          {((job.isNewspaperAd && job.clippingImageUrl) || job.mediaUrl) && (
+          {(job.clippingImageUrl || job.mediaUrl) && (
             <div className="p-4 bg-slate-950/90 border border-teal-500/30 rounded-xl space-y-3">
               <div className="flex items-center justify-between text-xs font-bold text-teal-300">
                 <span>📰 Official Media / Newspaper Classified Ad Clipping</span>

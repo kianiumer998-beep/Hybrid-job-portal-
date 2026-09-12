@@ -278,6 +278,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || raw.isGovtJob,
           isNewspaperAd: (target as any).category === 'Newspaper Classified',
           newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : undefined,
+          clippingImageUrl: raw.clippingImageUrl || raw.mediaUrl || undefined,
+          pdfSourceUrl: raw.pdfSourceUrl || (raw.sourceUrl && typeof raw.sourceUrl === 'string' && raw.sourceUrl.toLowerCase().endsWith('.pdf') ? raw.sourceUrl : undefined),
+          extractedText: raw.extractedText || raw.rawText || undefined,
+          mediaUrl: raw.mediaUrl || raw.clippingImageUrl || undefined,
           status: (target.autoApprove && options.autoPublishTrusted) ? 'Approved' : 'Pending'
         };
 

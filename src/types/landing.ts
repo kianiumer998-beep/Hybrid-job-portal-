@@ -35,6 +35,10 @@ export interface CustomLandingCard {
   desktopVisible?: boolean;
   mobileSize?: 'compact' | 'standard' | 'large';
   desktopSize?: 'compact' | 'standard' | 'large';
+  width?: string;
+  height?: string;
+  padding?: string;
+  spacing?: string;
 }
 
 export type LandingSectionId = 
@@ -53,6 +57,12 @@ export interface LandingSectionOrder {
   order: number;
   mobileVisible?: boolean;
   desktopVisible?: boolean;
+  mobileSize?: 'compact' | 'standard' | 'large';
+  desktopSize?: 'compact' | 'standard' | 'large';
+  width?: string;
+  height?: string;
+  padding?: string;
+  spacing?: string;
 }
 
 export interface CategoryPostingFee {

@@ -30,7 +30,9 @@ export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
   badgeText: 'HR Support',
   unreadCount: 1,
   mobileSize: 'compact',
-  desktopSize: 'standard'
+  desktopSize: 'standard',
+  bubbleSize: 'standard',
+  iconSize: 'standard'
 };
 
 interface WhatsAppStickyButtonProps {

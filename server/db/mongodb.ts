@@ -86,6 +86,11 @@ export async function getScraperGroupsCollection(): Promise<Collection<any>> {
   return db.collection('scraper_groups');
 }
 
+export async function getSettingsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('site_settings');
+}
+
 let indexesInitialized = false;
 async function initMongoIndexes(db: Db): Promise<void> {
   if (indexesInitialized) return;
@@ -95,6 +100,7 @@ async function initMongoIndexes(db: Db): Promise<void> {
     const scraperSourcesColl = db.collection('scraper_sources');
     const scraperRunsColl = db.collection('scraper_runs');
     const scraperGroupsColl = db.collection('scraper_groups');
+    const settingsColl = db.collection('site_settings');
 
     await Promise.all([
       jobsColl.createIndex({ id: 1 }, { unique: true, background: true }),
@@ -109,10 +115,11 @@ async function initMongoIndexes(db: Db): Promise<void> {
       scraperSourcesColl.createIndex({ id: 1 }, { unique: true, background: true }),
       scraperRunsColl.createIndex({ id: 1 }, { unique: true, background: true }),
       scraperRunsColl.createIndex({ startedAt: -1 }, { background: true }),
-      scraperGroupsColl.createIndex({ id: 1 }, { unique: true, background: true })
+      scraperGroupsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      settingsColl.createIndex({ key: 1 }, { unique: true, background: true })
     ]);
     indexesInitialized = true;
-    console.log('[MongoDB] Jobs, pending_jobs, scraper_sources, scraper_runs, and scraper_groups indexes ensured.');
+    console.log('[MongoDB] Jobs, pending_jobs, scraper_sources, scraper_runs, scraper_groups, and site_settings indexes ensured.');
   } catch (err: any) {
     console.warn('[MongoDB] Index creation notice:', err.message);
   }

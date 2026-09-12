@@ -96,6 +96,12 @@ export interface PromoDiscountBanner {
   bgGradient?: string;
   ctaText?: string;
   ctaUrl?: string;
+  imageUrl?: string;
+  order?: number;
+  mobileSize?: 'compact' | 'standard' | 'large';
+  desktopSize?: 'compact' | 'standard' | 'large';
+  mobileVisible?: boolean;
+  desktopVisible?: boolean;
 }
 
 export interface JobPostingFeeSettings {

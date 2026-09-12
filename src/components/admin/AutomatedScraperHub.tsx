@@ -84,6 +84,7 @@ export interface ScraperRunRecord {
   sourceId?: string;
   sourceIds?: string[];
   executionTimeMs?: number;
+  sourcesStats?: any[];
   discoveredJobs?: Array<{
     title: string;
     company: string;
@@ -198,6 +199,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [sourceGroups, setSourceGroups] = useState<SourceGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
   const [healthFilter, setHealthFilter] = useState<string>('all');
+  const [copiedSourceId, setCopiedSourceId] = useState<string | null>(null);
+  const [lastRunSourcesStats, setLastRunSourcesStats] = useState<any[]>([]);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupModalMode, setGroupModalMode] = useState<'create' | 'edit'>('create');
   const [editingGroup, setEditingGroup] = useState<SourceGroup | null>(null);
@@ -208,6 +211,44 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [localPendingJobs, setLocalPendingJobs] = useState<Job[]>(pendingJobs || []);
   const [isProcessingReview, setIsProcessingReview] = useState(false);
   const [isRefreshingReview, setIsRefreshingReview] = useState(false);
+
+  const handleCopyUrl = (url: string, id: string) => {
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    setCopiedSourceId(id);
+    setTimeout(() => setCopiedSourceId(null), 2000);
+    setStatusMessage({ text: `Copied URL to clipboard: ${url}`, type: 'info' });
+  };
+
+  const handleMoveSourceGroup = async (sourceId: string, targetGroupId: string | null) => {
+    try {
+      const res = await api.scraper.moveSourceToGroup(sourceId, targetGroupId);
+      if (res?.success) {
+        setStatusMessage({ text: 'Source group updated successfully.', type: 'success' });
+        await fetchLiveScraperData();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to move source group.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error moving source group.', type: 'error' });
+    }
+  };
+
+  const handleBulkMoveSourcesGroup = async (targetGroupId: string | null) => {
+    if (selectedSourceIds.length === 0) return;
+    try {
+      const res = await api.scraper.bulkMoveSourcesToGroup(selectedSourceIds, targetGroupId);
+      if (res?.success) {
+        setStatusMessage({ text: `Moved ${selectedSourceIds.length} sources successfully.`, type: 'success' });
+        setSelectedSourceIds([]);
+        await fetchLiveScraperData();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to move sources.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error moving sources.', type: 'error' });
+    }
+  };
 
   // -------------------------------------------------------------
   // Data Fetching: Live MongoDB Scraper APIs
@@ -626,6 +667,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       const res = await api.scraper.run(payload);
       if (res?.success) {
+        if (Array.isArray(res.sourcesStats)) {
+          setLastRunSourcesStats(res.sourcesStats);
+        }
         const found = res.totalFound || 0;
         const approved = res.jobsAccepted || res.approvedCount || 0;
         const duplicates = res.totalDuplicates || 0;
@@ -1046,6 +1090,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     try {
       const res = await api.scraper.runGroup(groupId);
       if (res?.success) {
+        if (Array.isArray(res.sourcesStats)) {
+          setLastRunSourcesStats(res.sourcesStats);
+        }
         setStatusMessage({
           text: `Group "${targetGroup.name}" scraped! Found ${res.totalFound || 0} jobs, ${res.duplicatesFound || 0} duplicates.`,
           type: 'success'
@@ -1078,6 +1125,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     try {
       const res = await api.scraper.retrySources(targetSourceIds, retryAllFailed);
       if (res?.success) {
+        if (Array.isArray(res.sourcesStats)) {
+          setLastRunSourcesStats(res.sourcesStats);
+        }
         logMessage(`[RETRY COMPLETED] Found ${res.totalFound || 0} jobs, ${res.duplicatesFound || 0} duplicates`);
         setStatusMessage({
           text: `Retry completed! Harvested ${res.totalFound || 0} jobs across ${res.retriedCount || count} retried sources.`,
@@ -2015,24 +2065,45 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <span>Retry Selected ({selectedSourceIds.length})</span>
                 </button>
 
-                {/* Add to Group Dropdown */}
+                {/* Add / Move to Group Dropdown */}
                 {sourceGroups.length > 0 && (
-                  <select
-                    defaultValue=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddSourcesToGroup(e.target.value, selectedSourceIds);
-                        e.target.value = '';
-                      }
-                    }}
-                    aria-label="Add selected to group"
-                    className="px-2.5 py-1.5 bg-slate-900 border border-indigo-700/60 rounded-lg text-xs text-indigo-200 focus:outline-none"
-                  >
-                    <option value="" disabled>+ Add to Group...</option>
-                    {sourceGroups.map(g => (
-                      <option key={g.id} value={g.id}>Group: {g.name}</option>
-                    ))}
-                  </select>
+                  <>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleAddSourcesToGroup(e.target.value, selectedSourceIds);
+                          e.target.value = '';
+                        }
+                      }}
+                      aria-label="Add selected to group"
+                      className="px-2.5 py-1.5 bg-slate-900 border border-indigo-700/60 rounded-lg text-xs text-indigo-200 focus:outline-none"
+                    >
+                      <option value="" disabled>+ Add to Group...</option>
+                      {sourceGroups.map(g => (
+                        <option key={g.id} value={g.id}>Group: {g.name}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value !== undefined && e.target.value !== '') {
+                          const targetVal = e.target.value === '__NONE__' ? null : e.target.value;
+                          handleBulkMoveSourcesGroup(targetVal);
+                          e.target.value = '';
+                        }
+                      }}
+                      aria-label="Move selected to group"
+                      className="px-2.5 py-1.5 bg-slate-900 border border-indigo-700/60 rounded-lg text-xs text-indigo-200 focus:outline-none"
+                    >
+                      <option value="" disabled>Move {selectedSourceIds.length} to...</option>
+                      <option value="__NONE__">Remove from all groups</option>
+                      {sourceGroups.map(g => (
+                        <option key={g.id} value={g.id}>Move to: {g.name}</option>
+                      ))}
+                    </select>
+                  </>
                 )}
 
                 {selectedGroupId !== 'all' && (
@@ -2128,16 +2199,31 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                               {source.category}
                             </span>
                           </td>
-                          <td className="p-4 max-w-[200px] truncate">
-                            <a
-                              href={source.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-slate-400 hover:text-indigo-400 flex items-center space-x-1 truncate"
-                            >
-                              <span className="truncate">{source.url}</span>
-                              <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                            </a>
+                          <td className="p-4 max-w-[220px]">
+                            <div className="flex items-center space-x-1.5">
+                              <a
+                                href={source.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-slate-400 hover:text-indigo-400 flex items-center space-x-1 truncate"
+                                title={source.url}
+                              >
+                                <span className="truncate max-w-[150px]">{source.url}</span>
+                                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyUrl(source.url, source.id)}
+                                className="p-1 rounded bg-slate-800 hover:bg-indigo-600 text-slate-400 hover:text-white transition-all shrink-0 cursor-pointer"
+                                title="Copy URL"
+                              >
+                                {copiedSourceId === source.id ? (
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                              </button>
+                            </div>
                           </td>
                           <td className="p-4">
                             <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[11px]">
@@ -2206,7 +2292,21 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                               {isActive ? 'Active' : 'Paused'}
                             </button>
                           </td>
-                          <td className="p-4 text-right space-x-1">
+                          <td className="p-4 text-right space-x-1 whitespace-nowrap">
+                            {sourceGroups.length > 0 && (
+                              <select
+                                value={sourceGroups.find(g => g.sourceIds?.includes(source.id))?.id || ''}
+                                onChange={(e) => handleMoveSourceGroup(source.id, e.target.value || null)}
+                                aria-label="Move Source Group"
+                                className="px-2 py-1 bg-slate-950 border border-slate-700 text-[10px] text-slate-300 rounded-lg focus:outline-none"
+                                title="Move/Change Group"
+                              >
+                                <option value="">(No Group)</option>
+                                {sourceGroups.map(g => (
+                                  <option key={g.id} value={g.id}>{g.name}</option>
+                                ))}
+                              </select>
+                            )}
                             <button
                               type="button"
                               onClick={() => {
@@ -2664,6 +2764,174 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               )}
             </div>
           </div>
+
+          {/* Individual Source Run Results (Status, Found, Error, Copy URL, Actions) */}
+          {(() => {
+            const activeSourcesStats = lastRunSourcesStats.length > 0
+              ? lastRunSourcesStats
+              : (liveRuns[0]?.sourcesStats || []);
+
+            return (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <BarChart2 className="w-4 h-4 text-emerald-400" />
+                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                      Source-by-Source Execution Results
+                    </h4>
+                    {activeSourcesStats.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">
+                        {activeSourcesStats.length} sources reported
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-2 text-xs">
+                    <span className="text-[11px] text-slate-400">
+                      <span className="text-emerald-400 font-bold">{activeSourcesStats.filter((s: any) => (s.found || 0) > 0 && !s.failed).length}</span> with jobs found •{' '}
+                      <span className="text-rose-400 font-bold">{activeSourcesStats.filter((s: any) => (s.found || 0) === 0 || s.failed).length}</span> 0 jobs/error
+                    </span>
+                  </div>
+                </div>
+
+                {activeSourcesStats.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-xs">
+                    No individual source breakdown available for recent runs yet. Run any source or scheduler above to view real-time source diagnostics.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950/80 text-slate-400 font-bold border-b border-slate-800">
+                        <tr>
+                          <th className="p-3">Source Name</th>
+                          <th className="p-3">Source URL</th>
+                          <th className="p-3 text-center">Status</th>
+                          <th className="p-3 text-center">Jobs Found</th>
+                          <th className="p-3 text-center">New / Duplicates</th>
+                          <th className="p-3">Error / Reason</th>
+                          <th className="p-3">Last Run</th>
+                          <th className="p-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                        {activeSourcesStats.map((stat: any, idx: number) => {
+                          const hasJobs = (stat.found || 0) > 0 && !stat.failed;
+                          const sourceItem = sourcesList.find(s => s.id === stat.sourceId || s.name === stat.sourceName);
+                          const sourceGroup = sourceGroups.find(g => g.sourceIds?.includes(stat.sourceId || sourceItem?.id || ''));
+
+                          return (
+                            <tr key={stat.sourceId || idx} className="hover:bg-slate-800/40 transition-all">
+                              <td className="p-3 font-bold text-white">
+                                <div className="flex items-center space-x-1.5">
+                                  <span>{stat.sourceName || 'Source'}</span>
+                                  {sourceGroup && (
+                                    <span className="text-[9px] px-1.5 py-0.5 bg-indigo-950/80 border border-indigo-800/50 text-indigo-300 rounded">
+                                      {sourceGroup.name}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3 max-w-[200px]">
+                                <div className="flex items-center space-x-1.5">
+                                  <a
+                                    href={stat.sourceUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-slate-400 hover:text-indigo-400 truncate max-w-[150px] inline-block"
+                                    title={stat.sourceUrl}
+                                  >
+                                    {stat.sourceUrl || '—'}
+                                  </a>
+                                  {stat.sourceUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyUrl(stat.sourceUrl, stat.sourceId || `stat-${idx}`)}
+                                      className="p-1 rounded bg-slate-800 hover:bg-indigo-600 text-slate-400 hover:text-white transition-all shrink-0 cursor-pointer"
+                                      title="Copy URL"
+                                    >
+                                      {copiedSourceId === (stat.sourceId || `stat-${idx}`) ? (
+                                        <Check className="w-3 h-3 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3 text-center">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                    hasJobs
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  }`}
+                                >
+                                  {hasJobs ? 'Jobs Found' : (stat.error ? 'Error / Failed' : 'No Jobs')}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center font-bold text-sm">
+                                <span className={hasJobs ? 'text-emerald-400' : 'text-slate-500'}>
+                                  {stat.found || 0}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center text-[11px] text-slate-400">
+                                <span className="text-emerald-300 font-semibold">{stat.newCount || 0} new</span>
+                                <span className="mx-1 text-slate-600">/</span>
+                                <span className="text-purple-300">{stat.dupCount || 0} dup</span>
+                              </td>
+                              <td className="p-3 text-xs max-w-[200px]">
+                                {stat.error ? (
+                                  <span className="text-rose-400 font-mono text-[11px] line-clamp-2" title={stat.error}>
+                                    {stat.error}
+                                  </span>
+                                ) : stat.found === 0 ? (
+                                  <span className="text-amber-400/80 text-[11px]">0 matching vacancies on page</span>
+                                ) : (
+                                  <span className="text-emerald-400/80 text-[11px]">Harvested successfully</span>
+                                )}
+                              </td>
+                              <td className="p-3 text-slate-400 text-[11px]">
+                                {stat.completedAt ? new Date(stat.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                              </td>
+                              <td className="p-3 text-right space-x-1 whitespace-nowrap">
+                                {stat.sourceId && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled={isScrapingActive}
+                                      onClick={() => handleRetrySources([stat.sourceId], false)}
+                                      className="p-1.5 bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 rounded-lg transition-all cursor-pointer inline-flex items-center disabled:opacity-50"
+                                      title="Retry Source"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                    {sourceGroups.length > 0 && (
+                                      <select
+                                        value={sourceGroup?.id || ''}
+                                        onChange={(e) => handleMoveSourceGroup(stat.sourceId, e.target.value || null)}
+                                        aria-label="Change Group"
+                                        className="px-2 py-1 bg-slate-950 border border-slate-700 text-[10px] text-slate-300 rounded-lg focus:outline-none"
+                                        title="Move/Change Group"
+                                      >
+                                        <option value="">(No Group)</option>
+                                        {sourceGroups.map(g => (
+                                          <option key={g.id} value={g.id}>{g.name}</option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -3668,6 +3936,28 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 {inspectingRun.message || 'No additional log messages recorded for this execution.'}
               </div>
             </div>
+
+            {Array.isArray(inspectingRun.sourcesStats) && inspectingRun.sourcesStats.length > 0 && (
+              <div className="space-y-2 text-xs">
+                <span className="font-bold text-slate-300">Sources Breakdown ({inspectingRun.sourcesStats.length} sources):</span>
+                <div className="max-h-48 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950 p-2 divide-y divide-slate-850">
+                  {inspectingRun.sourcesStats.map((st: any, i: number) => (
+                    <div key={i} className="py-1.5 flex items-center justify-between text-[11px]">
+                      <div className="flex items-center space-x-2 truncate max-w-[280px]">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${st.found > 0 && !st.failed ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                        <span className="font-bold text-slate-200 truncate">{st.sourceName}</span>
+                      </div>
+                      <div className="flex items-center space-x-3 text-slate-400 text-[10px]">
+                        <span className="text-emerald-400 font-bold">{st.found || 0} jobs</span>
+                        {st.error ? (
+                          <span className="text-rose-400 truncate max-w-[120px]" title={st.error}>{st.error}</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="pt-2 flex justify-end">
               <button

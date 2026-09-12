@@ -342,3 +342,44 @@ scraperRouter.post('/groups/:id/run', requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error executing group scraper' });
   }
 });
+
+scraperRouter.post('/sources/:id/move-group', requireAdmin, async (req, res) => {
+  try {
+    const { targetGroupId } = req.body;
+    const sourceId = req.params.id;
+    const groups = await ScraperRepository.getGroups();
+    for (const g of groups) {
+      if (g.sourceIds && g.sourceIds.includes(sourceId)) {
+        await ScraperRepository.removeSourcesFromGroup(g.id, [sourceId]);
+      }
+    }
+    if (targetGroupId && targetGroupId !== 'all' && targetGroupId !== 'none') {
+      await ScraperRepository.addSourcesToGroup(targetGroupId, [sourceId]);
+    }
+    res.json({ success: true, sourceId, targetGroupId });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error moving source group' });
+  }
+});
+
+scraperRouter.post('/sources/bulk-move-group', requireAdmin, async (req, res) => {
+  try {
+    const { sourceIds, targetGroupId } = req.body;
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No sourceIds provided' });
+    }
+    const groups = await ScraperRepository.getGroups();
+    for (const g of groups) {
+      const toRemove = sourceIds.filter(id => g.sourceIds?.includes(id));
+      if (toRemove.length > 0) {
+        await ScraperRepository.removeSourcesFromGroup(g.id, toRemove);
+      }
+    }
+    if (targetGroupId && targetGroupId !== 'all' && targetGroupId !== 'none') {
+      await ScraperRepository.addSourcesToGroup(targetGroupId, sourceIds);
+    }
+    res.json({ success: true, count: sourceIds.length, targetGroupId });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error bulk moving sources' });
+  }
+});

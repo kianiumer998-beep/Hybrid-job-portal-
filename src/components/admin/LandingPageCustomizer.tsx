@@ -296,8 +296,42 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2 shrink-0">
-                  {/* Toggle Visibility */}
+                  <div className="flex items-center space-x-2 shrink-0">
+                  {/* Mobile Visibility Toggle */}
+                  <button
+                    onClick={() => {
+                      setSections(prev =>
+                        prev.map(s => (s.id === section.id ? { ...s, mobileVisible: s.mobileVisible === false ? true : false } : s))
+                      );
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      section.mobileVisible !== false
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-slate-800 text-slate-500 line-through'
+                    }`}
+                    title="Toggle Mobile Visibility"
+                  >
+                    📱 {section.mobileVisible !== false ? 'Mobile' : 'No Mobile'}
+                  </button>
+
+                  {/* Desktop Visibility Toggle */}
+                  <button
+                    onClick={() => {
+                      setSections(prev =>
+                        prev.map(s => (s.id === section.id ? { ...s, desktopVisible: s.desktopVisible === false ? true : false } : s))
+                      );
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      section.desktopVisible !== false
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                        : 'bg-slate-800 text-slate-500 line-through'
+                    }`}
+                    title="Toggle Desktop Visibility"
+                  >
+                    💻 {section.desktopVisible !== false ? 'Desktop' : 'No Desktop'}
+                  </button>
+
+                  {/* Toggle Global Visibility */}
                   <button
                     onClick={() => toggleSectionEnabled(section.id)}
                     className={`p-2 rounded-xl transition-all cursor-pointer ${
@@ -622,17 +656,74 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-[10px] text-slate-400">Background Gradient:</label>
-                  <select
-                    value={card.bgGradient}
-                    onChange={(e) => handleUpdateCard(card.id, { bgGradient: e.target.value })}
-                    className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-slate-200"
-                  >
-                    {gradientOptions.map(g => (
-                      <option key={g.value} value={g.value}>{g.label}</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Image/Icon URL (Optional):</label>
+                    <input
+                      type="text"
+                      value={card.imageUrl || ''}
+                      onChange={(e) => handleUpdateCard(card.id, { imageUrl: e.target.value })}
+                      placeholder="https://..."
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Background Gradient:</label>
+                    <select
+                      value={card.bgGradient}
+                      onChange={(e) => handleUpdateCard(card.id, { bgGradient: e.target.value })}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-slate-200"
+                    >
+                      {gradientOptions.map(g => (
+                        <option key={g.value} value={g.value}>{g.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Mobile Size:</label>
+                    <select
+                      value={card.mobileSize || 'standard'}
+                      onChange={(e) => handleUpdateCard(card.id, { mobileSize: e.target.value as any })}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-bold"
+                    >
+                      <option value="compact">Compact (Mobile)</option>
+                      <option value="standard">Standard</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Desktop Size:</label>
+                    <select
+                      value={card.desktopSize || 'standard'}
+                      onChange={(e) => handleUpdateCard(card.id, { desktopSize: e.target.value as any })}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-bold"
+                    >
+                      <option value="compact">Compact</option>
+                      <option value="standard">Standard</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between pt-3">
+                    <label className="text-[10px] text-slate-300">Show Mobile:</label>
+                    <input
+                      type="checkbox"
+                      checked={card.mobileVisible !== false}
+                      onChange={(e) => handleUpdateCard(card.id, { mobileVisible: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-700 text-emerald-500"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between pt-3">
+                    <label className="text-[10px] text-slate-300">Show Desktop:</label>
+                    <input
+                      type="checkbox"
+                      checked={card.desktopVisible !== false}
+                      onChange={(e) => handleUpdateCard(card.id, { desktopVisible: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-700 text-indigo-500"
+                    />
+                  </div>
                 </div>
 
                 {/* Card Mockup Mini Preview */}
@@ -767,6 +858,67 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                       placeholder="#dashboard"
                       className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-mono"
                     />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Banner Image/Icon URL (Optional):</label>
+                    <input
+                      type="text"
+                      value={promo.imageUrl || ''}
+                      onChange={(e) => handleUpdatePromo(promo.id, { imageUrl: e.target.value })}
+                      placeholder="https://..."
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-mono"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div>
+                      <label className="text-[10px] text-slate-400">Mobile Size:</label>
+                      <select
+                        value={promo.mobileSize || 'standard'}
+                        onChange={(e) => handleUpdatePromo(promo.id, { mobileSize: e.target.value as any })}
+                        className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-bold"
+                      >
+                        <option value="compact">Compact</option>
+                        <option value="standard">Standard</option>
+                        <option value="large">Large</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-slate-400">Desktop Size:</label>
+                      <select
+                        value={promo.desktopSize || 'standard'}
+                        onChange={(e) => handleUpdatePromo(promo.id, { desktopSize: e.target.value as any })}
+                        className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-bold"
+                      >
+                        <option value="compact">Compact</option>
+                        <option value="standard">Standard</option>
+                        <option value="large">Large</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <label className="text-[10px] text-slate-300">Mobile:</label>
+                      <input
+                        type="checkbox"
+                        checked={promo.mobileVisible !== false}
+                        onChange={(e) => handleUpdatePromo(promo.id, { mobileVisible: e.target.checked })}
+                        className="rounded bg-slate-950 border-slate-700 text-emerald-500"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <label className="text-[10px] text-slate-300">Desktop:</label>
+                      <input
+                        type="checkbox"
+                        checked={promo.desktopVisible !== false}
+                        onChange={(e) => handleUpdatePromo(promo.id, { desktopVisible: e.target.checked })}
+                        className="rounded bg-slate-950 border-slate-700 text-indigo-500"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -14,7 +14,7 @@ function ensureDir(dirPath: string) {
   }
 }
 
-function safeReadJson<T>(filename: string, fallback: T): T {
+export function safeReadJson<T>(filename: string, fallback: T): T {
   ensureDir(DATA_DIR);
   const filePath = path.join(DATA_DIR, filename);
   if (!fs.existsSync(filePath)) {
@@ -42,7 +42,7 @@ function safeReadJson<T>(filename: string, fallback: T): T {
   return fallback;
 }
 
-function safeWriteJson<T>(filename: string, data: T): void {
+export function safeWriteJson<T>(filename: string, data: T): void {
   ensureDir(DATA_DIR);
   const filePath = path.join(DATA_DIR, filename);
   const tempPath = `${filePath}.tmp.${Date.now()}_${process.pid}_${Math.random().toString(36).substring(2, 9)}`;

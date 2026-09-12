@@ -443,7 +443,51 @@ export default function App() {
     } catch {}
 
     loadBackendJobs();
+
+    // Fetch live MongoDB-backed settings for landing page, campaigns, and WhatsApp widget
+    api.settings.getLanding().then(res => {
+      if (res?.success && res.config) setLandingConfig(res.config);
+    }).catch(() => {});
+
+    api.settings.getCampaigns().then(res => {
+      if (res?.success && res.config) setCampaignConfig(res.config);
+    }).catch(() => {});
+
+    api.settings.getWhatsApp().then(res => {
+      if (res?.success && res.config) setWhatsAppSupportConfig(res.config);
+    }).catch(() => {});
   }, [loadBackendJobs]);
+
+  // MongoDB-backed Settings Updaters with localStorage fallback
+  const handleUpdateLandingConfig = async (newConfig: LandingPageConfig) => {
+    setLandingConfig(newConfig);
+    try {
+      localStorage.setItem('hybrid_landing_page_config', JSON.stringify(newConfig));
+      await api.settings.updateLanding(newConfig);
+    } catch (e) {
+      console.error('[App] Failed to sync landing config to MongoDB:', e);
+    }
+  };
+
+  const handleUpdateCampaignConfig = async (newConfig: CampaignCustomizationConfig) => {
+    setCampaignConfig(newConfig);
+    try {
+      localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(newConfig));
+      await api.settings.updateCampaigns(newConfig);
+    } catch (e) {
+      console.error('[App] Failed to sync campaign config to MongoDB:', e);
+    }
+  };
+
+  const handleUpdateWhatsAppConfig = async (newConfig: WhatsAppSupportConfig) => {
+    setWhatsAppSupportConfig(newConfig);
+    try {
+      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(newConfig));
+      await api.settings.updateWhatsApp(newConfig);
+    } catch (e) {
+      console.error('[App] Failed to sync WhatsApp config to MongoDB:', e);
+    }
+  };
 
   // Chat Messages State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
@@ -1596,16 +1640,16 @@ export default function App() {
             onResetAdMetrics={handleResetAdMetrics}
             pricingConfig={pricingConfig}
             onUpdatePricingConfig={setPricingConfig}
-            campaignConfig={campaignConfig}
-            onUpdateCampaignConfig={setCampaignConfig}
             onApproveAd={handleApproveAd}
             onRejectAd={handleRejectAd}
             jobPostingPricing={jobPostingPricing}
             onChangeJobPostingPricing={setJobPostingPricing}
             landingConfig={landingConfig}
-            onUpdateLandingConfig={setLandingConfig}
+            onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
-            onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
+            onUpdateWhatsAppConfig={handleUpdateWhatsAppConfig}
+            campaignConfig={campaignConfig}
+            onUpdateCampaignConfig={handleUpdateCampaignConfig}
             paymentTransactions={paymentTransactions}
             onApprovePaymentTransaction={handleApprovePaymentTransaction}
             onRejectPaymentTransaction={handleRejectPaymentTransaction}
@@ -1619,19 +1663,31 @@ export default function App() {
                   .filter((sec) => sec.isEnabled)
                   .sort((a, b) => a.order - b.order)
                   .map((section) => {
+                    // Check responsive visibility
+                    const isSecMobileHidden = section.mobileVisible === false;
+                    const isSecDesktopHidden = section.desktopVisible === false;
+                    if (isSecMobileHidden && isSecDesktopHidden) return null;
+
+                    const secResponsiveClass = isSecMobileHidden
+                      ? 'hidden md:block'
+                      : isSecDesktopHidden
+                      ? 'block md:hidden'
+                      : 'block';
+
                     if (section.id === 'hero') {
                       return (
-                        <HeroSection
-                          key="section-hero"
-                          heroConfig={landingConfig.hero}
-                          totalJobsCount={jobs.length}
-                          onExploreClick={() => {
-                            const el = document.getElementById('jobs-section');
-                            el?.scrollIntoView({ behavior: 'smooth' });
-                          }}
-                          onCvClick={() => setActiveTab('cv')}
-                          onPostJobClick={handlePostJobClick}
-                        />
+                        <div key="section-hero" className={secResponsiveClass}>
+                          <HeroSection
+                            heroConfig={landingConfig.hero}
+                            totalJobsCount={jobs.length}
+                            onExploreClick={() => {
+                              const el = document.getElementById('jobs-section');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            onCvClick={() => setActiveTab('cv')}
+                            onPostJobClick={handlePostJobClick}
+                          />
+                        </div>
                       );
                     }
 
@@ -1639,44 +1695,78 @@ export default function App() {
                       const activeBanners = (campaignConfig.promoBanners || []).filter(b => b.isEnabled);
                       if (activeBanners.length === 0) return null;
                       return (
-                        <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
-                          {activeBanners.map((banner) => (
-                            <div
-                              key={banner.id}
-                              className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}
-                            >
-                              <div className="space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
-                                    {banner.badgeText || '🔥 SPECIAL OFFER'}
-                                  </span>
-                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
-                                    {banner.discountPercent}% OFF
-                                  </span>
-                                  {banner.promoCode && (
-                                    <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
-                                      Use Code: {banner.promoCode}
-                                    </span>
-                                  )}
-                                </div>
-                                <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
-                                <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
-                              </div>
+                        <div key="section-promo" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3`}>
+                          {activeBanners.map((banner) => {
+                            const isBannerMobileHidden = banner.mobileVisible === false;
+                            const isBannerDesktopHidden = banner.desktopVisible === false;
+                            if (isBannerMobileHidden && isBannerDesktopHidden) return null;
 
-                              <button
-                                onClick={() => {
-                                  if (currentUser) {
-                                    setActiveTab('dashboard');
-                                  } else {
-                                    setAuthModalOpen(true);
-                                  }
-                                }}
-                                className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                            const bannerRespClass = isBannerMobileHidden
+                              ? 'hidden md:flex'
+                              : isBannerDesktopHidden
+                              ? 'flex md:hidden'
+                              : 'flex';
+
+                            const isCompactMobile = banner.mobileSize === 'compact';
+                            const isLargeDesktop = banner.desktopSize === 'large';
+
+                            return (
+                              <div
+                                key={banner.id}
+                                className={`relative overflow-hidden rounded-2xl ${isCompactMobile ? 'p-3 sm:p-5' : 'p-4 sm:p-5'} ${isLargeDesktop ? 'md:p-7' : ''} bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 ${bannerRespClass} flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 border border-white/20`}
                               >
-                                {banner.ctaText || 'Book Discount Ad'} →
-                              </button>
-                            </div>
-                          ))}
+                                <div className="flex items-start sm:items-center space-x-3 w-full sm:w-auto">
+                                  {banner.imageUrl && (
+                                    <img
+                                      src={banner.imageUrl}
+                                      alt={banner.title}
+                                      className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl object-cover shrink-0 border border-white/30 shadow"
+                                    />
+                                  )}
+                                  <div className="space-y-1">
+                                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
+                                        {banner.badgeText || '🔥 SPECIAL OFFER'}
+                                      </span>
+                                      <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
+                                        {banner.discountPercent}% OFF
+                                      </span>
+                                      {banner.promoCode && (
+                                        <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
+                                          Use Code: {banner.promoCode}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
+                                    <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => {
+                                    if (banner.ctaUrl?.startsWith('#')) {
+                                      const targetTab = banner.ctaUrl.replace('#', '') as any;
+                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(targetTab)) {
+                                        setActiveTab(targetTab);
+                                      } else {
+                                        const el = document.getElementById(targetTab);
+                                        el?.scrollIntoView({ behavior: 'smooth' });
+                                      }
+                                    } else if (banner.ctaUrl?.startsWith('http')) {
+                                      window.location.href = banner.ctaUrl;
+                                    } else if (currentUser) {
+                                      setActiveTab('dashboard');
+                                    } else {
+                                      setAuthModalOpen(true);
+                                    }
+                                  }}
+                                  className="w-full sm:w-auto text-center px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                                >
+                                  {banner.ctaText || 'Book Discount Ad'} →
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     }
@@ -1687,7 +1777,7 @@ export default function App() {
 
                     if (section.id === 'quick-stats') {
                       return (
-                        <div key="section-stats" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div key="section-stats" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8`}>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
                             <div className="p-3 text-center">
                               <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
@@ -1714,38 +1804,64 @@ export default function App() {
                       const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
                       if (activeCards.length === 0) return null;
                       return (
-                        <div key="section-cards" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div key="section-cards" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8`}>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {activeCards.sort((a, b) => a.order - b.order).map((card) => (
-                              <div
-                                key={card.id}
-                                className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
-                              >
-                                <div className="space-y-2">
-                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
-                                    {card.badge}
-                                  </span>
-                                  <h4 className="text-lg font-black">{card.title}</h4>
-                                  <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    if (card.buttonUrl?.startsWith('#')) {
-                                      const tab = card.buttonUrl.replace('#', '') as any;
-                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
-                                        setActiveTab(tab);
-                                      } else {
-                                        const el = document.getElementById(tab);
-                                        el?.scrollIntoView({ behavior: 'smooth' });
-                                      }
-                                    }
-                                  }}
-                                  className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
+                            {activeCards.sort((a, b) => a.order - b.order).map((card) => {
+                              const isCardMobileHidden = card.mobileVisible === false;
+                              const isCardDesktopHidden = card.desktopVisible === false;
+                              if (isCardMobileHidden && isCardDesktopHidden) return null;
+
+                              const cardRespClass = isCardMobileHidden
+                                ? 'hidden md:flex'
+                                : isCardDesktopHidden
+                                ? 'flex md:hidden'
+                                : 'flex';
+
+                              const isCompactMobile = card.mobileSize === 'compact';
+                              const isLargeDesktop = card.desktopSize === 'large';
+
+                              return (
+                                <div
+                                  key={card.id}
+                                  className={`rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white ${cardRespClass} flex-col justify-between space-y-4 shadow-xl ${isCompactMobile ? 'p-4 sm:p-6' : 'p-5 sm:p-6'} ${isLargeDesktop ? 'md:p-8' : ''}`}
                                 >
-                                  {card.buttonText} →
-                                </button>
-                              </div>
-                            ))}
+                                  <div className="space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
+                                        {card.badge}
+                                      </span>
+                                      {card.imageUrl && (
+                                        <img
+                                          src={card.imageUrl}
+                                          alt={card.title}
+                                          className="w-8 h-8 rounded-lg object-cover border border-white/20"
+                                        />
+                                      )}
+                                    </div>
+                                    <h4 className="text-lg font-black">{card.title}</h4>
+                                    <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      if (card.buttonUrl?.startsWith('#')) {
+                                        const tab = card.buttonUrl.replace('#', '') as any;
+                                        if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
+                                          setActiveTab(tab);
+                                        } else {
+                                          const el = document.getElementById(tab);
+                                          el?.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                      } else if (card.buttonUrl?.startsWith('http')) {
+                                        window.location.href = card.buttonUrl;
+                                      }
+                                    }}
+                                    className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
+                                  >
+                                    {card.buttonText} →
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
@@ -1753,7 +1869,7 @@ export default function App() {
 
                     if (section.id === 'jobs-feed') {
                       return (
-                        <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+                        <div key="section-jobs-feed" id="jobs-section" className={`${secResponsiveClass} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6`}>
                           
                           {/* Active Country Filter Notification Badge */}
                           {userSelectedCountry && userSelectedCountry.code !== 'GL' && (

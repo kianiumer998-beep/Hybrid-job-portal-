@@ -14,6 +14,8 @@ export interface WhatsAppSupportConfig {
   unreadCount?: number;      // e.g. 1
   mobileSize?: 'compact' | 'standard' | 'large';
   desktopSize?: 'compact' | 'standard' | 'large';
+  bubbleSize?: 'compact' | 'standard' | 'large';
+  iconSize?: 'compact' | 'standard' | 'large';
 }
 
 export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
@@ -69,16 +71,20 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
     ? 'left-4 sm:left-7' 
     : 'right-4 sm:right-7';
 
-  // Size calculation
-  const buttonSizeClass = config.mobileSize === 'compact'
-    ? 'w-12 h-12 sm:w-16 sm:h-16'
-    : config.mobileSize === 'large'
-    ? 'w-16 h-16 sm:w-16 sm:h-16'
-    : 'w-14 h-14 sm:w-16 sm:h-16';
+  // Responsive size calculation
+  const mobileBtn = config.mobileSize === 'compact' ? 'w-12 h-12' : config.mobileSize === 'large' ? 'w-16 h-16' : 'w-14 h-14';
+  const desktopBtn = config.desktopSize === 'compact' ? 'sm:w-14 sm:h-14' : config.desktopSize === 'large' ? 'sm:w-20 sm:h-20' : 'sm:w-16 sm:h-16';
+  const buttonSizeClass = `${mobileBtn} ${desktopBtn}`;
 
-  const iconSizeClass = config.mobileSize === 'compact'
-    ? 'w-6 h-6 sm:w-8 sm:h-8'
-    : 'w-7 h-7 sm:w-8 sm:h-8';
+  const mobileIcon = config.iconSize === 'compact' ? 'w-5 h-5' : config.iconSize === 'large' ? 'w-7 h-7' : (config.mobileSize === 'compact' ? 'w-6 h-6' : 'w-7 h-7');
+  const desktopIcon = config.iconSize === 'compact' ? 'sm:w-6 sm:h-6' : config.iconSize === 'large' ? 'sm:w-10 sm:h-10' : (config.desktopSize === 'large' ? 'sm:w-10 sm:h-10' : config.desktopSize === 'compact' ? 'sm:w-7 sm:h-7' : 'sm:w-8 sm:h-8');
+  const iconSizeClass = `${mobileIcon} ${desktopIcon}`;
+
+  const bubbleWidthClass = config.bubbleSize === 'compact'
+    ? 'w-60 sm:w-72 p-2.5 sm:p-3'
+    : config.bubbleSize === 'large'
+    ? 'w-72 sm:w-96 p-4 sm:p-5'
+    : 'w-64 sm:w-80 p-3 sm:p-4';
 
   return (
     <div 
@@ -89,7 +95,7 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
       {isOpenPrompt && (
         <div 
           id="whatsapp-prompt-bubble"
-          className="mb-2.5 sm:mb-3 w-64 sm:w-80 bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl p-3 sm:p-4 shadow-2xl text-slate-100 animate-bounce-subtle relative"
+          className={`mb-2.5 sm:mb-3 ${bubbleWidthClass} bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl shadow-2xl text-slate-100 animate-bounce-subtle relative`}
         >
           <button
             onClick={(e) => {

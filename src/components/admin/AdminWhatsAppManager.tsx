@@ -289,7 +289,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1.5">
                   Mobile Button Size
@@ -299,7 +299,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                   onChange={(e) => setFormData({ ...formData, mobileSize: e.target.value as any })}
                   className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="compact">Compact (48px - Recommended)</option>
+                  <option value="compact">Compact (48px)</option>
                   <option value="standard">Standard (56px)</option>
                   <option value="large">Large (64px)</option>
                 </select>
@@ -316,10 +316,42 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 >
                   <option value="compact">Compact (56px)</option>
                   <option value="standard">Standard (64px)</option>
-                  <option value="large">Large (72px)</option>
+                  <option value="large">Large (80px)</option>
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Icon Scale
+                </label>
+                <select
+                  value={formData.iconSize || 'standard'}
+                  onChange={(e) => setFormData({ ...formData, iconSize: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="compact">Compact Icon</option>
+                  <option value="standard">Standard Icon</option>
+                  <option value="large">Large Icon</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Speech Bubble Size
+                </label>
+                <select
+                  value={formData.bubbleSize || 'standard'}
+                  onChange={(e) => setFormData({ ...formData, bubbleSize: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="compact">Compact Bubble</option>
+                  <option value="standard">Standard Bubble</option>
+                  <option value="large">Large Bubble</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1.5">
                   Unread Badge Count

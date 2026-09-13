@@ -151,6 +151,15 @@ export default function App() {
         durationPresets: Array.isArray(parsed.durationPresets) && parsed.durationPresets.length > 0
           ? parsed.durationPresets
           : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+        badgePresets: Array.isArray(parsed.badgePresets) && parsed.badgePresets.length > 0
+          ? parsed.badgePresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.badgePresets,
+        ctaPresets: Array.isArray(parsed.ctaPresets) && parsed.ctaPresets.length > 0
+          ? parsed.ctaPresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.ctaPresets,
+        promoBanners: Array.isArray(parsed.promoBanners) && parsed.promoBanners.length > 0
+          ? parsed.promoBanners
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
         popupSettings: {
           ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
           ...(parsed.popupSettings || {})

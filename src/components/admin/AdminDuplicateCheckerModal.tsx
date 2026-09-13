@@ -76,10 +76,14 @@ export const AdminDuplicateCheckerModal: React.FC<AdminDuplicateCheckerModalProp
       });
     }
 
-    if (onBulkSelectDuplicateIds && duplicateIds.length > 0) {
-      onBulkSelectDuplicateIds(duplicateIds);
+    if (duplicateIds.length === 0) return;
+
+    if (window.confirm(`Select all ${duplicateIds.length} duplicate entries across ${totalClusters} clusters for bulk processing?`)) {
+      if (onBulkSelectDuplicateIds) {
+        onBulkSelectDuplicateIds(duplicateIds);
+      }
+      onClose();
     }
-    onClose();
   };
 
   return (
@@ -210,7 +214,9 @@ export const AdminDuplicateCheckerModal: React.FC<AdminDuplicateCheckerModalProp
                                 type="button"
                                 onClick={() => {
                                   const others = cluster.items.filter(it => it.id !== item.id).map(it => it.id);
-                                  onResolveJobDuplicates(item.id, others);
+                                  if (window.confirm(`Keep "${item.title}" (${item.id}) and remove ${others.length} duplicate version(s)?`)) {
+                                    onResolveJobDuplicates(item.id, others);
+                                  }
                                 }}
                                 className="px-2.5 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white text-[10px] font-bold border border-indigo-500/30 cursor-pointer"
                               >

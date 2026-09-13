@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdmin } from '../auth/authManager';
-import { JobRepository, AuditRepository } from '../db/repositories';
+import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
 
 export const jobRouter = Router();
 
@@ -67,6 +67,24 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
 // 3. Approve Pending Job
 jobRouter.post('/queue/pending/:id/approve', requireAdmin, async (req, res) => {
   try {
+    const { force } = req.body || {};
+    const pendingList = await JobRepository.getPending();
+    const targetJob = pendingList.find(j => j.id === req.params.id);
+
+    if (targetJob && !force) {
+      const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
+      const otherPending = pendingList.filter(j => j.id !== req.params.id);
+      const dupCheck = detectJobDuplicate(targetJob, liveJobs, otherPending);
+      if (dupCheck.isDuplicate && dupCheck.confidence >= 80) {
+        return res.status(409).json({
+          success: false,
+          isDuplicate: true,
+          duplicateResult: dupCheck,
+          message: `Approval blocked: Detected as duplicate of "${dupCheck.matchedExistingJob?.title || 'existing listing'}" (${dupCheck.confidence}% match). Pass force: true to override.`
+        });
+      }
+    }
+
     const approved = await JobRepository.approvePending(req.params.id);
     if (!approved) {
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
@@ -131,25 +149,52 @@ jobRouter.post('/bulk-delete', requireAdmin, async (req, res) => {
 // 6. Bulk Approve Pending Jobs
 jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, force = false } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Array of job IDs is required.' });
     }
-    const result = await JobRepository.bulkApprovePending(ids);
+
+    let idsToApprove = ids;
+    let duplicateWarnings: any[] = [];
+
+    if (!force) {
+      const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
+      const allPending = await JobRepository.getPending();
+      const validIds: string[] = [];
+
+      for (const id of ids) {
+        const pendingJob = allPending.find(j => j.id === id);
+        if (pendingJob) {
+          const otherPending = allPending.filter(j => j.id !== id);
+          const dup = detectJobDuplicate(pendingJob, liveJobs, otherPending);
+          if (dup.isDuplicate && dup.confidence >= 80) {
+            duplicateWarnings.push({ id, title: pendingJob.title, match: dup });
+            continue;
+          }
+        }
+        validIds.push(id);
+      }
+      idsToApprove = validIds;
+    }
+
+    const result = await JobRepository.bulkApprovePending(idsToApprove);
     AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Approved',
-      target: `${result.successCount} jobs approved (${result.failureCount} failed)`,
+      target: `${result.successCount} jobs approved (${result.failureCount} failed, ${duplicateWarnings.length} duplicates skipped)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
     });
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
+      skippedDuplicatesCount: duplicateWarnings.length,
+      duplicateWarnings,
       errors: result.errors,
       approvedCount: result.successCount,
-      approvedJobs: result.approvedJobs
+      approvedJobs: result.approvedJobs,
+      message: `${result.successCount} jobs approved.${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}`
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-approve:', err);
@@ -569,6 +614,19 @@ jobRouter.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Job title and company name are required.' });
     }
 
+    const user = (req as any).user;
+    const userId = user?.userId || user?.id || jobData.userId || jobData.postedBy;
+    if (userId) {
+      const restriction = await NotificationRepository.checkUserRestricted(userId, 'post_job');
+      if (restriction.restricted) {
+        return res.status(403).json({
+          success: false,
+          message: restriction.reason || 'You are restricted from posting jobs due to an incomplete mandatory requirement.',
+          notification: restriction.notification
+        });
+      }
+    }
+
     const newJob: any = {
       ...jobData,
       slug: generateJobSlug(jobData.title, jobData.city, jobData.id),
@@ -576,7 +634,6 @@ jobRouter.post('/', async (req, res) => {
       applicationsCount: 0
     };
 
-    const user = (req as any).user;
     const canCreateApproved = Boolean(
       user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role)
     );

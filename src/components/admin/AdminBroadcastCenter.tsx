@@ -61,8 +61,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
           sentAt: n.createdAt ? new Date(n.createdAt).toLocaleString() : undefined,
           status: n.status === 'published' ? 'Sent' : 'Draft',
           recipientsCount: n.recipientsCount || n.viewCount || 0,
-          openRate: n.viewCount ? Math.min(100, Math.round((n.viewCount / Math.max(1, n.recipientsCount || 1)) * 100)) : 85,
-          clickRate: n.clickCount ? Math.min(100, Math.round((n.clickCount / Math.max(1, n.viewCount || 1)) * 100)) : 32
+          openRate: n.viewCount && n.recipientsCount ? Math.min(100, Math.round((n.viewCount / Math.max(1, n.recipientsCount)) * 100)) : undefined,
+          clickRate: n.clickCount && n.viewCount ? Math.min(100, Math.round((n.clickCount / Math.max(1, n.viewCount)) * 100)) : undefined
         }));
 
         if (mappedCampaigns.length > 0) {
@@ -437,18 +437,18 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-4 font-mono text-right">
-                  {camp.openRate && (
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase">Open Rate</span>
-                      <span className="font-bold text-emerald-400">{camp.openRate}%</span>
-                    </div>
-                  )}
-                  {camp.clickRate && (
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase">Click CTR</span>
-                      <span className="font-bold text-amber-400">{camp.clickRate}%</span>
-                    </div>
-                  )}
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase">Open Rate</span>
+                    <span className={`font-bold ${camp.openRate !== undefined && camp.openRate > 0 ? 'text-emerald-400' : 'text-slate-500 text-[11px]'}`}>
+                      {camp.openRate !== undefined && camp.openRate > 0 ? `${camp.openRate}%` : 'Not tracked'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase">Click CTR</span>
+                    <span className={`font-bold ${camp.clickRate !== undefined && camp.clickRate > 0 ? 'text-amber-400' : 'text-slate-500 text-[11px]'}`}>
+                      {camp.clickRate !== undefined && camp.clickRate > 0 ? `${camp.clickRate}%` : 'Not tracked'}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

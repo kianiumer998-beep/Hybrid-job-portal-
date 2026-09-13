@@ -40,8 +40,8 @@ export interface BulkNotificationBroadcast {
   ctaText?: string;
   ctaUrl?: string;
   recipientsCount: number;
-  openRatePercent: number;
-  clickRatePercent: number;
+  openRatePercent?: number;
+  clickRatePercent?: number;
   status: 'Delivered' | 'Scheduled' | 'Failed';
   isMandatory?: boolean;
   mandatoryActionType?: string;
@@ -62,8 +62,6 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     ctaText: 'Explore Remote Roles',
     ctaUrl: '#jobs',
     recipientsCount: 4280,
-    openRatePercent: 68.4,
-    clickRatePercent: 24.1,
     status: 'Delivered'
   },
   {
@@ -78,8 +76,6 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     ctaText: 'Build ATS CV Now',
     ctaUrl: '#cv',
     recipientsCount: 8940,
-    openRatePercent: 52.0,
-    clickRatePercent: 19.5,
     status: 'Delivered'
   },
   {
@@ -94,8 +90,6 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     ctaText: 'Launch Campaign Slot',
     ctaUrl: '#dashboard',
     recipientsCount: 1450,
-    openRatePercent: 41.2,
-    clickRatePercent: 12.8,
     status: 'Delivered'
   }
 ];
@@ -206,8 +200,8 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
           ctaText: n.ctaText,
           ctaUrl: n.ctaUrl,
           recipientsCount: n.recipientsCount || n.viewCount || 0,
-          openRatePercent: n.viewCount ? Math.min(100, Math.round((n.viewCount / Math.max(1, n.recipientsCount || 1)) * 100)) : 82,
-          clickRatePercent: n.clickCount ? Math.min(100, Math.round((n.clickCount / Math.max(1, n.viewCount || 1)) * 100)) : 29,
+          openRatePercent: n.viewCount && n.recipientsCount ? Math.min(100, Math.round((n.viewCount / Math.max(1, n.recipientsCount)) * 100)) : undefined,
+          clickRatePercent: n.clickCount && n.viewCount ? Math.min(100, Math.round((n.clickCount / Math.max(1, n.viewCount)) * 100)) : undefined,
           status: 'Delivered',
           isMandatory: n.isMandatory,
           mandatoryActionType: n.mandatoryActionType,
@@ -319,8 +313,6 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
         ctaText: ctaText.trim() || undefined,
         ctaUrl: ctaUrl.trim() || undefined,
         recipientsCount: audienceEstimate,
-        openRatePercent: Math.round(55 + Math.random() * 20),
-        clickRatePercent: Math.round(15 + Math.random() * 12),
         status: 'Delivered',
         isMandatory,
         mandatoryActionType: isMandatory ? mandatoryActionType : undefined,
@@ -852,11 +844,19 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                   <td className="py-3 text-right font-mono font-bold text-slate-200">
                     {item.recipientsCount.toLocaleString()}
                   </td>
-                  <td className="py-3 text-right font-mono font-bold text-emerald-400">
-                    {item.openRatePercent}%
+                  <td className="py-3 text-right font-mono text-xs">
+                    {item.openRatePercent !== undefined && item.openRatePercent > 0 ? (
+                      <span className="font-bold text-emerald-400">{item.openRatePercent}%</span>
+                    ) : (
+                      <span className="text-slate-500">Not tracked</span>
+                    )}
                   </td>
-                  <td className="py-3 text-right font-mono font-bold text-indigo-400">
-                    {item.clickRatePercent}%
+                  <td className="py-3 text-right font-mono text-xs">
+                    {item.clickRatePercent !== undefined && item.clickRatePercent > 0 ? (
+                      <span className="font-bold text-indigo-400">{item.clickRatePercent}%</span>
+                    ) : (
+                      <span className="text-slate-500">Not tracked</span>
+                    )}
                   </td>
                   <td className="py-3 text-right">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">

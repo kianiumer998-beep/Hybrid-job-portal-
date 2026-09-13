@@ -48,18 +48,23 @@ import {
 import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X, Layers, Globe, MapPin, Zap } from 'lucide-react';
 import { SiteSeoConfig } from './types/adminSuite';
 import { INITIAL_SITE_SEO_CONFIG } from './data/mockAdminSuiteData';
-import { 
-  LandingPageConfig, 
+import { LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
   CountryOption, 
   SUPPORTED_COUNTRIES 
 } from './types/landing';
 import { safeLocalStorageSet, safeLocalStorageGet } from './utils/safeStorage';
+import { NotificationCenterModal } from './components/notifications/NotificationCenterModal';
+import { NotificationPopupModal } from './components/notifications/NotificationPopupModal';
+import { MandatoryActionModal } from './components/notifications/MandatoryActionModal';
+import { NotificationItem } from './types/notification';
 
 export default function App() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
-  const [showAdminView, setShowAdminView] = useState<boolean>(false);
+  const [showAdminView, setShowAdminView] = useState<boolean>(() => {
+    return safeLocalStorageGet<string>('hybrid_admin_view_active', 'false') === 'true';
+  });
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
   // User Country Selection State (Pop-up on entry if not set)
@@ -531,6 +536,162 @@ export default function App() {
     }).catch(() => {});
   }, [loadBackendJobs]);
 
+  // Validate existing admin authentication / session on app startup & restore admin view if valid
+  useEffect(() => {
+    const token = localStorage.getItem('hybrid_auth_token');
+    const wasAdminViewActive = safeLocalStorageGet<string>('hybrid_admin_view_active', 'false') === 'true';
+
+    if (!token) {
+      setIsAdminLoggedIn(false);
+      setShowAdminView(false);
+      safeLocalStorageSet('hybrid_admin_view_active', 'false');
+      return;
+    }
+
+    api.auth.me().then((res) => {
+      const adminRoles = [
+        'super admin',
+        'admin',
+        'job moderator',
+        'scraper manager',
+        'payment manager',
+        'finance manager',
+        'seo manager',
+        'advertisement manager'
+      ];
+      const userRole = res?.user?.role ? res.user.role.toLowerCase() : '';
+      const isAdmin = res?.success && res?.user && (adminRoles.includes(userRole) || userRole.includes('admin'));
+
+      if (isAdmin) {
+        setIsAdminLoggedIn(true);
+        if (wasAdminViewActive) {
+          setShowAdminView(true);
+        } else {
+          setShowAdminView(false);
+        }
+      } else {
+        setIsAdminLoggedIn(false);
+        setShowAdminView(false);
+        safeLocalStorageSet('hybrid_admin_view_active', 'false');
+      }
+    }).catch(() => {
+      setIsAdminLoggedIn(false);
+      setShowAdminView(false);
+      safeLocalStorageSet('hybrid_admin_view_active', 'false');
+    });
+  }, []);
+
+  // Load User Notifications from MongoDB (Single Source of Truth)
+  const loadUserNotifications = useCallback(async () => {
+    try {
+      const res = await api.notifications.getActive(
+        currentUser ? {
+          userId: currentUser.id,
+          role: currentUser.role,
+          plan: currentUser.plan,
+          membershipStatus: currentUser.membershipStatus
+        } : undefined
+      );
+
+      if (res?.success && Array.isArray(res.notifications)) {
+        setUserNotifications(res.notifications);
+        const unread = res.notifications.filter(n => !n.userState?.read).length;
+        setUnreadNotificationCount(unread);
+
+        // Check for active mandatory restriction for logged-in user
+        if (currentUser) {
+          const mandatoryNotif = res.notifications.find(
+            n => n.isMandatory && !n.userState?.completed && !n.userState?.adminOverridden
+          );
+          setActiveMandatoryNotification(mandatoryNotif || null);
+        } else {
+          setActiveMandatoryNotification(null);
+        }
+
+        // Check for popup notification to display on page load
+        const popupNotif = res.notifications.find(
+          n => n.channels?.popup && !n.userState?.read && (!n.isMandatory || !n.userState?.completed)
+        );
+        if (popupNotif) {
+          setActivePopupNotification(popupNotif);
+        }
+      }
+    } catch (err) {
+      console.warn('[App] Failed to load user notifications:', err);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    loadUserNotifications();
+  }, [loadUserNotifications]);
+
+  // Notification Action Handlers
+  const handleMarkNotificationRead = async (id: string) => {
+    try {
+      await api.notifications.markRead(id, currentUser?.id);
+      setUserNotifications(prev => prev.map(n => n.id === id ? {
+        ...n,
+        userState: {
+          read: true,
+          readAt: new Date().toISOString(),
+          dismissed: n.userState?.dismissed ?? false,
+          dismissedAt: n.userState?.dismissedAt,
+          completed: n.userState?.completed ?? false,
+          completedAt: n.userState?.completedAt,
+          adminOverridden: n.userState?.adminOverridden
+        }
+      } : n));
+      setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error('Failed to mark notification read:', err);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      await api.notifications.markAllRead(currentUser?.id);
+      setUserNotifications(prev => prev.map(n => ({
+        ...n,
+        userState: {
+          read: true,
+          readAt: new Date().toISOString(),
+          dismissed: n.userState?.dismissed ?? false,
+          dismissedAt: n.userState?.dismissedAt,
+          completed: n.userState?.completed ?? false,
+          completedAt: n.userState?.completedAt,
+          adminOverridden: n.userState?.adminOverridden
+        }
+      })));
+      setUnreadNotificationCount(0);
+    } catch (err) {
+      console.error('Failed to mark all notifications read:', err);
+    }
+  };
+
+  const handleDismissNotification = async (id: string) => {
+    try {
+      await api.notifications.dismiss(id, currentUser?.id);
+      setUserNotifications(prev => prev.filter(n => n.id !== id));
+      setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error('Failed to dismiss notification:', err);
+    }
+  };
+
+  const handleCompleteMandatoryAction = async (notificationId: string, metadata?: any) => {
+    try {
+      const res = await api.notifications.completeMandatory(notificationId, currentUser?.id, metadata);
+      if (res?.success) {
+        setActiveMandatoryNotification(null);
+        await loadUserNotifications();
+      } else {
+        alert(res?.message || 'Failed to complete mandatory action.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to complete mandatory action.');
+    }
+  };
+
   // MongoDB-backed Settings Updaters with localStorage fallback
   const handleUpdateLandingConfig = async (newConfig: LandingPageConfig) => {
     setLandingConfig(newConfig);
@@ -678,6 +839,13 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
+
+  // User Notifications & Mandatory Portal Actions State (MongoDB Single Source of Truth)
+  const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState<boolean>(false);
+  const [activePopupNotification, setActivePopupNotification] = useState<NotificationItem | null>(null);
+  const [activeMandatoryNotification, setActiveMandatoryNotification] = useState<NotificationItem | null>(null);
 
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
@@ -1657,6 +1825,7 @@ export default function App() {
         setActiveTab={(tab) => {
           setActiveTab(tab);
           setShowAdminView(false);
+          safeLocalStorageSet('hybrid_admin_view_active', 'false');
         }}
         isSubscribed={isSubscribed}
         onOpenSubscriptionModal={() => {
@@ -1667,10 +1836,16 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         isAdminLoggedIn={isAdminLoggedIn}
-        onToggleAdminView={() => setShowAdminView(!showAdminView)}
+        onToggleAdminView={() => {
+          const next = !showAdminView;
+          setShowAdminView(next);
+          safeLocalStorageSet('hybrid_admin_view_active', next ? 'true' : 'false');
+        }}
         showAdminView={showAdminView}
         activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
         onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
+        unreadNotificationsCount={unreadNotificationCount}
+        onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
       />
 
       {/* Main View Area */}
@@ -1724,7 +1899,10 @@ export default function App() {
             onBulkDeleteFeeLogs={(logIds) => setJobPostingFeeLogs(prev => prev.filter(l => !logIds.includes(l.id)))}
             monthlyFeePkr={monthlyFeePkr}
             onChangeMonthlyFee={setMonthlyFeePkr}
-            onExitAdmin={() => setShowAdminView(false)}
+            onExitAdmin={() => {
+              setShowAdminView(false);
+              safeLocalStorageSet('hybrid_admin_view_active', 'false');
+            }}
             ads={advertisements}
             onAddAd={handleAddAd}
             onUpdateAd={handleUpdateAd}
@@ -2199,7 +2377,42 @@ export default function App() {
         onLoginSuccess={() => {
           setIsAdminLoggedIn(true);
           setShowAdminView(true);
+          safeLocalStorageSet('hybrid_admin_view_active', 'true');
         }}
+      />
+
+      {/* User Notification Center Modal */}
+      <NotificationCenterModal
+        isOpen={isNotificationCenterOpen}
+        onClose={() => setIsNotificationCenterOpen(false)}
+        notifications={userNotifications}
+        unreadCount={unreadNotificationCount}
+        onMarkRead={handleMarkNotificationRead}
+        onMarkAllRead={handleMarkAllNotificationsRead}
+        onDismiss={handleDismissNotification}
+        onTriggerMandatoryAction={(notif) => {
+          setIsNotificationCenterOpen(false);
+          setActiveMandatoryNotification(notif);
+        }}
+      />
+
+      {/* User Popup Notification Modal */}
+      <NotificationPopupModal
+        notification={activePopupNotification}
+        onClose={() => setActivePopupNotification(null)}
+        onMarkRead={handleMarkNotificationRead}
+        onTriggerMandatoryAction={(notif) => {
+          setActivePopupNotification(null);
+          setActiveMandatoryNotification(notif);
+        }}
+      />
+
+      {/* Mandatory Action Modal */}
+      <MandatoryActionModal
+        notification={activeMandatoryNotification}
+        currentUser={currentUser}
+        onComplete={handleCompleteMandatoryAction}
+        onClose={() => setActiveMandatoryNotification(null)}
       />
 
       {/* Country Selection Modal (Urdu/English First-Time & Switcher) */}

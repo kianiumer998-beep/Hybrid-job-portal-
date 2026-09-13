@@ -631,6 +631,9 @@ export const api = {
         { headers: getAuthHeader() }
       );
     },
+    async getForUser(params?: { userId?: string; role?: string; plan?: string; membershipStatus?: string }) {
+      return this.getActive(params);
+    },
     async getAdminAll() {
       return safeFetchJson<{ success: boolean; notifications: any[] }>(
         `${API_BASE}/notifications/admin/all`,
@@ -666,7 +669,7 @@ export const api = {
         }
       );
     },
-    async markRead(id: string, userId: string) {
+    async markRead(id: string, userId?: string) {
       return safeFetchJson<{ success: boolean; message?: string }>(
         `${API_BASE}/notifications/${id}/read`,
         {
@@ -676,7 +679,7 @@ export const api = {
         }
       );
     },
-    async markAllRead(userId: string) {
+    async markAllRead(userId?: string) {
       return safeFetchJson<{ success: boolean; message?: string }>(
         `${API_BASE}/notifications/read-all`,
         {
@@ -686,7 +689,7 @@ export const api = {
         }
       );
     },
-    async dismiss(id: string, userId: string) {
+    async dismiss(id: string, userId?: string) {
       return safeFetchJson<{ success: boolean; message?: string }>(
         `${API_BASE}/notifications/${id}/dismiss`,
         {
@@ -696,7 +699,15 @@ export const api = {
         }
       );
     },
-    async completeMandatory(id: string, userId: string, metadata?: any) {
+    async completeMandatory(id: string, userIdOrMetadata?: any, maybeMetadata?: any) {
+      let userId: string | undefined;
+      let metadata: any;
+      if (typeof userIdOrMetadata === 'string') {
+        userId = userIdOrMetadata;
+        metadata = maybeMetadata;
+      } else {
+        metadata = userIdOrMetadata;
+      }
       return safeFetchJson<{ success: boolean; message?: string; policyVersion?: string }>(
         `${API_BASE}/notifications/${id}/complete-mandatory`,
         {

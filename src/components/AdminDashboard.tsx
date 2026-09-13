@@ -449,29 +449,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   };
 
-  // Helper for computing duplicate scraped & pending jobs
-  const computeScrapedDuplicates = (jobList: Job[]) => {
-    const keyMap = new Map<string, Job[]>();
+  // Helper for computing duplicate scraped & pending jobs (Pending vs Pending + Pending vs Live)
+  const computeScrapedDuplicates = (jobList: Job[], liveJobList: Job[] = jobs) => {
+    // 1. Build live jobs map
+    const liveKeyMap = new Map<string, Job>();
+    (liveJobList || []).forEach(liveJob => {
+      if (!liveJob || !liveJob.title) return;
+      const normalizedTitle = liveJob.title.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const normalizedCompany = (liveJob.company || liveJob.govtDepartment || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const key = `${normalizedTitle}_${normalizedCompany}`;
+      if (!liveKeyMap.has(key)) {
+        liveKeyMap.set(key, liveJob);
+      }
+    });
+
+    const pendingKeyMap = new Map<string, Job>();
+    const duplicateJobIds: string[] = [];
+    const uniqueJobs: Job[] = [];
+    const duplicatesInfo: Array<{
+      job: Job;
+      duplicateType: 'Live Duplicate' | 'Pending Duplicate';
+      matchedWith: Job;
+    }> = [];
+
     jobList.forEach(job => {
       if (!job || !job.title) return;
       const normalizedTitle = job.title.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
       const normalizedCompany = (job.company || job.govtDepartment || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
       const key = `${normalizedTitle}_${normalizedCompany}`;
-      if (!keyMap.has(key)) {
-        keyMap.set(key, []);
-      }
-      keyMap.get(key)!.push(job);
-    });
 
-    const duplicateJobIds: string[] = [];
-    const uniqueJobs: Job[] = [];
-
-    keyMap.forEach((group) => {
-      if (group.length > 0) {
-        uniqueJobs.push(group[0]); // Keep the first as unique
-        if (group.length > 1) {
-          group.slice(1).forEach(dup => duplicateJobIds.push(dup.id));
-        }
+      // Check against live jobs first
+      if (liveKeyMap.has(key)) {
+        duplicateJobIds.push(job.id);
+        duplicatesInfo.push({
+          job,
+          duplicateType: 'Live Duplicate',
+          matchedWith: liveKeyMap.get(key)!
+        });
+      } else if (pendingKeyMap.has(key)) {
+        // Check against earlier pending jobs
+        duplicateJobIds.push(job.id);
+        duplicatesInfo.push({
+          job,
+          duplicateType: 'Pending Duplicate',
+          matchedWith: pendingKeyMap.get(key)!
+        });
+      } else {
+        // Unique
+        pendingKeyMap.set(key, job);
+        uniqueJobs.push(job);
       }
     });
 
@@ -479,7 +505,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       duplicateCount: duplicateJobIds.length,
       duplicateIds: duplicateJobIds,
       uniqueCount: uniqueJobs.length,
-      uniqueJobs
+      uniqueJobs,
+      liveDuplicateCount: duplicatesInfo.filter(d => d.duplicateType === 'Live Duplicate').length,
+      pendingDuplicateCount: duplicatesInfo.filter(d => d.duplicateType === 'Pending Duplicate').length,
+      duplicatesInfo
     };
   };
 

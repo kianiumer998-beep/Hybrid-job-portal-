@@ -132,7 +132,8 @@ notificationRouter.delete('/admin/:id', requireAdmin, async (req, res) => {
 // 6. User: Mark notification as read
 notificationRouter.post('/:id/read', authenticateOptionalUser, async (req, res) => {
   try {
-    const userId = req.body.userId || (req as any).user?.id;
+    const user = (req as any).user;
+    const userId = user ? (user.id || user.userId) : req.body.userId;
     if (!userId) {
       return res.status(400).json({ success: false, message: 'User ID is required to mark read.' });
     }
@@ -148,7 +149,8 @@ notificationRouter.post('/:id/read', authenticateOptionalUser, async (req, res) 
 // 7. User: Mark all notifications as read
 notificationRouter.post('/read-all', authenticateOptionalUser, async (req, res) => {
   try {
-    const userId = req.body.userId || (req as any).user?.id;
+    const user = (req as any).user;
+    const userId = user ? (user.id || user.userId) : req.body.userId;
     if (!userId) {
       return res.status(400).json({ success: false, message: 'User ID is required to mark all read.' });
     }
@@ -164,7 +166,8 @@ notificationRouter.post('/read-all', authenticateOptionalUser, async (req, res) 
 // 8. User: Dismiss notification
 notificationRouter.post('/:id/dismiss', authenticateOptionalUser, async (req, res) => {
   try {
-    const userId = req.body.userId || (req as any).user?.id;
+    const user = (req as any).user;
+    const userId = user ? (user.id || user.userId) : req.body.userId;
     if (!userId) {
       return res.status(400).json({ success: false, message: 'User ID is required to dismiss.' });
     }
@@ -181,11 +184,12 @@ notificationRouter.post('/:id/dismiss', authenticateOptionalUser, async (req, re
 });
 
 // 9. User: Complete Mandatory Action (KYC submission, Terms acceptance, CTA confirmation, custom)
-notificationRouter.post('/:id/complete-mandatory', authenticateOptionalUser, async (req, res) => {
+notificationRouter.post('/:id/complete-mandatory', authenticateUser, async (req, res) => {
   try {
-    const userId = req.body.userId || (req as any).user?.id;
+    const user = (req as any).user;
+    const userId = user?.id || user?.userId;
     if (!userId) {
-      return res.status(400).json({ success: false, message: 'User ID is required to complete mandatory action.' });
+      return res.status(401).json({ success: false, message: 'Authentication required to complete mandatory actions.' });
     }
 
     const result = await NotificationRepository.completeMandatoryAction(
@@ -196,7 +200,7 @@ notificationRouter.post('/:id/complete-mandatory', authenticateOptionalUser, asy
 
     AuditRepository.add({
       user: userId,
-      role: 'User',
+      role: user.role || 'User',
       action: 'Mandatory Action Completed',
       target: `Notification ${req.params.id} (${result.policyVersion || 'Action'})`,
       status: 'Success'

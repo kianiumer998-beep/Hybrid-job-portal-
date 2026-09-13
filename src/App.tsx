@@ -136,7 +136,41 @@ export default function App() {
   // Campaign Customization & Portal Page Scheduling State
   const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(() => {
     const saved = localStorage.getItem('hybrid_campaign_customization_config');
-    return saved ? JSON.parse(saved) : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+    if (!saved) return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+    try {
+      const parsed = JSON.parse(saved);
+      return {
+        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+        ...parsed,
+        placementOptions: Array.isArray(parsed.placementOptions) && parsed.placementOptions.length > 0
+          ? parsed.placementOptions
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
+        portalPages: Array.isArray(parsed.portalPages) && parsed.portalPages.length > 0
+          ? parsed.portalPages
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
+        durationPresets: Array.isArray(parsed.durationPresets) && parsed.durationPresets.length > 0
+          ? parsed.durationPresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+        popupSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
+          ...(parsed.popupSettings || {})
+        },
+        feedInlineSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+          ...(parsed.feedInlineSettings || {})
+        },
+        formRules: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.formRules,
+          ...(parsed.formRules || {})
+        },
+        jobPostingFeeSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings,
+          ...(parsed.jobPostingFeeSettings || {})
+        }
+      };
+    } catch {
+      return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+    }
   });
 
   useEffect(() => {

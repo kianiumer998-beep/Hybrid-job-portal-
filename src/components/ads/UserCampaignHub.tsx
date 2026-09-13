@@ -11,6 +11,7 @@ import {
   CampaignCustomizationConfig,
   DEFAULT_AD_PRICING_CONFIG,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+  DEFAULT_PLACEMENT_OPTIONS,
   calculateCampaignCost,
   getPlacementDisplayName,
   getPageDisplayName,
@@ -301,10 +302,13 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
   // Slot availability info for selected placement
   const adsPool = allAds.length > 0 ? allAds : userAds;
+  const safePlacementOptions = Array.isArray(campaignConfig?.placementOptions) && campaignConfig.placementOptions.length > 0
+    ? campaignConfig.placementOptions
+    : DEFAULT_PLACEMENT_OPTIONS;
   const occupiedRanges = getOccupiedSlotRangesForPlacement(adsPool, formPlacement);
   const nextOpenDate = getNextAvailableDateForPlacement(adsPool, formPlacement);
   const isRunningNow = adsPool.some(a => a.placement === formPlacement && isAdCurrentlyRunning(a));
-  const selectedPlacementOpt = campaignConfig.placementOptions.find(p => p.id === formPlacement);
+  const selectedPlacementOpt = safePlacementOptions.find(p => p.id === formPlacement);
   const isPlacementFree = !!selectedPlacementOpt?.isFreeOverride;
   const userCtr = totalUserImpressions > 0 ? ((totalUserClicks / totalUserImpressions) * 100).toFixed(2) : '0.00';
 
@@ -761,12 +765,12 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     onChange={(e) => setFormPlacement(e.target.value as AdPlacement)}
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    {campaignConfig.placementOptions.filter(p => p.isEnabled).map((opt) => (
+                    {safePlacementOptions.filter(p => p.isEnabled).map((opt) => (
                       <option key={opt.id} value={opt.id}>
                         {opt.name} ({opt.multiplier}x Multiplier) - {opt.description}
                       </option>
                     ))}
-                    {campaignConfig.placementOptions.filter(p => p.isEnabled).length === 0 && (
+                    {safePlacementOptions.filter(p => p.isEnabled).length === 0 && (
                       <>
                         <option value="top-header">Top Sticky Header Announcement (1.25x)</option>
                         <option value="feed-inline">Job Listings Feed Inline Card (1.00x)</option>

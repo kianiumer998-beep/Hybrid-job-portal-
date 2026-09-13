@@ -5,7 +5,9 @@ import {
   AdStatus, 
   CampaignCustomizationConfig,
   isAdCurrentlyRunning,
-  formatTimeRemaining
+  formatTimeRemaining,
+  DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+  DEFAULT_PLACEMENT_OPTIONS
 } from '../../types/ad';
 import { 
   Megaphone, 
@@ -73,8 +75,8 @@ export function getCampaignDynamicStatus(ad: Advertisement): DynamicCampaignStat
 }
 
 export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
-  ads,
-  campaignConfig,
+  ads = [],
+  campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   onUpdateCampaignConfig,
   onUpdateAd,
   onDeleteAd,
@@ -82,6 +84,11 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   onApproveAd,
   onRejectAd
 }) => {
+  const safeAds = Array.isArray(ads) ? ads : [];
+  const safePlacementOptions = Array.isArray(campaignConfig?.placementOptions) && campaignConfig.placementOptions.length > 0
+    ? campaignConfig.placementOptions
+    : DEFAULT_PLACEMENT_OPTIONS;
+
   const [selectedPlacementFilter, setSelectedPlacementFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -93,11 +100,11 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
 
   // Placement Toggles
   const handleTogglePlacement = (placementId: AdPlacement) => {
-    const updatedOptions = campaignConfig.placementOptions.map((opt) =>
+    const updatedOptions = safePlacementOptions.map((opt) =>
       opt.id === placementId ? { ...opt, isEnabled: !opt.isEnabled } : opt
     );
     onUpdateCampaignConfig({
-      ...campaignConfig,
+      ...(campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG),
       placementOptions: updatedOptions
     });
   };
@@ -139,7 +146,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
 
   // Filtered Ads
   const filteredAds = useMemo(() => {
-    return ads.filter((ad) => {
+    return safeAds.filter((ad) => {
       if (selectedPlacementFilter !== 'all' && ad.placement !== selectedPlacementFilter) {
         return false;
       }
@@ -164,7 +171,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
 
       return true;
     });
-  }, [ads, selectedPlacementFilter, selectedStatusFilter, searchQuery]);
+  }, [safeAds, selectedPlacementFilter, selectedStatusFilter, searchQuery]);
 
   const placementIcons: Record<AdPlacement, any> = {
     'top-header': Megaphone,
@@ -187,7 +194,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
               Visual Advertisement & Campaign Command Center
             </span>
             <span className="text-emerald-400 text-xs font-bold font-mono">
-              ● {ads.length} Total Campaigns ({ads.filter(a => getCampaignDynamicStatus(a) === 'Active').length} Live Now)
+              ● {safeAds.length} Total Campaigns ({safeAds.filter(a => getCampaignDynamicStatus(a) === 'Active').length} Live Now)
             </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
@@ -211,7 +218,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {campaignConfig.placementOptions.map((opt) => {
+          {safePlacementOptions.map((opt) => {
             const Icon = placementIcons[opt.id] || Megaphone;
             return (
               <button

@@ -2414,8 +2414,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: VISUAL CAMPAIGN COMMAND CENTER & GRANULAR DATES */}
       {adminTab === 'campaign-center' && (
         <AdminCampaignCenter
-          ads={ads}
-          campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
+          ads={ads || []}
+          campaignConfig={
+            campaignConfig?.placementOptions
+              ? campaignConfig
+              : { ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG, ...(campaignConfig || {}) }
+          }
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
           onUpdateAd={onUpdateAd || (() => {})}
           onDeleteAd={onDeleteAd || (() => {})}

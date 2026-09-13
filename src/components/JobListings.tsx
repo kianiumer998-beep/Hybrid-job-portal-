@@ -36,6 +36,7 @@ interface JobListingsProps {
   isSubscribed: boolean;
   currentPage?: number;
   postsPerPage?: number;
+  postsPerPageOptions?: number[];
   onPageChange?: (page: number) => void;
   onPostsPerPageChange?: (postsPerPage: number) => void;
   ads?: Advertisement[];
@@ -53,6 +54,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
   isSubscribed,
   currentPage: controlledPage,
   postsPerPage: controlledPostsPerPage,
+  postsPerPageOptions = [10, 15, 20, 25, 50],
   onPageChange,
   onPostsPerPageChange,
   ads = [],
@@ -150,26 +152,54 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
   return (
     <div className="space-y-6 mb-12">
-      {/* Top Header Summary & Posts Per Page Selector */}
+      {/* Top Header Summary & Navigation / Posts Per Page Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-900/60 border border-slate-800/80 rounded-2xl px-5 py-3.5 shadow-md">
-        <div className="flex items-center space-x-2 text-xs text-slate-300">
-          <Layers className="w-4 h-4 text-emerald-400" />
-          <span>
-            Showing <strong className="text-white font-bold">{startIndex + 1}–{endIndex}</strong> of{' '}
-            <strong className="text-emerald-400 font-bold">{totalJobs}</strong> jobs
-          </span>
-          <span className="text-slate-600">•</span>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-300">
+          <div className="flex items-center space-x-1.5">
+            <Layers className="w-4 h-4 text-emerald-400" />
+            <span>
+              Showing <strong className="text-white font-bold">{startIndex + 1}–{endIndex}</strong> of{' '}
+              <strong className="text-emerald-400 font-bold">{totalJobs}</strong> jobs
+            </span>
+          </div>
+          <span className="text-slate-600 hidden sm:inline">•</span>
           <span className="text-slate-400">
             Page <strong className="text-slate-200">{safePage}</strong> of{' '}
             <strong className="text-slate-200">{totalPages}</strong>
           </span>
+
+          {/* Top Pagination Navigation Buttons */}
+          {totalPages > 1 && (
+            <div className="flex items-center space-x-1 sm:ml-2">
+              <button
+                type="button"
+                onClick={() => handlePageSelect(safePage - 1)}
+                disabled={safePage === 1}
+                className="px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold flex items-center space-x-0.5 cursor-pointer transition-all"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Prev</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePageSelect(safePage + 1)}
+                disabled={safePage === totalPages}
+                className="px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold flex items-center space-x-0.5 cursor-pointer transition-all"
+                title="Next Page"
+              >
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Posts per page filter options: 10, 15, 20 */}
+        {/* Posts per page options */}
         <div className="flex items-center space-x-2 self-start sm:self-auto">
           <span className="text-xs font-semibold text-slate-400">Posts per page:</span>
           <div className="inline-flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-            {[10, 15, 20].map((count) => {
+            {postsPerPageOptions.map((count) => {
               const isActive = postsPerPage === count;
               return (
                 <button
@@ -499,31 +529,11 @@ export const JobListings: React.FC<JobListingsProps> = ({
       {totalPages > 1 && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
           
-          {/* Left: Summary and Posts-Per-Page Selector */}
+          {/* Left: Summary */}
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
             <div>
               Showing <span className="font-bold text-white">{startIndex + 1}–{endIndex}</span> of{' '}
               <span className="font-bold text-emerald-400">{totalJobs}</span> total jobs
-            </div>
-            
-            <div className="hidden sm:flex items-center space-x-1.5 pl-3 border-l border-slate-800">
-              <span>Per page:</span>
-              <div className="inline-flex bg-slate-950 p-0.5 rounded-lg border border-slate-800">
-                {[10, 15, 20].map((count) => (
-                  <button
-                    key={count}
-                    type="button"
-                    onClick={() => handlePostsPerPageSelect(count)}
-                    className={`px-2 py-0.5 text-xs font-bold rounded ${
-                      postsPerPage === count
-                        ? 'bg-emerald-500 text-slate-950'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {count}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 

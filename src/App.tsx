@@ -175,6 +175,10 @@ export default function App() {
         jobPostingFeeSettings: {
           ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings,
           ...(parsed.jobPostingFeeSettings || {})
+        },
+        jobFeedSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobFeedSettings,
+          ...(parsed.jobFeedSettings || {})
         }
       };
     } catch {
@@ -493,7 +497,34 @@ export default function App() {
     }).catch(() => {});
 
     api.settings.getCampaigns().then(res => {
-      if (res?.success && res.config) setCampaignConfig(res.config);
+      if (res?.success && res.config) {
+        setCampaignConfig(prev => ({
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+          ...res.config,
+          jobFeedSettings: {
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobFeedSettings,
+            ...(res.config.jobFeedSettings || {})
+          },
+          placementOptions: Array.isArray(res.config.placementOptions) && res.config.placementOptions.length > 0
+            ? res.config.placementOptions
+            : (prev?.placementOptions || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions),
+          portalPages: Array.isArray(res.config.portalPages) && res.config.portalPages.length > 0
+            ? res.config.portalPages
+            : (prev?.portalPages || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages),
+          durationPresets: Array.isArray(res.config.durationPresets) && res.config.durationPresets.length > 0
+            ? res.config.durationPresets
+            : (prev?.durationPresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets),
+          badgePresets: Array.isArray(res.config.badgePresets) && res.config.badgePresets.length > 0
+            ? res.config.badgePresets
+            : (prev?.badgePresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.badgePresets),
+          ctaPresets: Array.isArray(res.config.ctaPresets) && res.config.ctaPresets.length > 0
+            ? res.config.ctaPresets
+            : (prev?.ctaPresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.ctaPresets),
+          promoBanners: Array.isArray(res.config.promoBanners) && res.config.promoBanners.length > 0
+            ? res.config.promoBanners
+            : (prev?.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners)
+        }));
+      }
     }).catch(() => {});
 
     api.settings.getWhatsApp().then(res => {
@@ -690,7 +721,21 @@ export default function App() {
     };
   });
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [postsPerPage, setPostsPerPage] = useState<number>(10);
+  const [postsPerPage, setPostsPerPage] = useState<number>(() => {
+    const configured = campaignConfig?.jobFeedSettings?.defaultPostsPerPage;
+    return typeof configured === 'number' && configured > 0 ? configured : 10;
+  });
+
+  const postsPerPageOptions = useMemo<number[]>(() => {
+    const opts = campaignConfig?.jobFeedSettings?.postsPerPageOptions;
+    if (Array.isArray(opts) && opts.length > 0) {
+      const valid = opts.filter((n) => typeof n === 'number' && n > 0);
+      if (valid.length > 0) {
+        return Array.from(new Set(valid)).sort((a, b) => a - b);
+      }
+    }
+    return [10, 15, 20, 25, 50];
+  }, [campaignConfig?.jobFeedSettings?.postsPerPageOptions]);
 
   const handleSelectCountry = (country: CountryOption) => {
     setUserSelectedCountry(country);
@@ -1968,6 +2013,7 @@ export default function App() {
                             isSubscribed={isSubscribed}
                             currentPage={currentPage}
                             postsPerPage={postsPerPage}
+                            postsPerPageOptions={postsPerPageOptions}
                             onPageChange={setCurrentPage}
                             onPostsPerPageChange={handlePostsPerPageChange}
                             ads={advertisements}

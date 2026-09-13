@@ -136,6 +136,10 @@ export interface CampaignCustomizationConfig {
   feedInlineSettings: FeedInlineAdSettings;
   promoBanners: PromoDiscountBanner[];
   jobPostingFeeSettings?: JobPostingFeeSettings;
+  jobFeedSettings?: {
+    defaultPostsPerPage: number;
+    postsPerPageOptions: number[];
+  };
   formRules: {
     requireImage: boolean;
     requireAdminApproval: boolean;
@@ -480,6 +484,10 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
     customStandardFeePkr: 500,
     globalDiscountPercent: 0,
     promoBannerText: ''
+  },
+  jobFeedSettings: {
+    defaultPostsPerPage: 10,
+    postsPerPageOptions: [10, 15, 20, 25, 50]
   },
   formRules: {
     requireImage: false,

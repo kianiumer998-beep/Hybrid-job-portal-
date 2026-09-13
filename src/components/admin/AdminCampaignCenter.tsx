@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Advertisement, 
   AdPlacement, 
@@ -31,7 +31,8 @@ import {
   RotateCcw,
   Check,
   AlertTriangle,
-  Gift
+  Gift,
+  Sliders
 } from 'lucide-react';
 
 interface AdminCampaignCenterProps {
@@ -97,6 +98,94 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   const [editingDateAd, setEditingDateAd] = useState<Advertisement | null>(null);
   const [editStartDate, setEditStartDate] = useState<string>('');
   const [editEndDate, setEditEndDate] = useState<string>('');
+
+  // Job Feed & Inline Ads Settings State
+  const initialDefaultPosts = campaignConfig?.jobFeedSettings?.defaultPostsPerPage ?? 10;
+  const initialOptions = campaignConfig?.jobFeedSettings?.postsPerPageOptions ?? [10, 15, 20, 25, 50];
+  const initialMaxAds = campaignConfig?.feedInlineSettings?.maxAdsPerPage ?? 3;
+
+  const [feedDefaultPosts, setFeedDefaultPosts] = useState<number>(initialDefaultPosts);
+  const [feedOptionsInput, setFeedOptionsInput] = useState<string>(initialOptions.join(', '));
+  const [feedMaxAds, setFeedMaxAds] = useState<number>(initialMaxAds);
+  const [feedSettingsMsg, setFeedSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (campaignConfig?.jobFeedSettings) {
+      setFeedDefaultPosts(campaignConfig.jobFeedSettings.defaultPostsPerPage ?? 10);
+      if (Array.isArray(campaignConfig.jobFeedSettings.postsPerPageOptions)) {
+        setFeedOptionsInput(campaignConfig.jobFeedSettings.postsPerPageOptions.join(', '));
+      }
+    }
+    if (campaignConfig?.feedInlineSettings?.maxAdsPerPage !== undefined) {
+      setFeedMaxAds(campaignConfig.feedInlineSettings.maxAdsPerPage);
+    }
+  }, [campaignConfig]);
+
+  const handleSaveFeedSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFeedSettingsMsg(null);
+
+    const parsedOptions = feedOptionsInput
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !isNaN(n) && n > 0);
+    
+    const uniqueOptions = Array.from(new Set(parsedOptions)).sort((a, b) => a - b);
+
+    if (uniqueOptions.length === 0) {
+      setFeedSettingsMsg({
+        type: 'error',
+        text: 'Please enter at least one valid positive integer for allowed options (e.g. 10, 15, 20).'
+      });
+      return;
+    }
+
+    const def = parseInt(String(feedDefaultPosts), 10);
+    if (isNaN(def) || def <= 0) {
+      setFeedSettingsMsg({
+        type: 'error',
+        text: 'Default jobs per page must be a positive integer.'
+      });
+      return;
+    }
+
+    if (!uniqueOptions.includes(def)) {
+      setFeedSettingsMsg({
+        type: 'error',
+        text: `Default jobs per page (${def}) must be one of the allowed options [${uniqueOptions.join(', ')}].`
+      });
+      return;
+    }
+
+    const maxAds = parseInt(String(feedMaxAds), 10);
+    if (isNaN(maxAds) || maxAds < 0) {
+      setFeedSettingsMsg({
+        type: 'error',
+        text: 'Maximum inline ads per page must be a non-negative integer.'
+      });
+      return;
+    }
+
+    const updatedConfig: CampaignCustomizationConfig = {
+      ...(campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG),
+      jobFeedSettings: {
+        defaultPostsPerPage: def,
+        postsPerPageOptions: uniqueOptions
+      },
+      feedInlineSettings: {
+        ...(campaignConfig?.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings),
+        maxAdsPerPage: maxAds
+      }
+    };
+
+    onUpdateCampaignConfig(updatedConfig);
+    setFeedOptionsInput(uniqueOptions.join(', '));
+    setFeedSettingsMsg({
+      type: 'success',
+      text: 'Job feed and inline ad settings saved successfully!'
+    });
+    setTimeout(() => setFeedSettingsMsg(null), 4000);
+  };
 
   // Placement Toggles
   const handleTogglePlacement = (placementId: AdPlacement) => {
@@ -246,6 +335,95 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
             );
           })}
         </div>
+      </div>
+
+      {/* JOB FEED & INLINE ADS SETTINGS */}
+      <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800/80 pb-3">
+          <div className="flex items-center space-x-2">
+            <Sliders className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-black uppercase tracking-wider text-slate-300">
+              Job Feed & Inline Ads Settings
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-400">
+            Configure pagination sizes and inline sponsored ad frequency
+          </span>
+        </div>
+
+        <form onSubmit={handleSaveFeedSettings} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Default Jobs per Page
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={feedDefaultPosts}
+                onChange={(e) => setFeedDefaultPosts(parseInt(e.target.value, 10) || 0)}
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                placeholder="e.g. 10"
+                required
+              />
+              <span className="text-[10px] text-slate-500 mt-1 block">Initial page size for visitors</span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Allowed Options (comma-separated)
+              </label>
+              <input
+                type="text"
+                value={feedOptionsInput}
+                onChange={(e) => setFeedOptionsInput(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                placeholder="e.g. 10, 15, 20, 25, 50"
+                required
+              />
+              <span className="text-[10px] text-slate-500 mt-1 block">Must include default jobs per page</span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Max Inline Ads per Page
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={feedMaxAds}
+                onChange={(e) => setFeedMaxAds(parseInt(e.target.value, 10) || 0)}
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                placeholder="e.g. 3"
+                required
+              />
+              <span className="text-[10px] text-slate-500 mt-1 block">Limits sponsored insertions per page</span>
+            </div>
+          </div>
+
+          {feedSettingsMsg && (
+            <div className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 font-medium ${
+              feedSettingsMsg.type === 'success'
+                ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30'
+                : 'bg-rose-950/40 text-rose-300 border border-rose-500/30'
+            }`}>
+              {feedSettingsMsg.type === 'success' ? <Check className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+              <span>{feedSettingsMsg.text}</span>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-1">
+            <button
+              type="submit"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-md shadow-emerald-600/20 cursor-pointer flex items-center space-x-1.5"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Save Feed Settings</span>
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* FILTER & SEARCH COMMAND BAR */}

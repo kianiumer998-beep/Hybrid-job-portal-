@@ -124,6 +124,7 @@ export function extractJobsFromPdfText(
         department: org,
         tags: [scale, org, 'Original Gazette Job', 'Extracted from PDF'].filter(Boolean),
         description: `Official vacancy extracted from document:\n\n${trimmedChunk.substring(0, 1200)}`,
+        extractedText: trimmedChunk.trim(),
         requirements: qualificationSnippet ? [qualificationSnippet] : ['Refer to official advertisement for full qualification details'],
         benefits: ['Official Public Sector Remuneration and Allowances per Government Rules'],
         postedAt: 'Recent',

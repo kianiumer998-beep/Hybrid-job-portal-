@@ -1576,9 +1576,6 @@ export default function App() {
         showAdminView={showAdminView}
         activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
         onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
-        selectedCountryName={userSelectedCountry?.name || 'All Countries'}
-        selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
-        onOpenCountryModal={() => setShowCountryModal(true)}
       />
 
       {/* Main View Area */}
@@ -1884,24 +1881,16 @@ export default function App() {
                           
                           {/* Active Country Filter Notification Badge */}
                           {userSelectedCountry && userSelectedCountry.code !== 'GL' && (
-                            <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3 text-xs">
-                              <div className="flex items-center space-x-2.5">
-                                <span className="text-xl">{userSelectedCountry.flag}</span>
-                                <div>
-                                  <span className="font-bold text-white">
-                                    Showing Jobs for {userSelectedCountry.name} ({userSelectedCountry.nameUrdu})
-                                  </span>
-                                  <p className="text-[11px] text-slate-400">
-                                    Sorted by recently updated & priority verified listings.
-                                  </p>
-                                </div>
+                            <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-amber-500/30 rounded-2xl flex items-center space-x-2.5 text-xs">
+                              <span className="text-xl">{userSelectedCountry.flag}</span>
+                              <div>
+                                <span className="font-bold text-white">
+                                  Showing Jobs for {userSelectedCountry.name} ({userSelectedCountry.nameUrdu})
+                                </span>
+                                <p className="text-[11px] text-slate-400">
+                                  Sorted by recently updated & priority verified listings.
+                                </p>
                               </div>
-                              <button
-                                onClick={() => setShowCountryModal(true)}
-                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] border border-amber-500/20 transition-all cursor-pointer shrink-0"
-                              >
-                                Change Country
-                              </button>
                             </div>
                           )}
 

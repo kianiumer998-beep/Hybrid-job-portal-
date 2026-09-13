@@ -484,7 +484,9 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       pdfTotalVacanciesInCase: j.pdfTotalVacanciesInCase,
       domicileQuota: j.domicileQuota,
       ageRelaxationNote: j.ageRelaxationNote,
-      pdfParserEngine: 'pdfplumber'
+      pdfParserEngine: 'pdfplumber',
+      extractedText: j.extractedText || pdfResult.rawTextSample || undefined,
+      rawText: j.extractedText || pdfResult.rawTextSample || undefined
     }));
 
     return {
@@ -713,6 +715,17 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           salary = salaryMatch[0];
         }
 
+        const imgEl = container.find('img[src]').first();
+        const imgSrc = imgEl.attr('src') || '';
+        const realMediaUrl = imgSrc && !/logo|icon|avatar|spinner|user|nav/i.test(imgSrc)
+          ? resolveUrl(imgSrc, currentUrl)
+          : undefined;
+
+        const isNewspaper = config.isNewspaperClippingPortal || /classified|newspaper|daily\s*jang|dawn|express|nawaiwaqt|the\s*news/i.test(config.name);
+        const pdfLinkEl = container.find('a[href*=".pdf"]').first();
+        const pdfHref = pdfLinkEl.attr('href') || (fullUrl.toLowerCase().split('?')[0].endsWith('.pdf') ? fullUrl : undefined);
+        const pdfSourceUrl = pdfHref ? resolveUrl(pdfHref, currentUrl) : undefined;
+
         extractedJobs.push({
           id: `html-${config.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
           title: rawTitle,
@@ -737,7 +750,15 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           extractionMethod: 'html_cheerio',
           scrapeRunId: options.runId,
           scrapedAt: new Date().toISOString(),
-          isGovtJob: config.isGovtPortal
+          isGovtJob: config.isGovtPortal,
+          pdfSourceUrl: pdfSourceUrl || undefined,
+          isPdfScraped: !!pdfSourceUrl,
+          clippingImageUrl: realMediaUrl || undefined,
+          mediaUrl: realMediaUrl || undefined,
+          extractedText: snippet || undefined,
+          rawText: snippet || undefined,
+          isNewspaperAd: isNewspaper ? true : undefined,
+          newspaperName: isNewspaper ? config.name : undefined
         });
       });
 
@@ -762,6 +783,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
 
       if (isJobLink) {
         const fullUrl = resolveUrl(href, currentUrl);
+        const isPdf = href.toLowerCase().split('?')[0].endsWith('.pdf');
         extractedJobs.push({
           id: `generic-${config.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
           title: text,
@@ -772,7 +794,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           currency: config.isGovtPortal ? 'PKR' : 'USD',
           experienceLevel: text.toLowerCase().includes('senior') ? 'Senior' : 'Mid',
           department: config.keywords?.split(',')[0]?.trim() || 'General',
-          tags: [config.name, 'Heuristic'],
+          tags: [config.name, isPdf ? 'PDF Notice' : 'Heuristic'],
           description: `Listing from ${config.name}: ${text}. Refer to original URL for full requirements.`,
           requirements: [],
           benefits: [],
@@ -782,10 +804,13 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           sourceUrl: fullUrl,
           originalApplyUrl: fullUrl,
           sourcePortal: config.name,
-          extractionMethod: 'generic_fallback',
+          extractionMethod: isPdf ? 'pdf_link_detection' : 'generic_fallback',
           scrapeRunId: options.runId,
           scrapedAt: new Date().toISOString(),
-          isGovtJob: config.isGovtPortal
+          isGovtJob: config.isGovtPortal,
+          pdfSourceUrl: isPdf ? fullUrl : undefined,
+          isPdfScraped: isPdf ? true : undefined,
+          extractedText: `Official listing from ${config.name}: ${text}`
         });
       }
     });
@@ -862,7 +887,10 @@ export async function scrapeTargetPortal(
           ...j,
           sourcePortal: config.name,
           extractionMethod: 'government_pdf_engine',
-          scrapeRunId: options.runId
+          scrapeRunId: options.runId,
+          pdfSourceUrl: targetUrl,
+          extractedText: j.extractedText || pdfRes.rawTextSample || undefined,
+          rawText: j.extractedText || pdfRes.rawTextSample || undefined
         })) as any, options);
       }
       return [];
@@ -894,7 +922,10 @@ export async function scrapeTargetPortal(
             ...j,
             sourcePortal: config.name,
             extractionMethod: 'government_pdf_engine',
-            scrapeRunId: options.runId
+            scrapeRunId: options.runId,
+            pdfSourceUrl: linkedPdfUrl,
+            extractedText: j.extractedText || pdfRes.rawTextSample || undefined,
+            rawText: j.extractedText || pdfRes.rawTextSample || undefined
           })) as any, options);
         }
       }
@@ -938,7 +969,10 @@ export async function scrapeTargetPortal(
         sourcePortal: config.name,
         extractionMethod: 'government_pdf_engine',
         rawSourceHtml: undefined,
-        scrapeRunId: options.runId
+        scrapeRunId: options.runId,
+        pdfSourceUrl: j.pdfSourceUrl || gazette.pdfUrl || undefined,
+        extractedText: j.extractedText || gazette.rawTextSample || undefined,
+        rawText: j.extractedText || gazette.rawTextSample || undefined
       })) as any, options);
     }
 

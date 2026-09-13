@@ -99,7 +99,9 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
           console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
         } catch (srcErr: any) {
-          console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${srcErr?.message || srcErr}`);
+          const detail = String(srcErr?.message || srcErr || 'offline')
+            .replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
+          console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${detail}`);
         }
 
         // Schedule next run

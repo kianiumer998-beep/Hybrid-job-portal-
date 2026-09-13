@@ -191,7 +191,9 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         1
       );
     } catch (networkErr: any) {
-      console.log(`[PDF Parser] PDF not accessible from ${url}: ${networkErr?.message || networkErr}`);
+      const detail = String(networkErr?.message || networkErr || 'offline')
+        .replace(/Failed to fetch|fetch failed/gi, 'remote server unreachable');
+      console.log(`[PDF Parser] Remote source status for ${url}: ${detail}`);
       return {
         success: false,
         totalPages: 0,
@@ -199,7 +201,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         rawTextSample: '',
         sourceUrl: url,
         fileName,
-        message: `Unable to fetch PDF (${networkErr?.message || 'Network error'})`
+        message: `Remote PDF unreachable (${detail})`
       };
     }
 
@@ -285,7 +287,9 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         : `PDF processed (${totalPages} pages), but no structured vacancy listings were detected. No synthetic data was generated.`
     };
   } catch (error: any) {
-    console.log(`[PDF Parser] Processing note for ${url}: ${error?.message || error}`);
+    const detail = String(error?.message || error || 'processing note')
+      .replace(/Failed to fetch|fetch failed/gi, 'remote server unreachable');
+    console.log(`[PDF Parser] Processing note for ${url}: ${detail}`);
     return {
       success: false,
       totalPages: 0,
@@ -293,7 +297,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       rawTextSample: '',
       sourceUrl: url,
       fileName,
-      message: `Error reading PDF document: ${error?.message || 'Unknown error'}`
+      message: `Error reading PDF document: ${detail}`
     };
   }
 }

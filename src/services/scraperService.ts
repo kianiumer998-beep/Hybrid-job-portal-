@@ -953,7 +953,9 @@ export async function scrapeTargetPortal(
 
     return filterByOptions(htmlJobs, options);
   } catch (error: any) {
-    console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${error?.message || 'Remote portal did not respond'}`);
+    const detail = String(error?.message || 'Remote portal did not respond')
+      .replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
+    console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${detail}`);
     // Never invent fake jobs on error - return empty array on failure
     return [];
   }

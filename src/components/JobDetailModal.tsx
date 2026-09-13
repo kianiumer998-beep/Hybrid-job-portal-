@@ -169,13 +169,13 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   {job.ageRelaxationNote && <div><strong>Age Criteria:</strong> {job.ageRelaxationNote}</div>}
                 </div>
 
-                {/* Embedded PDF Document Preview */}
-                {pdfTargetUrl && (
+                {/* Embedded PDF Document Preview (Active only when authentic pdfSourceUrl exists) */}
+                {job.pdfSourceUrl && (
                   <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900">
                     <iframe
-                      src={pdfTargetUrl}
+                      src={job.pdfSourceUrl}
                       className="w-full h-64 sm:h-80"
-                      title="PDF Document Preview"
+                      title="Official PDF Document Preview"
                     />
                   </div>
                 )}

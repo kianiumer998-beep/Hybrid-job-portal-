@@ -2,7 +2,6 @@ import * as cheerio from 'cheerio';
 import { Currency, Region } from '../types/job';
 import { safeFetchWithRetry, validateSafeScrapeUrl } from '../../server/utils/ssrfProtection';
 import { parsePdfFromUrl } from '../../server/services/pdfParserEngine';
-import { MOCK_CONSOLIDATED_PDF_GAZETTES } from '../data/mockPdfConsolidatedAds';
 
 export interface ScraperTargetConfig {
   id: string;
@@ -955,28 +954,7 @@ export async function scrapeTargetPortal(
     return filterByOptions(htmlJobs, options);
   } catch (error: any) {
     console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${error?.message || 'Remote portal did not respond'}`);
-
-    // If official portal has verified gazette vacancies in the repository, use them
-    const gazette = MOCK_CONSOLIDATED_PDF_GAZETTES.find(g =>
-      (config.id && g.id.toLowerCase().includes(config.id.toLowerCase().replace('portal-', ''))) ||
-      (g.organization && config.name && g.organization.toLowerCase().includes(config.name.toLowerCase().split('(')[0].trim())) ||
-      (g.pdfUrl && config.pdfUrl && g.pdfUrl.toLowerCase() === config.pdfUrl.toLowerCase())
-    );
-
-    if (gazette && gazette.extractedVacancies && gazette.extractedVacancies.length > 0) {
-      return filterByOptions(gazette.extractedVacancies.map(j => ({
-        ...j,
-        sourcePortal: config.name,
-        extractionMethod: 'government_pdf_engine',
-        rawSourceHtml: undefined,
-        scrapeRunId: options.runId,
-        pdfSourceUrl: j.pdfSourceUrl || gazette.pdfUrl || undefined,
-        extractedText: j.extractedText || gazette.rawTextSample || undefined,
-        rawText: j.extractedText || gazette.rawTextSample || undefined
-      })) as any, options);
-    }
-
-    // Never invent fake jobs on error
+    // Never invent fake jobs on error - return empty array on failure
     return [];
   }
 }

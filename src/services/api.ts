@@ -615,8 +615,115 @@ export const api = {
         body: JSON.stringify(config)
       });
     }
+  },
+
+  // --- NOTIFICATIONS & MANDATORY ACTIONS ---
+  notifications: {
+    async getActive(params?: { userId?: string; role?: string; plan?: string; membershipStatus?: string }) {
+      const q = new URLSearchParams();
+      if (params?.userId) q.append('userId', params.userId);
+      if (params?.role) q.append('role', params.role);
+      if (params?.plan) q.append('plan', params.plan);
+      if (params?.membershipStatus) q.append('membershipStatus', params.membershipStatus);
+
+      return safeFetchJson<{ success: boolean; notifications: any[] }>(
+        `${API_BASE}/notifications?${q.toString()}`,
+        { headers: getAuthHeader() }
+      );
+    },
+    async getAdminAll() {
+      return safeFetchJson<{ success: boolean; notifications: any[] }>(
+        `${API_BASE}/notifications/admin/all`,
+        { headers: getAuthHeader() }
+      );
+    },
+    async create(data: any) {
+      return safeFetchJson<{ success: boolean; notification?: any; message?: string }>(
+        `${API_BASE}/notifications/admin`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify(data)
+        }
+      );
+    },
+    async update(id: string, updates: any) {
+      return safeFetchJson<{ success: boolean; notification?: any; message?: string }>(
+        `${API_BASE}/notifications/admin/${id}`,
+        {
+          method: 'PUT',
+          headers: getAuthHeader(),
+          body: JSON.stringify(updates)
+        }
+      );
+    },
+    async delete(id: string) {
+      return safeFetchJson<{ success: boolean; message?: string }>(
+        `${API_BASE}/notifications/admin/${id}`,
+        {
+          method: 'DELETE',
+          headers: getAuthHeader()
+        }
+      );
+    },
+    async markRead(id: string, userId: string) {
+      return safeFetchJson<{ success: boolean; message?: string }>(
+        `${API_BASE}/notifications/${id}/read`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify({ userId })
+        }
+      );
+    },
+    async markAllRead(userId: string) {
+      return safeFetchJson<{ success: boolean; message?: string }>(
+        `${API_BASE}/notifications/read-all`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify({ userId })
+        }
+      );
+    },
+    async dismiss(id: string, userId: string) {
+      return safeFetchJson<{ success: boolean; message?: string }>(
+        `${API_BASE}/notifications/${id}/dismiss`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify({ userId })
+        }
+      );
+    },
+    async completeMandatory(id: string, userId: string, metadata?: any) {
+      return safeFetchJson<{ success: boolean; message?: string; policyVersion?: string }>(
+        `${API_BASE}/notifications/${id}/complete-mandatory`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify({ userId, metadata })
+        }
+      );
+    },
+    async overrideMandatory(id: string, targetUserId: string) {
+      return safeFetchJson<{ success: boolean; message?: string }>(
+        `${API_BASE}/notifications/admin/${id}/override-mandatory`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify({ targetUserId })
+        }
+      );
+    },
+    async checkRestrictions(userId: string, action: string = 'post_job') {
+      return safeFetchJson<{ success: boolean; restricted: boolean; reason?: string; notification?: any }>(
+        `${API_BASE}/notifications/user/${userId}/restrictions?action=${action}`
+      );
+    }
   }
 };
+
 
 export function setRuntimeBackendUrl(url: string): void {
   if (typeof window !== 'undefined') {

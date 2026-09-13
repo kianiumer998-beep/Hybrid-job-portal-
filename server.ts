@@ -18,7 +18,9 @@ import { userRouter } from './server/routes/userRoutes';
 import { adRouter } from './server/routes/adRoutes';
 import { auditRouter } from './server/routes/auditRoutes';
 import settingsRouter from './server/routes/settingsRoutes';
+import { notificationRouter } from './server/routes/notificationRoutes';
 import { AdminFeatureFlags } from './src/types/job';
+
 
 async function startServer() {
   const app = express();
@@ -135,6 +137,8 @@ async function startServer() {
   app.use('/api/ads', adRouter);
   app.use('/api/audit-logs', auditRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/notifications', notificationRouter);
+
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

@@ -15,6 +15,8 @@ interface HeaderProps {
   showAdminView: boolean;
   activeAdsCount?: number;
   onOpenAdDrawer?: () => void;
+  unreadNotificationsCount?: number;
+  onOpenNotificationCenter?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,9 +31,12 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAdminView,
   showAdminView,
   activeAdsCount = 0,
-  onOpenAdDrawer
+  onOpenAdDrawer,
+  unreadNotificationsCount = 0,
+  onOpenNotificationCenter
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white shadow-xl">
@@ -135,7 +140,24 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
+            {/* Persistent User Notification Center */}
+            {onOpenNotificationCenter && (
+              <button
+                onClick={onOpenNotificationCenter}
+                className="relative p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 hover:border-emerald-500/40 transition-all cursor-pointer"
+                title="Notifications & Portal Requirements"
+              >
+                <Bell className="w-4 h-4 text-emerald-400" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center animate-pulse shadow-md shadow-rose-500/50">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* User Login/Account Button */}
+
             {currentUser ? (
               <button
                 onClick={() => setActiveTab('dashboard')}
@@ -254,7 +276,25 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Job Alerts</span>
           </button>
 
+          {onOpenNotificationCenter && (
+            <button
+              onClick={() => { onOpenNotificationCenter(); setMobileMenuOpen(false); }}
+              className="w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between text-slate-300 hover:bg-slate-800"
+            >
+              <div className="flex items-center space-x-3">
+                <Bell className="w-5 h-5 text-emerald-400" />
+                <span>Notification Center</span>
+              </div>
+              {unreadNotificationsCount > 0 && (
+                <span className="bg-rose-500/20 text-rose-300 text-xs px-2 py-0.5 rounded-full font-bold">
+                  {unreadNotificationsCount} unread
+                </span>
+              )}
+            </button>
+          )}
+
           {currentUser ? (
+
             <button
               onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
               className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center space-x-3 ${

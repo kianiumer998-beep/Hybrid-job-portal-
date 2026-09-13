@@ -216,22 +216,23 @@ export const Filters: React.FC<FiltersProps> = ({
 
       {/* DYNAMIC PAKISTAN SUB-DROPDOWNS (Province, City, District) */}
       {filters.region === 'Pakistan' && (
-        <div className="mt-4 pt-4 border-t border-emerald-500/20 bg-emerald-950/20 rounded-xl p-4 border">
-          <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider mb-3">
-            <MapPin className="w-4 h-4 text-emerald-400" />
-            <span>Pakistan Detailed Location Filtering (Province → City → District)</span>
+        <div className="mt-4 pt-3 sm:pt-4 border-t border-emerald-500/20 bg-emerald-950/20 rounded-xl p-2.5 sm:p-4 border">
+          <div className="flex items-center space-x-1.5 sm:space-x-2 text-emerald-400 font-bold text-[11px] sm:text-xs uppercase tracking-wider mb-2.5 sm:mb-3">
+            <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 shrink-0" />
+            <span className="truncate">Pakistan Detailed Location Filtering (Province → City → District)</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
             {/* Province Dropdown */}
             <div>
-              <label className="block text-xs text-emerald-300 font-medium mb-1">
-                1. Select Province
+              <label className="block text-[10px] sm:text-xs text-emerald-300 font-medium mb-1 truncate" title="1. Select Province">
+                <span className="sm:hidden">1. Province</span>
+                <span className="hidden sm:inline">1. Select Province</span>
               </label>
               <select
                 value={filters.province}
                 onChange={(e) => handleProvinceChange(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-1.5 sm:px-3 py-1.5 sm:py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="">All Provinces</option>
                 {PAKISTAN_LOCATIONS.map((loc) => (
@@ -244,14 +245,15 @@ export const Filters: React.FC<FiltersProps> = ({
 
             {/* City Dropdown */}
             <div>
-              <label className="block text-xs text-emerald-300 font-medium mb-1">
-                2. Select City
+              <label className="block text-[10px] sm:text-xs text-emerald-300 font-medium mb-1 truncate" title="2. Select City">
+                <span className="sm:hidden">2. City</span>
+                <span className="hidden sm:inline">2. Select City</span>
               </label>
               <select
                 value={filters.city}
                 onChange={(e) => handleCityChange(e.target.value)}
                 disabled={!filters.province}
-                className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-1.5 sm:px-3 py-1.5 sm:py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="">
                   {!filters.province ? 'Select Province first' : 'All Cities'}
@@ -266,14 +268,15 @@ export const Filters: React.FC<FiltersProps> = ({
 
             {/* District Dropdown */}
             <div>
-              <label className="block text-xs text-emerald-300 font-medium mb-1">
-                3. Select District / Area
+              <label className="block text-[10px] sm:text-xs text-emerald-300 font-medium mb-1 truncate" title="3. Select District / Area">
+                <span className="sm:hidden">3. District</span>
+                <span className="hidden sm:inline">3. Select District / Area</span>
               </label>
               <select
                 value={filters.district}
                 onChange={(e) => onChange({ ...filters, district: e.target.value })}
                 disabled={!filters.city}
-                className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-1.5 sm:px-3 py-1.5 sm:py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="">
                   {!filters.city ? 'Select City first' : 'All Districts'}

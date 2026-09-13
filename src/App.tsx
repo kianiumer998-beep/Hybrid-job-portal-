@@ -829,7 +829,15 @@ export default function App() {
       if (filters.sortBy === 'salary-high') return (b.salaryNumericMin || 0) - (a.salaryNumericMin || 0);
       if (filters.sortBy === 'salary-low') return (a.salaryNumericMin || 0) - (b.salaryNumericMin || 0);
       if (filters.sortBy === 'popular') return b.applicationsCount - a.applicationsCount;
-      return 0;
+
+      // Default / 'latest' sorting: sort newest jobs first using postedAt, then createdAt, then updatedAt
+      const getJobTime = (job: Job): number => {
+        const rawDate = job.postedAt || job.createdAt || job.updatedAt;
+        if (!rawDate) return 0;
+        const time = new Date(rawDate).getTime();
+        return isNaN(time) ? 0 : time;
+      };
+      return getJobTime(b) - getJobTime(a);
     });
   }, [jobs, filters]);
 
@@ -1921,22 +1929,6 @@ export default function App() {
                     if (section.id === 'jobs-feed') {
                       return (
                         <div key="section-jobs-feed" id="jobs-section" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
-                          
-                          {/* Active Country Filter Notification Badge */}
-                          {userSelectedCountry && userSelectedCountry.code !== 'GL' && (
-                            <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-amber-500/30 rounded-2xl flex items-center space-x-2.5 text-xs">
-                              <span className="text-xl">{userSelectedCountry.flag}</span>
-                              <div>
-                                <span className="font-bold text-white">
-                                  Showing Jobs for {userSelectedCountry.name} ({userSelectedCountry.nameUrdu})
-                                </span>
-                                <p className="text-[11px] text-slate-400">
-                                  Sorted by recently updated & priority verified listings.
-                                </p>
-                              </div>
-                            </div>
-                          )}
-
                           {/* API Connection Error Banner */}
                           {jobsApiError && (
                             <div className="p-4 bg-rose-950/80 border border-rose-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-rose-200 shadow-lg">

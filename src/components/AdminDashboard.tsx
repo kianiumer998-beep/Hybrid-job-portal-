@@ -112,10 +112,11 @@ import { AdminFeeManager } from './admin/AdminFeeManager';
 import { AdminActivityLogs } from './admin/AdminActivityLogs';
 import { AdminBulkNotificationTool } from './admin/AdminBulkNotificationTool';
 import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
+import { AdminWhatsAppSettings } from './admin/AdminWhatsAppSettings';
 import { AdminPaymentVerificationHub } from './admin/AdminPaymentVerificationHub';
 import { AdminPricingController } from './admin/AdminPricingController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
-import { WhatsAppSupportConfig } from './WhatsAppStickyButton';
+import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
 import { LandingPageConfig } from '../types/landing';
 import { 
@@ -385,20 +386,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // WhatsApp Support Configuration State
   const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
-    if (whatsAppSupportConfig) return whatsAppSupportConfig;
+    if (whatsAppSupportConfig) return { ...DEFAULT_WHATSAPP_CONFIG, ...whatsAppSupportConfig };
     try {
       const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...DEFAULT_WHATSAPP_CONFIG, ...JSON.parse(saved) };
     } catch (e) {}
-    return {
-      phoneNumber: '923001234567',
-      agentName: 'Ayesha (Lead Career Advisor)',
-      defaultMessage: 'Hello! I need assistance regarding job applications on CareerPak...',
-      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
-      enabled: true,
-      position: 'bottom-right'
-    };
+    return DEFAULT_WHATSAPP_CONFIG;
   });
+
+  useEffect(() => {
+    if (whatsAppSupportConfig) {
+      setInternalWhatsAppConfig(prev => ({
+        ...DEFAULT_WHATSAPP_CONFIG,
+        ...prev,
+        ...whatsAppSupportConfig
+      }));
+    }
+  }, [whatsAppSupportConfig]);
 
   // Payment Verification Transactions State
   const [internalTransactions, setInternalTransactions] = useState<PaymentTransaction[]>(() => {
@@ -5942,6 +5946,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             </div>
           </div>
+
+          {/* WHATSAPP SUPPORT WIDGET SETTINGS */}
+          <AdminWhatsAppSettings
+            config={currentWhatsAppConfig}
+            onSave={handleUpdateWhatsApp}
+          />
 
         </div>
       )}

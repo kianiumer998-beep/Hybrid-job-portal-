@@ -362,16 +362,9 @@ export default function App() {
   const [whatsAppSupportConfig, setWhatsAppSupportConfig] = useState<WhatsAppSupportConfig>(() => {
     try {
       const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...DEFAULT_WHATSAPP_CONFIG, ...JSON.parse(saved) };
     } catch (e) {}
-    return {
-      phoneNumber: '923001234567',
-      agentName: 'Ayesha (Lead Career Advisor)',
-      defaultMessage: 'Hello! I need assistance with job applications on CareerPak...',
-      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
-      enabled: true,
-      position: 'bottom-right'
-    };
+    return DEFAULT_WHATSAPP_CONFIG;
   });
 
   useEffect(() => {
@@ -528,7 +521,13 @@ export default function App() {
     }).catch(() => {});
 
     api.settings.getWhatsApp().then(res => {
-      if (res?.success && res.config) setWhatsAppSupportConfig(res.config);
+      if (res?.success && res.config) {
+        setWhatsAppSupportConfig(prev => ({
+          ...DEFAULT_WHATSAPP_CONFIG,
+          ...prev,
+          ...res.config
+        }));
+      }
     }).catch(() => {});
   }, [loadBackendJobs]);
 

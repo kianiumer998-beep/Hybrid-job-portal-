@@ -136,7 +136,7 @@ export interface CampaignCustomizationConfig {
   feedInlineSettings: FeedInlineAdSettings;
   promoBanners: PromoDiscountBanner[];
   jobPostingFeeSettings?: JobPostingFeeSettings;
-  jobFeedSettings?: {
+  jobFeedSettings: {
     defaultPostsPerPage: number;
     postsPerPageOptions: number[];
   };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   MessageCircle,
   Phone,
@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Copy
 } from 'lucide-react';
-import { WhatsAppSupportConfig } from '../WhatsAppStickyButton';
+import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from '../WhatsAppStickyButton';
 
 interface AdminWhatsAppManagerProps {
   config: WhatsAppSupportConfig;
@@ -28,7 +28,10 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   onUpdateConfig,
   subscribersCount = 0
 }) => {
-  const [formData, setFormData] = useState<WhatsAppSupportConfig>(config);
+  const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => ({
+    ...DEFAULT_WHATSAPP_CONFIG,
+    ...config
+  }));
   const [groupLink, setGroupLink] = useState<string>(() => {
     return localStorage.getItem('hybrid_whatsapp_group_link') || 'https://chat.whatsapp.com/sampleCareerPakCommunity';
   });
@@ -38,7 +41,17 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     'السلام علیکم! کیریئر پاک پر جاب الرٹس اور اپلائی کرنے کے لیے رہنمائی درکار ہے۔'
   );
 
-  const cleanPhone = formData.phoneNumber.replace(/[^0-9]/g, '');
+  useEffect(() => {
+    if (config) {
+      setFormData(prev => ({
+        ...DEFAULT_WHATSAPP_CONFIG,
+        ...prev,
+        ...config
+      }));
+    }
+  }, [config]);
+
+  const cleanPhone = (formData.phoneNumber || '923001234567').replace(/[^0-9]/g, '');
   const testChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(formData.defaultMessage || 'Hello Support')}`;
   const testUrduChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(testUrduMessage)}`;
 

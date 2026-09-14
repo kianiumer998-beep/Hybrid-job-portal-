@@ -2909,15 +2909,53 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <span>Retry All Failed ({sourcesList.filter(s => ['404', '403', 'Timeout', 'Invalid PDF', 'Fetch Error'].includes(s.healthStatus || '')).length})</span>
                 </button>
               )}
+
+              {(searchQuery || selectedGroupId !== 'all' || healthFilter !== 'all' || categoryFilter !== 'all' || statusFilter !== 'all' || regionFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedGroupId('all');
+                    setHealthFilter('all');
+                    setCategoryFilter('all');
+                    setStatusFilter('all');
+                    setRegionFilter('all');
+                  }}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Reset Filters
+                </button>
+              )}
             </div>
           </div>
 
           {/* Bulk Action Controls */}
           {selectedSourceIds.length > 0 && (
             <div className="bg-indigo-950/40 border border-indigo-800/50 rounded-2xl p-3 px-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <span className="font-bold text-indigo-200">
-                {selectedSourceIds.length} sources selected
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-indigo-200">
+                  {selectedSourceIds.length} sources selected
+                </span>
+                {selectedSourceIds.length < filteredSources.length && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allFilteredIds = filteredSources.map(s => s.id);
+                      setSelectedSourceIds(allFilteredIds);
+                    }}
+                    className="px-2 py-1 text-[11px] bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 rounded font-semibold cursor-pointer"
+                  >
+                    Select All Filtered ({filteredSources.length})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedSourceIds([])}
+                  className="px-2 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-semibold cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
               <div className="flex items-center space-x-2 flex-wrap gap-2">
                 <button
                   type="button"
@@ -3045,12 +3083,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                         <input
                           type="checkbox"
                           aria-label="Select all sources"
-                          checked={selectedSourceIds.length === filteredSources.length && filteredSources.length > 0}
+                          checked={filteredSources.length > 0 && filteredSources.every(s => selectedSourceIds.includes(s.id))}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedSourceIds(filteredSources.map(s => s.id));
+                              const allFilteredIds = filteredSources.map(s => s.id);
+                              setSelectedSourceIds(prev => Array.from(new Set([...prev, ...allFilteredIds])));
                             } else {
-                              setSelectedSourceIds([]);
+                              const filteredIdSet = new Set(filteredSources.map(s => s.id));
+                              setSelectedSourceIds(prev => prev.filter(id => !filteredIdSet.has(id)));
                             }
                           }}
                           className="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"

@@ -223,6 +223,10 @@ STRICT FACTUAL INTEGRITY MANDATE:
   ]
 }`;
 
+    const resolvedMimeType = mimeType === 'application/pdf'
+      ? 'application/pdf'
+      : (mimeType && mimeType.startsWith('image/') ? mimeType : 'image/jpeg');
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
@@ -232,7 +236,7 @@ STRICT FACTUAL INTEGRITY MANDATE:
             {
               inlineData: {
                 data: base64Data,
-                mimeType: mimeType.startsWith('image/') ? mimeType : 'image/jpeg'
+                mimeType: resolvedMimeType
               }
             },
             { text: prompt }

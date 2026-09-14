@@ -124,10 +124,10 @@ export const AdminWhatsAppSettings: React.FC<AdminWhatsAppSettingsProps> = ({
           <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
             <div>
               <label htmlFor="wa-bubble-prompt-toggle" className="text-xs font-black text-white cursor-pointer">
-                Auto HR Prompt Bubble
+                WhatsApp Greeting / Chat Widget
               </label>
               <div className="text-[11px] text-slate-400">
-                Auto-open greeting after 4.5s
+                Enable / Disable greeting prompt
               </div>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">

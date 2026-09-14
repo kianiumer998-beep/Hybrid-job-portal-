@@ -155,7 +155,7 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
         <button
           id="whatsapp-sticky-button"
           onClick={() => {
-            if (isOpenPrompt) {
+            if (config.showBubblePrompt === false || isOpenPrompt) {
               handleOpenWhatsApp();
             } else {
               setIsOpenPrompt(true);

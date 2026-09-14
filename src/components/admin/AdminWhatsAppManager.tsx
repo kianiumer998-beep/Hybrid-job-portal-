@@ -228,10 +228,10 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
               <span>2. Floating Sticky Button Display Options & Layout</span>
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-black text-white">Enable Floating Sticky Widget</div>
+                  <div className="text-xs font-black text-white">WhatsApp Button (Icon/Monogram)</div>
                   <div className="text-[11px] text-slate-400">Show button on all public pages</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -239,6 +239,22 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                     type="checkbox"
                     checked={formData.enabled}
                     onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
+                </label>
+              </div>
+
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-black text-white">WhatsApp Greeting / Chat Widget</div>
+                  <div className="text-[11px] text-slate-400">Enable / Disable prompt bubble</div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.showBubblePrompt !== false}
+                    onChange={(e) => setFormData({ ...formData, showBubblePrompt: e.target.checked })}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />

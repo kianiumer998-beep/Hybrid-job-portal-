@@ -429,17 +429,17 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
 }
 
 /**
- * ADAPTER 4: Government PDF Parser (Connected to pdfParserEngine)
- * Handles FPSC, PPSC, WAPDA, KPPSC, SPSC, BPSC, or any PDF recruitment gazette.
+ * ADAPTER 4: Government PDF & Scanned Document Parser (Connected to pdfParserEngine)
+ * Handles FPSC, PPSC, WAPDA, KPPSC, SPSC, BPSC, or any PDF/Image recruitment gazette.
  */
 async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
   const effectiveUrl = config.url || config.portalUrl || config.pdfUrl || '';
-  const isExplicitPdf =
-    (config.formatType && config.formatType.includes('PDF')) ||
+  const isExplicitPdfOrDoc =
+    (config.formatType && (config.formatType.includes('PDF') || config.formatType.includes('Image') || config.formatType.includes('OCR') || config.formatType.includes('Scan'))) ||
     (config.pdfUrl && config.pdfUrl.trim().length > 0) ||
-    (effectiveUrl && effectiveUrl.toLowerCase().split('?')[0].endsWith('.pdf'));
+    (effectiveUrl && /\.(pdf|jpg|jpeg|png|webp)(\?|$)/i.test(effectiveUrl.toLowerCase()));
 
-  if (!isExplicitPdf) return null;
+  if (!isExplicitPdfOrDoc) return null;
 
   const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : effectiveUrl;
   if (!targetPdfUrl || !targetPdfUrl.startsWith('http')) return null;
@@ -467,7 +467,7 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       currency: 'PKR',
       experienceLevel: (j.experienceLevel || 'Mid') as any,
       department: j.department || config.name,
-      tags: j.tags || [config.name, pdfResult.formatType === 'scanned_pdf' ? 'OCR Scanned Document' : 'PDF Gazette'],
+      tags: j.tags || [config.name, pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image' ? 'OCR Scanned Document' : 'PDF Gazette'],
       description: j.description || `Official government vacancy extracted from ${pdfResult.fileName || 'recruitment notice'}.`,
       requirements: j.requirements || [],
       benefits: j.benefits || [],
@@ -479,7 +479,7 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       sourceJobId: j.pdfCaseNumber || undefined,
       originalApplyUrl: targetPdfUrl,
       sourcePortal: config.name,
-      extractionMethod: pdfResult.formatType === 'scanned_pdf' ? 'ocr_vision_extractor' : 'government_pdf_engine',
+      extractionMethod: (pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
       scrapeRunId: options.runId,
       scrapedAt: new Date().toISOString(),
       isGovtJob: true,
@@ -493,7 +493,7 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       pdfTotalVacanciesInCase: j.pdfTotalVacanciesInCase,
       domicileQuota: j.domicileQuota,
       ageRelaxationNote: j.ageRelaxationNote,
-      pdfParserEngine: j.pdfParserEngine || (pdfResult.formatType === 'scanned_pdf' ? 'gemini-ocr-vision' : 'pdfplumber'),
+      pdfParserEngine: j.pdfParserEngine || (pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image' ? 'gemini-ocr-vision' : 'pdfplumber'),
       clippingImageUrl: j.clippingImageUrl || pdfResult.clippingImageUrl || targetPdfUrl,
       mediaUrl: j.mediaUrl || pdfResult.mediaUrl || targetPdfUrl,
       extractedText: j.extractedText || pdfResult.rawTextSample || undefined,
@@ -502,7 +502,7 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
 
     return {
       jobs,
-      extractionMethod: 'government_pdf_engine',
+      extractionMethod: (pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
       totalFoundOnPage: jobs.length
     };
   } catch (err: any) {
@@ -889,17 +889,19 @@ export async function scrapeTargetPortal(
       return [];
     }
 
-    // Check if Content-Type is PDF (e.g. redirected or served without .pdf extension)
+    // Check if Content-Type is PDF or direct image (e.g. redirected or served without .pdf extension)
     const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/pdf')) {
+    if (contentType.includes('application/pdf') || contentType.includes('image/')) {
       const pdfRes = await parsePdfFromUrl(targetUrl, config.name);
       if (pdfRes.success && pdfRes.extractedJobs.length > 0) {
         return filterByOptions(pdfRes.extractedJobs.map(j => ({
           ...j,
           sourcePortal: config.name,
-          extractionMethod: 'government_pdf_engine',
+          extractionMethod: (pdfRes.formatType === 'scanned_pdf' || pdfRes.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
           scrapeRunId: options.runId,
           pdfSourceUrl: targetUrl,
+          clippingImageUrl: j.clippingImageUrl || pdfRes.clippingImageUrl || targetUrl,
+          mediaUrl: j.mediaUrl || pdfRes.mediaUrl || targetUrl,
           extractedText: j.extractedText || pdfRes.rawTextSample || undefined,
           rawText: j.extractedText || pdfRes.rawTextSample || undefined
         })) as any, options);
@@ -909,34 +911,42 @@ export async function scrapeTargetPortal(
 
     const html = await response.text();
 
-    // Check if the HTML page contains recruitment PDF gazette links (e.g., FPSC/PPSC circulars)
-    if (config.isGovtPortal || config.formatType?.includes('PDF') || /fpsc|ppsc|wapda|kppsc|spsc|bpsc/i.test(config.name)) {
+    // Check if the HTML page contains recruitment PDF or image clipping links (e.g., FPSC/PPSC circulars, newspaper advertisements)
+    if (config.isGovtPortal || config.formatType?.includes('PDF') || config.formatType?.includes('Image') || /fpsc|ppsc|wapda|kppsc|spsc|bpsc|epaper|newspaper/i.test(config.name)) {
       const $ = cheerio.load(html);
-      let linkedPdfUrl: string | null = null;
+      let linkedDocUrl: string | null = null;
 
-      $('a[href]').each((_, el) => {
-        if (linkedPdfUrl) return;
-        const href = $(el).attr('href') || '';
+      $('a[href], img[src]').each((_, el) => {
+        if (linkedDocUrl) return;
+        const href = $(el).attr('href') || $(el).attr('src') || '';
         const text = $(el).text().toLowerCase();
+        const alt = ($(el).attr('alt') || '').toLowerCase();
+        const cleanHref = href.toLowerCase().split('?')[0];
+        const isDoc = cleanHref.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/i.test(cleanHref);
+
         if (
-          href.toLowerCase().split('?')[0].endsWith('.pdf') &&
-          (/adv|advertisement|consolidated|gazette|vacancy|recruitment|phase/i.test(href) || /adv|advertisement|gazette/i.test(text))
+          isDoc &&
+          (/adv|advertisement|consolidated|gazette|vacancy|recruitment|phase|clipping|epaper|classified/i.test(href) ||
+           /adv|advertisement|gazette|vacancy|recruitment|jobs/i.test(text) ||
+           /advertisement|recruitment|vacancy/i.test(alt))
         ) {
-          linkedPdfUrl = resolveUrl(href, targetUrl);
+          linkedDocUrl = resolveUrl(href, targetUrl);
         }
       });
 
-      if (linkedPdfUrl) {
-        const pdfRes = await parsePdfFromUrl(linkedPdfUrl, config.name);
-        if (pdfRes.success && pdfRes.extractedJobs.length > 0) {
-          return filterByOptions(pdfRes.extractedJobs.map(j => ({
+      if (linkedDocUrl) {
+        const docRes = await parsePdfFromUrl(linkedDocUrl, config.name);
+        if (docRes.success && docRes.extractedJobs.length > 0) {
+          return filterByOptions(docRes.extractedJobs.map(j => ({
             ...j,
             sourcePortal: config.name,
-            extractionMethod: 'government_pdf_engine',
+            extractionMethod: (docRes.formatType === 'scanned_pdf' || docRes.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
             scrapeRunId: options.runId,
-            pdfSourceUrl: linkedPdfUrl,
-            extractedText: j.extractedText || pdfRes.rawTextSample || undefined,
-            rawText: j.extractedText || pdfRes.rawTextSample || undefined
+            pdfSourceUrl: linkedDocUrl,
+            clippingImageUrl: j.clippingImageUrl || docRes.clippingImageUrl || linkedDocUrl,
+            mediaUrl: j.mediaUrl || docRes.mediaUrl || linkedDocUrl,
+            extractedText: j.extractedText || docRes.rawTextSample || undefined,
+            rawText: j.extractedText || docRes.rawTextSample || undefined
           })) as any, options);
         }
       }

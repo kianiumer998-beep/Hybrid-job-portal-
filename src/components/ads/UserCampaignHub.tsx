@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Advertisement, 
   AdType, 
@@ -119,6 +119,16 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [selectedDurationId, setSelectedDurationId] = useState<string>(defaultDurationId);
   const [customDurationUnit, setCustomDurationUnit] = useState<AdDurationUnit>('days');
   const [customDurationValue, setCustomDurationValue] = useState<number>(1);
+
+  // Auto-correct to first enabled preset if current selection is disabled or missing
+  useEffect(() => {
+    if (enabledDurationPresets.length > 0 && selectedDurationId !== 'custom') {
+      const isValid = enabledDurationPresets.some(d => d.id === selectedDurationId);
+      if (!isValid) {
+        setSelectedDurationId(enabledDurationPresets[0].id);
+      }
+    }
+  }, [enabledDurationPresets, selectedDurationId]);
   
   // Creative Content
   const [formHeadline, setFormHeadline] = useState<string>('');
@@ -140,7 +150,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [selectedContextPage, setSelectedContextPage] = useState<string>('alerts');
 
   // Calculate duration unit & value from preset or custom
-  const matchedPreset = enabledDurationPresets.find(d => d.id === selectedDurationId);
+  const matchedPreset = enabledDurationPresets.find(d => d.id === selectedDurationId) || (selectedDurationId !== 'custom' ? enabledDurationPresets[0] : undefined);
 
   const getResolvedDuration = (): { unit: AdDurationUnit; value: number } => {
     if (selectedDurationId === 'custom' || !matchedPreset) {

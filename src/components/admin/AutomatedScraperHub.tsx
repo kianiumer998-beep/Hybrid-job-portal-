@@ -1006,7 +1006,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     return result;
   }, [activeSourcesStats, statsSearchQuery, statsStatusFilter, statsMinFound, statsMaxFound, statsMinNew, statsMaxNew, statsMinDup, statsMaxDup, statsSortBy]);
 
-  const paginatedSourceStats = useMemo(() => {
+  const paginatedActiveSourcesStats = useMemo(() => {
     const start = (sourceStatsPage - 1) * sourceStatsPageSize;
     return filteredActiveSourcesStats.slice(start, start + sourceStatsPageSize);
   }, [filteredActiveSourcesStats, sourceStatsPage, sourceStatsPageSize]);
@@ -4017,7 +4017,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                    {paginatedSourceStats.map((stat: any, idx: number) => {
+                    {paginatedActiveSourcesStats.map((stat: any, idx: number) => {
                       const hasJobs = (stat.found || 0) > 0 && !stat.failed;
                       const sourceItem = sourcesList.find(s => s.id === stat.sourceId || s.name === stat.sourceName);
                       const sourceGroup = sourceGroups.find(g => g.sourceIds?.includes(stat.sourceId || sourceItem?.id || ''));
@@ -4134,6 +4134,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   currentPage={sourceStatsPage}
                   totalItems={filteredActiveSourcesStats.length}
                   pageSize={sourceStatsPageSize}
+                  pageSizeOptions={[25, 50, 100]}
                   onPageChange={setSourceStatsPage}
                   onPageSizeChange={(sz) => {
                     setSourceStatsPageSize(sz);

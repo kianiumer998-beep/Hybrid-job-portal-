@@ -2611,7 +2611,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB 1: PENDING JOBS APPROVAL QUEUE */}
       {adminTab === 'pending' && (() => {
         // Pending jobs duplicate detection
-        const pendingClusters = computeJobDuplicateClusters(pendingJobs);
+        const pendingClusters = computeJobDuplicateClusters([...jobs, ...pendingJobs]);
         const liveTitleSet = new Set(jobs.map(j => `${(j.title || '').trim().toLowerCase()}|${(j.company || '').trim().toLowerCase()}`));
         const liveCaseSet = new Set(jobs.filter(j => j.pdfCaseNumber).map(j => j.pdfCaseNumber!.trim().toLowerCase()));
 
@@ -4449,7 +4449,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB 8: LIVE LISTINGS */}
       {adminTab === 'jobs' && (() => {
-        const liveJobClusters = computeJobDuplicateClusters(jobs);
+        const liveJobClusters = computeJobDuplicateClusters([...jobs, ...pendingJobs]);
 
         const filteredLiveJobs = jobs.filter(job => {
           if (jobsSearchQuery.trim()) {
@@ -6236,7 +6236,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         isOpen={isJobDuplicateModalOpen}
         onClose={() => setIsJobDuplicateModalOpen(false)}
         entityType="jobs"
-        jobClusters={computeJobDuplicateClusters(jobs)}
+        jobClusters={computeJobDuplicateClusters([...jobs, ...pendingJobs])}
         onResolveJobDuplicates={(keepId, deleteIds) => {
           if (onBulkDeleteJobs) {
             onBulkDeleteJobs(deleteIds);
@@ -6256,7 +6256,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         isOpen={isPendingDuplicateModalOpen}
         onClose={() => setIsPendingDuplicateModalOpen(false)}
         entityType="pending"
-        jobClusters={computeJobDuplicateClusters(pendingJobs)}
+        jobClusters={computeJobDuplicateClusters([...jobs, ...pendingJobs])}
         onResolveJobDuplicates={(keepId, deleteIds) => {
           if (onBulkRejectPendingJobs) {
             onBulkRejectPendingJobs(deleteIds, 'Duplicate job submission detected in moderation queue');

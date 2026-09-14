@@ -130,12 +130,12 @@ notificationRouter.delete('/admin/:id', requireAdmin, async (req, res) => {
 });
 
 // 6. User: Mark notification as read
-notificationRouter.post('/:id/read', authenticateOptionalUser, async (req, res) => {
+notificationRouter.post('/:id/read', authenticateUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = user ? (user.id || user.userId) : req.body.userId;
+    const userId = user?.id || user?.userId;
     if (!userId) {
-      return res.status(400).json({ success: false, message: 'User ID is required to mark read.' });
+      return res.status(401).json({ success: false, message: 'Authentication required to mark read.' });
     }
 
     await NotificationRepository.markRead(userId, req.params.id);
@@ -147,12 +147,12 @@ notificationRouter.post('/:id/read', authenticateOptionalUser, async (req, res) 
 });
 
 // 7. User: Mark all notifications as read
-notificationRouter.post('/read-all', authenticateOptionalUser, async (req, res) => {
+notificationRouter.post('/read-all', authenticateUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = user ? (user.id || user.userId) : req.body.userId;
+    const userId = user?.id || user?.userId;
     if (!userId) {
-      return res.status(400).json({ success: false, message: 'User ID is required to mark all read.' });
+      return res.status(401).json({ success: false, message: 'Authentication required to mark all read.' });
     }
 
     await NotificationRepository.markAllRead(userId);
@@ -164,12 +164,12 @@ notificationRouter.post('/read-all', authenticateOptionalUser, async (req, res) 
 });
 
 // 8. User: Dismiss notification
-notificationRouter.post('/:id/dismiss', authenticateOptionalUser, async (req, res) => {
+notificationRouter.post('/:id/dismiss', authenticateUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = user ? (user.id || user.userId) : req.body.userId;
+    const userId = user?.id || user?.userId;
     if (!userId) {
-      return res.status(400).json({ success: false, message: 'User ID is required to dismiss.' });
+      return res.status(401).json({ success: false, message: 'Authentication required to dismiss.' });
     }
 
     const result = await NotificationRepository.dismiss(userId, req.params.id);

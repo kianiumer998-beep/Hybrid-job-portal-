@@ -29,11 +29,20 @@ import { InlineFeedAd } from './ads/InlineFeedAd';
 
 function getCustomPatternMatch(positionNumber: number, pattern?: { jobsInterval: number; adCount: number }[]) {
   if (!pattern || pattern.length === 0) return { matches: false, adCount: 1 };
+  
+  // Calculate total pattern interval sum
+  const totalCycleJobs = pattern.reduce((sum, p) => sum + Math.max(1, p.jobsInterval || 1), 0);
+  if (totalCycleJobs <= 0) return { matches: false, adCount: 1 };
+
+  // Determine relative position in the repeating cycle
+  let cyclePos = positionNumber % totalCycleJobs;
+  if (cyclePos === 0) cyclePos = totalCycleJobs;
+
   let cumulative = 0;
   for (const entry of pattern) {
-    cumulative += (entry.jobsInterval || 1);
-    if (positionNumber === cumulative) {
-      return { matches: true, adCount: entry.adCount || 1 };
+    cumulative += Math.max(1, entry.jobsInterval || 1);
+    if (cyclePos === cumulative || positionNumber === cumulative) {
+      return { matches: true, adCount: Math.max(1, entry.adCount || 1) };
     }
   }
   return { matches: false, adCount: 1 };

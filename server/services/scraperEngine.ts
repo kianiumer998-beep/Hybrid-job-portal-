@@ -73,7 +73,19 @@ export interface ScraperRunSummary {
 }
 
 // Global active run state holder for real-time monitoring and pause/resume/stop control
-let activeRunState: ActiveScraperRunState = {
+let activeRunState: ActiveScraperRunState & {
+  isPaused?: boolean;
+  isStopped?: boolean;
+  isActive?: boolean;
+  completedSources?: number;
+  remainingSources?: number;
+  totalFound?: number;
+  newJobs?: number;
+  duplicates?: number;
+  pending?: number;
+  published?: number;
+  failedSources?: number;
+} = {
   runId: '',
   status: 'Idle',
   totalSources: 0,
@@ -93,14 +105,32 @@ let activeRunState: ActiveScraperRunState = {
 let activeRunCancelRequested = false;
 let activeRunPauseRequested = false;
 
-export function getActiveRunStatus(): ActiveScraperRunState {
-  return { ...activeRunState };
+export function getActiveRunStatus(): any {
+  const isPaused = activeRunState.status === 'Paused' || activeRunPauseRequested;
+  const isStopped = activeRunState.status === 'Stopped' || activeRunCancelRequested;
+  const isActive = activeRunState.status === 'Running' || isPaused;
+
+  return {
+    ...activeRunState,
+    isActive,
+    isPaused,
+    isStopped,
+    completedSources: activeRunState.completedSourcesCount,
+    remainingSources: activeRunState.remainingSourcesCount,
+    totalFound: activeRunState.jobsFound,
+    newJobs: activeRunState.newJobsCount,
+    duplicates: activeRunState.duplicatesCount,
+    pending: activeRunState.pendingCount,
+    published: activeRunState.publishedCount,
+    failedSources: activeRunState.failedSourcesCount
+  };
 }
 
 export function pauseActiveRun(): boolean {
   if (activeRunState.status === 'Running') {
     activeRunPauseRequested = true;
     activeRunState.status = 'Paused';
+    activeRunState.isPaused = true;
     activeRunState.lastUpdatedTime = new Date().toISOString();
     return true;
   }
@@ -110,32 +140,39 @@ export function pauseActiveRun(): boolean {
 export function stopActiveRun(): boolean {
   if (activeRunState.status === 'Running' || activeRunState.status === 'Paused') {
     activeRunCancelRequested = true;
+    activeRunPauseRequested = false;
     activeRunState.status = 'Stopped';
+    activeRunState.isStopped = true;
+    activeRunState.isPaused = false;
     activeRunState.lastUpdatedTime = new Date().toISOString();
     return true;
   }
   return false;
 }
 
-export async function resumeActiveRun(): Promise<ScraperRunSummary | null> {
-  if (activeRunState.status !== 'Paused') {
-    return null;
+export async function resumeActiveRun(): Promise<ScraperRunSummary | boolean | null> {
+  if (activeRunState.status !== 'Paused' && !activeRunPauseRequested) {
+    return false;
   }
-  if (!activeRunState.remainingTargets || activeRunState.remainingTargets.length === 0) {
-    activeRunState.status = 'Completed';
-    return null;
-  }
-
-  const remainingOptions: ScraperRunOptions = {
-    ...(activeRunState.options || { mode: 'complete' }),
-    sourceIds: activeRunState.remainingTargets.map(t => t.id)
-  };
 
   activeRunPauseRequested = false;
   activeRunCancelRequested = false;
   activeRunState.status = 'Running';
+  activeRunState.isPaused = false;
+  activeRunState.isStopped = false;
+  activeRunState.lastUpdatedTime = new Date().toISOString();
 
-  return executeScraperWithWizard(remainingOptions);
+  // If the run loop was waiting in memory, setting flags above will immediately resume it.
+  // If the previous loop broke and we have remaining targets, continue execution:
+  if (activeRunState.remainingTargets && activeRunState.remainingTargets.length > 0) {
+    const remainingOptions: ScraperRunOptions = {
+      ...(activeRunState.options || { mode: 'complete' }),
+      sourceIds: activeRunState.remainingTargets.map(t => t.id)
+    };
+    return executeScraperWithWizard(remainingOptions);
+  }
+
+  return true;
 }
 
 function createEmptySummary(runId: string, startTime: Date, message: string): ScraperRunSummary {
@@ -167,6 +204,11 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
+  // Prevent concurrent scraper runs
+  if (activeRunState.status === 'Running') {
+    throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
+  }
+
   const startTime = new Date();
   const timestampStr = startTime.toISOString().replace('T', ' ').substring(0, 19);
   const runId = `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
@@ -246,27 +288,44 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   for (let tIdx = 0; tIdx < targets.length; tIdx++) {
     const target = targets[tIdx];
 
-    // Check if Stop requested
-    if (activeRunCancelRequested) {
-      activeRunState.status = 'Stopped';
-      activeRunState.lastUpdatedTime = new Date().toISOString();
-      console.log(`[Scraper Engine] Run ${runId} stopped by user request.`);
-      break;
-    }
-
-    // Check if Pause requested
+    // Check if Pause requested before source
     if (activeRunPauseRequested) {
       activeRunState.status = 'Paused';
+      activeRunState.isPaused = true;
       activeRunState.remainingTargets = targets.slice(tIdx);
       activeRunState.remainingSourcesCount = targets.length - tIdx;
       activeRunState.lastUpdatedTime = new Date().toISOString();
-      console.log(`[Scraper Engine] Run ${runId} paused by user request.`);
+      console.log(`[Scraper Engine] Run ${runId} paused before source ${target.name}. Waiting for resume or stop...`);
+      while (activeRunPauseRequested && !activeRunCancelRequested) {
+        await new Promise(r => setTimeout(r, 400));
+      }
+      if (activeRunCancelRequested) {
+        activeRunState.status = 'Stopped';
+        activeRunState.isStopped = true;
+        activeRunState.isPaused = false;
+        activeRunState.lastUpdatedTime = new Date().toISOString();
+        break;
+      }
+      activeRunState.status = 'Running';
+      activeRunState.isPaused = false;
+      activeRunState.lastUpdatedTime = new Date().toISOString();
+    }
+
+    // Check if Stop requested before source
+    if (activeRunCancelRequested) {
+      activeRunState.status = 'Stopped';
+      activeRunState.isStopped = true;
+      activeRunState.remainingTargets = targets.slice(tIdx);
+      activeRunState.remainingSourcesCount = targets.length - tIdx;
+      activeRunState.lastUpdatedTime = new Date().toISOString();
+      console.log(`[Scraper Engine] Run ${runId} stopped by user request.`);
       break;
     }
 
     activeRunState.currentSourceId = target.id;
     activeRunState.currentSourceName = target.name;
     activeRunState.currentSourceIndex = tIdx + 1;
+    activeRunState.remainingSourcesCount = targets.length - tIdx;
     activeRunState.lastUpdatedTime = new Date().toISOString();
 
     const effectiveUrl = target.url || (target as any).portalUrl || (target as any).pdfUrl || '';
@@ -313,7 +372,26 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       let hasMorePages = true;
 
       while (currentPage <= maxAllowedPage && hasMorePages) {
-        if (activeRunCancelRequested || activeRunPauseRequested) break;
+        if (activeRunPauseRequested) {
+          activeRunState.status = 'Paused';
+          activeRunState.isPaused = true;
+          activeRunState.lastUpdatedTime = new Date().toISOString();
+          while (activeRunPauseRequested && !activeRunCancelRequested) {
+            await new Promise(r => setTimeout(r, 400));
+          }
+          if (activeRunCancelRequested) {
+            hasMorePages = false;
+            break;
+          }
+          activeRunState.status = 'Running';
+          activeRunState.isPaused = false;
+          activeRunState.lastUpdatedTime = new Date().toISOString();
+        }
+
+        if (activeRunCancelRequested) {
+          hasMorePages = false;
+          break;
+        }
 
         sourcePagesAttempted++;
         totalPagesAttempted++;
@@ -384,14 +462,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
         const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
 
-        // Location determination - prevent incorrect "Global" assignment for Pakistan sources
+        // Location determination - preserve extracted location, or fallback to source configuration
         const isPakPortal = (target as any).region === 'Pakistan' ||
           target.isGovtPortal ||
           domain.endsWith('.pk') ||
           /pakistan|fpsc|ppsc|spsc|kppsc|bpsc|federal|punjab|sindh|kpk|balochistan|islamabad|lahore|karachi|peshawar|quetta|wapda|nadra|hec|ptcl|ogdcl|fia|nab|fbr/i.test(target.name) ||
           /pakistan|islamabad|lahore|karachi|rawalpindi|peshawar|quetta|multan|faisalabad|sialkot|gujranwala/i.test(`${raw.title} ${raw.city || ''} ${raw.department || ''} ${raw.province || ''}`);
 
-        let resolvedRegion = raw.region || (target as any).region || (isPakPortal ? 'Pakistan' : 'Global');
+        let resolvedRegion = (raw.region && raw.region !== 'Global') ? raw.region : ((target as any).region || (isPakPortal ? 'Pakistan' : 'Global'));
         let resolvedProvince = raw.province || (target as any).province;
         let resolvedCity = raw.city || (target as any).city;
         let resolvedDistrict = (raw as any).district || (target as any).district;
@@ -405,7 +483,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         }
 
         // Pakistani province auto-detection if still unassigned
-        if (resolvedRegion === 'Pakistan' && !resolvedProvince) {
+        if ((resolvedRegion === 'Pakistan' || isPakPortal) && !resolvedProvince) {
           const combinedLocText = `${target.name} ${raw.title} ${resolvedCity || ''} ${raw.department || ''}`.toLowerCase();
           if (combinedLocText.includes('federal') || combinedLocText.includes('fpsc') || combinedLocText.includes('islamabad') || combinedLocText.includes('national')) {
             resolvedProvince = 'Federal';

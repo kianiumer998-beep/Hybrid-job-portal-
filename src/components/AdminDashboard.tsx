@@ -6238,15 +6238,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         entityType="jobs"
         jobClusters={computeJobDuplicateClusters([...jobs, ...pendingJobs])}
         onResolveJobDuplicates={(keepId, deleteIds) => {
+          const liveIdsSet = new Set(jobs.map(j => j.id));
+          const validDeleteIds = deleteIds.filter(id => liveIdsSet.has(id));
           if (onBulkDeleteJobs) {
-            onBulkDeleteJobs(deleteIds);
+            onBulkDeleteJobs(validDeleteIds);
           } else {
-            deleteIds.forEach(id => onDeleteJob(id));
+            validDeleteIds.forEach(id => onDeleteJob(id));
           }
           setIsJobDuplicateModalOpen(false);
         }}
         onBulkSelectDuplicateIds={(ids) => {
-          setSelectedJobIds(ids);
+          const liveIdsSet = new Set(jobs.map(j => j.id));
+          setSelectedJobIds(ids.filter(id => liveIdsSet.has(id)));
           setIsJobDuplicateModalOpen(false);
         }}
       />
@@ -6258,15 +6261,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         entityType="pending"
         jobClusters={computeJobDuplicateClusters([...jobs, ...pendingJobs])}
         onResolveJobDuplicates={(keepId, deleteIds) => {
+          const pendingIdsSet = new Set(pendingJobs.map(p => p.id));
+          const validDeleteIds = deleteIds.filter(id => pendingIdsSet.has(id));
           if (onBulkRejectPendingJobs) {
-            onBulkRejectPendingJobs(deleteIds, 'Duplicate job submission detected in moderation queue');
+            onBulkRejectPendingJobs(validDeleteIds, 'Duplicate job submission detected in moderation queue');
           } else {
-            deleteIds.forEach(id => onRejectJob(id, 'Duplicate job submission detected'));
+            validDeleteIds.forEach(id => onRejectJob(id, 'Duplicate job submission detected'));
           }
           setIsPendingDuplicateModalOpen(false);
         }}
         onBulkSelectDuplicateIds={(ids) => {
-          setSelectedPendingIds(ids);
+          const pendingIdsSet = new Set(pendingJobs.map(p => p.id));
+          setSelectedPendingIds(ids.filter(id => pendingIdsSet.has(id)));
           setIsPendingDuplicateModalOpen(false);
         }}
       />

@@ -74,13 +74,19 @@ export interface PopupDisplaySettings {
   allowUnlimitedQueue: boolean; // Allow admin to queue unlimited popups on cross
 }
 
+export interface FeedInlineAdPatternEntry {
+  jobsInterval: number;
+  adCount: number;
+}
+
 export interface FeedInlineAdSettings {
-  insertionMode: 'cadence' | 'custom_indices'; // 'cadence' = every N jobs, 'custom_indices' = after specific job numbers
+  insertionMode: 'cadence' | 'custom_indices' | 'custom_pattern'; // 'cadence' = every N jobs, 'custom_indices' = after specific job numbers, 'custom_pattern' = sequence of intervals and counts
   repeatEveryNJobs: number; // e.g. 2, 3, 4, 5
   customIndices: number[]; // e.g. [2, 5, 8] -> after 2nd job, after 5th job, after 8th job
   page1SpecificIndices?: number[]; // Optional different indices for page 1
   maxAdsPerPage: number; // e.g. 3
   rotateMultipleAds: boolean; // Rotate through different active feed ads
+  customPattern?: FeedInlineAdPatternEntry[];
 }
 
 export interface PromoDiscountBanner {
@@ -476,7 +482,13 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
     customIndices: [2, 5, 8, 12], // After 2nd job, after 5th job, after 8th job
     page1SpecificIndices: [2, 5, 8],
     maxAdsPerPage: 3,
-    rotateMultipleAds: true
+    rotateMultipleAds: true,
+    customPattern: [
+      { jobsInterval: 1, adCount: 1 },
+      { jobsInterval: 3, adCount: 1 },
+      { jobsInterval: 2, adCount: 1 },
+      { jobsInterval: 4, adCount: 2 }
+    ]
   },
   promoBanners: DEFAULT_PROMO_BANNERS,
   jobPostingFeeSettings: {

@@ -27,6 +27,18 @@ import { Advertisement, FeedInlineAdSettings } from '../types/ad';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
+function getCustomPatternMatch(positionNumber: number, pattern?: { jobsInterval: number; adCount: number }[]) {
+  if (!pattern || pattern.length === 0) return { matches: false, adCount: 1 };
+  let cumulative = 0;
+  for (const entry of pattern) {
+    cumulative += (entry.jobsInterval || 1);
+    if (positionNumber === cumulative) {
+      return { matches: true, adCount: entry.adCount || 1 };
+    }
+  }
+  return { matches: false, adCount: 1 };
+}
+
 interface JobListingsProps {
   jobs: Job[];
   savedJobIds: string[];
@@ -238,6 +250,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           );
 
           let shouldInsertAd = false;
+          let adsToInsertCount = 1;
           const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
 
           if (activeFeedAds.length > 0) {
@@ -246,6 +259,11 @@ export const JobListings: React.FC<JobListingsProps> = ({
             if (feedInlineSettings?.insertionMode === 'cadence') {
               const cadence = feedInlineSettings.repeatEveryNJobs || 3;
               shouldInsertAd = positionNumber % cadence === 0;
+              adsToInsertCount = 1;
+            } else if (feedInlineSettings?.insertionMode === 'custom_pattern') {
+              const match = getCustomPatternMatch(positionNumber, feedInlineSettings.customPattern);
+              shouldInsertAd = match.matches;
+              adsToInsertCount = match.adCount;
             } else {
               // Custom indices (e.g. [2, 5, 8])
               const targetIndices =
@@ -256,14 +274,18 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   : feedInlineSettings?.customIndices || [2, 5, 8];
 
               shouldInsertAd = targetIndices.includes(positionNumber);
+              adsToInsertCount = 1;
             }
           }
 
-          // Compute which ad to display if any
-          let feedAdToRender: Advertisement | null = null;
+          // Compute ads to display if any
+          const adsToRender: Advertisement[] = [];
           if (shouldInsertAd && activeFeedAds.length > 0) {
-            const adIndex = Math.floor(index / (feedInlineSettings?.repeatEveryNJobs || 3)) % activeFeedAds.length;
-            feedAdToRender = activeFeedAds[adIndex] || activeFeedAds[0];
+            const allowedCount = Math.min(adsToInsertCount, maxAds);
+            for (let k = 0; k < allowedCount; k++) {
+              const adIdx = (index + k) % activeFeedAds.length;
+              adsToRender.push(activeFeedAds[adIdx] || activeFeedAds[0]);
+            }
           }
 
           const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';
@@ -512,14 +534,15 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
             </div>
 
-            {/* Inline Sponsored Feed Ad if matched */}
-            {feedAdToRender && (
+            {/* Inline Sponsored Feed Ads if matched */}
+            {adsToRender.map((ad, adIdx) => (
               <InlineFeedAd
-                ad={feedAdToRender}
+                key={`inline-ad-${index}-${ad.id || adIdx}`}
+                ad={ad}
                 onAdClick={onAdClick || (() => {})}
                 onNavigateTab={onNavigateTab}
               />
-            )}
+            ))}
           </React.Fragment>
           );
         })}

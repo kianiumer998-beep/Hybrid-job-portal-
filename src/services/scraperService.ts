@@ -25,6 +25,13 @@ export interface ScraperTargetConfig {
   lastRunId?: string;
   healthStatus?: 'healthy' | 'warning' | 'error';
   lastErrorMessage?: string;
+
+  // Source-level location controls
+  region?: Region;
+  province?: string;
+  city?: string;
+  district?: string;
+  useSourceLocation?: boolean;
 }
 
 export interface ScrapedJobResult {

@@ -31,7 +31,11 @@ import {
   Edit3,
   RotateCcw,
   CheckSquare,
-  Square
+  Square,
+  Activity,
+  AlertCircle,
+  Calendar,
+  MapPin
 } from 'lucide-react';
 import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
@@ -145,7 +149,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [regionFilter, setRegionFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
-  const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate'>('all');
+  const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'expired'>('all');
 
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -181,9 +185,37 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [newSourceUrl, setNewSourceUrl] = useState('');
   const [newSourceCategory, setNewSourceCategory] = useState<ScraperSourceItem['category']>('Government Sector');
   const [newSourceRegion, setNewSourceRegion] = useState<Region>('Pakistan');
+  const [newSourceProvince, setNewSourceProvince] = useState('');
+  const [newSourceCity, setNewSourceCity] = useState('');
+  const [newSourceDistrict, setNewSourceDistrict] = useState('');
+  const [newSourceUseLocation, setNewSourceUseLocation] = useState(true);
   const [newSourceInterval, setNewSourceInterval] = useState<'15m' | '30m' | '1h' | '6h' | '24h' | '7d'>('24h');
   const [newSourceKeywords, setNewSourceKeywords] = useState('');
   const [newSourceAutoApprove, setNewSourceAutoApprove] = useState(false);
+
+  // Edit Source Modal State
+  const [isEditSourceOpen, setIsEditSourceOpen] = useState(false);
+  const [editingSourceItem, setEditingSourceItem] = useState<ScraperSourceItem | null>(null);
+
+  // Active Scraper Run Real-Time Engine State
+  const [activeRunState, setActiveRunState] = useState<any>(null);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+
+  // Expiry Settings State
+  const [expiryOffsetDays, setExpiryOffsetDays] = useState<number>(1);
+  const [isSavingExpiry, setIsSavingExpiry] = useState(false);
+  const [isScanningExpiry, setIsScanningExpiry] = useState(false);
+
+  // Bulk Location Update Modal State
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [targetLocationJobIds, setTargetLocationJobIds] = useState<string[]>([]);
+  const [bulkRegion, setBulkRegion] = useState('Pakistan');
+  const [bulkProvince, setBulkProvince] = useState('');
+  const [bulkCity, setBulkCity] = useState('');
+  const [bulkDistrict, setBulkDistrict] = useState('');
+  const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
 
   // Inspect Run Modal State
   const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
@@ -308,6 +340,25 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (pendingRes?.success && Array.isArray(pendingList)) {
         setLocalPendingJobs(pendingList);
       }
+
+      // 6. Fetch Expiry Settings
+      try {
+        const expRes = await api.scraper.getExpirySettings();
+        if (expRes?.success && expRes.settings) {
+          setExpiryOffsetDays(expRes.settings.offsetDays ?? 1);
+        }
+      } catch (e) {}
+
+      // 7. Fetch Active Run Status
+      try {
+        const actRes = await api.scraper.getActiveStatus();
+        if (actRes?.success && actRes.status) {
+          setActiveRunState(actRes.status);
+          if (actRes.status.isActive) {
+            setIsScrapingActive(true);
+          }
+        }
+      } catch (e) {}
     } catch (err: any) {
       console.error('Error fetching live scraper data:', err);
       setStatusMessage({
@@ -318,6 +369,34 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       setIsLoadingLive(false);
     }
   }, [propsSources, propsSetSources]);
+
+  // Polling for Active Scraper Run Controls & Live Progress
+  useEffect(() => {
+    let timer: any = null;
+    const pollActiveStatus = async () => {
+      try {
+        const res = await api.scraper.getActiveStatus();
+        if (res?.success && res.status) {
+          setActiveRunState(res.status);
+          if (res.status.isActive) {
+            setIsScrapingActive(true);
+          } else if (res.status.status === 'Completed' || res.status.status === 'Stopped') {
+            if (isScrapingActive && !res.status.isActive) {
+              setIsScrapingActive(false);
+              fetchLiveScraperData();
+            }
+          }
+        }
+      } catch (err) {}
+    };
+
+    pollActiveStatus();
+    timer = setInterval(pollActiveStatus, 1500);
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isScrapingActive, fetchLiveScraperData]);
 
   useEffect(() => {
     if (pendingJobs && pendingJobs.length > 0) {
@@ -511,11 +590,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   }, [liveRuns, searchQuery, dateFilter]);
 
   // -------------------------------------------------------------
-  // Review Queue Items (Pending jobs & duplicate warnings from MongoDB)
+  // Review Queue Items (Pending jobs, duplicate warnings, and expired jobs)
   // -------------------------------------------------------------
   const effectivePendingList = useMemo(() => {
     return localPendingJobs.length > 0 ? localPendingJobs : (pendingJobs || []);
   }, [localPendingJobs, pendingJobs]);
+
+  const expiredJobsList = useMemo(() => {
+    return (jobs || []).filter(j => j.status === 'Expired');
+  }, [jobs]);
 
   const pendingOnlyCount = useMemo(() => {
     return effectivePendingList.filter(j => !((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
@@ -525,11 +608,36 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     return effectivePendingList.filter(j => (j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate')).length;
   }, [effectivePendingList]);
 
+  const expiredCount = useMemo(() => {
+    return expiredJobsList.length;
+  }, [expiredJobsList]);
+
   const selectedDuplicateCount = useMemo(() => {
     return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && ((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
   }, [effectivePendingList, selectedReviewIds]);
 
+  const selectedExpiredCount = useMemo(() => {
+    return expiredJobsList.filter(j => selectedReviewIds.includes(j.id)).length;
+  }, [expiredJobsList, selectedReviewIds]);
+
   const reviewItems = useMemo(() => {
+    if (reviewTypeFilter === 'expired') {
+      return expiredJobsList.filter(job => {
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          const matchTitle = job.title?.toLowerCase().includes(q);
+          const matchCompany = job.company?.toLowerCase().includes(q);
+          const matchPortal = ((job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '').toLowerCase().includes(q);
+          if (!matchTitle && !matchCompany && !matchPortal) return false;
+        }
+        if (sourceFilter !== 'all') {
+          const portal = (job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || '';
+          if (!portal.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
+        }
+        return true;
+      });
+    }
+
     return effectivePendingList.filter(job => {
       const isDuplicate = (job as any).isDuplicate || (job as any).duplicateWarning ||
         job.description?.toLowerCase().includes('duplicate') ||
@@ -553,7 +661,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       return true;
     });
-  }, [effectivePendingList, reviewTypeFilter, searchQuery, sourceFilter]);
+  }, [effectivePendingList, expiredJobsList, reviewTypeFilter, searchQuery, sourceFilter]);
 
   // -------------------------------------------------------------
   // Results Feed Items (Discovered Jobs from recent runs & live db)
@@ -877,6 +985,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       url: newSourceUrl.trim(),
       category: newSourceCategory,
       region: newSourceRegion,
+      province: newSourceProvince.trim() || undefined,
+      city: newSourceCity.trim() || undefined,
+      district: newSourceDistrict.trim() || undefined,
+      useSourceLocation: newSourceUseLocation,
       status: 'Active Scheduled',
       interval: newSourceInterval,
       depth: 'Standard (25 Jobs)',
@@ -892,8 +1004,203 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     setNewSourceName('');
     setNewSourceUrl('');
     setNewSourceKeywords('');
+    setNewSourceProvince('');
+    setNewSourceCity('');
+    setNewSourceDistrict('');
     setIsAddSourceOpen(false);
     setStatusMessage({ text: `Source "${newSource.name}" added successfully!`, type: 'success' });
+  };
+
+  const handleOpenEditSource = (source: ScraperSourceItem) => {
+    setEditingSourceItem({ ...source });
+    setIsEditSourceOpen(true);
+  };
+
+  const handleSaveEditSource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSourceItem) return;
+
+    const updated = sourcesList.map(s => s.id === editingSourceItem.id ? editingSourceItem : s);
+    setLiveSources(updated);
+    if (propsSetSources) propsSetSources(updated);
+    await api.scraper.saveConfigs(updated);
+    setIsEditSourceOpen(false);
+    setEditingSourceItem(null);
+    setStatusMessage({ text: `Source "${editingSourceItem.name}" updated successfully!`, type: 'success' });
+  };
+
+  // Run Controls: Pause / Resume / Stop
+  const handlePauseActiveRun = async () => {
+    setIsPausing(true);
+    try {
+      const res = await api.scraper.pause();
+      if (res?.success) {
+        setStatusMessage({ text: 'Scraper run paused. Click Resume to continue crawling.', type: 'info' });
+        const st = await api.scraper.getActiveStatus();
+        if (st?.status) setActiveRunState(st.status);
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error pausing run.', type: 'error' });
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  const handleResumeActiveRun = async () => {
+    setIsResuming(true);
+    try {
+      const res = await api.scraper.resume();
+      if (res?.success) {
+        setStatusMessage({ text: 'Scraper run resumed.', type: 'success' });
+        const st = await api.scraper.getActiveStatus();
+        if (st?.status) setActiveRunState(st.status);
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error resuming run.', type: 'error' });
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const handleStopActiveRun = async () => {
+    if (!confirm('Are you sure you want to stop the active scraper run?')) return;
+    setIsStopping(true);
+    try {
+      const res = await api.scraper.stop();
+      if (res?.success) {
+        setStatusMessage({ text: 'Scraper run stopped.', type: 'info' });
+        setIsScrapingActive(false);
+        const st = await api.scraper.getActiveStatus();
+        if (st?.status) setActiveRunState(st.status);
+        await fetchLiveScraperData();
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error stopping run.', type: 'error' });
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
+  // Expiry Settings & Controls
+  const handleSaveExpiryOffset = async () => {
+    setIsSavingExpiry(true);
+    try {
+      const res = await api.scraper.updateExpirySettings({ offsetDays: expiryOffsetDays });
+      if (res?.success) {
+        setStatusMessage({ text: `Portal expiry offset saved (+${expiryOffsetDays} days). Real application deadlines remain untouched.`, type: 'success' });
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to update expiry offset.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error saving expiry offset.', type: 'error' });
+    } finally {
+      setIsSavingExpiry(false);
+    }
+  };
+
+  const handleScanExpiryNow = async () => {
+    setIsScanningExpiry(true);
+    try {
+      const res = await api.scraper.scanExpiry();
+      if (res?.success) {
+        setStatusMessage({ text: res.message || `Expiry scan completed. ${res.expiredCount} jobs updated to Expired.`, type: 'success' });
+        if (onReloadJobs) await onReloadJobs();
+      } else {
+        setStatusMessage({ text: res?.message || 'Expiry scan encountered notices.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error executing expiry scan.', type: 'error' });
+    } finally {
+      setIsScanningExpiry(false);
+    }
+  };
+
+  // Restoring Expired Jobs
+  const handleRestoreExpiredJob = async (jobId: string) => {
+    try {
+      const res = await api.jobs.restoreExpired(jobId);
+      if (res?.success) {
+        setStatusMessage({ text: 'Job restored to live status! Original application deadline preserved.', type: 'success' });
+        if (onReloadJobs) await onReloadJobs();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to restore job.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error restoring job.', type: 'error' });
+    }
+  };
+
+  const handleBulkRestoreExpiredJobs = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    try {
+      const res = await api.jobs.bulkRestoreExpired(ids);
+      if (res?.success) {
+        setStatusMessage({ text: `${res.count} jobs restored to live status. Real application deadlines preserved.`, type: 'success' });
+        setSelectedReviewIds([]);
+        if (onReloadJobs) await onReloadJobs();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to bulk restore jobs.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error bulk restoring jobs.', type: 'error' });
+    }
+  };
+
+  const handlePermanentDeleteJob = async (jobId: string) => {
+    if (!confirm('Permanently delete this job from the database? This cannot be undone.')) return;
+    try {
+      const res = await api.jobs.permanentDelete(jobId);
+      if (res?.success) {
+        setStatusMessage({ text: 'Job permanently deleted.', type: 'success' });
+        if (onReloadJobs) await onReloadJobs();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to delete job permanently.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error permanently deleting job.', type: 'error' });
+    }
+  };
+
+  const handleBulkPermanentDeleteJobs = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    if (!confirm(`Permanently delete ${ids.length} jobs from the database? This cannot be undone.`)) return;
+    try {
+      let deleted = 0;
+      for (const id of ids) {
+        const res = await api.jobs.permanentDelete(id);
+        if (res?.success) deleted++;
+      }
+      setStatusMessage({ text: `Permanently deleted ${deleted} jobs.`, type: 'success' });
+      setSelectedReviewIds([]);
+      if (onReloadJobs) await onReloadJobs();
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error bulk deleting jobs.', type: 'error' });
+    }
+  };
+
+  const handleExecuteBulkLocationUpdate = async () => {
+    if (targetLocationJobIds.length === 0) return;
+    setIsUpdatingLocation(true);
+    try {
+      const res = await api.jobs.bulkUpdateLocation(targetLocationJobIds, {
+        region: bulkRegion,
+        province: bulkProvince.trim() || undefined,
+        city: bulkCity.trim() || undefined,
+        district: bulkDistrict.trim() || undefined
+      });
+      if (res?.success) {
+        setStatusMessage({ text: `Updated location for ${res.count} jobs.`, type: 'success' });
+        setIsLocationModalOpen(false);
+        setTargetLocationJobIds([]);
+        if (onReloadJobs) await onReloadJobs();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to update locations.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error updating job locations.', type: 'error' });
+    } finally {
+      setIsUpdatingLocation(false);
+    }
   };
 
   // Bulk actions for Step 1
@@ -2357,9 +2664,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             <div>
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
                 <span>Step 3: Run Scraper — Run All / Run Selected / Run Now</span>
-                {isScrapingActive && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
-                    Crawler Running...
+                {activeRunState?.isActive && (
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                    activeRunState.isPaused
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 animate-pulse'
+                  }`}>
+                    {activeRunState.isPaused ? 'Crawler Paused' : 'Crawler Active & Harvesting'}
                   </span>
                 )}
               </h3>
@@ -2379,6 +2690,121 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Real-time Active Run Monitor & Control Bar */}
+          {activeRunState && (activeRunState.isActive || activeRunState.status === 'Running' || activeRunState.status === 'Paused') && (
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 space-y-4 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                <div className="flex items-center space-x-3">
+                  <div className={`p-2 rounded-xl border ${
+                    activeRunState.isPaused
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse'
+                  }`}>
+                    <Activity className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center space-x-2">
+                      <span>Real-Time Scraper Engine Activity</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        activeRunState.isPaused
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-emerald-500/20 text-emerald-300'
+                      }`}>
+                        {activeRunState.isPaused ? 'PAUSED' : 'RUNNING'}
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Processing source: <span className="text-indigo-300 font-semibold">{activeRunState.currentSourceName || 'Initializing...'}</span> ({activeRunState.completedSources || 0} / {activeRunState.totalSources || 0} completed)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  {activeRunState.isPaused ? (
+                    <button
+                      type="button"
+                      disabled={isResuming}
+                      onClick={handleResumeActiveRun}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>Resume Run</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isPausing}
+                      onClick={handlePauseActiveRun}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Pause Run</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={isStopping}
+                    onClick={handleStopActiveRun}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                    <span>Stop Run</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-slate-400">
+                  <span>Batch Source Progress</span>
+                  <span className="font-mono text-white">
+                    {activeRunState.totalSources > 0 ? Math.round((activeRunState.completedSources / activeRunState.totalSources) * 100) : 0}%
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                  <div
+                    className="h-full bg-gradient-to-r from-indigo-500 via-emerald-500 to-teal-400 transition-all duration-300"
+                    style={{
+                      width: `${activeRunState.totalSources > 0 ? (activeRunState.completedSources / activeRunState.totalSources) * 100 : 0}%`
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Live Run Metric Counters */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase">Total Found</div>
+                  <div className="text-base font-black text-indigo-400 mt-0.5">{activeRunState.totalFound || 0}</div>
+                </div>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase">New Harvested</div>
+                  <div className="text-base font-black text-emerald-400 mt-0.5">{activeRunState.newJobs || 0}</div>
+                </div>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase">Duplicates Filtered</div>
+                  <div className="text-base font-black text-purple-400 mt-0.5">{activeRunState.duplicates || 0}</div>
+                </div>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase">Pending Review</div>
+                  <div className="text-base font-black text-amber-400 mt-0.5">{activeRunState.pending || 0}</div>
+                </div>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase">Failed Sources</div>
+                  <div className="text-base font-black text-rose-400 mt-0.5">{activeRunState.failedSources || 0}</div>
+                </div>
+              </div>
+
+              {activeRunState.currentError && (
+                <div className="p-2.5 bg-rose-950/40 border border-rose-800/40 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>Notice: {activeRunState.currentError}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Quick Action Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -2998,6 +3424,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>Select All Duplicates ({duplicateCount})</span>
                 </button>
+                {expiredCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReviewIds(expiredJobsList.map(j => j.id))}
+                    className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Select All Expired ({expiredCount})</span>
+                  </button>
+                )}
                 {selectedReviewIds.length > 0 && (
                   <button
                     type="button"
@@ -3011,7 +3447,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-semibold text-indigo-300 bg-indigo-950/60 border border-indigo-800/50 px-3 py-1 rounded-full">
-                  {selectedReviewIds.length} Selected ({selectedReviewIds.length - selectedDuplicateCount} Pending, {selectedDuplicateCount} Duplicates)
+                  {selectedReviewIds.length} Selected
                 </span>
               </div>
             </div>
@@ -3040,6 +3476,46 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <span>Reject Selected</span>
               </button>
 
+              {selectedExpiredCount > 0 && (
+                <>
+                  <button
+                    type="button"
+                    disabled={isProcessingReview}
+                    onClick={() => handleBulkRestoreExpiredJobs(selectedReviewIds)}
+                    className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 shadow-sm"
+                    title="Restore selected expired jobs back to Live status"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Restore Expired to Live ({selectedExpiredCount})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isProcessingReview}
+                    onClick={() => handleBulkPermanentDeleteJobs(selectedReviewIds)}
+                    className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                    title="Permanently remove selected expired jobs from database"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Expired ({selectedExpiredCount})</span>
+                  </button>
+                </>
+              )}
+
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0}
+                onClick={() => {
+                  setTargetLocationJobIds(selectedReviewIds);
+                  setIsLocationModalOpen(true);
+                }}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                title="Bulk set province, city, and district for selected jobs"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Set Location ({selectedReviewIds.length})</span>
+              </button>
+
               <button
                 type="button"
                 disabled={selectedDuplicateCount === 0 || isProcessingReview}
@@ -3061,17 +3537,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <Shield className="w-3.5 h-3.5 text-indigo-400" />
                 <span>Keep Original + Delete Duplicates</span>
               </button>
-
-              <button
-                type="button"
-                disabled={selectedDuplicateCount === 0 || isProcessingReview}
-                onClick={() => handleOverwriteOriginalWithDuplicates()}
-                className="px-3.5 py-2 bg-amber-950/40 hover:bg-amber-900/60 text-amber-200 border border-amber-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
-                title="Overwrite active job with scraped duplicate data, and delete duplicate from queue"
-              >
-                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                <span>Overwrite Original</span>
-              </button>
             </div>
           </div>
 
@@ -3090,8 +3555,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              {(['all', 'pending', 'duplicate'] as const).map(type => (
+            <div className="flex items-center space-x-2 flex-wrap gap-1.5">
+              {(['all', 'pending', 'duplicate', 'expired'] as const).map(type => (
                 <button
                   key={type}
                   type="button"
@@ -3102,7 +3567,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
                   }`}
                 >
-                  {type === 'all' ? `All (${effectivePendingList.length})` : type === 'pending' ? `Pending Only (${pendingOnlyCount})` : `Duplicates Only (${duplicateCount})`}
+                  {type === 'all'
+                    ? `All (${effectivePendingList.length})`
+                    : type === 'pending'
+                    ? `Pending (${pendingOnlyCount})`
+                    : type === 'duplicate'
+                    ? `Duplicates (${duplicateCount})`
+                    : `Expired (${expiredCount})`}
                 </button>
               ))}
             </div>
@@ -3113,13 +3584,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             {reviewItems.length === 0 ? (
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3 shadow-lg">
                 <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                <h4 className="text-sm font-bold text-white">No items in review</h4>
+                <h4 className="text-sm font-bold text-white">No items in this view</h4>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  The review queue is clear! All scraped jobs have either been approved to live listings or screened out.
+                  No jobs match your current review criteria.
                 </p>
               </div>
             ) : (
               reviewItems.map(job => {
+                const isExpired = job.status === 'Expired';
                 const isDup = (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate');
                 const isSelected = selectedReviewIds.includes(job.id);
 
@@ -3127,7 +3599,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <div
                     key={job.id}
                     className={`bg-slate-900 border rounded-2xl p-5 transition-all shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                      isDup ? 'border-purple-800/60 bg-purple-950/10' : 'border-slate-800'
+                      isExpired
+                        ? 'border-rose-800/40 bg-rose-950/10'
+                        : isDup
+                        ? 'border-purple-800/60 bg-purple-950/10'
+                        : 'border-slate-800'
                     }`}
                   >
                     <div className="flex items-start space-x-3.5">
@@ -3148,7 +3624,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       <div className="space-y-1">
                         <div className="flex items-center space-x-2 flex-wrap">
                           <h4 className="text-sm font-black text-white">{job.title}</h4>
-                          {isDup ? (
+                          {isExpired ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
+                              <Clock className="w-3 h-3" />
+                              <span>Expired (Deadline: {job.deadlineDate || 'Passed'})</span>
+                            </span>
+                          ) : isDup ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center space-x-1">
                               <AlertTriangle className="w-3 h-3" />
                               <span>Duplicate Alert</span>
@@ -3162,9 +3643,20 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
                         <p className="text-xs text-slate-400">
                           {job.company} • {job.region} • Source: <span className="text-indigo-400 font-semibold">{(job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'External'}</span>
+                          {job.deadlineDate && (
+                            <span className="ml-2 text-slate-500">
+                              • Official Deadline: <span className="text-amber-300/90 font-mono">{job.deadlineDate}</span>
+                            </span>
+                          )}
                         </p>
 
-                        {isDup && (
+                        {isExpired && (
+                          <p className="text-[11px] text-rose-300/80 pt-0.5">
+                            Notice: This job passed its application deadline and was transitioned to Expired by the portal scheduler.
+                          </p>
+                        )}
+
+                        {isDup && !isExpired && (
                           <p className="text-[11px] text-purple-300/80 pt-0.5">
                             Notice: A job with a very similar title and employer already exists in active listings.
                           </p>
@@ -3173,7 +3665,29 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 flex-wrap gap-2">
-                      {isDup ? (
+                      {isExpired ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isProcessingReview}
+                            onClick={() => handleRestoreExpiredJob(job.id)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Restore to Live</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isProcessingReview}
+                            onClick={() => handlePermanentDeleteJob(job.id)}
+                            className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        </>
+                      ) : isDup ? (
                         <>
                           <button
                             type="button"
@@ -3245,27 +3759,29 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        disabled={isProcessingReview}
-                        onClick={async () => {
-                          setIsProcessingReview(true);
-                          try {
-                            const res = await api.jobs.bulkReject([job.id], 'Rejected from Duplicates & Review');
-                            if (res?.success) {
-                              setStatusMessage({ text: `Rejected "${job.title}".`, type: 'info' });
-                              await fetchPendingQueue();
+                      {!isExpired && (
+                        <button
+                          type="button"
+                          disabled={isProcessingReview}
+                          onClick={async () => {
+                            setIsProcessingReview(true);
+                            try {
+                              const res = await api.jobs.bulkReject([job.id], 'Rejected from Duplicates & Review');
+                              if (res?.success) {
+                                setStatusMessage({ text: `Rejected "${job.title}".`, type: 'info' });
+                                await fetchPendingQueue();
+                              }
+                            } catch (err: any) {
+                              setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
+                            } finally {
+                              setIsProcessingReview(false);
                             }
-                          } catch (err: any) {
-                            setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
-                          } finally {
-                            setIsProcessingReview(false);
-                          }
-                        }}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        Reject
-                      </button>
+                          }}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -3560,6 +4076,113 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Portal Expiry Lifespan Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg md:col-span-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center space-x-2">
+                    <Calendar className="w-4 h-4 text-amber-400" />
+                    <span>Portal Expiry Lifespan & Application Deadlines</span>
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Preserves the REAL source application deadline in <code className="text-indigo-300 font-mono">deadlineDate</code>. Automates transition from live to Expired when current date exceeds the source deadline plus the configured portal offset.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    disabled={isScanningExpiry}
+                    onClick={handleScanExpiryNow}
+                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isScanningExpiry ? 'animate-spin' : ''}`} />
+                    <span>Run Expiry Scan Now</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingExpiry}
+                    onClick={handleSaveExpiryOffset}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save Expiry Setting</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                <div
+                  onClick={() => setExpiryOffsetDays(0)}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                    expiryOffsetDays === 0
+                      ? 'bg-indigo-950/40 border-indigo-500/60 ring-1 ring-indigo-500/30'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">0 Days (Strict)</span>
+                    <input
+                      type="radio"
+                      name="expiryOffset"
+                      checked={expiryOffsetDays === 0}
+                      onChange={() => setExpiryOffsetDays(0)}
+                      className="text-indigo-600 focus:ring-0"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    Jobs expire immediately at the stroke of midnight on the exact application deadline date.
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => setExpiryOffsetDays(1)}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                    expiryOffsetDays === 1
+                      ? 'bg-indigo-950/40 border-indigo-500/60 ring-1 ring-indigo-500/30'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">+1 Day (Default)</span>
+                    <input
+                      type="radio"
+                      name="expiryOffset"
+                      checked={expiryOffsetDays === 1}
+                      onChange={() => setExpiryOffsetDays(1)}
+                      className="text-indigo-600 focus:ring-0"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    Remains live through the closing day, transitioning to Expired the following morning.
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => setExpiryOffsetDays(2)}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                    expiryOffsetDays === 2
+                      ? 'bg-indigo-950/40 border-indigo-500/60 ring-1 ring-indigo-500/30'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">+2 Days (Grace Period)</span>
+                    <input
+                      type="radio"
+                      name="expiryOffset"
+                      checked={expiryOffsetDays === 2}
+                      onChange={() => setExpiryOffsetDays(2)}
+                      className="text-indigo-600 focus:ring-0"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    Provides a 48-hour buffer allowing jobseekers to view archived vacancies just past closing.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -3637,6 +4260,58 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     <option value="Federal / Islamabad">Federal</option>
                     <option value="Gulf / Middle East">Gulf</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Source Location Targeting */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-200">Source Location Targeting</span>
+                  <div className="flex items-center space-x-1.5">
+                    <input
+                      type="checkbox"
+                      id="newSourceUseLocation"
+                      checked={newSourceUseLocation}
+                      onChange={(e) => setNewSourceUseLocation(e.target.checked)}
+                      className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
+                    />
+                    <label htmlFor="newSourceUseLocation" className="text-[11px] text-slate-300 cursor-pointer">
+                      Use as fallback for scraped jobs
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">Province</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Punjab"
+                      value={newSourceProvince}
+                      onChange={(e) => setNewSourceProvince(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">City</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Lahore"
+                      value={newSourceCity}
+                      onChange={(e) => setNewSourceCity(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">District</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Lahore"
+                      value={newSourceDistrict}
+                      onChange={(e) => setNewSourceDistrict(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -3966,6 +4641,281 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* MODAL: EDIT SOURCE                                            */}
+      {/* ============================================================= */}
+      {isEditSourceOpen && editingSourceItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white">Edit Job Source</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditSourceOpen(false);
+                  setEditingSourceItem(null);
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditSource} className="space-y-3.5 text-xs">
+              <div>
+                <label className="font-bold text-slate-300 block mb-1">Source Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingSourceItem.name}
+                  onChange={(e) => setEditingSourceItem({ ...editingSourceItem, name: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-300 block mb-1">Website URL or PDF Endpoint *</label>
+                <input
+                  type="url"
+                  required
+                  value={editingSourceItem.url}
+                  onChange={(e) => setEditingSourceItem({ ...editingSourceItem, url: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-300 block mb-1">Category</label>
+                  <select
+                    value={editingSourceItem.category}
+                    onChange={(e) => setEditingSourceItem({ ...editingSourceItem, category: e.target.value as any })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                  >
+                    <option value="Government Sector">Government Sector</option>
+                    <option value="Testing Agency">Testing Agency</option>
+                    <option value="Corporate">Corporate Portals</option>
+                    <option value="International / Gulf">International / Gulf</option>
+                    <option value="Newspaper Feed">Newspaper Feeds</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-300 block mb-1">Region</label>
+                  <select
+                    value={editingSourceItem.region}
+                    onChange={(e) => setEditingSourceItem({ ...editingSourceItem, region: e.target.value as any })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                  >
+                    <option value="Pakistan">Pakistan (All)</option>
+                    <option value="Punjab">Punjab</option>
+                    <option value="Sindh">Sindh</option>
+                    <option value="KPK">KPK</option>
+                    <option value="Balochistan">Balochistan</option>
+                    <option value="Federal / Islamabad">Federal</option>
+                    <option value="Gulf / Middle East">Gulf</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Source Location Targeting */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-200">Source Location Targeting</span>
+                  <div className="flex items-center space-x-1.5">
+                    <input
+                      type="checkbox"
+                      id="editSourceUseLocation"
+                      checked={editingSourceItem.useSourceLocation ?? true}
+                      onChange={(e) => setEditingSourceItem({ ...editingSourceItem, useSourceLocation: e.target.checked })}
+                      className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
+                    />
+                    <label htmlFor="editSourceUseLocation" className="text-[11px] text-slate-300 cursor-pointer">
+                      Use as fallback for scraped jobs
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">Province</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Punjab"
+                      value={editingSourceItem.province || ''}
+                      onChange={(e) => setEditingSourceItem({ ...editingSourceItem, province: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">City</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Lahore"
+                      value={editingSourceItem.city || ''}
+                      onChange={(e) => setEditingSourceItem({ ...editingSourceItem, city: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">District</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Lahore"
+                      value={editingSourceItem.district || ''}
+                      onChange={(e) => setEditingSourceItem({ ...editingSourceItem, district: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-300 block mb-1">Run Frequency</label>
+                  <select
+                    value={editingSourceItem.interval}
+                    onChange={(e) => setEditingSourceItem({ ...editingSourceItem, interval: e.target.value as any })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                  >
+                    <option value="15m">Every 15m</option>
+                    <option value="30m">Every 30m</option>
+                    <option value="1h">Every 1 hour</option>
+                    <option value="6h">Every 6 hours</option>
+                    <option value="24h">Every 24 hours</option>
+                    <option value="7d">Every 7 days</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center space-x-2 pt-5">
+                  <input
+                    type="checkbox"
+                    id="editSourceAutoApprove"
+                    checked={editingSourceItem.autoApprove ?? false}
+                    onChange={(e) => setEditingSourceItem({ ...editingSourceItem, autoApprove: e.target.checked })}
+                    className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
+                  />
+                  <label htmlFor="editSourceAutoApprove" className="font-bold text-slate-300 cursor-pointer">
+                    Auto-Approve Jobs
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-300 block mb-1">Keywords Filter (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Officer, Engineer, Clerk, Specialist"
+                  value={editingSourceItem.keywords || ''}
+                  onChange={(e) => setEditingSourceItem({ ...editingSourceItem, keywords: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end space-x-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditSourceOpen(false);
+                    setEditingSourceItem(null);
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* MODAL: BULK LOCATION UPDATER                                  */}
+      {/* ============================================================= */}
+      {isLocationModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <MapPin className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-base font-bold text-white">Bulk Set Job Locations</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLocationModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Update location targeting for the <span className="text-indigo-300 font-bold">{targetLocationJobIds.length}</span> selected job(s). Leave fields blank to keep existing values.
+            </p>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-300 block mb-1">Province</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Punjab, Sindh, KPK, Balochistan, Federal"
+                  value={bulkProvince}
+                  onChange={(e) => setBulkProvince(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-300 block mb-1">City</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Lahore, Karachi, Islamabad, Rawalpindi"
+                  value={bulkCity}
+                  onChange={(e) => setBulkCity(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-300 block mb-1">District</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Lahore District, Rawalpindi District"
+                  value={bulkDistrict}
+                  onChange={(e) => setBulkDistrict(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 flex items-center justify-end space-x-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsLocationModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isUpdatingLocation}
+                onClick={handleExecuteBulkLocationUpdate}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 shadow-md"
+              >
+                <Check className="w-4 h-4" />
+                <span>Apply Location to {targetLocationJobIds.length} Job(s)</span>
               </button>
             </div>
           </div>

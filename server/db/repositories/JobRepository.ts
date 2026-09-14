@@ -23,18 +23,52 @@ export interface JobFilterOptions {
   includeExpired?: boolean;
 }
 
-export function checkJobExpired(job: any): boolean {
+export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
+  if (!deadlineStr || typeof deadlineStr !== 'string') return null;
+  const clean = deadlineStr.trim();
+  if (!clean) return null;
+
+  // Try standard ISO / JS date parsing
+  let ts = new Date(clean).getTime();
+  if (!isNaN(ts)) return ts;
+
+  // Try parsing formats like DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const parsed = new Date(year, month, day, 23, 59, 59).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  // Try DD Mon YYYY e.g. "15 Oct 2025" or "15-Oct-2025"
+  const textDateMatch = clean.match(/^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s](\d{4})/);
+  if (textDateMatch) {
+    const parsed = new Date(clean).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+export function checkJobExpired(job: any, offsetDays: number = 1): boolean {
   if (!job) return false;
   if (job.status === 'Expired' || job.isExpired === true) {
     return true;
   }
-  const deadlineStr = job.deadline || job.deadlineDate || job.closingDeadline;
+  const deadlineStr = job.deadlineDate || job.deadline || job.closingDeadline;
   if (!deadlineStr) return false;
 
-  const deadlineTime = new Date(deadlineStr).getTime();
-  if (isNaN(deadlineTime)) return false;
+  const deadlineTime = parseDeadlineTimestamp(deadlineStr);
+  if (!deadlineTime) return false;
 
-  return deadlineTime < Date.now();
+  // Portal expiry = deadline + (offsetDays * 24h)
+  // Offset is ONLY for removing from LIVE portal, never modifies source deadline
+  const safeOffsetDays = Math.max(0, Math.min(2, offsetDays));
+  const portalExpiryTime = deadlineTime + (safeOffsetDays * 24 * 60 * 60 * 1000);
+
+  return Date.now() > portalExpiryTime;
 }
 
 function generateJobId(): string {
@@ -765,6 +799,172 @@ export class JobRepository {
       successCount,
       failureCount: errors.length,
       errors
+    };
+  }
+
+  /**
+   * Scans approved live jobs and moves any that have reached portal expiry to 'Expired' status.
+   * STRICT POLICY:
+   * - Preserves the REAL source application deadline in `deadlineDate`.
+   * - Never modifies the source deadline.
+   * - Uses admin-configurable portal expiry offset (0 / +1 / +2 days).
+   * - Expired jobs remain stored in the database for admin review.
+   */
+  static async scanAndExpireDueJobs(offsetDays: number = 1): Promise<{ expiredCount: number; expiredJobIds: string[] }> {
+    assertMongoAvailable();
+    const jobsColl = await getJobsCollection();
+    const safeOffsetDays = Math.max(0, Math.min(2, offsetDays));
+
+    const activeJobs = await jobsColl.find({
+      isSuspended: { $ne: true },
+      $or: [
+        { status: 'Approved' },
+        { status: { $exists: false } }
+      ],
+      $and: [
+        { isExpired: { $ne: true } },
+        {
+          $or: [
+            { deadlineDate: { $exists: true, $ne: '' } },
+            { deadline: { $exists: true, $ne: '' } },
+            { closingDeadline: { $exists: true, $ne: '' } }
+          ]
+        }
+      ]
+    }).toArray();
+
+    const expiredJobIds: string[] = [];
+    const now = new Date().toISOString();
+
+    for (const job of activeJobs) {
+      if (checkJobExpired(job, safeOffsetDays)) {
+        expiredJobIds.push(job.id);
+      }
+    }
+
+    if (expiredJobIds.length > 0) {
+      await jobsColl.updateMany(
+        { id: { $in: expiredJobIds } },
+        {
+          $set: {
+            status: 'Expired',
+            isExpired: true,
+            expiredAt: now,
+            updatedAt: now
+          }
+        }
+      );
+      console.log(`[JobRepository] Moved ${expiredJobIds.length} jobs to Expired status (offset: +${safeOffsetDays} days). Deadlines preserved.`);
+    }
+
+    return {
+      expiredCount: expiredJobIds.length,
+      expiredJobIds
+    };
+  }
+
+  /**
+   * Restores an Expired job back to Live ('Approved') status.
+   * Preserves the original `deadlineDate` untouched.
+   */
+  static async restoreJobToLive(id: string): Promise<any | null> {
+    assertMongoAvailable();
+    const jobsColl = await getJobsCollection();
+    const now = new Date().toISOString();
+
+    const existing = await jobsColl.findOne({ id });
+    if (!existing) return null;
+
+    const res = await jobsColl.findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          status: 'Approved',
+          isExpired: false,
+          restoredAt: now,
+          updatedAt: now
+        },
+        $unset: {
+          expiredAt: ''
+        }
+      },
+      { returnDocument: 'after', projection: { _id: 0 } }
+    );
+
+    return res ? normalizeMongoJob(res) : null;
+  }
+
+  /**
+   * Bulk restores expired jobs to Live ('Approved') status.
+   * Preserves original `deadlineDate` untouched.
+   */
+  static async bulkRestoreJobs(ids: string[]): Promise<number> {
+    assertMongoAvailable();
+    if (!Array.isArray(ids) || ids.length === 0) return 0;
+    const jobsColl = await getJobsCollection();
+    const now = new Date().toISOString();
+
+    const res = await jobsColl.updateMany(
+      { id: { $in: ids } },
+      {
+        $set: {
+          status: 'Approved',
+          isExpired: false,
+          restoredAt: now,
+          updatedAt: now
+        },
+        $unset: {
+          expiredAt: ''
+        }
+      }
+    );
+
+    return res.modifiedCount || 0;
+  }
+
+  /**
+   * Permanently deletes a job from both live and pending collections.
+   */
+  static async deleteJobPermanently(id: string): Promise<boolean> {
+    assertMongoAvailable();
+    const jobsColl = await getJobsCollection();
+    const pendingColl = await getPendingJobsCollection();
+
+    const res1 = await jobsColl.deleteOne({ id });
+    const res2 = await pendingColl.deleteOne({ id });
+
+    return (res1.deletedCount || 0) > 0 || (res2.deletedCount || 0) > 0;
+  }
+
+  /**
+   * Bulk updates location data (region, province, city, district) for jobs.
+   */
+  static async bulkUpdateLocation(
+    jobIds: string[],
+    locationData: { region?: string; province?: string; city?: string; district?: string }
+  ): Promise<{ successCount: number; errors: any[] }> {
+    assertMongoAvailable();
+    if (!Array.isArray(jobIds) || jobIds.length === 0) {
+      return { successCount: 0, errors: [] };
+    }
+
+    const jobsColl = await getJobsCollection();
+    const pendingColl = await getPendingJobsCollection();
+
+    const updateFields: any = { updatedAt: new Date().toISOString() };
+    if (locationData.region) updateFields.region = locationData.region;
+    if (locationData.province) updateFields.province = locationData.province;
+    if (locationData.city) updateFields.city = locationData.city;
+    if (locationData.district) updateFields.district = locationData.district;
+
+    const res1 = await jobsColl.updateMany({ id: { $in: jobIds } }, { $set: updateFields });
+    const res2 = await pendingColl.updateMany({ id: { $in: jobIds } }, { $set: updateFields });
+
+    const totalModified = (res1.modifiedCount || 0) + (res2.modifiedCount || 0);
+
+    return {
+      successCount: totalModified,
+      errors: []
     };
   }
 }

@@ -112,8 +112,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [formPlacement, setFormPlacement] = useState<AdPlacement>('top-header');
   const [formTargetPages, setFormTargetPages] = useState<AdTargetPage[]>(['alerts']);
   
+  const enabledDurationPresets = (campaignConfig.durationPresets || []).filter(d => d.isEnabled !== false);
+  const defaultDurationId = enabledDurationPresets[0]?.id || 'custom';
+
   // Duration State
-  const [selectedDurationId, setSelectedDurationId] = useState<string>('fullday-24h');
+  const [selectedDurationId, setSelectedDurationId] = useState<string>(defaultDurationId);
   const [customDurationUnit, setCustomDurationUnit] = useState<AdDurationUnit>('days');
   const [customDurationValue, setCustomDurationValue] = useState<number>(1);
   
@@ -137,29 +140,19 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [selectedContextPage, setSelectedContextPage] = useState<string>('alerts');
 
   // Calculate duration unit & value from preset or custom
+  const matchedPreset = enabledDurationPresets.find(d => d.id === selectedDurationId);
+
   const getResolvedDuration = (): { unit: AdDurationUnit; value: number } => {
-    if (selectedDurationId === 'custom') {
+    if (selectedDurationId === 'custom' || !matchedPreset) {
       return { unit: customDurationUnit, value: Math.max(1, customDurationValue) };
     }
-    const matchedPreset = campaignConfig.durationPresets.find(d => d.id === selectedDurationId);
-    if (matchedPreset) {
-      return { unit: matchedPreset.unit, value: matchedPreset.value };
-    }
-    // Fallback standard presets
-    if (selectedDurationId === '6h') return { unit: 'hours', value: 6 };
-    if (selectedDurationId === '12h') return { unit: 'hours', value: 12 };
-    if (selectedDurationId === '24h') return { unit: 'days', value: 1 };
-    if (selectedDurationId === '3d') return { unit: 'days', value: 3 };
-    if (selectedDurationId === '1w') return { unit: 'weeks', value: 1 };
-    if (selectedDurationId === '2w') return { unit: 'weeks', value: 2 };
-    if (selectedDurationId === '1m') return { unit: 'months', value: 1 };
-    return { unit: 'days', value: 1 };
+    return { unit: matchedPreset.unit, value: matchedPreset.value };
   };
 
   const { unit: resolvedDurationUnit, value: resolvedDurationValue } = getResolvedDuration();
 
   // Compute live price
-  const costCalculation = calculateCampaignCost(
+  const rawCostCalculation = calculateCampaignCost(
     pricingConfig,
     resolvedDurationUnit,
     resolvedDurationValue,
@@ -168,9 +161,29 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     formType === 'sms' ? formSmsRecipientsCount : 0
   );
 
+  // Apply preset discount or fixed price override
+  let finalCampaignCostPkr = rawCostCalculation.totalCostPkr;
+  let isFixedPrice = false;
+  let discountPercentApplied = 0;
+
+  if (selectedDurationId !== 'custom' && matchedPreset) {
+    if (typeof matchedPreset.fixedPriceOverridePkr === 'number' && matchedPreset.fixedPriceOverridePkr > 0) {
+      finalCampaignCostPkr = matchedPreset.fixedPriceOverridePkr;
+      isFixedPrice = true;
+    } else if (typeof matchedPreset.discountPercent === 'number' && matchedPreset.discountPercent > 0) {
+      discountPercentApplied = Math.min(100, Math.max(0, matchedPreset.discountPercent));
+      finalCampaignCostPkr = Math.round(rawCostCalculation.totalCostPkr * (1 - discountPercentApplied / 100));
+    }
+  }
+
+  const costCalculation = {
+    ...rawCostCalculation,
+    totalCostPkr: finalCampaignCostPkr
+  };
+
   const walletBalance = currentUser.walletBalance ?? 12000;
-  const isWalletSufficient = walletBalance >= costCalculation.totalCostPkr;
-  const walletDeficit = costCalculation.totalCostPkr - walletBalance;
+  const isWalletSufficient = walletBalance >= finalCampaignCostPkr;
+  const walletDeficit = finalCampaignCostPkr - walletBalance;
 
   // Handle Preset Select
   const handleApplyPreset = (preset: typeof AD_BANNER_PRESETS[0]) => {
@@ -947,8 +960,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
                 {/* Preset Duration Buttons from Admin Config */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {campaignConfig.durationPresets.filter(d => d.isEnabled).map((dur) => {
+                  {enabledDurationPresets.map((dur) => {
                     const isChosen = selectedDurationId === dur.id;
+                    const priceBadge = (typeof dur.fixedPriceOverridePkr === 'number' && dur.fixedPriceOverridePkr > 0)
+                      ? `PKR ${dur.fixedPriceOverridePkr.toLocaleString()}`
+                      : (typeof dur.discountPercent === 'number' && dur.discountPercent > 0)
+                      ? `${dur.discountPercent}% OFF`
+                      : null;
+
                     return (
                       <button
                         key={dur.id}
@@ -960,11 +979,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                             : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
                         }`}
                       >
-                        {dur.badge && (
+                        {(dur.badge || priceBadge) && (
                           <span className={`absolute -top-2 right-2 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
                             isChosen ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500 text-slate-950'
                           }`}>
-                            {dur.badge}
+                            {dur.badge || priceBadge}
                           </span>
                         )}
                         <div className="text-xs font-bold">{dur.label}</div>
@@ -1209,6 +1228,20 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
                     <span className="text-slate-400">SMS Contacts Dispatch Fee ({formSmsRecipientsCount} SMS):</span>
                     <span className="font-mono font-bold text-purple-300">PKR {costCalculation.smsFee.toLocaleString()}</span>
+                  </div>
+                )}
+
+                {isFixedPrice && (
+                  <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
+                    <span className="text-emerald-400 font-medium">Preset Fixed Flat Rate:</span>
+                    <span className="font-mono font-bold text-emerald-300">PKR {finalCampaignCostPkr.toLocaleString()}</span>
+                  </div>
+                )}
+
+                {!isFixedPrice && discountPercentApplied > 0 && (
+                  <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
+                    <span className="text-teal-400 font-medium">Preset Discount ({discountPercentApplied}% OFF):</span>
+                    <span className="font-mono font-bold text-teal-300">-PKR {(rawCostCalculation.totalCostPkr - finalCampaignCostPkr).toLocaleString()}</span>
                   </div>
                 )}
 

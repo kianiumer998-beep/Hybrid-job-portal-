@@ -717,3 +717,90 @@ jobRouter.delete('/:id', requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error deleting job' });
   }
 });
+
+// 19. Restore Expired Job to Live (Admin Only) - Preserves original deadlineDate
+jobRouter.post('/restore-expired/:id', requireAdmin, async (req, res) => {
+  try {
+    const restored = await JobRepository.restoreJobToLive(req.params.id);
+    if (!restored) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Expired Job Restored to Live',
+      target: `${restored.title} (${restored.id})`,
+      status: 'Success'
+    });
+    res.json({ success: true, job: restored, message: 'Job restored to live status successfully. Original deadline preserved.' });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/restore-expired/:id:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error restoring expired job' });
+  }
+});
+
+// 20. Bulk Restore Expired Jobs to Live (Admin Only) - Preserves original deadlineDate
+jobRouter.post('/bulk-restore-expired', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of job IDs required' });
+    }
+    const count = await JobRepository.bulkRestoreJobs(ids);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Bulk Expired Jobs Restored to Live',
+      target: `${count} Jobs`,
+      status: 'Success'
+    });
+    res.json({ success: true, count, message: `${count} expired jobs restored to live successfully.` });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/bulk-restore-expired:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error bulk restoring expired jobs' });
+  }
+});
+
+// 21. Permanently Delete Job (Admin Only)
+jobRouter.delete('/permanent/:id', requireAdmin, async (req, res) => {
+  try {
+    const deleted = await JobRepository.deleteJobPermanently(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Job not found in live or pending queues.' });
+    }
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Job Permanently Deleted',
+      target: `Job ID ${req.params.id}`,
+      status: 'Success'
+    });
+    res.json({ success: true, message: 'Job permanently deleted from system.' });
+  } catch (err: any) {
+    console.error('Error in DELETE /api/jobs/permanent/:id:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error deleting job permanently' });
+  }
+});
+
+// 22. Bulk Update Job Locations (Admin Only)
+jobRouter.post('/bulk-update-location', requireAdmin, async (req, res) => {
+  try {
+    const { jobIds, locationData } = req.body;
+    if (!Array.isArray(jobIds) || jobIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of job IDs required' });
+    }
+    const result = await JobRepository.bulkUpdateLocation(jobIds, locationData || {});
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Bulk Job Location Updated',
+      target: `${result.successCount} Jobs`,
+      status: 'Success'
+    });
+    res.json({ success: true, ...result, message: `Updated location for ${result.successCount} jobs.` });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/bulk-update-location:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error bulk updating job location' });
+  }
+});
+

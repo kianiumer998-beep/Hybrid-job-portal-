@@ -278,6 +278,32 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })
       });
+    },
+    async restoreExpired(id: string) {
+      return safeFetchJson(`${API_BASE}/jobs/restore-expired/${id}`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async bulkRestoreExpired(ids: string[]) {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-restore-expired`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids })
+      });
+    },
+    async permanentDelete(id: string) {
+      return safeFetchJson(`${API_BASE}/jobs/permanent/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
+    },
+    async bulkUpdateLocation(jobIds: string[], locationData: { region?: string; province?: string; city?: string; district?: string }) {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-update-location`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ jobIds, locationData })
+      });
     }
   },
 
@@ -480,6 +506,45 @@ export const api = {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
+      });
+    },
+    async getActiveStatus() {
+      return safeFetchJson(`${API_BASE}/scraper/active-status`, { headers: getAuthHeader() });
+    },
+    async pause() {
+      return safeFetchJson(`${API_BASE}/scraper/pause`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async resume() {
+      return safeFetchJson(`${API_BASE}/scraper/resume`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async stop() {
+      return safeFetchJson(`${API_BASE}/scraper/stop`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async getExpirySettings() {
+      return safeFetchJson<{ success: boolean; settings: { offsetDays: number } }>(`${API_BASE}/scraper/expiry-settings`, {
+        headers: getAuthHeader()
+      });
+    },
+    async updateExpirySettings(settings: { offsetDays: number }) {
+      return safeFetchJson<{ success: boolean; settings: { offsetDays: number }; message?: string }>(`${API_BASE}/scraper/expiry-settings`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(settings)
+      });
+    },
+    async scanExpiry() {
+      return safeFetchJson<{ success: boolean; expiredCount: number; expiredJobIds: string[]; message?: string }>(`${API_BASE}/scraper/scan-expiry`, {
+        method: 'POST',
+        headers: getAuthHeader()
       });
     }
   },

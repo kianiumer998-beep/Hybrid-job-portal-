@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { ScraperRepository } from '../db/repositories/ScraperRepository';
+import { JobRepository } from '../db/repositories/JobRepository';
 import { executeScraperWithWizard } from './scraperEngine';
 import { featureFlags } from '../config/featureFlags';
 
@@ -56,6 +57,14 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
   const triggered: string[] = [];
 
   try {
+    // 1. Run authoritative job expiry scan based on admin portal expiry offset
+    try {
+      const expirySettings = await ScraperRepository.getExpirySettings();
+      await JobRepository.scanAndExpireDueJobs(expirySettings.offsetDays);
+    } catch (expErr: any) {
+      console.warn('[Scheduler Engine] Expiry scan notice:', expErr.message);
+    }
+
     if (!featureFlags.enableWebScraper) {
       console.log('[Scheduler Engine] Web scraper is disabled by feature flag.');
       return { triggeredSources: [], summary: 'Web scraper disabled by feature flag' };

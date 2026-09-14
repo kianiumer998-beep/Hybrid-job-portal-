@@ -232,7 +232,7 @@ STRICT FACTUAL INTEGRITY MANDATE:
             {
               inlineData: {
                 data: base64Data,
-                mimeType: mimeType || 'application/pdf'
+                mimeType: mimeType
               }
             },
             { text: prompt }

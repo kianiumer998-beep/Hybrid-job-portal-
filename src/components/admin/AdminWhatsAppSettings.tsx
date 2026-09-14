@@ -96,15 +96,15 @@ export const AdminWhatsAppSettings: React.FC<AdminWhatsAppSettingsProps> = ({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* ROW 1: Master Enable Toggle & Screen Position */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* ROW 1: Master Enable Toggle, Speech Bubble Prompt Toggle & Screen Position */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
             <div>
               <label htmlFor="wa-enable-toggle" className="text-xs font-black text-white cursor-pointer">
                 Enable / Disable Widget
               </label>
               <div className="text-[11px] text-slate-400">
-                Display floating WhatsApp button to visitors
+                Display floating WhatsApp button
               </div>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -123,11 +123,34 @@ export const AdminWhatsAppSettings: React.FC<AdminWhatsAppSettingsProps> = ({
 
           <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
             <div>
+              <label htmlFor="wa-bubble-prompt-toggle" className="text-xs font-black text-white cursor-pointer">
+                Auto HR Prompt Bubble
+              </label>
+              <div className="text-[11px] text-slate-400">
+                Auto-open greeting after 4.5s
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                id="wa-bubble-prompt-toggle"
+                type="checkbox"
+                checked={formData.showBubblePrompt !== false}
+                onChange={(e) =>
+                  setFormData({ ...formData, showBubblePrompt: e.target.checked })
+                }
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
+            </label>
+          </div>
+
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+            <div>
               <label htmlFor="wa-position-select" className="text-xs font-black text-white cursor-pointer">
                 Widget Position
               </label>
               <div className="text-[11px] text-slate-400">
-                Corner placement on screen
+                Corner placement
               </div>
             </div>
             <select
@@ -141,7 +164,7 @@ export const AdminWhatsAppSettings: React.FC<AdminWhatsAppSettingsProps> = ({
               }
               className="bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-bold focus:outline-none focus:border-emerald-500"
             >
-              <option value="bottom-right">Bottom-Right (Standard)</option>
+              <option value="bottom-right">Bottom-Right</option>
               <option value="bottom-left">Bottom-Left</option>
             </select>
           </div>

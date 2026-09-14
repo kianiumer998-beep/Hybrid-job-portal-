@@ -16,6 +16,7 @@ export interface WhatsAppSupportConfig {
   desktopSize?: 'compact' | 'standard' | 'large';
   bubbleSize?: 'compact' | 'standard' | 'large';
   iconSize?: 'compact' | 'standard' | 'large';
+  showBubblePrompt?: boolean;
 }
 
 export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
@@ -32,7 +33,8 @@ export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
   mobileSize: 'compact',
   desktopSize: 'standard',
   bubbleSize: 'standard',
-  iconSize: 'standard'
+  iconSize: 'standard',
+  showBubblePrompt: true
 };
 
 interface WhatsAppStickyButtonProps {
@@ -46,15 +48,16 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
   const [isOpenPrompt, setIsOpenPrompt] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
-  // Auto-show a gentle tooltip prompt after 4 seconds if not closed
+  // Auto-show a gentle tooltip prompt after 4 seconds if not closed and enabled
   useEffect(() => {
+    if (config.showBubblePrompt === false) return;
     const timer = setTimeout(() => {
       if (!hasInteracted) {
         setIsOpenPrompt(true);
       }
     }, 4500);
     return () => clearTimeout(timer);
-  }, [hasInteracted]);
+  }, [hasInteracted, config.showBubblePrompt]);
 
   if (!config.enabled) return null;
 
@@ -95,7 +98,7 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
       className={`fixed bottom-4 sm:bottom-6 ${positionClass} z-[9990] flex flex-col ${alignClass} pointer-events-auto select-none`}
     >
       {/* Floating Interactive Speech Bubble Prompt */}
-      {isOpenPrompt && (
+      {config.showBubblePrompt !== false && isOpenPrompt && (
         <div 
           id="whatsapp-prompt-bubble"
           className={`mb-2.5 sm:mb-3 ${bubbleWidthClass} bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl shadow-2xl text-slate-100 animate-bounce-subtle relative`}

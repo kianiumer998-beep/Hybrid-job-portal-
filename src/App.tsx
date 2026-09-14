@@ -496,6 +496,18 @@ export default function App() {
 
     api.settings.getCampaigns().then(res => {
       if (res?.success && res.config) {
+        const feedSettings = res.config.jobFeedSettings;
+        if (feedSettings && typeof feedSettings.defaultPostsPerPage === 'number' && feedSettings.defaultPostsPerPage > 0) {
+          const rawOptions = feedSettings.postsPerPageOptions;
+          const validOptions = Array.isArray(rawOptions) && rawOptions.length > 0
+            ? rawOptions.filter((n: any) => typeof n === 'number' && n > 0)
+            : [10, 15, 20, 25, 50];
+          
+          if (validOptions.includes(feedSettings.defaultPostsPerPage)) {
+            setPostsPerPage(feedSettings.defaultPostsPerPage);
+          }
+        }
+
         setCampaignConfig(prev => ({
           ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
           ...res.config,
@@ -705,6 +717,17 @@ export default function App() {
 
   const handleUpdateCampaignConfig = async (newConfig: CampaignCustomizationConfig) => {
     setCampaignConfig(newConfig);
+    const feedSettings = newConfig.jobFeedSettings;
+    if (feedSettings && typeof feedSettings.defaultPostsPerPage === 'number' && feedSettings.defaultPostsPerPage > 0) {
+      const rawOptions = feedSettings.postsPerPageOptions;
+      const validOptions = Array.isArray(rawOptions) && rawOptions.length > 0
+        ? rawOptions.filter((n: any) => typeof n === 'number' && n > 0)
+        : [10, 15, 20, 25, 50];
+      
+      if (validOptions.includes(feedSettings.defaultPostsPerPage)) {
+        setPostsPerPage(feedSettings.defaultPostsPerPage);
+      }
+    }
     try {
       localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(newConfig));
       await api.settings.updateCampaigns(newConfig);

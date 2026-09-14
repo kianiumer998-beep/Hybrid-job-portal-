@@ -235,63 +235,67 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
       {/* Main Job Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-6">
-        {currentJobs.map((job, index) => {
-          const isSaved = savedJobIds.includes(job.id);
-          const cleanTitle = sanitizeJobTitle(job.title);
-          const cleanCompany = sanitizeJobCompanyName(job.company);
-          const cleanTags = sanitizeJobTags(job.tags);
+        {(() => {
+          let totalAdsInsertedOnPage = 0;
+          return currentJobs.map((job, index) => {
+            const isSaved = savedJobIds.includes(job.id);
+            const cleanTitle = sanitizeJobTitle(job.title);
+            const cleanCompany = sanitizeJobCompanyName(job.company);
+            const cleanTags = sanitizeJobTags(job.tags);
 
-          // Find candidate inline ad
-          const activeFeedAds = ads.filter(
-            (a) =>
-              a.status === 'active' &&
-              ((a.placement as string) === 'feed-inline' || (a.type === 'banner' && (a.placement as string) === 'feed-inline')) &&
-              (a.targetPages.includes('all') || a.targetPages.includes('jobs'))
-          );
+            // Find candidate inline ad
+            const activeFeedAds = ads.filter(
+              (a) =>
+                a.status === 'active' &&
+                ((a.placement as string) === 'feed-inline' || (a.type === 'banner' && (a.placement as string) === 'feed-inline')) &&
+                (a.targetPages.includes('all') || a.targetPages.includes('jobs'))
+            );
 
-          let shouldInsertAd = false;
-          let adsToInsertCount = 1;
-          const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
+            let shouldInsertAd = false;
+            let adsToInsertCount = 1;
+            const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
 
-          if (activeFeedAds.length > 0) {
-            const positionNumber = index + 1; // 1-based index (e.g. 2nd job is position 2)
+            if (activeFeedAds.length > 0 && totalAdsInsertedOnPage < maxAds) {
+              const positionNumber = index + 1; // 1-based index (e.g. 2nd job is position 2)
 
-            if (feedInlineSettings?.insertionMode === 'cadence') {
-              const cadence = feedInlineSettings.repeatEveryNJobs || 3;
-              shouldInsertAd = positionNumber % cadence === 0;
-              adsToInsertCount = 1;
-            } else if (feedInlineSettings?.insertionMode === 'custom_pattern') {
-              const match = getCustomPatternMatch(positionNumber, feedInlineSettings.customPattern);
-              shouldInsertAd = match.matches;
-              adsToInsertCount = match.adCount;
-            } else {
-              // Custom indices (e.g. [2, 5, 8])
-              const targetIndices =
-                safePage === 1 &&
-                feedInlineSettings?.page1SpecificIndices &&
-                feedInlineSettings.page1SpecificIndices.length > 0
-                  ? feedInlineSettings.page1SpecificIndices
-                  : feedInlineSettings?.customIndices || [2, 5, 8];
+              if (feedInlineSettings?.insertionMode === 'cadence') {
+                const cadence = feedInlineSettings.repeatEveryNJobs || 3;
+                shouldInsertAd = positionNumber % cadence === 0;
+                adsToInsertCount = 1;
+              } else if (feedInlineSettings?.insertionMode === 'custom_pattern') {
+                const match = getCustomPatternMatch(positionNumber, feedInlineSettings.customPattern);
+                shouldInsertAd = match.matches;
+                adsToInsertCount = match.adCount;
+              } else {
+                // Custom indices (e.g. [2, 5, 8])
+                const targetIndices =
+                  safePage === 1 &&
+                  feedInlineSettings?.page1SpecificIndices &&
+                  feedInlineSettings.page1SpecificIndices.length > 0
+                    ? feedInlineSettings.page1SpecificIndices
+                    : feedInlineSettings?.customIndices || [2, 5, 8];
 
-              shouldInsertAd = targetIndices.includes(positionNumber);
-              adsToInsertCount = 1;
+                shouldInsertAd = targetIndices.includes(positionNumber);
+                adsToInsertCount = 1;
+              }
             }
-          }
 
-          // Compute ads to display if any
-          const adsToRender: Advertisement[] = [];
-          if (shouldInsertAd && activeFeedAds.length > 0) {
-            const allowedCount = Math.min(adsToInsertCount, maxAds);
-            for (let k = 0; k < allowedCount; k++) {
-              const adIdx = (index + k) % activeFeedAds.length;
-              adsToRender.push(activeFeedAds[adIdx] || activeFeedAds[0]);
+            // Compute ads to display if any
+            const adsToRender: Advertisement[] = [];
+            if (shouldInsertAd && activeFeedAds.length > 0 && totalAdsInsertedOnPage < maxAds) {
+              const availableSlots = maxAds - totalAdsInsertedOnPage;
+              const allowedCount = Math.min(adsToInsertCount, availableSlots);
+              for (let k = 0; k < allowedCount; k++) {
+                const adIdx = (totalAdsInsertedOnPage + k) % activeFeedAds.length;
+                adsToRender.push(activeFeedAds[adIdx] || activeFeedAds[0]);
+              }
+              totalAdsInsertedOnPage += allowedCount;
             }
-          }
 
-          const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';
+            const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';
 
-          return (
-            <React.Fragment key={job.id ? `${job.id}-${index}` : `job-${index}`}>
+            return (
+              <React.Fragment key={job.id ? `${job.id}-${index}` : `job-${index}`}>
               <div
                 className={`group relative rounded-xl sm:rounded-2xl p-2.5 sm:p-5 shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${
                   isTopPriority
@@ -545,7 +549,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
             ))}
           </React.Fragment>
           );
-        })}
+        });
+      })()}
       </div>
 
       {/* BOTTOM PAGINATION CONTROLS BAR */}

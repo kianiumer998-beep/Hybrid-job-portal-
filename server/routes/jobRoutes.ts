@@ -616,9 +616,8 @@ jobRouter.post('/', async (req, res) => {
 
     const user = (req as any).user;
     const authUserId = user?.userId || user?.id;
-    const targetUserId = authUserId ? authUserId : (jobData.userId || jobData.postedBy);
-    if (targetUserId) {
-      const restriction = await NotificationRepository.checkUserRestricted(targetUserId, 'post_job');
+    if (authUserId) {
+      const restriction = await NotificationRepository.checkUserRestricted(authUserId, 'post_job');
       if (restriction.restricted) {
         return res.status(403).json({
           success: false,

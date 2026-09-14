@@ -236,7 +236,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       {/* Main Job Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-6">
         {(() => {
-          let totalAdsInsertedOnPage = 0;
+          let renderedAdsCount = 0;
           return currentJobs.map((job, index) => {
             const isSaved = savedJobIds.includes(job.id);
             const cleanTitle = sanitizeJobTitle(job.title);
@@ -253,9 +253,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
             let shouldInsertAd = false;
             let adsToInsertCount = 1;
-            const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
+            const maxAdsPerPage = feedInlineSettings?.maxAdsPerPage ?? 3;
 
-            if (activeFeedAds.length > 0 && totalAdsInsertedOnPage < maxAds) {
+            if (activeFeedAds.length > 0 && renderedAdsCount < maxAdsPerPage) {
               const positionNumber = index + 1; // 1-based index (e.g. 2nd job is position 2)
 
               if (feedInlineSettings?.insertionMode === 'cadence') {
@@ -282,14 +282,14 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
             // Compute ads to display if any
             const adsToRender: Advertisement[] = [];
-            if (shouldInsertAd && activeFeedAds.length > 0 && totalAdsInsertedOnPage < maxAds) {
-              const availableSlots = maxAds - totalAdsInsertedOnPage;
-              const allowedCount = Math.min(adsToInsertCount, availableSlots);
+            if (shouldInsertAd && activeFeedAds.length > 0 && renderedAdsCount < maxAdsPerPage) {
+              const remaining = maxAdsPerPage - renderedAdsCount;
+              const allowedCount = Math.min(adsToInsertCount, remaining);
               for (let k = 0; k < allowedCount; k++) {
-                const adIdx = (totalAdsInsertedOnPage + k) % activeFeedAds.length;
+                const adIdx = (renderedAdsCount + k) % activeFeedAds.length;
                 adsToRender.push(activeFeedAds[adIdx] || activeFeedAds[0]);
               }
-              totalAdsInsertedOnPage += allowedCount;
+              renderedAdsCount += allowedCount;
             }
 
             const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';

@@ -99,6 +99,50 @@ export interface ScraperRunRecord {
   }>;
 }
 
+export const getRunResolvedStatus = (run: any): 'Completed' | 'Partial' | 'Failed' => {
+  if (!run) return 'Completed';
+
+  const rawStatus = typeof run.status === 'string' ? run.status.trim().toLowerCase() : '';
+  const failedSources = Number(run.failedSources || run.totalFailedSources || 0);
+  const targetsScraped = Number(run.targetsScraped || (Array.isArray(run.sourcesStats) ? run.sourcesStats.length : 0));
+  const totalFound = Number(run.totalFound || 0);
+
+  // 1. Explicit failed/error or all targets failed with 0 jobs found
+  if (rawStatus === 'failed' || rawStatus === 'error' || rawStatus === 'stopped') {
+    return 'Failed';
+  }
+  if (failedSources > 0 && targetsScraped > 0 && failedSources >= targetsScraped && totalFound === 0) {
+    return 'Failed';
+  }
+
+  // 2. Explicit partial/warning or some targets failed
+  if (rawStatus === 'partial' || rawStatus === 'warning') {
+    return 'Partial';
+  }
+  if (failedSources > 0) {
+    return 'Partial';
+  }
+  if (Array.isArray(run.sourcesStats) && run.sourcesStats.length > 0) {
+    const failedStats = run.sourcesStats.filter((s: any) =>
+      s.status === 'error' || s.status === 'Failed' || (s.errors && s.errors > 0) ||
+      (s.healthStatus && ['error', '404', '403', 'Timeout', 'Fetch Error'].includes(s.healthStatus))
+    ).length;
+    if (failedStats > 0) {
+      if (failedStats >= run.sourcesStats.length && totalFound === 0) {
+        return 'Failed';
+      }
+      return 'Partial';
+    }
+  }
+
+  // 3. Explicit completed or success
+  if (rawStatus === 'completed' || rawStatus === 'success') {
+    return 'Completed';
+  }
+
+  return 'Completed';
+};
+
 interface PaginationControlsProps {
   currentPage: number;
   totalItems: number;
@@ -748,8 +792,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         }
       }
 
-      if (runStatusFilter !== 'all' && run.status !== runStatusFilter) {
-        return false;
+      if (runStatusFilter !== 'all') {
+        const resolved = getRunResolvedStatus(run);
+        if (resolved !== runStatusFilter) {
+          return false;
+        }
       }
 
       if (runMinFound !== '') {
@@ -1827,6 +1874,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     setStatusMessage({ text: `Selected all ${duplicateOnlyIds.length} duplicate warning items.`, type: 'info' });
   };
 
+  const handleSelectAllFiltered = () => {
+    const fullFilteredIds = reviewItems.map(j => j.id);
+    setSelectedReviewIds(fullFilteredIds);
+    setStatusMessage({ text: `Selected all ${fullFilteredIds.length} items in the filtered review dataset across all pages.`, type: 'info' });
+  };
+
   const handleDeselectAllReview = () => {
     setSelectedReviewIds([]);
   };
@@ -2013,7 +2066,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       r.pendingCount || 0,
       r.totalDuplicates || 0,
       r.totalFailedSources || 0,
-      r.status || 'Completed',
+      getRunResolvedStatus(r),
       `"${(r.message || '').replace(/"/g, '""')}"`
     ]);
 
@@ -2477,17 +2530,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           {r.totalDuplicates || 0}
                         </td>
                         <td className="p-3 text-right">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              r.status === 'Completed'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : r.status === 'Partial'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            }`}
-                          >
-                            {r.status}
-                          </span>
+                          {(() => {
+                            const resolvedStatus = getRunResolvedStatus(r);
+                            return (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  resolvedStatus === 'Completed'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : resolvedStatus === 'Partial'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                }`}
+                              >
+                                {resolvedStatus}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -4125,7 +4183,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 )}
                 <button
                   type="button"
-                  onClick={() => setSelectedReviewIds(reviewItems.map(j => j.id))}
+                  onClick={handleSelectAllFiltered}
                   className="px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
                 >
                   <CheckSquare className="w-3.5 h-3.5" />
@@ -4234,6 +4292,17 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <Shield className="w-3.5 h-3.5 text-indigo-400" />
                 <span>Keep Original + Delete Duplicates</span>
               </button>
+
+              <button
+                type="button"
+                disabled={selectedDuplicateCount === 0 || isProcessingReview}
+                onClick={() => handleOverwriteOriginalWithDuplicates()}
+                className="px-3.5 py-2 bg-amber-950/40 hover:bg-amber-900/60 text-amber-200 border border-amber-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                title="Overwrite original active jobs with this duplicate's data"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                <span>Overwrite Original ({selectedDuplicateCount})</span>
+              </button>
             </div>
           </div>
 
@@ -4288,6 +4357,32 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             ) : (
               <>
+                <div className="bg-slate-900/80 border border-slate-800 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-slate-400">
+                  <label className="flex items-center space-x-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all filtered jobs across all pages"
+                      checked={reviewItems.length > 0 && reviewItems.every(j => selectedReviewIds.includes(j.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleSelectAllFiltered();
+                        } else {
+                          const filteredIdSet = new Set(reviewItems.map(j => j.id));
+                          setSelectedReviewIds(prev => prev.filter(id => !filteredIdSet.has(id)));
+                          setStatusMessage({ text: `Deselected ${filteredIdSet.size} filtered items.`, type: 'info' });
+                        }
+                      }}
+                      className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
+                    />
+                    <span className="font-semibold text-slate-300">
+                      Select All Filtered ({reviewItems.length} jobs across all pages)
+                    </span>
+                  </label>
+                  <div className="text-[11px] text-slate-500">
+                    Showing page {reviewPage} of {Math.max(1, Math.ceil(reviewItems.length / reviewPageSize))}
+                  </div>
+                </div>
+
                 {paginatedReviewItems.map(job => {
                   const isExpired = job.status === 'Expired';
                 const isDup = (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate');
@@ -4589,7 +4684,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   aria-label="Filter by Run Status"
                   className="w-full px-2 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-300 focus:outline-none cursor-pointer"
                 >
-                  <option value="all">All Run Statuses</option>
+                  <option value="all">All</option>
                   <option value="Completed">Completed</option>
                   <option value="Partial">Partial</option>
                   <option value="Failed">Failed</option>
@@ -4720,17 +4815,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           {run.totalDuplicates || 0}
                         </td>
                         <td className="p-4 text-center">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              run.status === 'Completed'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : run.status === 'Partial'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            }`}
-                          >
-                            {run.status}
-                          </span>
+                          {(() => {
+                            const resolvedStatus = getRunResolvedStatus(run);
+                            return (
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                  resolvedStatus === 'Completed'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : resolvedStatus === 'Partial'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                }`}
+                              >
+                                {resolvedStatus}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="p-4 text-right">
                           <button

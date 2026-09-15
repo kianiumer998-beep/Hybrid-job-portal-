@@ -25,6 +25,7 @@ import { ToastNotificationAd } from './components/ads/ToastNotificationAd';
 import { AdNotificationDrawer } from './components/ads/AdNotificationDrawer';
 import { 
   Advertisement, 
+  AdStatus,
   INITIAL_ADVERTISEMENTS, 
   AdPricingConfig, 
   DEFAULT_AD_PRICING_CONFIG,
@@ -197,37 +198,94 @@ export default function App() {
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
-  const handleAdClick = (ad: Advertisement) => {
+  const handleAdClick = useCallback((ad: Advertisement) => {
+    // Never bill demo or preview ads
+    if (!ad || !ad.id || ad.id.startsWith('demo-') || ad.id.startsWith('preview-')) return;
+
     setAdvertisements((prev) =>
       prev.map((a) => {
         if (a.id !== ad.id) return a;
+        if (a.status !== 'active') return a;
+
         const newClicks = (a.clicks || 0) + 1;
         let budgetSpent = a.budgetSpent || 0;
         const budgetLimit = a.budgetLimit || a.campaignCostPkr || 0;
-        let status = a.status;
+        let status: AdStatus = a.status;
+        let stopReason = a.stopReason;
 
-        if (a.billingModel === 'cpc' && typeof a.cpcRatePkr === 'number' && a.cpcRatePkr > 0) {
-          budgetSpent += a.cpcRatePkr;
+        if (a.billingModel === 'cpc') {
+          const cpcRate = typeof a.cpcRatePkr === 'number' && a.cpcRatePkr > 0 ? a.cpcRatePkr : 15;
+          budgetSpent += cpcRate;
         }
 
         const budgetRemaining = budgetLimit > 0 ? Math.max(0, budgetLimit - budgetSpent) : undefined;
         const reachedClickLimit = typeof a.clickLimit === 'number' && a.clickLimit > 0 && newClicks >= a.clickLimit;
         const reachedBudget = a.billingModel === 'cpc' && budgetLimit > 0 && (budgetRemaining ?? 0) <= 0;
 
-        if (status === 'active' && (reachedClickLimit || reachedBudget)) {
-          status = 'completed';
+        if (reachedBudget) {
+          status = 'budget_exhausted';
+          stopReason = 'Campaign budget limit reached';
+        } else if (reachedClickLimit) {
+          status = 'limit_reached';
+          stopReason = 'Campaign click limit reached';
         }
 
         return {
           ...a,
           clicks: newClicks,
-          budgetSpent,
-          budgetRemaining,
-          status
+          budgetSpent: Math.round(budgetSpent * 100) / 100,
+          budgetRemaining: budgetRemaining !== undefined ? Math.round(budgetRemaining * 100) / 100 : undefined,
+          status,
+          stopReason
         };
       })
     );
-  };
+  }, []);
+
+  const handleAdImpression = useCallback((adId: string) => {
+    // Never bill demo or preview ads
+    if (!adId || adId.startsWith('demo-') || adId.startsWith('preview-')) return;
+
+    setAdvertisements((prev) =>
+      prev.map((a) => {
+        if (a.id !== adId) return a;
+        if (a.status !== 'active') return a;
+
+        const newImpressions = (a.impressions || 0) + 1;
+        let budgetSpent = a.budgetSpent || 0;
+        const budgetLimit = a.budgetLimit || a.campaignCostPkr || 0;
+        let status: AdStatus = a.status;
+        let stopReason = a.stopReason;
+
+        if (a.billingModel === 'cpm') {
+          const cpmRate = typeof a.cpmRatePkr === 'number' && a.cpmRatePkr > 0 ? a.cpmRatePkr : 150;
+          const costPerImpression = cpmRate / 1000;
+          budgetSpent += costPerImpression;
+        }
+
+        const budgetRemaining = budgetLimit > 0 ? Math.max(0, budgetLimit - budgetSpent) : undefined;
+        const reachedImpressionLimit = typeof a.impressionLimit === 'number' && a.impressionLimit > 0 && newImpressions >= a.impressionLimit;
+        const reachedBudget = a.billingModel === 'cpm' && budgetLimit > 0 && (budgetRemaining ?? 0) <= 0;
+
+        if (reachedBudget) {
+          status = 'budget_exhausted';
+          stopReason = 'Campaign budget limit reached';
+        } else if (reachedImpressionLimit) {
+          status = 'limit_reached';
+          stopReason = 'Campaign impression limit reached';
+        }
+
+        return {
+          ...a,
+          impressions: newImpressions,
+          budgetSpent: Math.round(budgetSpent * 100) / 100,
+          budgetRemaining: budgetRemaining !== undefined ? Math.round(budgetRemaining * 100) / 100 : undefined,
+          status,
+          stopReason
+        };
+      })
+    );
+  }, []);
 
   const handleAddAd = (newAd: Advertisement) => {
     setAdvertisements((prev) => [newAd, ...prev]);
@@ -1707,7 +1765,7 @@ export default function App() {
     const targetAd = advertisements.find(a => a.id === adId);
     const adTitle = targetAd?.title || 'Campaign';
 
-    const newBalance = currentBalance - additionalBudget;
+    const newBalance = Math.max(0, currentBalance - additionalBudget);
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
 
     const newTx: PaymentTransaction = {
@@ -1715,9 +1773,17 @@ export default function App() {
       dateTime: nowStr,
       amount: additionalBudget,
       currency: 'PKR',
-      type: 'Ad Campaign Fee',
+      type: 'Campaign Top-Up',
       status: 'Success',
       paymentMethod: 'Wallet Balance',
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userEmail: currentUser.email,
+      campaignIdRef: adId,
+      jobIdRef: adId,
+      balanceBefore: currentBalance,
+      balanceAfter: newBalance,
+      description: `Campaign Budget Top-Up: ${adTitle}`,
       jobTitleRef: `Budget Recharge: ${adTitle}`
     };
 
@@ -1729,6 +1795,7 @@ export default function App() {
 
     setCurrentUser(updatedUser);
     setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+    setPaymentTransactions(prev => [newTx, ...prev]);
 
     setAdvertisements(prev => prev.map(a => {
       if (a.id === adId) {
@@ -1736,13 +1803,15 @@ export default function App() {
         const newLimit = currentLimit + additionalBudget;
         const currentSpent = a.budgetSpent || 0;
         const newRemaining = Math.max(0, newLimit - currentSpent);
-        const newStatus = a.status === 'completed' ? 'active' : a.status;
+        const newStatus = (a.status === 'completed' || a.status === 'budget_exhausted' || a.status === 'limit_reached') ? 'active' : a.status;
 
         return {
           ...a,
           budgetLimit: newLimit,
           budgetRemaining: newRemaining,
-          status: newStatus
+          campaignCostPkr: (a.campaignCostPkr || 0) + additionalBudget,
+          status: newStatus,
+          stopReason: undefined
         };
       }
       return a;
@@ -1921,6 +1990,7 @@ export default function App() {
         ads={advertisements}
         currentPage={activeTab}
         onAdClick={handleAdClick}
+        onAdImpression={handleAdImpression}
         onNavigateTab={setActiveTab}
       />
 
@@ -2538,6 +2608,7 @@ export default function App() {
           currentPage={activeTab}
           popupSettings={campaignConfig.popupSettings}
           onAdClick={handleAdClick}
+          onAdImpression={handleAdImpression}
           onNavigateTab={setActiveTab}
         />
       )}
@@ -2547,6 +2618,7 @@ export default function App() {
         ads={advertisements}
         currentPage={activeTab}
         onAdClick={handleAdClick}
+        onAdImpression={handleAdImpression}
         onNavigateTab={setActiveTab}
       />
 

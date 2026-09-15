@@ -10,7 +10,7 @@ export type AdPlacement =
   | 'toast-float'     // Bottom-right toast notification
   | 'sms-broadcast';  // Direct SMS text message broadcast
 
-export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft' | 'budget_exhausted' | 'limit_reached';
+export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft' | 'budget_exhausted' | 'limit_reached' | 'needs_correction' | 'under_dispute';
 
 export type AdDurationUnit = 'hours' | 'days' | 'weeks' | 'months';
 
@@ -593,12 +593,26 @@ export interface Advertisement {
   submittedByUserEmail?: string;
   submittedByUserPhone?: string;
   
-  // Approval / Rejection Workflow
+  // Approval / Rejection & Moderation Workflow
   approvalStatus?: 'Approved' | 'Pending' | 'Rejected';
   rejectionReason?: string;
   approvedAt?: string;
   rejectedAt?: string;
   approvedBy?: string;
+  
+  // Correction Workflow
+  correctionRequested?: boolean;
+  correctionReason?: string;
+  correctionRequestedAt?: string;
+  resubmittedAt?: string;
+  
+  // Dispute Workflow
+  disputeStatus?: 'None' | 'Open' | 'Reviewing' | 'Resolved';
+  disputeReason?: string;
+  disputeOpenedAt?: string;
+  disputeResolvedAt?: string;
+  disputeResolution?: string;
+  disputeResolutionAction?: 'Approved' | 'Refunded' | 'Rejected' | 'No Action';
   
   // Timeframe, Duration & Scheduling
   durationUnit?: AdDurationUnit;

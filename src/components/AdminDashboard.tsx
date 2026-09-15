@@ -6156,6 +6156,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           user={selectedUserForModal}
           userJobs={jobs.concat(pendingJobs).filter(j => j.submittedByUserId === selectedUserForModal.id || j.company.toLowerCase() === selectedUserForModal.companyName?.toLowerCase())}
           userApplications={allApplications.filter(a => a.applicantId === selectedUserForModal.id)}
+          userAds={ads}
           onClose={() => setSelectedUserForModal(null)}
           onUpdateUserExpiry={onUpdateUserExpiry}
           onToggleUserPlan={onToggleUserPlan}
@@ -6165,6 +6166,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onEndUserMembershipAndJobs={onEndUserMembershipAndJobs}
           onSuspendJob={onSuspendJob}
           onInspectJob={(j) => setSelectedJobForModal(j)}
+          onSaveAdminNotes={(userId, notes) => {
+            if (onUpdateUser) {
+              const target = users.find(u => u.id === userId);
+              if (target) {
+                onUpdateUser({ ...target, adminNotes: notes });
+              }
+            }
+          }}
+          onUpdateUserVerification={(userId, status, kycStatus) => {
+            if (onUpdateUser) {
+              const target = users.find(u => u.id === userId);
+              if (target) {
+                onUpdateUser({
+                  ...target,
+                  verificationStatus: status,
+                  ...(kycStatus ? { kycStatus } : {})
+                });
+              }
+            }
+          }}
         />
       )}
 

@@ -44,7 +44,11 @@ import {
   ChevronDown,
   ChevronUp,
   Percent,
-  Zap
+  Zap,
+  ShieldAlert,
+  MessageSquare,
+  FileQuestion,
+  CheckCheck
 } from 'lucide-react';
 
 interface AdminCampaignCenterProps {
@@ -181,6 +185,99 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
   // Add Budget Modal State
   const [budgetModalAd, setBudgetModalAd] = useState<Advertisement | null>(null);
   const [budgetAmountToAdd, setBudgetAmountToAdd] = useState<number>(1000);
+
+  // Correction & Dispute Moderation State
+  const [correctionModalAd, setCorrectionModalAd] = useState<Advertisement | null>(null);
+  const [correctionReasonInput, setCorrectionReasonInput] = useState<string>('');
+
+  const [disputeModalAd, setDisputeModalAd] = useState<Advertisement | null>(null);
+  const [disputeReasonInput, setDisputeReasonInput] = useState<string>('');
+  const [disputeStatusSelection, setDisputeStatusSelection] = useState<'Open' | 'Reviewing' | 'Resolved'>('Open');
+  const [disputeResolutionText, setDisputeResolutionText] = useState<string>('');
+  const [disputeActionSelection, setDisputeActionSelection] = useState<'Approved' | 'Refunded' | 'Rejected' | 'No Action'>('Approved');
+
+  const handleOpenCorrectionModal = (ad: Advertisement) => {
+    setCorrectionModalAd(ad);
+    setCorrectionReasonInput(ad.correctionReason || 'Please modify the headline and ensure compliance with platform ad guidelines.');
+  };
+
+  const handleSubmitCorrection = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!correctionModalAd || !correctionReasonInput.trim()) return;
+
+    const updated: Advertisement = {
+      ...correctionModalAd,
+      correctionRequested: true,
+      correctionReason: correctionReasonInput.trim(),
+      correctionRequestedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      status: 'needs_correction',
+      approvalStatus: 'Pending'
+    };
+
+    onUpdateAd(updated);
+    setCorrectionModalAd(null);
+  };
+
+  const handleResubmitAfterCorrection = (ad: Advertisement) => {
+    const updated: Advertisement = {
+      ...ad,
+      correctionRequested: false,
+      resubmittedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      status: 'pending_approval',
+      approvalStatus: 'Pending'
+    };
+
+    onUpdateAd(updated);
+  };
+
+  const handleOpenDisputeModal = (ad: Advertisement) => {
+    setDisputeModalAd(ad);
+    setDisputeReasonInput(ad.disputeReason || 'Campaign policy disagreement or payment verification dispute.');
+    setDisputeStatusSelection(ad.disputeStatus === 'Reviewing' ? 'Reviewing' : ad.disputeStatus === 'Resolved' ? 'Resolved' : 'Open');
+    setDisputeResolutionText(ad.disputeResolution || '');
+    setDisputeActionSelection(ad.disputeResolutionAction || 'Approved');
+  };
+
+  const handleSubmitDispute = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!disputeModalAd) return;
+
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    let updatedStatus = disputeModalAd.status;
+    let updatedApproval = disputeModalAd.approvalStatus;
+    let updatedPayment = disputeModalAd.paymentStatus;
+
+    if (disputeStatusSelection === 'Resolved') {
+      if (disputeActionSelection === 'Approved') {
+        updatedApproval = 'Approved';
+        updatedStatus = 'active';
+      } else if (disputeActionSelection === 'Refunded') {
+        updatedPayment = 'Refunded';
+        updatedStatus = 'completed';
+      } else if (disputeActionSelection === 'Rejected') {
+        updatedApproval = 'Rejected';
+        updatedStatus = 'rejected';
+      }
+    } else {
+      updatedStatus = 'under_dispute';
+    }
+
+    const updated: Advertisement = {
+      ...disputeModalAd,
+      disputeStatus: disputeStatusSelection,
+      disputeReason: disputeReasonInput.trim() || disputeModalAd.disputeReason,
+      disputeOpenedAt: disputeModalAd.disputeOpenedAt || nowStr,
+      disputeResolvedAt: disputeStatusSelection === 'Resolved' ? nowStr : undefined,
+      disputeResolution: disputeResolutionText.trim() || undefined,
+      disputeResolutionAction: disputeActionSelection,
+      status: updatedStatus,
+      approvalStatus: updatedApproval,
+      paymentStatus: updatedPayment
+    };
+
+    onUpdateAd(updated);
+    setDisputeModalAd(null);
+  };
 
   const handleAddPatternEntry = () => {
     setFeedCustomPattern(prev => [...prev, { jobsInterval: 2, adCount: 1 }]);
@@ -1082,6 +1179,60 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 </div>
               )}
 
+              {/* Correction Requested Banner */}
+              {ad.correctionRequested && (
+                <div className="p-3 rounded-xl bg-amber-950/70 border border-amber-500/50 text-xs space-y-1">
+                  <div className="flex items-center justify-between text-amber-300 font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Correction Requested</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleResubmitAfterCorrection(ad)}
+                      className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px] hover:bg-amber-400 cursor-pointer"
+                    >
+                      Resubmit Ad
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-amber-200/90 italic">"{ad.correctionReason}"</p>
+                  {ad.correctionRequestedAt && (
+                    <div className="text-[9px] text-amber-400/70 font-mono">Requested: {ad.correctionRequestedAt}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Dispute Status Banner */}
+              {ad.disputeStatus && ad.disputeStatus !== 'None' && (
+                <div className={`p-3 rounded-xl border text-xs space-y-1 ${
+                  ad.disputeStatus === 'Resolved'
+                    ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                    : ad.disputeStatus === 'Reviewing'
+                    ? 'bg-indigo-950/70 border-indigo-500/50 text-indigo-300'
+                    : 'bg-rose-950/70 border-rose-500/50 text-rose-300'
+                }`}>
+                  <div className="flex items-center justify-between font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                      <span>Dispute: {ad.disputeStatus}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDisputeModal(ad)}
+                      className="text-[10px] underline font-bold hover:opacity-80 cursor-pointer"
+                    >
+                      {ad.disputeStatus === 'Resolved' ? 'View Details' : 'Manage / Resolve'}
+                    </button>
+                  </div>
+                  {ad.disputeReason && <p className="text-[11px] italic">"{ad.disputeReason}"</p>}
+                  {ad.disputeResolution && (
+                    <div className="text-[10px] font-semibold text-emerald-400">
+                      Resolution: {ad.disputeResolution} ({ad.disputeResolutionAction || 'Approved'})
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Live Card Mockup Box */}
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-2">
                 <div className="flex items-center justify-between">
@@ -1198,7 +1349,7 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center space-x-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {ad.approvalStatus === 'Pending' && onApproveAd && (
                     <button
                       onClick={() => onApproveAd(ad.id)}
@@ -1216,15 +1367,31 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                     </button>
                   )}
                   <button
+                    onClick={() => handleOpenCorrectionModal(ad)}
+                    className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                    title="Request Advertiser to Correct Ad"
+                  >
+                    <MessageSquare className="w-3 h-3" />
+                    <span>Correction</span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenDisputeModal(ad)}
+                    className="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                    title="Open or Manage Campaign Dispute"
+                  >
+                    <ShieldAlert className="w-3 h-3" />
+                    <span>Dispute</span>
+                  </button>
+                  <button
                     onClick={() => handleMakeCampaignFree(ad)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400"
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 cursor-pointer"
                     title="Waive Campaign Fee"
                   >
                     <Gift className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => onResetAdMetrics(ad.id)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
                     title="Reset Analytics"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
@@ -1368,6 +1535,160 @@ export const AdminCampaignCenter: React.FC<AdminCampaignCenterProps> = ({
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>Confirm & Add Budget</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* REQUEST CORRECTION MODAL */}
+      {correctionModalAd && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-white flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-amber-400" />
+                <span>Request Campaign Correction</span>
+              </h3>
+              <button
+                onClick={() => setCorrectionModalAd(null)}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1 text-xs">
+              <div className="text-white font-bold">{correctionModalAd.title}</div>
+              <div className="text-slate-400">Advertiser: <span className="text-slate-200">{correctionModalAd.submittedByUserName || correctionModalAd.submittedByUserEmail || 'User'}</span></div>
+              <div className="text-slate-400">Current Status: <span className="text-amber-400 font-bold">{correctionModalAd.status}</span></div>
+            </div>
+
+            <form onSubmit={handleSubmitCorrection} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Correction Reason / Required Fixes</label>
+                <textarea
+                  rows={4}
+                  value={correctionReasonInput}
+                  onChange={(e) => setCorrectionReasonInput(e.target.value)}
+                  placeholder="Describe the fixes needed (e.g., replace copyrighted image, adjust text grammar, fix broken link)..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-amber-500 leading-relaxed"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCorrectionModalAd(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-1"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Correction Request</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DISPUTE MODERATION & RESOLUTION MODAL */}
+      {disputeModalAd && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-white flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-indigo-400" />
+                <span>Campaign Dispute Moderation</span>
+              </h3>
+              <button
+                onClick={() => setDisputeModalAd(null)}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1 text-xs">
+              <div className="text-white font-bold">{disputeModalAd.title}</div>
+              <div className="text-slate-400">Advertiser: <span className="text-slate-200">{disputeModalAd.submittedByUserName || disputeModalAd.submittedByUserEmail || 'User'}</span></div>
+              <div className="text-slate-400">Dispute Opened: <span className="text-slate-200 font-mono">{disputeModalAd.disputeOpenedAt || 'Just now'}</span></div>
+            </div>
+
+            <form onSubmit={handleSubmitDispute} className="space-y-4 text-xs">
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Dispute Reason / Claim</label>
+                <textarea
+                  rows={3}
+                  value={disputeReasonInput}
+                  onChange={(e) => setDisputeReasonInput(e.target.value)}
+                  placeholder="Enter dispute description or advertiser issue..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1">Dispute Status</label>
+                  <select
+                    value={disputeStatusSelection}
+                    onChange={(e) => setDisputeStatusSelection(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="Open">Open (Needs Investigation)</option>
+                    <option value="Reviewing">Reviewing (Under Admin Audit)</option>
+                    <option value="Resolved">Resolved (Close Dispute)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1">Resolution Action</label>
+                  <select
+                    value={disputeActionSelection}
+                    onChange={(e) => setDisputeActionSelection(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="Approved">Approve & Activate Ad</option>
+                    <option value="Refunded">Refund Budget to User</option>
+                    <option value="Rejected">Maintain Rejection</option>
+                    <option value="No Action">No State Change</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Admin Resolution Note / Summary</label>
+                <textarea
+                  rows={2}
+                  value={disputeResolutionText}
+                  onChange={(e) => setDisputeResolutionText(e.target.value)}
+                  placeholder="Admin decision note for user/audit records..."
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setDisputeModalAd(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-600/20 cursor-pointer flex items-center space-x-1"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>Save Dispute Update</span>
                 </button>
               </div>
             </form>

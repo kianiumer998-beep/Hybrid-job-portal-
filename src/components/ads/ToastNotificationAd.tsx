@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Advertisement, AdTargetPage } from '../../types/ad';
 import { X, Sparkles, ExternalLink, ArrowRight, Bell, Zap } from 'lucide-react';
 
@@ -6,6 +6,7 @@ interface ToastNotificationAdProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
   onAdClick: (ad: Advertisement) => void;
+  onAdImpression?: (adId: string) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
 
@@ -13,10 +14,12 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
   ads,
   currentPage,
   onAdClick,
+  onAdImpression,
   onNavigateTab
 }) => {
   const [dismissedToastIds, setDismissedToastIds] = useState<string[]>([]);
   const [visibleAd, setVisibleAd] = useState<Advertisement | null>(null);
+  const trackedImpressionsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const candidate = ads.find(
@@ -37,6 +40,15 @@ export const ToastNotificationAd: React.FC<ToastNotificationAdProps> = ({
       setVisibleAd(null);
     }
   }, [ads, currentPage, dismissedToastIds]);
+
+  useEffect(() => {
+    if (visibleAd && visibleAd.id && !visibleAd.id.startsWith('demo-') && !visibleAd.id.startsWith('preview-')) {
+      if (!trackedImpressionsRef.current.has(visibleAd.id)) {
+        trackedImpressionsRef.current.add(visibleAd.id);
+        onAdImpression?.(visibleAd.id);
+      }
+    }
+  }, [visibleAd, onAdImpression]);
 
   if (!visibleAd) return null;
 

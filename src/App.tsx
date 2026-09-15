@@ -199,7 +199,33 @@ export default function App() {
 
   const handleAdClick = (ad: Advertisement) => {
     setAdvertisements((prev) =>
-      prev.map((a) => (a.id === ad.id ? { ...a, clicks: (a.clicks || 0) + 1 } : a))
+      prev.map((a) => {
+        if (a.id !== ad.id) return a;
+        const newClicks = (a.clicks || 0) + 1;
+        let budgetSpent = a.budgetSpent || 0;
+        const budgetLimit = a.budgetLimit || a.campaignCostPkr || 0;
+        let status = a.status;
+
+        if (a.billingModel === 'cpc' && typeof a.cpcRatePkr === 'number' && a.cpcRatePkr > 0) {
+          budgetSpent += a.cpcRatePkr;
+        }
+
+        const budgetRemaining = budgetLimit > 0 ? Math.max(0, budgetLimit - budgetSpent) : undefined;
+        const reachedClickLimit = typeof a.clickLimit === 'number' && a.clickLimit > 0 && newClicks >= a.clickLimit;
+        const reachedBudget = a.billingModel === 'cpc' && budgetLimit > 0 && (budgetRemaining ?? 0) <= 0;
+
+        if (status === 'active' && (reachedClickLimit || reachedBudget)) {
+          status = 'completed';
+        }
+
+        return {
+          ...a,
+          clicks: newClicks,
+          budgetSpent,
+          budgetRemaining,
+          status
+        };
+      })
     );
   };
 
@@ -1669,6 +1695,62 @@ export default function App() {
     alert(`Successfully deposited PKR ${amount.toLocaleString()} via ${paymentMethod}! New Wallet Balance: PKR ${newBalance.toLocaleString()}`);
   };
 
+  // Top-Up / Recharge Ad Campaign Budget from Wallet Balance
+  const handleTopUpCampaignBudget = (adId: string, additionalBudget: number) => {
+    if (!currentUser || additionalBudget <= 0) return;
+    const currentBalance = currentUser.walletBalance ?? 0;
+    if (currentBalance < additionalBudget) {
+      alert(`Insufficient wallet balance. You have PKR ${currentBalance.toLocaleString()} but need PKR ${additionalBudget.toLocaleString()}. Please deposit funds first.`);
+      return;
+    }
+
+    const targetAd = advertisements.find(a => a.id === adId);
+    const adTitle = targetAd?.title || 'Campaign';
+
+    const newBalance = currentBalance - additionalBudget;
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+
+    const newTx: PaymentTransaction = {
+      id: 'tx-topup-' + Date.now(),
+      dateTime: nowStr,
+      amount: additionalBudget,
+      currency: 'PKR',
+      type: 'Ad Campaign Fee',
+      status: 'Success',
+      paymentMethod: 'Wallet Balance',
+      jobTitleRef: `Budget Recharge: ${adTitle}`
+    };
+
+    const updatedUser: UserAccount = {
+      ...currentUser,
+      walletBalance: newBalance,
+      transactions: [newTx, ...(currentUser.transactions || [])]
+    };
+
+    setCurrentUser(updatedUser);
+    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+
+    setAdvertisements(prev => prev.map(a => {
+      if (a.id === adId) {
+        const currentLimit = a.budgetLimit || a.campaignCostPkr || 0;
+        const newLimit = currentLimit + additionalBudget;
+        const currentSpent = a.budgetSpent || 0;
+        const newRemaining = Math.max(0, newLimit - currentSpent);
+        const newStatus = a.status === 'completed' ? 'active' : a.status;
+
+        return {
+          ...a,
+          budgetLimit: newLimit,
+          budgetRemaining: newRemaining,
+          status: newStatus
+        };
+      }
+      return a;
+    }));
+
+    alert(`Recharge Successful! Added PKR ${additionalBudget.toLocaleString()} to "${adTitle}". New Budget Limit: PKR ${((targetAd?.budgetLimit || targetAd?.campaignCostPkr || 0) + additionalBudget).toLocaleString()}.`);
+  };
+
   // Admin Approves Ad Campaign
   const handleApproveAd = (adId: string) => {
     const adToApprove = advertisements.find(a => a.id === adId);
@@ -2250,6 +2332,8 @@ export default function App() {
                 campaignConfig={campaignConfig}
                 jobPostingPricing={jobPostingPricing}
                 onSubmitCampaign={handleSubmitCampaign}
+                onTopUpCampaignBudget={handleTopUpCampaignBudget}
+                onUpdateCampaign={handleUpdateAd}
                 onDepositFunds={handleDepositFunds}
                 onDeleteAd={handleDeleteAd}
                 onDuplicateAd={handleAddAd}

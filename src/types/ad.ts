@@ -10,7 +10,7 @@ export type AdPlacement =
   | 'toast-float'     // Bottom-right toast notification
   | 'sms-broadcast';  // Direct SMS text message broadcast
 
-export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft';
+export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft' | 'budget_exhausted' | 'limit_reached';
 
 export type AdDurationUnit = 'hours' | 'days' | 'weeks' | 'months';
 
@@ -142,6 +142,7 @@ export interface CampaignCustomizationConfig {
   feedInlineSettings: FeedInlineAdSettings;
   promoBanners: PromoDiscountBanner[];
   jobPostingFeeSettings?: JobPostingFeeSettings;
+  billingConfig?: CampaignBillingConfig;
   jobFeedSettings: {
     defaultPostsPerPage: number;
     postsPerPageOptions: number[];
@@ -155,6 +156,23 @@ export interface CampaignCustomizationConfig {
     instantPublishForPro: boolean;
     adminFreeCampaignBypass: boolean; // Admin can create campaigns 100% free
   };
+}
+
+export type CampaignBillingModel = 'duration' | 'cpm' | 'cpc';
+
+export interface CampaignBillingConfig {
+  durationEnabled: boolean;
+  cpmEnabled: boolean;
+  cpcEnabled: boolean;
+  allowDurationBilling?: boolean;
+  allowCpmBilling?: boolean;
+  allowCpcBilling?: boolean;
+  cpmRatePkr: number;       // PKR per 1,000 impressions (e.g. 150)
+  cpcRatePkr: number;       // PKR per verified click (e.g. 15)
+  minCampaignBudgetPkr: number; // Minimum campaign budget in PKR (e.g. 500)
+  maxCampaignBudgetPkr: number; // Maximum campaign budget in PKR (e.g. 500000)
+  autoBillingEnabled: boolean;  // Auto pause/stop on exhaustion
+  defaultModel: CampaignBillingModel;
 }
 
 export const DEFAULT_PORTAL_PAGES_CONFIG: PortalPageConfig[] = [
@@ -497,6 +515,17 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
     globalDiscountPercent: 0,
     promoBannerText: ''
   },
+  billingConfig: {
+    durationEnabled: true,
+    cpmEnabled: true,
+    cpcEnabled: true,
+    cpmRatePkr: 150,
+    cpcRatePkr: 15,
+    minCampaignBudgetPkr: 500,
+    maxCampaignBudgetPkr: 500000,
+    autoBillingEnabled: true,
+    defaultModel: 'duration'
+  },
   jobFeedSettings: {
     defaultPostsPerPage: 10,
     postsPerPageOptions: [10, 15, 20, 25, 50]
@@ -582,6 +611,18 @@ export interface Advertisement {
   campaignCostPkr?: number;
   paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Refunded' | 'Exempt';
   walletTxId?: string;
+
+  // Billing Model & Monetization
+  billingModel?: CampaignBillingModel; // 'duration' | 'cpm' | 'cpc'
+  cpmRatePkr?: number;
+  cpcRatePkr?: number;
+  budgetLimit?: number;       // Total assigned campaign budget
+  budgetSpent?: number;       // Amount spent/deducted so far
+  budgetRemaining?: number;   // Remaining campaign budget
+  impressionLimit?: number;   // Optional impressions cap
+  clickLimit?: number;        // Optional clicks cap
+  autoBillingEnabled?: boolean;
+  stopReason?: string;        // 'Budget Exhausted' | 'Click Limit Reached' | 'Impression Limit Reached' | 'Duration Expired' | 'Low Wallet Balance' | etc.
   
   // Visual & Content Details
   headline: string;
@@ -1066,6 +1107,20 @@ export function validateCampaignTargetPages(selectedPages: string[], portalConfi
 export function isAdCurrentlyRunning(ad: Advertisement, nowIso?: string): boolean {
   if (ad.status !== 'active') return false;
   if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return false;
+  if (ad.stopReason) return false;
+
+  // Check budget limits
+  if (ad.budgetLimit !== undefined && ad.budgetLimit > 0) {
+    if ((ad.budgetSpent || 0) >= ad.budgetLimit) return false;
+  }
+  // Check impression limits
+  if (ad.impressionLimit !== undefined && ad.impressionLimit > 0) {
+    if ((ad.impressions || 0) >= ad.impressionLimit) return false;
+  }
+  // Check click limits
+  if (ad.clickLimit !== undefined && ad.clickLimit > 0) {
+    if ((ad.clicks || 0) >= ad.clickLimit) return false;
+  }
 
   if (!ad.scheduledStartAt || !ad.scheduledEndAt) {
     return true; // Unscheduled admin ads default to always running when active
@@ -1076,6 +1131,18 @@ export function isAdCurrentlyRunning(ad: Advertisement, nowIso?: string): boolea
   const end = new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime();
 
   return now >= start && now <= end;
+}
+
+export function getBillingModelDisplayName(model?: CampaignBillingModel): string {
+  switch (model) {
+    case 'cpm':
+      return 'CPM (Pay-Per-1,000 Views)';
+    case 'cpc':
+      return 'CPC (Pay-Per-Click)';
+    case 'duration':
+    default:
+      return 'Duration (Time-based)';
+  }
 }
 
 /**

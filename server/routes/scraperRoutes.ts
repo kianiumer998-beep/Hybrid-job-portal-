@@ -6,7 +6,8 @@ import {
   getActiveRunStatus,
   pauseActiveRun,
   resumeActiveRun,
-  stopActiveRun
+  stopActiveRun,
+  resetActiveRun
 } from '../services/scraperEngine';
 import { requireAdmin } from '../auth/authManager';
 import { ScraperRepository, AuditRepository, JobRepository } from '../db/repositories';
@@ -431,6 +432,16 @@ scraperRouter.post('/stop', requireAdmin, async (req, res) => {
     res.json({ success: true, stopped, message: stopped ? 'Scraper run stopped.' : 'No active run to stop.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error stopping run' });
+  }
+});
+
+// 15b. Reset Active Run State (Admin Only)
+scraperRouter.post('/reset', requireAdmin, async (req, res) => {
+  try {
+    resetActiveRun();
+    res.json({ success: true, message: 'Scraper engine state has been reset to Idle.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error resetting run state' });
   }
 });
 

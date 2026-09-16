@@ -529,6 +529,12 @@ export const api = {
         headers: getAuthHeader()
       });
     },
+    async reset() {
+      return safeFetchJson(`${API_BASE}/scraper/reset`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
     async getExpirySettings() {
       return safeFetchJson<{ success: boolean; settings: { offsetDays: number } }>(`${API_BASE}/scraper/expiry-settings`, {
         headers: getAuthHeader()

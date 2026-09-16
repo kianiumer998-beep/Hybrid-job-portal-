@@ -150,6 +150,28 @@ export function stopActiveRun(): boolean {
   return false;
 }
 
+export function resetActiveRun(): boolean {
+  activeRunCancelRequested = false;
+  activeRunPauseRequested = false;
+  activeRunState = {
+    runId: '',
+    status: 'Idle',
+    totalSources: 0,
+    completedSourcesCount: 0,
+    remainingSourcesCount: 0,
+    currentSourceIndex: 0,
+    jobsFound: 0,
+    newJobsCount: 0,
+    duplicatesCount: 0,
+    pendingCount: 0,
+    publishedCount: 0,
+    failedSourcesCount: 0,
+    startTime: '',
+    lastUpdatedTime: new Date().toISOString()
+  };
+  return true;
+}
+
 export async function resumeActiveRun(): Promise<ScraperRunSummary | boolean | null> {
   if (activeRunState.status !== 'Paused' && !activeRunPauseRequested) {
     return false;
@@ -204,9 +226,19 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
-  // Prevent concurrent scraper runs
+  // Prevent concurrent scraper runs (with automatic watchdog recovery for stale runs)
   if (activeRunState.status === 'Running') {
-    throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
+    const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
+    const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
+    if (isStale) {
+      console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
+      activeRunState.status = 'Completed';
+      activeRunState.isStopped = true;
+      activeRunCancelRequested = false;
+      activeRunPauseRequested = false;
+    } else {
+      throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
+    }
   }
 
   const startTime = new Date();
@@ -269,9 +301,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     remainingTargets: [...targets]
   };
 
-  const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
-  const existingPendingJobs = await JobRepository.getPending();
-  const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
+  try {
+    const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
+    const existingPendingJobs = await JobRepository.getPending();
+    const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
 
   const harvestedJobs: any[] = [];
   const duplicateJobs: any[] = [];
@@ -722,5 +755,20 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     executionDurationMs: duration,
     message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${harvestedJobs.length} verified vacancies.`
   };
+} catch (runErr: any) {
+  console.error(`[Scraper Engine] Fatal run error in ${runId}:`, runErr);
+  if (activeRunState.status !== 'Paused' && activeRunState.status !== 'Stopped') {
+    activeRunState.status = 'Completed';
+    activeRunState.isStopped = true;
+  }
+  activeRunState.currentError = runErr?.message || String(runErr);
+  activeRunState.lastUpdatedTime = new Date().toISOString();
+  throw runErr;
+} finally {
+  if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
+    activeRunState.status = 'Completed';
+  }
+  activeRunState.lastUpdatedTime = new Date().toISOString();
+}
 }
 

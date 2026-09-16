@@ -1482,6 +1482,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     }
   };
 
+  const handleResetActiveRun = async () => {
+    if (!confirm('Force reset scraper engine to Idle state? This clears any stuck or orphaned run.')) return;
+    try {
+      const res = await api.scraper.reset();
+      if (res?.success) {
+        setStatusMessage({ text: 'Scraper engine state has been reset to Idle.', type: 'info' });
+        setIsScrapingActive(false);
+        const st = await api.scraper.getActiveStatus();
+        if (st?.status) setActiveRunState(st.status);
+        await fetchLiveScraperData();
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error resetting scraper.', type: 'error' });
+    }
+  };
+
   // Expiry Settings & Controls
   const handleSaveExpiryOffset = async () => {
     setIsSavingExpiry(true);
@@ -3391,6 +3407,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   >
                     <Square className="w-3.5 h-3.5" />
                     <span>Stop Run</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetActiveRun}
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all border border-slate-700 cursor-pointer flex items-center space-x-1.5"
+                    title="Force reset scraper state to Idle"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset</span>
                   </button>
                 </div>
               </div>

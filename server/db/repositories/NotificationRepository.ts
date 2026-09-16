@@ -202,17 +202,16 @@ export class NotificationRepository {
       completionCount: 0
     };
 
-    Database.addNotification(newNotif);
-
     if (isMongoConfigured()) {
+      const coll = await getNotificationsCollection();
+      await coll.updateOne({ id }, { $set: newNotif }, { upsert: true });
       try {
-        const coll = await getNotificationsCollection();
-        await coll.updateOne({ id }, { $set: newNotif }, { upsert: true });
-      } catch (err: any) {
-        console.warn('[NotificationRepository] Notice saving notification in MongoDB:', err.message);
-      }
+        Database.addNotification(newNotif);
+      } catch {}
+      return newNotif;
     }
 
+    Database.addNotification(newNotif);
     return newNotif;
   }
 
@@ -233,40 +232,41 @@ export class NotificationRepository {
       delete safeUpdates.messageBody;
     }
 
-    const localUpdated = Database.updateNotification(id, safeUpdates);
-
     if (isMongoConfigured()) {
+      const coll = await getNotificationsCollection();
+      await coll.updateOne({ id }, { $set: safeUpdates });
       try {
-        const coll = await getNotificationsCollection();
-        await coll.updateOne({ id }, { $set: safeUpdates });
-      } catch (err: any) {
-        console.warn('[NotificationRepository] Notice updating notification in MongoDB:', err.message);
+        Database.updateNotification(id, safeUpdates);
+      } catch {}
+      const updated = await coll.findOne({ id });
+      if (updated) {
+        const { _id, ...safeDoc } = updated;
+        return safeDoc;
       }
+      return Database.getNotifications().find(n => n.id === id) || null;
     }
 
-    return localUpdated;
+    return Database.updateNotification(id, safeUpdates);
   }
 
   /**
    * Deletes a notification and all associated user records.
    */
   static async delete(id: string): Promise<boolean> {
-    const localDeleted = Database.deleteNotification(id);
-
     if (isMongoConfigured()) {
+      const notifsColl = await getNotificationsCollection();
+      const userRecordsColl = await getUserNotificationRecordsCollection();
+      const [res] = await Promise.all([
+        notifsColl.deleteOne({ id }),
+        userRecordsColl.deleteMany({ notificationId: id })
+      ]);
       try {
-        const notifsColl = await getNotificationsCollection();
-        const userRecordsColl = await getUserNotificationRecordsCollection();
-        await Promise.all([
-          notifsColl.deleteOne({ id }),
-          userRecordsColl.deleteMany({ notificationId: id })
-        ]);
-      } catch (err: any) {
-        console.warn('[NotificationRepository] Notice deleting notification in MongoDB:', err.message);
-      }
+        Database.deleteNotification(id);
+      } catch {}
+      return res.deletedCount > 0;
     }
 
-    return localDeleted;
+    return Database.deleteNotification(id);
   }
 
   /**
@@ -276,6 +276,41 @@ export class NotificationRepository {
     const recordId = `${userId}_${notificationId}`;
     const now = new Date().toISOString();
 
+    if (isMongoConfigured()) {
+      const coll = await getUserNotificationRecordsCollection();
+      await coll.updateOne(
+        { id: recordId },
+        {
+          $set: {
+            id: recordId,
+            userId,
+            notificationId,
+            read: true,
+            readAt: now,
+            updatedAt: now
+          }
+        },
+        { upsert: true }
+      );
+      try {
+        const notifsColl = await getNotificationsCollection();
+        await notifsColl.updateOne({ id: notificationId }, { $inc: { viewCount: 1 } });
+      } catch {}
+
+      try {
+        const records = Database.getUserNotificationRecords();
+        const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
+        if (idx !== -1) {
+          records[idx] = { ...records[idx], read: true, readAt: now, updatedAt: now };
+        } else {
+          records.push({ id: recordId, userId, notificationId, read: true, readAt: now, updatedAt: now });
+        }
+        Database.saveUserNotificationRecords(records);
+      } catch {}
+
+      return true;
+    }
+
     const records = Database.getUserNotificationRecords();
     const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
     if (idx !== -1) {
@@ -284,31 +319,6 @@ export class NotificationRepository {
       records.push({ id: recordId, userId, notificationId, read: true, readAt: now, updatedAt: now });
     }
     Database.saveUserNotificationRecords(records);
-
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getUserNotificationRecordsCollection();
-        await coll.updateOne(
-          { id: recordId },
-          {
-            $set: {
-              id: recordId,
-              userId,
-              notificationId,
-              read: true,
-              readAt: now,
-              updatedAt: now
-            }
-          },
-          { upsert: true }
-        );
-        const notifsColl = await getNotificationsCollection();
-        await notifsColl.updateOne({ id: notificationId }, { $inc: { viewCount: 1 } });
-      } catch (err: any) {
-        console.warn('[NotificationRepository] Notice marking read in MongoDB:', err.message);
-      }
-    }
-
     return true;
   }
 
@@ -330,6 +340,37 @@ export class NotificationRepository {
     const recordId = `${userId}_${notificationId}`;
     const now = new Date().toISOString();
 
+    if (isMongoConfigured()) {
+      const coll = await getUserNotificationRecordsCollection();
+      await coll.updateOne(
+        { id: recordId },
+        {
+          $set: {
+            id: recordId,
+            userId,
+            notificationId,
+            dismissed: true,
+            dismissedAt: now,
+            updatedAt: now
+          }
+        },
+        { upsert: true }
+      );
+
+      try {
+        const records = Database.getUserNotificationRecords();
+        const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
+        if (idx !== -1) {
+          records[idx] = { ...records[idx], dismissed: true, dismissedAt: now, updatedAt: now };
+        } else {
+          records.push({ id: recordId, userId, notificationId, dismissed: true, dismissedAt: now, updatedAt: now });
+        }
+        Database.saveUserNotificationRecords(records);
+      } catch {}
+
+      return { success: true };
+    }
+
     const records = Database.getUserNotificationRecords();
     const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
     if (idx !== -1) {
@@ -338,29 +379,6 @@ export class NotificationRepository {
       records.push({ id: recordId, userId, notificationId, dismissed: true, dismissedAt: now, updatedAt: now });
     }
     Database.saveUserNotificationRecords(records);
-
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getUserNotificationRecordsCollection();
-        await coll.updateOne(
-          { id: recordId },
-          {
-            $set: {
-              id: recordId,
-              userId,
-              notificationId,
-              dismissed: true,
-              dismissedAt: now,
-              updatedAt: now
-            }
-          },
-          { upsert: true }
-        );
-      } catch (err: any) {
-        console.warn('[NotificationRepository] Notice dismissing notification in MongoDB:', err.message);
-      }
-    }
-
     return { success: true };
   }
 
@@ -374,9 +392,6 @@ export class NotificationRepository {
   ): Promise<any> {
     const recordId = `${userId}_${notificationId}`;
     const now = new Date().toISOString();
-
-    const records = Database.getUserNotificationRecords();
-    const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
     const newRecord = {
       id: recordId,
       userId,
@@ -388,27 +403,46 @@ export class NotificationRepository {
       metadata: metadata || {},
       updatedAt: now
     };
+
+    if (isMongoConfigured()) {
+      const coll = await getUserNotificationRecordsCollection();
+      await coll.updateOne(
+        { id: recordId },
+        { $set: newRecord },
+        { upsert: true }
+      );
+      try {
+        const notifsColl = await getNotificationsCollection();
+        await notifsColl.updateOne({ id: notificationId }, { $inc: { completionCount: 1 } });
+      } catch {}
+
+      try {
+        const records = Database.getUserNotificationRecords();
+        const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
+        if (idx !== -1) {
+          records[idx] = { ...records[idx], ...newRecord };
+        } else {
+          records.push(newRecord);
+        }
+        Database.saveUserNotificationRecords(records);
+      } catch {}
+
+      return {
+        success: true,
+        notificationId,
+        userId,
+        completedAt: now
+      };
+    }
+
+    const records = Database.getUserNotificationRecords();
+    const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
     if (idx !== -1) {
       records[idx] = { ...records[idx], ...newRecord };
     } else {
       records.push(newRecord);
     }
     Database.saveUserNotificationRecords(records);
-
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getUserNotificationRecordsCollection();
-        await coll.updateOne(
-          { id: recordId },
-          { $set: newRecord },
-          { upsert: true }
-        );
-        const notifsColl = await getNotificationsCollection();
-        await notifsColl.updateOne({ id: notificationId }, { $inc: { completionCount: 1 } });
-      } catch (err: any) {
-        console.warn('[NotificationRepository] Notice completing action in MongoDB:', err.message);
-      }
-    }
 
     return {
       success: true,
@@ -428,9 +462,6 @@ export class NotificationRepository {
   ): Promise<any> {
     const recordId = `${targetUserId}_${notificationId}`;
     const now = new Date().toISOString();
-
-    const records = Database.getUserNotificationRecords();
-    const idx = records.findIndex(r => r.id === recordId);
     const updated = {
       id: recordId,
       userId: targetUserId,
@@ -440,21 +471,39 @@ export class NotificationRepository {
       overriddenAt: now,
       updatedAt: now
     };
+
+    if (isMongoConfigured()) {
+      const coll = await getUserNotificationRecordsCollection();
+      await coll.updateOne({ id: recordId }, { $set: updated }, { upsert: true });
+
+      try {
+        const records = Database.getUserNotificationRecords();
+        const idx = records.findIndex(r => r.id === recordId);
+        if (idx !== -1) {
+          records[idx] = { ...records[idx], ...updated };
+        } else {
+          records.push(updated);
+        }
+        Database.saveUserNotificationRecords(records);
+      } catch {}
+
+      return {
+        success: true,
+        targetUserId,
+        notificationId,
+        overriddenBy: adminUserId,
+        overriddenAt: now
+      };
+    }
+
+    const records = Database.getUserNotificationRecords();
+    const idx = records.findIndex(r => r.id === recordId);
     if (idx !== -1) {
       records[idx] = { ...records[idx], ...updated };
     } else {
       records.push(updated);
     }
     Database.saveUserNotificationRecords(records);
-
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getUserNotificationRecordsCollection();
-        await coll.updateOne({ id: recordId }, { $set: updated }, { upsert: true });
-      } catch (err: any) {
-        console.warn('[NotificationRepository] Notice overriding action in MongoDB:', err.message);
-      }
-    }
 
     return {
       success: true,

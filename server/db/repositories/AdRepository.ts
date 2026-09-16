@@ -67,20 +67,22 @@ export class AdRepository {
       updatedAt: adData.updatedAt || now
     };
 
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      await coll.insertOne({ ...newAd });
+      try {
+        const ads = Database.getAds();
+        ads.unshift(newAd);
+        Database.saveAds(ads);
+      } catch {}
+      return newAd;
+    }
+
     try {
       const ads = Database.getAds();
       ads.unshift(newAd);
       Database.saveAds(ads);
     } catch {}
-
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getAdsCollection();
-        await coll.insertOne({ ...newAd });
-      } catch (err: any) {
-        console.warn('[AdRepository] Notice saving ad in MongoDB:', err.message);
-      }
-    }
 
     return newAd;
   }
@@ -106,26 +108,24 @@ export class AdRepository {
       updatedAt: now
     };
 
-    const localUpdated = this.update(id, updates);
-
     if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id },
+        { $set: updatePayload },
+        { returnDocument: 'after' }
+      );
       try {
-        const coll = await getAdsCollection();
-        const updatedDoc = await coll.findOneAndUpdate(
-          { id },
-          { $set: updatePayload },
-          { returnDocument: 'after' }
-        );
-        if (updatedDoc) {
-          const { _id, ...safe } = updatedDoc;
-          return safe;
-        }
-      } catch (err: any) {
-        console.warn('[AdRepository] Notice updating ad in MongoDB:', err.message);
+        this.update(id, updates);
+      } catch {}
+      if (updatedDoc) {
+        const { _id, ...safe } = updatedDoc;
+        return safe;
       }
+      return null;
     }
 
-    return localUpdated;
+    return this.update(id, updates);
   }
 
   static update(id: string, updates: any): any | null {
@@ -139,19 +139,16 @@ export class AdRepository {
   }
 
   static async deleteAsync(id: string): Promise<boolean> {
-    const localDeleted = this.delete(id);
-
     if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const res = await coll.deleteOne({ id });
       try {
-        const coll = await getAdsCollection();
-        const res = await coll.deleteOne({ id });
-        return res.deletedCount > 0 || localDeleted;
-      } catch (err: any) {
-        console.warn('[AdRepository] Notice deleting ad in MongoDB:', err.message);
-      }
+        this.delete(id);
+      } catch {}
+      return res.deletedCount > 0;
     }
 
-    return localDeleted;
+    return this.delete(id);
   }
 
   static delete(id: string): boolean {

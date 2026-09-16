@@ -988,7 +988,13 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
     if (!isNaN(cutoff)) {
       filtered = filtered.filter(j => {
         const rawTimeStr = j.datePosted || j.postedAt;
-        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') {
+        if (
+          !rawTimeStr ||
+          typeof rawTimeStr !== 'string' ||
+          rawTimeStr.trim().toLowerCase() === 'recent' ||
+          rawTimeStr.trim().toLowerCase() === 'just now' ||
+          rawTimeStr.trim().toLowerCase() === 'today'
+        ) {
           return false;
         }
         const postTime = new Date(rawTimeStr).getTime();

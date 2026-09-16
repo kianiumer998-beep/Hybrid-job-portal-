@@ -242,8 +242,8 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
     }
 
     const effectiveApplicantId = authUser.userId || authUser.id;
-    const effectiveApplicantName = authUser.name || (req.body.applicantName || 'Applicant');
-    const effectiveApplicantEmail = authUser.email || (req.body.applicantEmail || '');
+    const effectiveApplicantName = authUser.name || 'Applicant';
+    const effectiveApplicantEmail = authUser.email;
 
     if (!jobId || !effectiveApplicantName || !effectiveApplicantEmail) {
       return res.status(400).json({ success: false, message: 'Job ID, applicant name, and email are required.' });

@@ -196,6 +196,21 @@ async function initMongoIndexes(db: Db): Promise<void> {
       savedJobsColl.createIndex({ userId: 1, jobId: 1 }, { unique: true, background: true }),
       auditColl.createIndex({ id: 1 }, { unique: true, background: true })
     ]);
+
+    // Authoritative Admin credentials sync in MongoDB (preserve existing ID, role, wallet, permissions)
+    const adminEmail = 'admin@jobportal.com';
+    const correctAdminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+    const existingAdmin = await userColl.findOne({ email: adminEmail });
+    if (existingAdmin) {
+      if (existingAdmin.passwordHash !== correctAdminHash) {
+        await userColl.updateOne(
+          { email: adminEmail },
+          { $set: { passwordHash: correctAdminHash, updatedAt: new Date().toISOString() } }
+        );
+        console.log('[MongoDB] Synchronized administrative password hash for', adminEmail);
+      }
+    }
+
     indexesInitialized = true;
     console.log('[MongoDB] All production system collections and indexes ensured.');
   } catch (err: any) {

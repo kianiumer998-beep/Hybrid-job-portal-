@@ -216,22 +216,20 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
 
     const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => {
       const locName = j.location?.name || '';
-      const isRemote = locName.toLowerCase().includes('remote') || (j.title || '').toLowerCase().includes('remote');
-      const isPk = locName.toLowerCase().includes('pakistan');
       const cleanDesc = (j.content || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
 
       return {
         id: `gh-${config.id}-${j.id}`,
         title: (j.title || '').trim() || 'Untitled Position',
-        company: j.company_name || config.name || '',
-        jobType: isRemote ? 'Remote' : undefined,
-        region: isPk ? 'Pakistan' : undefined,
+        company: j.company_name || '',
+        jobType: undefined,
+        region: undefined,
         city: locName || undefined,
         salary: undefined,
-        currency: isPk ? 'PKR' : 'USD',
-        experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : (j.title || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+        currency: undefined,
+        experienceLevel: undefined,
         department: j.departments?.[0]?.name || undefined,
-        tags: [config.name, 'Greenhouse ATS', isRemote ? 'Remote' : null].filter(Boolean) as string[],
+        tags: [],
         description: cleanDesc.slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
@@ -284,21 +282,19 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
 
     const jobs: ScrapedJobResult[] = data.map((j: any) => {
       const loc = j.categories?.location || '';
-      const isRemote = loc.toLowerCase().includes('remote') || j.workplaceType === 'remote';
-      const isPk = loc.toLowerCase().includes('pakistan');
 
       return {
         id: `lever-${config.id}-${j.id}`,
         title: (j.text || '').trim() || 'Untitled Position',
-        company: config.name || '',
-        jobType: isRemote ? 'Remote' : undefined,
-        region: isPk ? 'Pakistan' : undefined,
+        company: '',
+        jobType: undefined,
+        region: undefined,
         city: loc || undefined,
         salary: undefined,
-        currency: isPk ? 'PKR' : 'USD',
-        experienceLevel: (j.text || '').toLowerCase().includes('senior') ? 'Senior' : (j.text || '').toLowerCase().includes('lead') ? 'Lead' : (j.text || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+        currency: undefined,
+        experienceLevel: undefined,
         department: j.categories?.team || j.categories?.department || undefined,
-        tags: [config.name, 'Lever ATS', isRemote ? 'Remote' : null].filter(Boolean) as string[],
+        tags: [],
         description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
@@ -348,15 +344,15 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
             const jobs: ScrapedJobResult[] = data.content.map((j: any) => ({
               id: `sr-${config.id}-${j.id}`,
               title: j.name || 'Untitled Position',
-              company: j.company?.name || company || config.name || '',
-              jobType: (j.location?.remote || (j.name || '').toLowerCase().includes('remote')) ? 'Remote' : undefined,
+              company: j.company?.name || company || '',
+              jobType: j.location?.remote ? 'Remote' : undefined,
               region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : undefined,
               city: j.location?.city || undefined,
               salary: undefined,
-              currency: 'USD' as Currency,
-              experienceLevel: (j.experienceLevel?.id === 'senior' || (j.name || '').toLowerCase().includes('senior')) ? 'Senior' : (j.experienceLevel?.id === 'junior' || (j.name || '').toLowerCase().includes('junior')) ? 'Junior' : undefined,
+              currency: undefined,
+              experienceLevel: undefined,
               department: j.department?.label || undefined,
-              tags: [config.name, 'SmartRecruiters'],
+              tags: [],
               description: undefined,
               requirements: [],
               benefits: [],
@@ -393,15 +389,15 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
             const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => ({
               id: `ashby-${config.id}-${j.id}`,
               title: j.title || 'Untitled Position',
-              company: company || config.name || '',
+              company: company || '',
               jobType: j.isRemote ? 'Remote' : undefined,
-              region: (j.location || '').toLowerCase().includes('pakistan') ? 'Pakistan' : undefined,
+              region: undefined,
               city: j.location || undefined,
               salary: undefined,
-              currency: 'USD' as Currency,
-              experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : (j.title || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+              currency: undefined,
+              experienceLevel: undefined,
               department: j.department || undefined,
-              tags: [config.name, 'Ashby ATS'],
+              tags: [],
               description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
               requirements: [],
               benefits: [],
@@ -559,10 +555,9 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
 
           // Factual salary handling: NEVER invent salary if missing
           let salary: string | undefined = undefined;
-          let currency: Currency | undefined = region === 'Pakistan' ? 'PKR' : undefined;
+          let currency: Currency | undefined = (item.baseSalary?.currency as Currency) || undefined;
           if (item.baseSalary) {
             const val = item.baseSalary.value;
-            currency = (item.baseSalary.currency || currency) as Currency;
             if (typeof val === 'number') {
               salary = `${currency || ''} ${val.toLocaleString()}`.trim();
             } else if (val && (val.minValue || val.maxValue)) {
@@ -580,9 +575,9 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
             city,
             salary,
             currency,
-            experienceLevel: title.toLowerCase().includes('senior') ? 'Senior' : title.toLowerCase().includes('junior') ? 'Junior' : title.toLowerCase().includes('lead') ? 'Lead' : undefined,
+            experienceLevel: undefined,
             department: undefined,
-            tags: [config.name, jobType, region, 'JSON-LD Verified'].filter(Boolean) as string[],
+            tags: [],
             description: description.slice(0, 1500) || undefined,
             requirements: [],
             benefits: [],
@@ -632,20 +627,19 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
 
           const loc = item.city || item.location || '';
           const isRemote = item.isRemote || (item.title || '').toLowerCase().includes('remote') || loc.toLowerCase().includes('remote');
-          const isPk = loc.toLowerCase().includes('pakistan');
 
           results.push({
             id: `next-${config.id}-${item.id || Date.now().toString(36)}`,
             title: title.trim(),
             company: item.company || item.companyName || '',
             jobType: isRemote ? 'Remote' : undefined,
-            region: isPk ? 'Pakistan' : undefined,
+            region: undefined,
             city: loc || undefined,
             salary: item.salary || undefined,
-            currency: isPk ? 'PKR' : undefined,
-            experienceLevel: (item.title || '').toLowerCase().includes('senior') ? 'Senior' : (item.title || '').toLowerCase().includes('lead') ? 'Lead' : (item.title || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+            currency: undefined,
+            experienceLevel: undefined,
             department: item.department || undefined,
-            tags: [config.name, 'Next.js SSR', isRemote ? 'Remote' : null].filter(Boolean) as string[],
+            tags: [],
             description: item.description || undefined,
             requirements: item.requirements || [],
             benefits: [],
@@ -751,10 +745,10 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           region,
           city: location || undefined,
           salary,
-          currency: region === 'Pakistan' ? 'PKR' : undefined,
-          experienceLevel: rawTitle.toLowerCase().includes('senior') ? 'Senior' : rawTitle.toLowerCase().includes('junior') ? 'Junior' : undefined,
+          currency: undefined,
+          experienceLevel: undefined,
           department: undefined,
-          tags: [jobType, region].filter(Boolean) as string[],
+          tags: [],
           description: snippet || undefined,
           requirements: [],
           benefits: [],
@@ -803,9 +797,9 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           region: undefined,
           salary: undefined,
           currency: undefined,
-          experienceLevel: text.toLowerCase().includes('senior') ? 'Senior' : text.toLowerCase().includes('junior') ? 'Junior' : undefined,
+          experienceLevel: undefined,
           department: undefined,
-          tags: ['PDF Notice'],
+          tags: [],
           description: undefined,
           requirements: [],
           benefits: [],

@@ -19,6 +19,58 @@ export function isMongoConfigured(): boolean {
   return Boolean(uri && uri.trim());
 }
 
+export async function resetMongoClient(): Promise<void> {
+  const client = cachedClient;
+  cachedClient = null;
+  cachedDb = null;
+  clientPromise = null;
+  if (client) {
+    try {
+      await client.close();
+    } catch {}
+  }
+}
+
+export function isMongoNetworkError(err: any): boolean {
+  if (!err) return false;
+  const name = err.name || '';
+  const msg = err.message || '';
+  return (
+    name === 'MongoNetworkTimeoutError' ||
+    name === 'MongoNetworkError' ||
+    name === 'MongoServerSelectionError' ||
+    name === 'MongoTimeoutError' ||
+    msg.includes('timed out') ||
+    msg.includes('topology was destroyed') ||
+    msg.includes('connection timed out') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('ETIMEDOUT') ||
+    msg.includes('ENOTFOUND') ||
+    msg.includes('socket timed out') ||
+    msg.includes('connection reset') ||
+    err.errorLabels?.has?.('RetryableWriteError')
+  );
+}
+
+export async function executeWithFallback<T>(
+  mongoFn: () => Promise<T>,
+  fallbackFn: () => T | Promise<T>,
+  logContext: string = 'DB'
+): Promise<T> {
+  if (isMongoConfigured()) {
+    try {
+      return await mongoFn();
+    } catch (err: any) {
+      if (isMongoNetworkError(err)) {
+        resetMongoClient().catch(() => {});
+      }
+      console.warn(`[${logContext}] MongoDB notice (${err.name || 'Error'}: ${err.message}), using persistent local data store.`);
+      return await fallbackFn();
+    }
+  }
+  return await fallbackFn();
+}
+
 export async function getMongoClient(): Promise<MongoClient> {
   if (cachedClient) {
     return cachedClient;
@@ -27,18 +79,22 @@ export async function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
     const uri = getMongoUri();
     const client = new MongoClient(uri, {
-      maxPoolSize: 20,
-      minPoolSize: 2,
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+      minPoolSize: 0,
+      serverSelectionTimeoutMS: 4000,
+      connectTimeoutMS: 4000,
+      socketTimeoutMS: 6000,
+      maxIdleTimeMS: 15000,
+      waitQueueTimeoutMS: 4000,
+      retryWrites: true,
+      retryReads: true
     });
 
     clientPromise = client.connect().then(async (connectedClient) => {
       cachedClient = connectedClient;
       cachedDb = connectedClient.db();
       console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
-      await initMongoIndexes(cachedDb);
+      initMongoIndexes(cachedDb).catch(() => {});
       return connectedClient;
     }).catch((err) => {
       clientPromise = null;

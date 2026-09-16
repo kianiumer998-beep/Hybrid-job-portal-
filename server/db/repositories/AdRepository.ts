@@ -1,5 +1,6 @@
 import { Database } from '../database';
 import { getAdsCollection, isMongoConfigured } from '../mongodb';
+import { PaymentRepository } from './PaymentRepository';
 
 export class AdRepository {
   static getAll(options?: { status?: string; placement?: string }): any[] {
@@ -15,22 +16,16 @@ export class AdRepository {
 
   static async getAllAsync(options?: { status?: string; placement?: string }): Promise<any[]> {
     if (isMongoConfigured()) {
-      try {
-        const coll = await getAdsCollection();
-        const query: any = {};
-        if (options?.status) query.status = options.status;
-        if (options?.placement) query.placement = options.placement;
+      const coll = await getAdsCollection();
+      const query: any = {};
+      if (options?.status) query.status = options.status;
+      if (options?.placement) query.placement = options.placement;
 
-        const ads = await coll.find(query).sort({ createdAt: -1 }).toArray();
-        if (ads && ads.length > 0) {
-          return ads.map(doc => {
-            const { _id, ...safe } = doc;
-            return safe;
-          });
-        }
-      } catch (err: any) {
-        console.warn('[MongoDB] getAllAsync ads fallback:', err.message);
-      }
+      const ads = await coll.find(query).sort({ createdAt: -1 }).toArray();
+      return (ads || []).map(doc => {
+        const { _id, ...safe } = doc;
+        return safe;
+      });
     }
     return this.getAll(options);
   }
@@ -40,19 +35,89 @@ export class AdRepository {
     return ads.find(a => a.id === id) || null;
   }
 
+  static async getByIdAsync(id: string): Promise<any | null> {
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const ad = await coll.findOne({ id });
+      if (!ad) return null;
+      const { _id, ...safe } = ad;
+      return safe;
+    }
+    return this.getById(id);
+  }
+
+  static async createAsync(adData: any): Promise<any> {
+    const id = adData.id || `ad-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date().toISOString();
+    const newAd = {
+      ...adData,
+      id,
+      impressions: Number(adData.impressions || 0),
+      clicks: Number(adData.clicks || 0),
+      createdAt: adData.createdAt || now,
+      updatedAt: adData.updatedAt || now
+    };
+
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      await coll.insertOne({ ...newAd });
+      try {
+        const ads = Database.getAds();
+        ads.unshift(newAd);
+        Database.saveAds(ads);
+      } catch {}
+      return newAd;
+    }
+
+    const ads = Database.getAds();
+    ads.unshift(newAd);
+    Database.saveAds(ads);
+    return newAd;
+  }
+
   static create(adData: any): any {
     const ads = Database.getAds();
     const newAd = {
       ...adData,
       id: adData.id || `ad-${Date.now().toString(36)}`,
-      impressions: 0,
-      clicks: 0,
+      impressions: Number(adData.impressions || 0),
+      clicks: Number(adData.clicks || 0),
       createdAt: new Date().toISOString()
     };
     ads.unshift(newAd);
     Database.saveAds(ads);
     this.syncMongoAd(newAd);
     return newAd;
+  }
+
+  static async updateAsync(id: string, updates: any): Promise<any | null> {
+    const now = new Date().toISOString();
+    const updatePayload = {
+      ...updates,
+      updatedAt: now
+    };
+
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id },
+        { $set: updatePayload },
+        { returnDocument: 'after' }
+      );
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      try {
+        const ads = Database.getAds();
+        const idx = ads.findIndex(a => a.id === id);
+        if (idx !== -1) {
+          ads[idx] = safe;
+          Database.saveAds(ads);
+        }
+      } catch {}
+      return safe;
+    }
+
+    return this.update(id, updates);
   }
 
   static update(id: string, updates: any): any | null {
@@ -64,6 +129,20 @@ export class AdRepository {
     Database.saveAds(ads);
     this.syncMongoAd(ads[idx]);
     return ads[idx];
+  }
+
+  static async deleteAsync(id: string): Promise<boolean> {
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const res = await coll.deleteOne({ id });
+      try {
+        const ads = Database.getAds();
+        const filtered = ads.filter(a => a.id !== id);
+        Database.saveAds(filtered);
+      } catch {}
+      return res.deletedCount > 0;
+    }
+    return this.delete(id);
   }
 
   static delete(id: string): boolean {
@@ -80,6 +159,71 @@ export class AdRepository {
     return true;
   }
 
+  /**
+   * Server-authoritative CPC click tracking & billing.
+   * If ad is CPC billing, debits advertiser wallet atomically via PaymentRepository.
+   */
+  static async trackClickAsync(id: string, options?: { idempotencyKey?: string }): Promise<any | null> {
+    const ad = await this.getByIdAsync(id);
+    if (!ad) return null;
+
+    const isActive = ad.status === 'active' || ad.status === 'Active' || !ad.status;
+    if (!isActive) {
+      return ad;
+    }
+
+    const advertiserId = ad.submittedByUserId || ad.userId;
+    const cpcRate = Number(ad.cpcRatePkr || 0);
+
+    if (ad.billingModel === 'cpc' && cpcRate > 0 && advertiserId) {
+      const key = options?.idempotencyKey || `cpc-${ad.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      try {
+        await PaymentRepository.debitWalletAsync(
+          advertiserId,
+          cpcRate,
+          'Ad Click Billing',
+          `CPC click charge for ad campaign: "${ad.title || ad.headline || ad.id}"`,
+          {
+            adId: ad.id,
+            billingModel: 'cpc',
+            ratePkr: cpcRate
+          },
+          key
+        );
+
+        ad.budgetSpent = Number(ad.budgetSpent || 0) + cpcRate;
+        if (ad.budgetLimit) {
+          ad.budgetRemaining = Math.max(0, Number(ad.budgetLimit) - ad.budgetSpent);
+          if (ad.budgetSpent >= Number(ad.budgetLimit)) {
+            ad.status = 'Paused';
+            ad.stopReason = 'Budget Exhausted';
+          }
+        }
+      } catch (err: any) {
+        if (err.message && err.message.includes('Insufficient wallet balance')) {
+          ad.status = 'Paused';
+          ad.stopReason = 'Low Wallet Balance';
+          await this.updateAsync(ad.id, { status: ad.status, stopReason: ad.stopReason });
+        }
+        throw err;
+      }
+    }
+
+    ad.clicks = Number(ad.clicks || 0) + 1;
+    if (ad.clickLimit && ad.clicks >= Number(ad.clickLimit)) {
+      ad.status = 'Paused';
+      ad.stopReason = 'Click Limit Reached';
+    }
+
+    return this.updateAsync(ad.id, {
+      clicks: ad.clicks,
+      status: ad.status,
+      stopReason: ad.stopReason,
+      budgetSpent: ad.budgetSpent,
+      budgetRemaining: ad.budgetRemaining
+    });
+  }
+
   static trackClick(id: string): any | null {
     const ads = Database.getAds();
     const idx = ads.findIndex(a => a.id === id);
@@ -90,6 +234,76 @@ export class AdRepository {
       return ads[idx];
     }
     return null;
+  }
+
+  /**
+   * Server-authoritative CPM impression tracking & billing.
+   * If ad is CPM billing, debits advertiser wallet atomically via PaymentRepository.
+   */
+  static async trackImpressionAsync(id: string, options?: { idempotencyKey?: string }): Promise<any | null> {
+    const ad = await this.getByIdAsync(id);
+    if (!ad) return null;
+
+    const isActive = ad.status === 'active' || ad.status === 'Active' || !ad.status;
+    if (!isActive) {
+      return ad;
+    }
+
+    ad.impressions = Number(ad.impressions || 0) + 1;
+
+    const advertiserId = ad.submittedByUserId || ad.userId;
+    const cpmRate = Number(ad.cpmRatePkr || 0);
+
+    if (ad.billingModel === 'cpm' && cpmRate > 0 && advertiserId) {
+      const perImpressionCost = Number((cpmRate / 1000).toFixed(4));
+      if (perImpressionCost > 0) {
+        const key = options?.idempotencyKey || `cpm-${ad.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        try {
+          await PaymentRepository.debitWalletAsync(
+            advertiserId,
+            perImpressionCost,
+            'Ad Impression Billing',
+            `CPM impression charge for ad campaign: "${ad.title || ad.headline || ad.id}"`,
+            {
+              adId: ad.id,
+              billingModel: 'cpm',
+              cpmRatePkr: cpmRate,
+              impressionNumber: ad.impressions
+            },
+            key
+          );
+
+          ad.budgetSpent = Number(ad.budgetSpent || 0) + perImpressionCost;
+          if (ad.budgetLimit) {
+            ad.budgetRemaining = Math.max(0, Number(ad.budgetLimit) - ad.budgetSpent);
+            if (ad.budgetSpent >= Number(ad.budgetLimit)) {
+              ad.status = 'Paused';
+              ad.stopReason = 'Budget Exhausted';
+            }
+          }
+        } catch (err: any) {
+          if (err.message && err.message.includes('Insufficient wallet balance')) {
+            ad.status = 'Paused';
+            ad.stopReason = 'Low Wallet Balance';
+            await this.updateAsync(ad.id, { status: ad.status, stopReason: ad.stopReason });
+          }
+          throw err;
+        }
+      }
+    }
+
+    if (ad.impressionLimit && ad.impressions >= Number(ad.impressionLimit)) {
+      ad.status = 'Paused';
+      ad.stopReason = 'Impression Limit Reached';
+    }
+
+    return this.updateAsync(ad.id, {
+      impressions: ad.impressions,
+      status: ad.status,
+      stopReason: ad.stopReason,
+      budgetSpent: ad.budgetSpent,
+      budgetRemaining: ad.budgetRemaining
+    });
   }
 
   static trackImpression(id: string): any | null {

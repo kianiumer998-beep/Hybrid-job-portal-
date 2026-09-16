@@ -285,13 +285,19 @@ applicationRouter.post('/', async (req, res) => {
       }
     }
 
-    const newApp = ApplicationRepository.create({
+    // Never allow a non-admin client to spoof another user's applicantId
+    const authUser = (req as any).user;
+    const effectiveApplicantId = authUser?.userId || authUser?.id || applicantId || 'guest';
+    const effectiveApplicantName = authUser?.name || applicantName;
+    const effectiveApplicantEmail = authUser?.email || applicantEmail;
+
+    const newApp = await ApplicationRepository.createAsync({
       jobId,
       jobTitle: jobTitle || 'Position',
       companyName: companyName || 'Company',
-      applicantId: applicantId || (req as any).user?.userId || 'guest',
-      applicantName,
-      applicantEmail,
+      applicantId: effectiveApplicantId,
+      applicantName: effectiveApplicantName,
+      applicantEmail: effectiveApplicantEmail,
       applicantPhone,
       coverLetter,
       answers: answers || {},
@@ -301,7 +307,7 @@ applicationRouter.post('/', async (req, res) => {
 
     // Automatically register application in Universal Case tracking system
     try {
-      CaseRepository.create({
+      await CaseRepository.createAsync({
         type: 'application',
         referenceId: newApp.id,
         title: `Job Application: ${jobTitle} at ${companyName}`,
@@ -349,10 +355,10 @@ applicationRouter.post('/', async (req, res) => {
 });
 
 // 5. Update Application Status (Reviewed, Shortlisted, Rejected)
-applicationRouter.patch('/:id/status', requireAdmin, (req, res) => {
+applicationRouter.patch('/:id/status', requireAdmin, async (req, res) => {
   try {
     const { status, notes } = req.body;
-    const updated = ApplicationRepository.updateStatus(req.params.id, status, notes);
+    const updated = await ApplicationRepository.updateStatusAsync(req.params.id, status, notes);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Application not found.' });
     }

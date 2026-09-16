@@ -25,7 +25,7 @@ authRouter.post('/register', async (req, res) => {
     }
 
     const { hash, salt } = hashPassword(password);
-    const newUser = UserRepository.create({
+    const newUser = await UserRepository.createAsync({
       name,
       email: email.toLowerCase().trim(),
       passwordHash: hash,

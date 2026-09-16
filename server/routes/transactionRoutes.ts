@@ -4,27 +4,36 @@ import { requireAdmin, requireAuth } from '../auth/authManager';
 
 export const transactionRouter = Router();
 
-// 1. Get transactions (all for admin, or filtered by userId / type / status)
-transactionRouter.get('/', async (req, res) => {
+// 1. Get transactions (scoped to authenticated user, or all for admin)
+transactionRouter.get('/', requireAuth, async (req: any, res) => {
   try {
-    const { userId, type, status } = req.query as Record<string, string>;
-    const txs = await PaymentRepository.getAllAsync(userId, { type, status });
+    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const { type, status } = req.query as Record<string, string>;
+
+    // Non-admin users are strictly restricted to their own transactions
+    const queryUserId = req.query.userId as string | undefined;
+    const targetUserId = isAdmin && queryUserId ? queryUserId : (req.user?.userId || req.user?.id);
+
+    const txs = await PaymentRepository.getAllAsync(targetUserId, { type, status });
     res.json({ success: true, transactions: txs });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching transactions' });
   }
 });
 
-
 // 2. Get Authoritative User Wallet Balance & Stats
-transactionRouter.get('/wallet/balance', (req, res) => {
+transactionRouter.get('/wallet/balance', requireAuth, async (req: any, res) => {
   try {
-    const userId = (req.query.userId as string) || (req as any).user?.userId;
-    if (!userId) {
-      return res.status(400).json({ success: false, message: 'User ID is required to retrieve wallet balance.' });
+    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const queryUserId = req.query.userId as string | undefined;
+
+    // Normal users can NEVER inspect other users' balances
+    const targetUserId = isAdmin && queryUserId ? queryUserId : (req.user?.userId || req.user?.id);
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: 'User ID could not be identified.' });
     }
 
-    const summary = PaymentRepository.getUserWallet(userId);
+    const summary = await PaymentRepository.getUserWalletAsync(targetUserId);
     res.json({ success: true, wallet: summary });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error retrieving wallet summary' });
@@ -32,38 +41,48 @@ transactionRouter.get('/wallet/balance', (req, res) => {
 });
 
 // 3. User Request Withdrawal Workflow
-transactionRouter.post('/withdraw', (req, res) => {
+transactionRouter.post('/withdraw', requireAuth, async (req: any, res) => {
   try {
-    const { amount, paymentMethod, senderPhoneOrAccount, senderName, proofNote, userId } = req.body;
-    const targetUserId = userId || (req as any).user?.userId;
-
+    const { amount, paymentMethod, senderPhoneOrAccount, senderName, proofNote, idempotencyKey } = req.body;
+    
+    // Strictly derive targetUserId from verified session token for non-admins
+    const targetUserId = req.user?.userId || req.user?.id;
     if (!targetUserId) {
-      return res.status(401).json({ success: false, message: 'Authentication or valid userId required.' });
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
     }
 
-    const tx = PaymentRepository.requestWithdrawal(targetUserId, {
-      amount: Number(amount),
-      paymentMethod,
-      senderPhoneOrAccount,
-      senderName,
-      proofNote
-    });
+    const user = await UserRepository.getByIdAsync(targetUserId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User record not found.' });
+    }
+
+    const tx = await PaymentRepository.requestWithdrawalAsync(
+      targetUserId,
+      {
+        amount: Number(amount),
+        paymentMethod,
+        senderPhoneOrAccount,
+        senderName: senderName || user.name,
+        proofNote
+      },
+      idempotencyKey || (req.headers['x-idempotency-key'] as string)
+    );
 
     // Create Universal Submission Case for tracking
-    const newCase = CaseRepository.create({
+    const newCase = await CaseRepository.createAsync({
       type: 'withdrawal',
       referenceId: tx.id,
       title: `Withdrawal Request: ${tx.amount} PKR via ${tx.paymentMethod}`,
       userId: targetUserId,
-      userName: tx.userName,
-      userEmail: tx.userEmail,
+      userName: tx.userName || user.name,
+      userEmail: tx.userEmail || user.email,
       status: 'pending',
       priority: 'high',
       metadata: { transactionId: tx.transactionId, amount: tx.amount, paymentMethod: tx.paymentMethod }
     });
 
     AuditRepository.add({
-      user: tx.userName || 'Member',
+      user: tx.userName || user.name || 'Member',
       role: 'Member',
       action: 'Withdrawal Requested',
       target: `${tx.amount} PKR to ${tx.paymentMethod} (${senderPhoneOrAccount})`,
@@ -83,14 +102,14 @@ transactionRouter.post('/withdraw', (req, res) => {
 });
 
 // 4. Admin Process Withdrawal (Approve with Slip / Reject with Auto-Refund)
-transactionRouter.patch('/:id/withdrawal-process', requireAdmin, (req, res) => {
+transactionRouter.patch('/:id/withdrawal-process', requireAdmin, async (req, res) => {
   try {
     const { action, payoutRef, proofSlipUrl, note, reason } = req.body; // action: 'approve' | 'reject'
     if (!['approve', 'reject'].includes(action)) {
       return res.status(400).json({ success: false, message: 'Action must be "approve" or "reject".' });
     }
 
-    const tx = PaymentRepository.processWithdrawal(req.params.id, action, {
+    const tx = await PaymentRepository.processWithdrawalAsync(req.params.id, action, {
       payoutRef,
       proofSlipUrl,
       note,
@@ -102,10 +121,10 @@ transactionRouter.patch('/:id/withdrawal-process', requireAdmin, (req, res) => {
     }
 
     // Update related Universal Case if exists
-    const cases = CaseRepository.getAll({ type: 'withdrawal' });
+    const cases = await CaseRepository.getAllAsync({ type: 'withdrawal' });
     const relatedCase = cases.find(c => c.referenceId === tx.id || c.metadata?.transactionId === tx.transactionId);
     if (relatedCase) {
-      CaseRepository.updateStatus(
+      await CaseRepository.updateStatusAsync(
         relatedCase.id,
         action === 'approve' ? 'approved' : 'rejected',
         'Finance Admin',
@@ -136,19 +155,24 @@ transactionRouter.patch('/:id/withdrawal-process', requireAdmin, (req, res) => {
 });
 
 // 5. Server-Side Wallet Debit (For Campaign Spend / Job Posting / Services)
-transactionRouter.post('/wallet/debit', (req, res) => {
+transactionRouter.post('/wallet/debit', requireAuth, async (req: any, res) => {
   try {
-    const { userId, amount, type, description, meta } = req.body;
-    if (!userId || !amount) {
-      return res.status(400).json({ success: false, message: 'userId and amount are required.' });
+    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const { userId, amount, type, description, meta, idempotencyKey } = req.body;
+
+    // Normal users can ONLY debit their own wallet
+    const targetUserId = isAdmin && userId ? userId : (req.user?.userId || req.user?.id);
+    if (!targetUserId || !amount) {
+      return res.status(400).json({ success: false, message: 'Valid target user and amount are required.' });
     }
 
-    const result = PaymentRepository.debitWallet(
-      userId,
+    const result = await PaymentRepository.debitWalletAsync(
+      targetUserId,
       Number(amount),
       type || 'Service Fee',
       description || 'Direct wallet payment debit',
-      meta
+      meta,
+      idempotencyKey || (req.headers['x-idempotency-key'] as string)
     );
 
     res.json(result);
@@ -158,19 +182,20 @@ transactionRouter.post('/wallet/debit', (req, res) => {
 });
 
 // 6. Admin Manual Credit / Wallet Adjustment
-transactionRouter.post('/wallet/credit', requireAdmin, (req, res) => {
+transactionRouter.post('/wallet/credit', requireAdmin, async (req, res) => {
   try {
-    const { userId, amount, type, description, meta } = req.body;
+    const { userId, amount, type, description, meta, idempotencyKey } = req.body;
     if (!userId || !amount) {
       return res.status(400).json({ success: false, message: 'userId and amount are required.' });
     }
 
-    const result = PaymentRepository.creditWallet(
+    const result = await PaymentRepository.creditWalletAsync(
       userId,
       Number(amount),
       type || 'Admin Adjustment',
       description || 'Administrative balance adjustment',
-      meta
+      meta,
+      idempotencyKey || (req.headers['x-idempotency-key'] as string)
     );
 
     AuditRepository.add({
@@ -189,7 +214,7 @@ transactionRouter.post('/wallet/credit', requireAdmin, (req, res) => {
 });
 
 // 7. Submit payment proof with Idempotency Protection & Authoritative Pricing Authority
-transactionRouter.post('/', async (req, res) => {
+transactionRouter.post('/', requireAuth, async (req: any, res) => {
   try {
     const {
       amount,
@@ -202,9 +227,6 @@ transactionRouter.post('/', async (req, res) => {
       depositBankOrWalletName,
       proofScreenshotUrl,
       proofNote,
-      userId,
-      userName,
-      userEmail,
       jobTitleRef,
       jobIdRef,
       jobPricingOptions,
@@ -215,6 +237,13 @@ transactionRouter.post('/', async (req, res) => {
     if (!paymentMethod) {
       return res.status(400).json({ success: false, message: 'Payment method is required.' });
     }
+
+    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const targetUserId = isAdmin && req.body.userId ? req.body.userId : (req.user?.userId || req.user?.id);
+    const user = await UserRepository.getByIdAsync(targetUserId);
+
+    const effectiveUserName = user?.name || req.body.userName || req.user?.name || 'Customer';
+    const effectiveUserEmail = user?.email || req.body.userEmail || req.user?.email || '';
 
     // AUTHORITATIVE PRICING CALCULATION
     let enforcedAmount = Number(amount);
@@ -237,8 +266,9 @@ transactionRouter.post('/', async (req, res) => {
     }
 
     // Check idempotency
-    if (idempotencyKey) {
-      const existing = PaymentRepository.findByIdempotencyKey(idempotencyKey);
+    const resolvedIdempotencyKey = idempotencyKey || (req.headers['x-idempotency-key'] as string);
+    if (resolvedIdempotencyKey) {
+      const existing = await PaymentRepository.findByIdempotencyKeyAsync(resolvedIdempotencyKey);
       if (existing) {
         return res.json({
           success: true,
@@ -250,7 +280,7 @@ transactionRouter.post('/', async (req, res) => {
 
     // Check duplicate transaction ID if provided
     if (transactionId) {
-      const existingTid = PaymentRepository.findByTransactionId(transactionId);
+      const existingTid = await PaymentRepository.findByTransactionIdAsync(transactionId);
       if (existingTid) {
         return res.status(409).json({
           success: false,
@@ -263,54 +293,67 @@ transactionRouter.post('/', async (req, res) => {
 
     // Wallet direct payment check
     let initialStatus: 'Pending' | 'Success' = 'Pending';
-    if (paymentMethod === 'Wallet Balance' && userId) {
-      const user = UserRepository.getById(userId);
-      if (!user || (user.walletBalance || 0) < enforcedAmount) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient wallet balance. Required: ${enforcedAmount} PKR, Available: ${user?.walletBalance || 0} PKR.`
-        });
+    let debitBalanceBefore: number | undefined;
+    let debitBalanceAfter: number | undefined;
+
+    if (paymentMethod === 'Wallet Balance') {
+      if (!targetUserId) {
+        return res.status(400).json({ success: false, message: 'User ID is required for wallet payment.' });
       }
 
-      // Deduct wallet balance directly
-      UserRepository.update(userId, {
-        walletBalance: (user.walletBalance || 0) - enforcedAmount
-      });
+      // Use atomic debitWalletAsync to strictly prevent negative balance and record balanceBefore / balanceAfter
+      const debitResult = await PaymentRepository.debitWalletAsync(
+        targetUserId,
+        enforcedAmount,
+        type || 'Service Payment',
+        proofNote || `Direct wallet balance payment for ${type || 'Service'}`,
+        {
+          jobIdRef,
+          jobTitleRef,
+          transactionId: tid
+        },
+        resolvedIdempotencyKey
+      );
+
       initialStatus = 'Success';
+      debitBalanceBefore = debitResult.transaction?.balanceBefore;
+      debitBalanceAfter = debitResult.transaction?.balanceAfter;
     }
 
-    const newTx = PaymentRepository.create({
+    const newTx = await PaymentRepository.createAsync({
       amount: enforcedAmount,
       currency: currency || 'PKR',
       type: type || 'Wallet Deposit',
       status: initialStatus,
       paymentMethod,
       transactionId: tid,
-      idempotencyKey: idempotencyKey || undefined,
-      senderName: senderName || userName || 'Customer',
+      idempotencyKey: resolvedIdempotencyKey || undefined,
+      senderName: senderName || effectiveUserName,
       senderPhoneOrAccount,
       depositBankOrWalletName,
       proofScreenshotUrl,
       proofNote,
-      userId,
-      userName,
-      userEmail,
+      userId: targetUserId,
+      userName: effectiveUserName,
+      userEmail: effectiveUserEmail,
       jobTitleRef,
       jobIdRef,
       pricingBreakdown,
+      balanceBefore: debitBalanceBefore,
+      balanceAfter: debitBalanceAfter,
       verifiedAt: initialStatus === 'Success' ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString()
     });
 
     // Create Universal Submission Case for deposits or fees needing review
     if (initialStatus === 'Pending') {
-      CaseRepository.create({
+      await CaseRepository.createAsync({
         type: 'deposit',
         referenceId: newTx.id,
         title: `Payment Proof: ${enforcedAmount} PKR via ${paymentMethod}`,
-        userId,
+        userId: targetUserId,
         userName: newTx.senderName,
-        userEmail,
+        userEmail: effectiveUserEmail,
         status: 'pending',
         priority: 'medium',
         metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, depositBankOrWalletName }
@@ -323,8 +366,8 @@ transactionRouter.post('/', async (req, res) => {
     }
 
     AuditRepository.add({
-      user: userName || 'User',
-      role: 'Member',
+      user: effectiveUserName,
+      role: req.user?.role || 'Member',
       action: initialStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
       target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
       status: 'Success',
@@ -351,7 +394,7 @@ transactionRouter.patch('/:id/verify', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Action must be "approve" or "reject".' });
     }
 
-    const tx = PaymentRepository.verify(req.params.id, action, note, reason);
+    const tx = await PaymentRepository.verifyPaymentAsync(req.params.id, action, note, reason);
     if (!tx) {
       return res.status(404).json({ success: false, message: 'Transaction not found.' });
     }
@@ -362,10 +405,10 @@ transactionRouter.patch('/:id/verify', requireAdmin, async (req, res) => {
     }
 
     // Update related Universal Case if exists
-    const cases = CaseRepository.getAll({ type: 'deposit' });
+    const cases = await CaseRepository.getAllAsync({ type: 'deposit' });
     const relatedCase = cases.find(c => c.referenceId === tx.id || c.metadata?.transactionId === tx.transactionId);
     if (relatedCase) {
-      CaseRepository.updateStatus(
+      await CaseRepository.updateStatusAsync(
         relatedCase.id,
         action === 'approve' ? 'approved' : 'rejected',
         'Finance Admin',
@@ -392,4 +435,3 @@ transactionRouter.patch('/:id/verify', requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error verifying transaction' });
   }
 });
-

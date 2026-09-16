@@ -20,22 +20,16 @@ export class ApplicationRepository {
 
   static async getAllAsync(filter: ApplicationFilter = {}): Promise<any[]> {
     if (isMongoConfigured()) {
-      try {
-        const coll = await getApplicationsCollection();
-        const query: any = {};
-        if (filter.jobId) query.jobId = filter.jobId;
-        if (filter.applicantId) query.applicantId = filter.applicantId;
+      const coll = await getApplicationsCollection();
+      const query: any = {};
+      if (filter.jobId) query.jobId = filter.jobId;
+      if (filter.applicantId) query.applicantId = filter.applicantId;
 
-        const apps = await coll.find(query).sort({ appliedAt: -1 }).toArray();
-        if (apps && apps.length > 0) {
-          return apps.map(doc => {
-            const { _id, ...safe } = doc;
-            return safe;
-          });
-        }
-      } catch (err: any) {
-        console.warn('[MongoDB] getAllAsync applications fallback:', err.message);
-      }
+      const apps = await coll.find(query).sort({ appliedAt: -1 }).toArray();
+      return (apps || []).map(doc => {
+        const { _id, ...safe } = doc;
+        return safe;
+      });
     }
     return this.getAll(filter);
   }
@@ -47,24 +41,70 @@ export class ApplicationRepository {
 
   static async getByIdAsync(id: string): Promise<any | null> {
     if (isMongoConfigured()) {
-      try {
-        const coll = await getApplicationsCollection();
-        const app = await coll.findOne({ id });
-        if (app) {
-          const { _id, ...safe } = app;
-          return safe;
-        }
-      } catch (err: any) {
-        console.warn('[MongoDB] getByIdAsync application fallback:', err.message);
-      }
+      const coll = await getApplicationsCollection();
+      const app = await coll.findOne({ id });
+      if (!app) return null;
+      const { _id, ...safe } = app;
+      return safe;
     }
     return this.getById(id);
+  }
+
+  static async createAsync(data: any): Promise<any> {
+    const id = data.id || `app-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date().toISOString();
+    const appToSave = {
+      ...data,
+      id,
+      status: data.status || 'applied',
+      appliedAt: data.appliedAt || now,
+      updatedAt: data.updatedAt || now
+    };
+
+    if (isMongoConfigured()) {
+      const coll = await getApplicationsCollection();
+      await coll.insertOne({ ...appToSave });
+      try {
+        Database.addApplication(appToSave);
+      } catch {}
+      return appToSave;
+    }
+
+    return Database.addApplication(appToSave);
   }
 
   static create(data: any): any {
     const newApp = Database.addApplication(data);
     this.syncMongoApp(newApp);
     return newApp;
+  }
+
+  static async updateStatusAsync(id: string, status: string, notes?: string): Promise<any | null> {
+    const now = new Date().toISOString();
+    const updateFields: any = { status, updatedAt: now };
+    if (notes) updateFields.adminNotes = notes;
+
+    if (isMongoConfigured()) {
+      const coll = await getApplicationsCollection();
+      const updatedDoc = await coll.findOneAndUpdate(
+        { id },
+        { $set: updateFields },
+        { returnDocument: 'after' }
+      );
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
+      try {
+        const apps = Database.getApplications();
+        const idx = apps.findIndex(a => a.id === id);
+        if (idx !== -1) {
+          apps[idx] = safe;
+          Database.saveApplications(apps);
+        }
+      } catch {}
+      return safe;
+    }
+
+    return this.updateStatus(id, status, notes);
   }
 
   static updateStatus(id: string, status: string, notes?: string): any | null {
@@ -93,4 +133,3 @@ export class ApplicationRepository {
       .catch(() => {});
   }
 }
-

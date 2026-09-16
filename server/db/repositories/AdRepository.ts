@@ -192,7 +192,11 @@ export class AdRepository {
     const cpcRate = Number(ad.cpcRatePkr || 0);
 
     if (ad.billingModel === 'cpc' && cpcRate > 0 && advertiserId) {
-      const stableKey = key || `cpc-${ad.id}-${advertiserId}`;
+      if (!key) {
+        // Safely reject un-keyed billable event to prevent un-idempotent duplicate charges
+        return ad;
+      }
+
       try {
         await PaymentRepository.debitWalletAsync(
           advertiserId,
@@ -204,7 +208,7 @@ export class AdRepository {
             billingModel: 'cpc',
             ratePkr: cpcRate
           },
-          stableKey
+          key
         );
 
         ad.budgetSpent = Number(ad.budgetSpent || 0) + cpcRate;
@@ -287,7 +291,11 @@ export class AdRepository {
     if (ad.billingModel === 'cpm' && cpmRate > 0 && advertiserId) {
       const perImpressionCost = Number((cpmRate / 1000).toFixed(4));
       if (perImpressionCost > 0) {
-        const stableKey = key || `cpm-${ad.id}-${advertiserId}`;
+        if (!key) {
+          // Safely reject un-keyed billable event to prevent un-idempotent duplicate charges
+          return ad;
+        }
+
         try {
           await PaymentRepository.debitWalletAsync(
             advertiserId,
@@ -300,7 +308,7 @@ export class AdRepository {
               cpmRatePkr: cpmRate,
               impressionNumber: Number(ad.impressions || 0) + 1
             },
-            stableKey
+            key
           );
 
           ad.budgetSpent = Number(ad.budgetSpent || 0) + perImpressionCost;

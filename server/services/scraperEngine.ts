@@ -481,7 +481,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           if (!isNaN(fromTime)) {
             filteredResults = filteredResults.filter(j => {
               const postTime = parseJobTime(j);
-              return postTime === null || postTime >= fromTime;
+              return postTime !== null && postTime >= fromTime;
             });
           }
         }
@@ -490,7 +490,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           if (!isNaN(toTime)) {
             filteredResults = filteredResults.filter(j => {
               const postTime = parseJobTime(j);
-              return postTime === null || postTime <= toTime;
+              return postTime !== null && postTime <= toTime;
             });
           }
         }
@@ -499,7 +499,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         if (!isNaN(cutoffTime)) {
           filteredResults = filteredResults.filter(j => {
             const postTime = parseJobTime(j);
-            return postTime === null || postTime >= cutoffTime;
+            return postTime !== null && postTime >= cutoffTime;
           });
         }
       }

@@ -38,24 +38,24 @@ export interface ScrapedJobResult {
   id: string;
   title: string;
   company: string;
-  jobType: 'Remote' | 'On-site' | 'Hybrid';
-  region: Region;
+  jobType?: 'Remote' | 'On-site' | 'Hybrid';
+  region?: Region;
   province?: string;
   city?: string;
   district?: string;
-  salary: string;
-  currency: Currency;
-  experienceLevel: 'Junior' | 'Mid' | 'Senior' | 'Lead';
-  department: string;
-  tags: string[];
-  description: string;
-  requirements: string[];
-  benefits: string[];
-  postedAt: string;
+  salary?: string;
+  currency?: Currency;
+  experienceLevel?: 'Junior' | 'Mid' | 'Senior' | 'Lead' | 'Entry' | 'Executive';
+  department?: string;
+  tags?: string[];
+  description?: string;
+  requirements?: string[];
+  benefits?: string[];
+  postedAt?: string;
   datePosted?: string;
   deadlineDate?: string;
-  applicationsCount: number;
-  status: 'Approved' | 'Pending';
+  applicationsCount?: number;
+  status?: 'Approved' | 'Pending';
   sourceUrl: string;
   sourceJobId?: string;
   originalApplyUrl?: string;
@@ -227,12 +227,12 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
         jobType: isRemote ? 'Remote' : 'On-site',
         region: isPk ? 'Pakistan' : 'Global',
         city: locName || undefined,
-        salary: '',
+        salary: undefined,
         currency: 'USD' as Currency,
-        experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : 'Mid',
-        department: j.departments?.[0]?.name || config.keywords || '',
+        experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : (j.title || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+        department: j.departments?.[0]?.name || undefined,
         tags: [config.name, 'Greenhouse ATS', isRemote ? 'Remote' : 'On-site'],
-        description: cleanDesc.slice(0, 1500) || `Official job listing on ${config.name} careers portal.`,
+        description: cleanDesc.slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
         postedAt: j.updated_at ? new Date(j.updated_at).toLocaleDateString() : '',
@@ -294,12 +294,12 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
         jobType: isRemote ? 'Remote' : 'On-site',
         region: isPk ? 'Pakistan' : 'Global',
         city: loc || undefined,
-        salary: '',
+        salary: undefined,
         currency: 'USD' as Currency,
-        experienceLevel: (j.text || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-        department: j.categories?.team || j.categories?.department || '',
+        experienceLevel: (j.text || '').toLowerCase().includes('senior') ? 'Senior' : (j.text || '').toLowerCase().includes('lead') ? 'Lead' : (j.text || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+        department: j.categories?.team || j.categories?.department || undefined,
         tags: [config.name, 'Lever ATS', isRemote ? 'Remote' : 'On-site'],
-        description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official vacancy on ${config.name}.`,
+        description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
         postedAt: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : '',
@@ -352,12 +352,12 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               jobType: (j.location?.remote || (j.name || '').toLowerCase().includes('remote')) ? 'Remote' : 'On-site',
               region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : 'Global',
               city: j.location?.city || undefined,
-              salary: '',
+              salary: undefined,
               currency: 'USD' as Currency,
-              experienceLevel: (j.experienceLevel?.id === 'senior' || (j.name || '').toLowerCase().includes('senior')) ? 'Senior' : 'Mid',
-              department: j.department?.label || '',
+              experienceLevel: (j.experienceLevel?.id === 'senior' || (j.name || '').toLowerCase().includes('senior')) ? 'Senior' : (j.experienceLevel?.id === 'junior' || (j.name || '').toLowerCase().includes('junior')) ? 'Junior' : undefined,
+              department: j.department?.label || undefined,
               tags: [config.name, 'SmartRecruiters'],
-              description: `Position at ${config.name}. Apply on official portal.`,
+              description: undefined,
               requirements: [],
               benefits: [],
               postedAt: j.releasedDate ? new Date(j.releasedDate).toLocaleDateString() : '',
@@ -397,12 +397,12 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               jobType: j.isRemote ? 'Remote' : 'On-site',
               region: (j.location || '').toLowerCase().includes('pakistan') ? 'Pakistan' : 'Global',
               city: j.location || undefined,
-              salary: '',
+              salary: undefined,
               currency: 'USD' as Currency,
-              experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-              department: j.department || '',
+              experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : (j.title || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+              department: j.department || undefined,
               tags: [config.name, 'Ashby ATS'],
-              description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official listing at ${config.name}`,
+              description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
               requirements: [],
               benefits: [],
               postedAt: j.publishedDate ? new Date(j.publishedDate).toLocaleDateString() : '',
@@ -463,15 +463,15 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       province: j.province,
       city: j.city,
       district: (j as any).district,
-      salary: j.salary || 'Government Pay Scale',
+      salary: j.salary || undefined,
       currency: 'PKR',
-      experienceLevel: (j.experienceLevel || 'Mid') as any,
+      experienceLevel: j.experienceLevel as any || undefined,
       department: j.department || config.name,
       tags: j.tags || [config.name, pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image' ? 'OCR Scanned Document' : 'PDF Gazette'],
-      description: j.description || `Official government vacancy extracted from ${pdfResult.fileName || 'recruitment notice'}.`,
+      description: j.description || undefined,
       requirements: j.requirements || [],
       benefits: j.benefits || [],
-      postedAt: j.postedAt || 'Recent',
+      postedAt: j.postedAt || undefined,
       deadlineDate: j.deadlineDate,
       applicationsCount: 0,
       status: config.autoApprove ? 'Approved' : 'Pending',
@@ -577,12 +577,12 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
             region,
             province: province || undefined,
             city: city || undefined,
-            salary,
+            salary: salary || undefined,
             currency,
-            experienceLevel: title.toLowerCase().includes('senior') ? 'Senior' : title.toLowerCase().includes('junior') ? 'Junior' : 'Mid',
-            department: config.keywords?.split(',')[0]?.trim() || '',
+            experienceLevel: title.toLowerCase().includes('senior') ? 'Senior' : title.toLowerCase().includes('junior') ? 'Junior' : title.toLowerCase().includes('lead') ? 'Lead' : undefined,
+            department: undefined,
             tags: [config.name, jobType, region, 'JSON-LD Verified'],
-            description: description.slice(0, 1500) || `Official vacancy listed on ${company}.`,
+            description: description.slice(0, 1500) || undefined,
             requirements: [],
             benefits: [],
             postedAt: item.datePosted ? new Date(item.datePosted).toLocaleDateString() : '',
@@ -636,12 +636,12 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
             jobType: item.isRemote || (item.title || '').toLowerCase().includes('remote') ? 'Remote' : 'On-site',
             region: config.isGovtPortal ? 'Pakistan' : 'Global',
             city: item.city || item.location || undefined,
-            salary: item.salary || '',
+            salary: item.salary || undefined,
             currency: 'USD' as Currency,
-            experienceLevel: (item.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-            department: item.department || '',
+            experienceLevel: (item.title || '').toLowerCase().includes('senior') ? 'Senior' : (item.title || '').toLowerCase().includes('lead') ? 'Lead' : (item.title || '').toLowerCase().includes('junior') ? 'Junior' : undefined,
+            department: item.department || undefined,
             tags: [config.name, 'Next.js SSR'],
-            description: item.description || `Listing from ${config.name}`,
+            description: item.description || undefined,
             requirements: item.requirements || [],
             benefits: [],
             postedAt: item.postedAt || '',

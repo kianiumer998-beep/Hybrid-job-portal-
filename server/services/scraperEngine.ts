@@ -397,7 +397,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         maxAllowedPage = options.endPage ? Math.max(startPage, options.endPage) : startPage;
       } else if (options.mode === 'complete') {
         startPage = 1;
-        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 200;
+        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 1000;
       }
 
       let currentPage = startPage;

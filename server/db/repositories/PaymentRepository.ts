@@ -1,5 +1,5 @@
 import { Database } from '../database';
-import { getTransactionsCollection, getUsersCollection, isMongoConfigured } from '../mongodb';
+import { getTransactionsCollection, getUsersCollection, isMongoConfigured, getMongoClient } from '../mongodb';
 
 export interface WalletBalanceSummary {
   userId: string;
@@ -202,58 +202,111 @@ export class PaymentRepository {
     }
 
     if (isMongoConfigured()) {
+      const client = await getMongoClient();
       const userColl = await getUsersCollection();
       const txColl = await getTransactionsCollection();
+      const session = client.startSession();
 
-      const user = await userColl.findOne({ id: userId });
-      if (!user) {
-        throw new Error(`User ${userId} not found.`);
-      }
-
-      const balanceBefore = Number(user.walletBalance || 0);
-      if (balanceBefore < amount) {
-        throw new Error(`Insufficient wallet balance. Available: ${balanceBefore} PKR, Required: ${amount} PKR.`);
-      }
-
-      // Atomic conditional update on MongoDB
-      const updatedUser = await userColl.findOneAndUpdate(
-        { id: userId, walletBalance: { $gte: amount } },
-        { $inc: { walletBalance: -amount }, $set: { updatedAt: new Date().toISOString() } },
-        { returnDocument: 'after' }
-      );
-
-      if (!updatedUser) {
-        throw new Error(`Insufficient wallet balance or concurrent modification. Required: ${amount} PKR.`);
-      }
-
-      const balanceAfter = balanceBefore - amount;
-      const tid = `TXN-DEBIT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-      const tx: any = {
-        id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        amount,
-        currency: 'PKR',
-        type,
-        status: 'Success',
-        paymentMethod: 'Wallet Balance',
-        transactionId: tid,
-        idempotencyKey: idempotencyKey || undefined,
-        userId,
-        userName: user.name || 'Member',
-        userEmail: user.email,
-        proofNote: description,
-        balanceBefore,
-        balanceAfter,
-        verifiedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        ...(meta || {})
-      };
+      let balanceBefore = 0;
+      let balanceAfter = 0;
+      let tx: any = null;
 
       try {
-        await txColl.insertOne({ ...tx });
-      } catch (txInsertErr) {
-        await userColl.updateOne({ id: userId }, { $inc: { walletBalance: amount } }).catch(() => {});
-        throw txInsertErr;
+        await session.withTransaction(async () => {
+          const user = await userColl.findOne({ id: userId }, { session });
+          if (!user) {
+            throw new Error(`User ${userId} not found.`);
+          }
+
+          balanceBefore = Number(user.walletBalance || 0);
+          if (balanceBefore < amount) {
+            throw new Error(`Insufficient wallet balance. Available: ${balanceBefore} PKR, Required: ${amount} PKR.`);
+          }
+
+          const updatedUser = await userColl.findOneAndUpdate(
+            { id: userId, walletBalance: { $gte: amount } },
+            { $inc: { walletBalance: -amount }, $set: { updatedAt: new Date().toISOString() } },
+            { returnDocument: 'after', session }
+          );
+
+          if (!updatedUser) {
+            throw new Error(`Insufficient wallet balance or concurrent modification. Required: ${amount} PKR.`);
+          }
+
+          balanceAfter = balanceBefore - amount;
+          const tid = `TXN-DEBIT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+          tx = {
+            id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            amount,
+            currency: 'PKR',
+            type,
+            status: 'Success',
+            paymentMethod: 'Wallet Balance',
+            transactionId: tid,
+            idempotencyKey: idempotencyKey || undefined,
+            userId,
+            userName: user.name || 'Member',
+            userEmail: user.email,
+            proofNote: description,
+            balanceBefore,
+            balanceAfter,
+            verifiedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            ...(meta || {})
+          };
+
+          await txColl.insertOne({ ...tx }, { session });
+        });
+      } catch (sessionErr: any) {
+        if (sessionErr?.message?.includes('replica set') || sessionErr?.message?.includes('Transaction numbers are only allowed')) {
+          const user = await userColl.findOne({ id: userId });
+          if (!user) throw new Error(`User ${userId} not found.`);
+          balanceBefore = Number(user.walletBalance || 0);
+          if (balanceBefore < amount) {
+            throw new Error(`Insufficient wallet balance. Available: ${balanceBefore} PKR, Required: ${amount} PKR.`);
+          }
+          const updatedUser = await userColl.findOneAndUpdate(
+            { id: userId, walletBalance: { $gte: amount } },
+            { $inc: { walletBalance: -amount }, $set: { updatedAt: new Date().toISOString() } },
+            { returnDocument: 'after' }
+          );
+          if (!updatedUser) {
+            throw new Error(`Insufficient wallet balance or concurrent modification. Required: ${amount} PKR.`);
+          }
+          balanceAfter = balanceBefore - amount;
+          const tid = `TXN-DEBIT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+          tx = {
+            id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            amount,
+            currency: 'PKR',
+            type,
+            status: 'Success',
+            paymentMethod: 'Wallet Balance',
+            transactionId: tid,
+            idempotencyKey: idempotencyKey || undefined,
+            userId,
+            userName: user.name || 'Member',
+            userEmail: user.email,
+            proofNote: description,
+            balanceBefore,
+            balanceAfter,
+            verifiedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            ...(meta || {})
+          };
+          try {
+            await txColl.insertOne({ ...tx });
+          } catch (txInsertErr) {
+            await userColl.updateOne({ id: userId }, { $inc: { walletBalance: amount } }).catch(() => {});
+            throw txInsertErr;
+          }
+        } else {
+          throw sessionErr;
+        }
+      } finally {
+        await session.endSession().catch(() => {});
       }
 
       try {
@@ -376,50 +429,98 @@ export class PaymentRepository {
     }
 
     if (isMongoConfigured()) {
+      const client = await getMongoClient();
       const userColl = await getUsersCollection();
       const txColl = await getTransactionsCollection();
+      const session = client.startSession();
 
-      const user = await userColl.findOne({ id: userId });
-      if (!user) {
-        throw new Error(`User ${userId} not found.`);
-      }
-
-      const balanceBefore = Number(user.walletBalance || 0);
-      const balanceAfter = balanceBefore + amount;
-
-      await userColl.findOneAndUpdate(
-        { id: userId },
-        { $inc: { walletBalance: amount }, $set: { updatedAt: new Date().toISOString() } },
-        { returnDocument: 'after' }
-      );
-
-      const tid = `TXN-CREDIT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-      const tx: any = {
-        id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        amount,
-        currency: 'PKR',
-        type,
-        status: 'Success',
-        paymentMethod: meta?.paymentMethod || 'System Adjustment',
-        transactionId: tid,
-        idempotencyKey: idempotencyKey || undefined,
-        userId,
-        userName: user.name || 'Member',
-        userEmail: user.email,
-        proofNote: description,
-        balanceBefore,
-        balanceAfter,
-        verifiedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        ...(meta || {})
-      };
+      let balanceBefore = 0;
+      let balanceAfter = 0;
+      let tx: any = null;
 
       try {
-        await txColl.insertOne({ ...tx });
-      } catch (txInsertErr) {
-        await userColl.updateOne({ id: userId }, { $inc: { walletBalance: -amount } }).catch(() => {});
-        throw txInsertErr;
+        await session.withTransaction(async () => {
+          const user = await userColl.findOne({ id: userId }, { session });
+          if (!user) {
+            throw new Error(`User ${userId} not found.`);
+          }
+
+          balanceBefore = Number(user.walletBalance || 0);
+          balanceAfter = balanceBefore + amount;
+
+          await userColl.findOneAndUpdate(
+            { id: userId },
+            { $inc: { walletBalance: amount }, $set: { updatedAt: new Date().toISOString() } },
+            { returnDocument: 'after', session }
+          );
+
+          const tid = `TXN-CREDIT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+          tx = {
+            id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            amount,
+            currency: 'PKR',
+            type,
+            status: 'Success',
+            paymentMethod: meta?.paymentMethod || 'System Adjustment',
+            transactionId: tid,
+            idempotencyKey: idempotencyKey || undefined,
+            userId,
+            userName: user.name || 'Member',
+            userEmail: user.email,
+            proofNote: description,
+            balanceBefore,
+            balanceAfter,
+            verifiedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            ...(meta || {})
+          };
+
+          await txColl.insertOne({ ...tx }, { session });
+        });
+      } catch (sessionErr: any) {
+        if (sessionErr?.message?.includes('replica set') || sessionErr?.message?.includes('Transaction numbers are only allowed')) {
+          const user = await userColl.findOne({ id: userId });
+          if (!user) throw new Error(`User ${userId} not found.`);
+          balanceBefore = Number(user.walletBalance || 0);
+          balanceAfter = balanceBefore + amount;
+          await userColl.findOneAndUpdate(
+            { id: userId },
+            { $inc: { walletBalance: amount }, $set: { updatedAt: new Date().toISOString() } },
+            { returnDocument: 'after' }
+          );
+          const tid = `TXN-CREDIT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+          tx = {
+            id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            amount,
+            currency: 'PKR',
+            type,
+            status: 'Success',
+            paymentMethod: meta?.paymentMethod || 'System Adjustment',
+            transactionId: tid,
+            idempotencyKey: idempotencyKey || undefined,
+            userId,
+            userName: user.name || 'Member',
+            userEmail: user.email,
+            proofNote: description,
+            balanceBefore,
+            balanceAfter,
+            verifiedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            ...(meta || {})
+          };
+          try {
+            await txColl.insertOne({ ...tx });
+          } catch (txInsertErr) {
+            await userColl.updateOne({ id: userId }, { $inc: { walletBalance: -amount } }).catch(() => {});
+            throw txInsertErr;
+          }
+        } else {
+          throw sessionErr;
+        }
+      } finally {
+        await session.endSession().catch(() => {});
       }
 
       try {

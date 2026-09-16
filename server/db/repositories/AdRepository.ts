@@ -169,16 +169,30 @@ export class AdRepository {
     const ad = await this.getByIdAsync(id);
     if (!ad) return null;
 
+    // Keep preview / demo events unbilled
+    const isPreviewOrDemo = ad.isPreview || ad.isDemo || ad.isSample || ad.id?.startsWith('demo-') || ad.id?.startsWith('sample-') || ad.placement === 'preview';
+    if (isPreviewOrDemo) {
+      return ad;
+    }
+
     const isActive = ad.status === 'active' || ad.status === 'Active' || !ad.status;
     if (!isActive) {
       return ad;
+    }
+
+    const key = options?.idempotencyKey;
+    if (key) {
+      const existingTx = await PaymentRepository.findByIdempotencyKeyAsync(key);
+      if (existingTx) {
+        return ad;
+      }
     }
 
     const advertiserId = ad.submittedByUserId || ad.userId;
     const cpcRate = Number(ad.cpcRatePkr || 0);
 
     if (ad.billingModel === 'cpc' && cpcRate > 0 && advertiserId) {
-      const key = options?.idempotencyKey || `cpc-${ad.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const stableKey = key || `cpc-${ad.id}-${advertiserId}`;
       try {
         await PaymentRepository.debitWalletAsync(
           advertiserId,
@@ -190,7 +204,7 @@ export class AdRepository {
             billingModel: 'cpc',
             ratePkr: cpcRate
           },
-          key
+          stableKey
         );
 
         ad.budgetSpent = Number(ad.budgetSpent || 0) + cpcRate;
@@ -248,12 +262,24 @@ export class AdRepository {
     const ad = await this.getByIdAsync(id);
     if (!ad) return null;
 
+    // Keep preview / demo events unbilled
+    const isPreviewOrDemo = ad.isPreview || ad.isDemo || ad.isSample || ad.id?.startsWith('demo-') || ad.id?.startsWith('sample-') || ad.placement === 'preview';
+    if (isPreviewOrDemo) {
+      return ad;
+    }
+
     const isActive = ad.status === 'active' || ad.status === 'Active' || !ad.status;
     if (!isActive) {
       return ad;
     }
 
-    ad.impressions = Number(ad.impressions || 0) + 1;
+    const key = options?.idempotencyKey;
+    if (key) {
+      const existingTx = await PaymentRepository.findByIdempotencyKeyAsync(key);
+      if (existingTx) {
+        return ad;
+      }
+    }
 
     const advertiserId = ad.submittedByUserId || ad.userId;
     const cpmRate = Number(ad.cpmRatePkr || 0);
@@ -261,7 +287,7 @@ export class AdRepository {
     if (ad.billingModel === 'cpm' && cpmRate > 0 && advertiserId) {
       const perImpressionCost = Number((cpmRate / 1000).toFixed(4));
       if (perImpressionCost > 0) {
-        const key = options?.idempotencyKey || `cpm-${ad.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const stableKey = key || `cpm-${ad.id}-${advertiserId}`;
         try {
           await PaymentRepository.debitWalletAsync(
             advertiserId,
@@ -272,9 +298,9 @@ export class AdRepository {
               adId: ad.id,
               billingModel: 'cpm',
               cpmRatePkr: cpmRate,
-              impressionNumber: ad.impressions
+              impressionNumber: Number(ad.impressions || 0) + 1
             },
-            key
+            stableKey
           );
 
           ad.budgetSpent = Number(ad.budgetSpent || 0) + perImpressionCost;
@@ -296,6 +322,7 @@ export class AdRepository {
       }
     }
 
+    ad.impressions = Number(ad.impressions || 0) + 1;
     if (ad.impressionLimit && ad.impressions >= Number(ad.impressionLimit)) {
       ad.status = 'Paused';
       ad.stopReason = 'Impression Limit Reached';

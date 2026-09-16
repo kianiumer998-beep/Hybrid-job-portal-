@@ -746,8 +746,8 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           city: location || undefined,
           salary,
           currency: region === 'Pakistan' ? 'PKR' : 'USD',
-          experienceLevel: rawTitle.toLowerCase().includes('senior') ? 'Senior' : rawTitle.toLowerCase().includes('junior') ? 'Junior' : 'Mid',
-          department: config.keywords?.split(',')[0]?.trim() || '',
+          experienceLevel: rawTitle.toLowerCase().includes('senior') ? 'Senior' : rawTitle.toLowerCase().includes('junior') ? 'Junior' : undefined,
+          department: undefined,
           tags: [config.name, jobType, region],
           description: snippet || `Official vacancy listed on ${config.name}. Visit source URL for complete qualifications.`,
           requirements: [],
@@ -785,14 +785,17 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
       const text = a.text().trim();
       const href = a.attr('href') || '';
 
-      const isJobLink = (
-        (href.includes('/job/') || href.includes('/careers/') || href.includes('/vacancy/') || href.includes('/post/') || href.includes('/opportunity/')) &&
-        text.length > 5 &&
-        text.length < 100 &&
-        !/^(apply\s*now|view\s*all|login|register|home|about|contact|terms|privacy)/i.test(text)
+      const isGenericNav = /^(apply\s*now|view\s*all|login|register|home|about|contact|terms|privacy|careers?|jobs?|all\s*jobs|search|menu|back|next|previous|more|read\s*more|learn\s*more|work\s*with\s*us|join\s*us|join\s*our\s*team|opportunities|current\s*openings)/i.test(text);
+
+      const hasJobPath = (
+        (href.includes('/job/') || href.includes('/careers/') || href.includes('/vacancy/') || href.includes('/post/') || href.includes('/opportunity/') || href.includes('/position/')) &&
+        !href.endsWith('/careers') && !href.endsWith('/careers/') && !href.endsWith('/jobs') && !href.endsWith('/jobs/') &&
+        text.length >= 6 &&
+        text.length <= 120 &&
+        !isGenericNav
       );
 
-      if (isJobLink) {
+      if (hasJobPath) {
         const fullUrl = resolveUrl(href, currentUrl);
         const isPdf = href.toLowerCase().split('?')[0].endsWith('.pdf');
         extractedJobs.push({
@@ -803,10 +806,10 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           region: config.isGovtPortal ? 'Pakistan' : 'Global',
           salary: '',
           currency: config.isGovtPortal ? 'PKR' : 'USD',
-          experienceLevel: text.toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-          department: config.keywords?.split(',')[0]?.trim() || '',
-          tags: [config.name, isPdf ? 'PDF Notice' : 'Heuristic'],
-          description: `Listing from ${config.name}: ${text}. Refer to original URL for full requirements.`,
+          experienceLevel: text.toLowerCase().includes('senior') ? 'Senior' : text.toLowerCase().includes('junior') ? 'Junior' : undefined,
+          department: undefined,
+          tags: [config.name, isPdf ? 'PDF Notice' : 'Job Posting'],
+          description: `Listing from ${config.name}: ${text}. Refer to original URL for full details.`,
           requirements: [],
           benefits: [],
           postedAt: '',
@@ -821,7 +824,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           isGovtJob: config.isGovtPortal,
           pdfSourceUrl: isPdf ? fullUrl : undefined,
           isPdfScraped: isPdf ? true : undefined,
-          extractedText: `Official listing from ${config.name}: ${text}`
+          extractedText: `Listing from ${config.name}: ${text}`
         });
       }
     });
@@ -994,9 +997,14 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
     if (!isNaN(cutoff)) {
       filtered = filtered.filter(j => {
         const rawTimeStr = j.datePosted || j.postedAt;
-        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') return true;
+        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') {
+          return false;
+        }
         const postTime = new Date(rawTimeStr).getTime();
-        return isNaN(postTime) || postTime >= cutoff;
+        if (isNaN(postTime)) {
+          return false;
+        }
+        return postTime >= cutoff;
       });
     }
   }

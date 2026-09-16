@@ -99,8 +99,10 @@ export class SupportRepository {
   }
 
   static create(ticketData: Partial<SupportTicket>): SupportTicket {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
+    }
     const newTicket = Database.addSupportTicket(ticketData);
-    this.syncMongoTicket(newTicket);
     return newTicket;
   }
 
@@ -146,6 +148,9 @@ export class SupportRepository {
     ticketId: string,
     messageData: { senderId: string; senderName: string; senderRole: string; message: string; attachments?: string[] }
   ): SupportTicket | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous addMessage is prohibited to ensure authoritative persistence; use addMessageAsync.');
+    }
     const ticket = this.getById(ticketId);
     if (!ticket) return null;
 
@@ -161,9 +166,6 @@ export class SupportRepository {
       status: messageData.senderRole.toLowerCase().includes('admin') ? 'waiting_user' : 'in_progress'
     });
 
-    if (updated) {
-      this.syncMongoTicket(updated);
-    }
     return updated;
   }
 
@@ -191,21 +193,11 @@ export class SupportRepository {
   }
 
   static updateStatus(ticketId: string, status: SupportTicket['status']): SupportTicket | null {
-    const updated = Database.updateSupportTicket(ticketId, { status });
-    if (updated) {
-      this.syncMongoTicket(updated);
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous updateStatus is prohibited to ensure authoritative persistence; use updateStatusAsync.');
     }
+    const updated = Database.updateSupportTicket(ticketId, { status });
     return updated;
   }
-
-  private static syncMongoTicket(ticket: any): void {
-    if (!isMongoConfigured()) return;
-    getSupportTicketsCollection()
-      .then(coll => {
-        coll.updateOne({ id: ticket.id }, { $set: ticket }, { upsert: true }).catch(err =>
-          console.warn('[MongoDB] Sync Ticket notice:', err.message)
-        );
-      })
-      .catch(() => {});
-  }
 }
+

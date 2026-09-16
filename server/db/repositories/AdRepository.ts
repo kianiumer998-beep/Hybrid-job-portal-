@@ -76,6 +76,9 @@ export class AdRepository {
   }
 
   static create(adData: any): any {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
+    }
     const ads = Database.getAds();
     const newAd = {
       ...adData,
@@ -86,7 +89,6 @@ export class AdRepository {
     };
     ads.unshift(newAd);
     Database.saveAds(ads);
-    this.syncMongoAd(newAd);
     return newAd;
   }
 
@@ -121,13 +123,15 @@ export class AdRepository {
   }
 
   static update(id: string, updates: any): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');
+    }
     const ads = Database.getAds();
     const idx = ads.findIndex(a => a.id === id);
     if (idx === -1) return null;
 
     ads[idx] = { ...ads[idx], ...updates, updatedAt: new Date().toISOString() };
     Database.saveAds(ads);
-    this.syncMongoAd(ads[idx]);
     return ads[idx];
   }
 
@@ -146,16 +150,14 @@ export class AdRepository {
   }
 
   static delete(id: string): boolean {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous delete is prohibited to ensure authoritative persistence; use deleteAsync.');
+    }
     const ads = Database.getAds();
     const filtered = ads.filter(a => a.id !== id);
     if (filtered.length === ads.length) return false;
 
     Database.saveAds(filtered);
-    if (isMongoConfigured()) {
-      getAdsCollection()
-        .then(coll => coll.deleteOne({ id }))
-        .catch(err => console.warn('[MongoDB] Delete ad notice:', err.message));
-    }
     return true;
   }
 
@@ -225,12 +227,14 @@ export class AdRepository {
   }
 
   static trackClick(id: string): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous trackClick is prohibited to ensure authoritative persistence; use trackClickAsync.');
+    }
     const ads = Database.getAds();
     const idx = ads.findIndex(a => a.id === id);
     if (idx !== -1) {
       ads[idx].clicks = (ads[idx].clicks || 0) + 1;
       Database.saveAds(ads);
-      this.syncMongoAd(ads[idx]);
       return ads[idx];
     }
     return null;
@@ -307,27 +311,17 @@ export class AdRepository {
   }
 
   static trackImpression(id: string): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous trackImpression is prohibited to ensure authoritative persistence; use trackImpressionAsync.');
+    }
     const ads = Database.getAds();
     const idx = ads.findIndex(a => a.id === id);
     if (idx !== -1) {
       ads[idx].impressions = (ads[idx].impressions || 0) + 1;
       Database.saveAds(ads);
-      this.syncMongoAd(ads[idx]);
       return ads[idx];
     }
     return null;
   }
-
-  private static syncMongoAd(ad: any): void {
-    if (!isMongoConfigured() || !ad?.id) return;
-    getAdsCollection()
-      .then(coll => {
-        coll.updateOne(
-          { id: ad.id },
-          { $set: ad },
-          { upsert: true }
-        ).catch(err => console.warn('[MongoDB] Sync ad notice:', err.message));
-      })
-      .catch(() => {});
-  }
 }
+

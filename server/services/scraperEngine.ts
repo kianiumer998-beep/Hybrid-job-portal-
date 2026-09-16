@@ -386,19 +386,18 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         sinceTimestamp = options.fromTimestamp;
       }
 
-      // 2. Dynamic next-page crawl loop
+      // 2. Dynamic next-page crawl loop (no hard-coded 25-page limit)
       const rawResults: ScrapedJobResult[] = [];
-      const MAX_SAFETY_PAGES = 25;
 
       let startPage = 1;
       let maxAllowedPage = 1;
 
       if (options.mode === 'page_range') {
         startPage = Math.max(1, options.startPage || 1);
-        maxAllowedPage = Math.max(startPage, Math.min(startPage + MAX_SAFETY_PAGES, options.endPage || startPage));
+        maxAllowedPage = options.endPage ? Math.max(startPage, options.endPage) : startPage;
       } else if (options.mode === 'complete') {
         startPage = 1;
-        maxAllowedPage = MAX_SAFETY_PAGES;
+        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 200;
       }
 
       let currentPage = startPage;
@@ -467,15 +466,40 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         }
       }
 
-      // Custom date upper cutoff
+      // Date filtering for custom_date, since_last, and cutoff bounds
       let filteredResults = rawResults;
-      if (options.mode === 'custom_date' && options.toTimestamp) {
-        const toTime = new Date(options.toTimestamp).getTime();
-        if (!isNaN(toTime)) {
+      const parseJobTime = (j: ScrapedJobResult): number | null => {
+        const rawTimeStr = j.datePosted || j.postedAt;
+        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') return null;
+        const parsed = new Date(rawTimeStr).getTime();
+        return isNaN(parsed) ? null : parsed;
+      };
+
+      if (options.mode === 'custom_date') {
+        if (options.fromTimestamp) {
+          const fromTime = new Date(options.fromTimestamp).getTime();
+          if (!isNaN(fromTime)) {
+            filteredResults = filteredResults.filter(j => {
+              const postTime = parseJobTime(j);
+              return postTime === null || postTime >= fromTime;
+            });
+          }
+        }
+        if (options.toTimestamp) {
+          const toTime = new Date(options.toTimestamp).getTime();
+          if (!isNaN(toTime)) {
+            filteredResults = filteredResults.filter(j => {
+              const postTime = parseJobTime(j);
+              return postTime === null || postTime <= toTime;
+            });
+          }
+        }
+      } else if (sinceTimestamp) {
+        const cutoffTime = new Date(sinceTimestamp).getTime();
+        if (!isNaN(cutoffTime)) {
           filteredResults = filteredResults.filter(j => {
-            if (!j.datePosted) return true;
-            const postTime = new Date(j.datePosted).getTime();
-            return isNaN(postTime) || postTime <= toTime;
+            const postTime = parseJobTime(j);
+            return postTime === null || postTime >= cutoffTime;
           });
         }
       }
@@ -483,9 +507,9 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       sourceFound = filteredResults.length;
 
       for (const raw of filteredResults) {
-        const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable')
-          ? raw.salary
-          : 'Salary not disclosed';
+        const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable' && raw.salary.toLowerCase() !== 'salary not disclosed')
+          ? raw.salary.trim()
+          : (raw.salary && raw.salary.trim() ? raw.salary.trim() : undefined);
 
         const isQualityAcceptable = !!(raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2);
         if (!isQualityAcceptable) {
@@ -538,7 +562,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         const standardizedJob: any = {
           ...raw,
           id: raw.id || `scraped-${target.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-          salary: standardizedSalary,
+          salary: standardizedSalary || '',
           scraperSourceId: target.id,
           scraperSourceName: target.name,
           scrapedSourceDomain: domain,
@@ -550,14 +574,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           scrapedTime: startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
           extractionMethod: raw.extractionMethod || 'html_cheerio',
           scrapeRunId: runId,
-          jobCategory: (target as any).category || 'General',
+          jobCategory: (target as any).category || (raw as any).jobCategory || undefined,
           region: resolvedRegion,
           province: resolvedProvince || undefined,
           city: resolvedCity || undefined,
           district: resolvedDistrict || undefined,
-          isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || raw.isGovtJob,
-          isNewspaperAd: (target as any).category === 'Newspaper Classified',
-          newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : undefined,
+          isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || !!raw.isGovtJob,
+          isNewspaperAd: (target as any).category === 'Newspaper Classified' || !!raw.isNewspaperAd,
+          newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : (raw.newspaperName || undefined),
           clippingImageUrl: raw.clippingImageUrl || raw.mediaUrl || undefined,
           pdfSourceUrl: raw.pdfSourceUrl || (raw.sourceUrl && typeof raw.sourceUrl === 'string' && raw.sourceUrl.toLowerCase().endsWith('.pdf') ? raw.sourceUrl : undefined),
           extractedText: raw.extractedText || raw.rawText || undefined,

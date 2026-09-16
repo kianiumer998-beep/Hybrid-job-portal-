@@ -88,16 +88,19 @@ caseRouter.post('/', requireAuth, async (req: any, res) => {
 // 4. Update case status (Admin only)
 caseRouter.patch('/:id/status', requireAdmin, async (req: any, res) => {
   try {
-    const { status, note, actor, role } = req.body;
+    const { status, note } = req.body;
     if (!status) {
       return res.status(400).json({ success: false, message: 'Status is required.' });
     }
 
+    const actor = req.user?.name || 'Admin';
+    const role = req.user?.role || 'Super Admin';
+
     const updated = await CaseRepository.updateStatusAsync(
       req.params.id,
       status,
-      actor || req.user?.name || 'System Admin',
-      role || req.user?.role || 'Super Admin',
+      actor,
+      role,
       note
     );
 
@@ -106,8 +109,8 @@ caseRouter.patch('/:id/status', requireAdmin, async (req: any, res) => {
     }
 
     AuditRepository.add({
-      user: actor || req.user?.name || 'Admin',
-      role: role || req.user?.role || 'Super Admin',
+      user: actor,
+      role: role,
       action: 'Case Status Transition',
       target: `${updated.caseNumber} -> ${status}`,
       status: 'Success',
@@ -156,15 +159,18 @@ caseRouter.post('/:id/timeline', requireAuth, async (req: any, res) => {
 // 6. Request correction (Admin)
 caseRouter.post('/:id/request-correction', requireAdmin, async (req: any, res) => {
   try {
-    const { correctionNotes, actor, role } = req.body;
+    const { correctionNotes } = req.body;
     if (!correctionNotes) {
       return res.status(400).json({ success: false, message: 'Correction instructions are required.' });
     }
 
+    const actor = req.user?.name || 'Review Admin';
+    const role = req.user?.role || 'Super Admin';
+
     const updated = await CaseRepository.requestCorrectionAsync(
       req.params.id,
-      actor || req.user?.name || 'Review Admin',
-      role || req.user?.role || 'Super Admin',
+      actor,
+      role,
       correctionNotes
     );
 
@@ -223,15 +229,18 @@ caseRouter.post('/:id/dispute', requireAuth, async (req: any, res) => {
 // 8. Resolve dispute (Admin)
 caseRouter.post('/:id/resolve-dispute', requireAdmin, async (req: any, res) => {
   try {
-    const { resolutionNotes, actor, role, newStatus } = req.body;
+    const { resolutionNotes, newStatus } = req.body;
     if (!resolutionNotes) {
       return res.status(400).json({ success: false, message: 'Resolution notes are required.' });
     }
 
+    const actor = req.user?.name || 'Senior Arbiter';
+    const role = req.user?.role || 'Super Admin';
+
     const updated = await CaseRepository.resolveDisputeAsync(
       req.params.id,
-      actor || req.user?.name || 'Senior Arbiter',
-      role || req.user?.role || 'Super Admin',
+      actor,
+      role,
       resolutionNotes,
       newStatus || 'resolved'
     );
@@ -241,8 +250,8 @@ caseRouter.post('/:id/resolve-dispute', requireAdmin, async (req: any, res) => {
     }
 
     AuditRepository.add({
-      user: actor || req.user?.name || 'Admin',
-      role: role || req.user?.role || 'Super Admin',
+      user: actor,
+      role: role,
       action: 'Dispute Resolved',
       target: `${updated.caseNumber} -> ${newStatus || 'resolved'}`,
       status: 'Success',

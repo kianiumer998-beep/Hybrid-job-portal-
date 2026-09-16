@@ -122,8 +122,10 @@ export class CaseRepository {
   }
 
   static create(caseData: Partial<UniversalCase>): UniversalCase {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
+    }
     const newCase = Database.addCase(caseData);
-    this.syncMongoCase(newCase);
     return newCase;
   }
 
@@ -152,10 +154,10 @@ export class CaseRepository {
   }
 
   static update(id: string, updates: Partial<UniversalCase>): UniversalCase | null {
-    const updated = Database.updateCase(id, updates);
-    if (updated) {
-      this.syncMongoCase(updated);
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');
     }
+    const updated = Database.updateCase(id, updates);
     return updated;
   }
 
@@ -379,16 +381,5 @@ export class CaseRepository {
       resolutionNotes,
       timeline: updatedTimeline
     });
-  }
-
-  private static syncMongoCase(c: any): void {
-    if (!isMongoConfigured()) return;
-    getCasesCollection()
-      .then(coll => {
-        coll.updateOne({ id: c.id }, { $set: c }, { upsert: true }).catch(err =>
-          console.warn('[MongoDB] Sync Case notice:', err.message)
-        );
-      })
-      .catch(() => {});
   }
 }

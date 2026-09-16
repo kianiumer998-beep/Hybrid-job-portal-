@@ -74,8 +74,10 @@ export class ApplicationRepository {
   }
 
   static create(data: any): any {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
+    }
     const newApp = Database.addApplication(data);
-    this.syncMongoApp(newApp);
     return newApp;
   }
 
@@ -108,6 +110,9 @@ export class ApplicationRepository {
   }
 
   static updateStatus(id: string, status: string, notes?: string): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous updateStatus is prohibited to ensure authoritative persistence; use updateStatusAsync.');
+    }
     const apps = Database.getApplications();
     const idx = apps.findIndex(a => a.id === id);
     if (idx === -1) return null;
@@ -116,20 +121,7 @@ export class ApplicationRepository {
     if (notes) apps[idx].adminNotes = notes;
     apps[idx].updatedAt = new Date().toISOString();
     Database.saveApplications(apps);
-    this.syncMongoApp(apps[idx]);
     return apps[idx];
   }
-
-  private static syncMongoApp(app: any): void {
-    if (!isMongoConfigured() || !app?.id) return;
-    getApplicationsCollection()
-      .then(coll => {
-        coll.updateOne(
-          { id: app.id },
-          { $set: app },
-          { upsert: true }
-        ).catch(err => console.warn('[MongoDB] Sync application notice:', err.message));
-      })
-      .catch(() => {});
-  }
 }
+

@@ -19,11 +19,15 @@ adRouter.get('/', async (req, res) => {
 adRouter.post('/', authMiddleware, async (req: any, res) => {
   try {
     const adData = req.body;
-    // Bind authenticated user identity if logged in
-    if (req.user) {
+    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+
+    // Strictly enforce advertiser identity to prevent spoofing another user's wallet
+    if (req.user && !isAdmin) {
       adData.submittedByUserId = req.user.userId || req.user.id;
       adData.submittedByUserName = req.user.name || adData.submittedByUserName;
       adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;
+    } else if (!req.user) {
+      delete adData.submittedByUserId;
     }
 
     const newAd = await AdRepository.createAsync(adData);

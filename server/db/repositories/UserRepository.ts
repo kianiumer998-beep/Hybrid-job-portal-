@@ -77,20 +77,7 @@ export class UserRepository {
 
   static create(userData: any): any {
     if (isMongoConfigured()) {
-      // In MongoDB mode callers should use createAsync, but if called synchronously, trigger async insertion
-      const id = userData.id || `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
-      const userToSave = {
-        ...userData,
-        id,
-        walletBalance: Number(userData.walletBalance || 0),
-        createdAt: userData.createdAt || new Date().toISOString(),
-        updatedAt: userData.updatedAt || new Date().toISOString()
-      };
-      this.syncMongoUser(userToSave);
-      try {
-        Database.addUser(userToSave);
-      } catch {}
-      return userToSave;
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
     }
     return Database.addUser(userData);
   }
@@ -125,12 +112,7 @@ export class UserRepository {
 
   static update(id: string, updates: any): any | null {
     if (isMongoConfigured()) {
-      // Background sync if called synchronously
-      const updated = Database.updateUser(id, updates);
-      if (updated) {
-        this.syncMongoUser(updated);
-      }
-      return updated;
+      throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');
     }
     return Database.updateUser(id, updates);
   }
@@ -152,26 +134,10 @@ export class UserRepository {
   }
 
   static delete(id: string): boolean {
-    const deleted = Database.deleteUser(id);
-    if (deleted && isMongoConfigured()) {
-      getUsersCollection()
-        .then(coll => coll.deleteOne({ id }))
-        .catch(err => console.warn('[MongoDB] Delete user notice:', err.message));
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous delete is prohibited to ensure authoritative persistence; use deleteAsync.');
     }
-    return deleted;
-  }
-
-  private static syncMongoUser(user: any): void {
-    if (!isMongoConfigured() || !user?.id) return;
-    getUsersCollection()
-      .then(coll => {
-        coll.updateOne(
-          { id: user.id },
-          { $set: user },
-          { upsert: true }
-        ).catch(err => console.warn('[MongoDB] Sync user notice:', err.message));
-      })
-      .catch(() => {});
+    return Database.deleteUser(id);
   }
 }
 

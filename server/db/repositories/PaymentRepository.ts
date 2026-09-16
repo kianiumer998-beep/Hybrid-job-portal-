@@ -249,7 +249,12 @@ export class PaymentRepository {
         ...(meta || {})
       };
 
-      await txColl.insertOne({ ...tx });
+      try {
+        await txColl.insertOne({ ...tx });
+      } catch (txInsertErr) {
+        await userColl.updateOne({ id: userId }, { $inc: { walletBalance: amount } }).catch(() => {});
+        throw txInsertErr;
+      }
 
       try {
         Database.updateUser(userId, { walletBalance: balanceAfter });
@@ -304,6 +309,9 @@ export class PaymentRepository {
     meta?: Record<string, any>,
     idempotencyKey?: string
   ): { success: boolean; newBalance: number; transaction: any } {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous debitWallet is prohibited to ensure authoritative persistence; use debitWalletAsync.');
+    }
     if (amount <= 0) {
       throw new Error('Debit amount must be strictly greater than zero.');
     }
@@ -336,7 +344,6 @@ export class PaymentRepository {
       verifiedAt: new Date().toISOString(),
       ...(meta || {})
     });
-    this.syncMongoTx(tx);
     return { success: true, newBalance: balanceAfter, transaction: tx };
   }
 
@@ -408,7 +415,12 @@ export class PaymentRepository {
         ...(meta || {})
       };
 
-      await txColl.insertOne({ ...tx });
+      try {
+        await txColl.insertOne({ ...tx });
+      } catch (txInsertErr) {
+        await userColl.updateOne({ id: userId }, { $inc: { walletBalance: -amount } }).catch(() => {});
+        throw txInsertErr;
+      }
 
       try {
         Database.updateUser(userId, { walletBalance: balanceAfter });
@@ -458,6 +470,9 @@ export class PaymentRepository {
     description: string,
     meta?: Record<string, any>
   ): { success: boolean; newBalance: number; transaction: any } {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous creditWallet is prohibited to ensure authoritative persistence; use creditWalletAsync.');
+    }
     if (amount <= 0) {
       throw new Error('Credit amount must be strictly greater than zero.');
     }
@@ -485,7 +500,6 @@ export class PaymentRepository {
       verifiedAt: new Date().toISOString(),
       ...(meta || {})
     });
-    this.syncMongoTx(tx);
     return { success: true, newBalance, transaction: tx };
   }
 
@@ -567,7 +581,12 @@ export class PaymentRepository {
         updatedAt: new Date().toISOString()
       };
 
-      await txColl.insertOne({ ...tx });
+      try {
+        await txColl.insertOne({ ...tx });
+      } catch (txInsertErr) {
+        await userColl.updateOne({ id: userId }, { $inc: { walletBalance: amount } }).catch(() => {});
+        throw txInsertErr;
+      }
 
       try {
         Database.updateUser(userId, { walletBalance: balanceAfter });
@@ -625,6 +644,9 @@ export class PaymentRepository {
       proofNote?: string;
     }
   ): any {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous requestWithdrawal is prohibited to ensure authoritative persistence; use requestWithdrawalAsync.');
+    }
     const { amount, paymentMethod, senderPhoneOrAccount, senderName, proofNote } = data;
     if (!amount || amount <= 0) {
       throw new Error('Withdrawal amount must be a positive number.');
@@ -661,7 +683,6 @@ export class PaymentRepository {
       balanceAfter,
       createdAt: new Date().toISOString()
     });
-    this.syncMongoTx(tx);
     return tx;
   }
 
@@ -772,6 +793,9 @@ export class PaymentRepository {
     action: 'approve' | 'reject',
     details: { payoutRef?: string; proofSlipUrl?: string; note?: string; reason?: string }
   ): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous processWithdrawal is prohibited to ensure authoritative persistence; use processWithdrawalAsync.');
+    }
     const txs = Database.getTransactions();
     const idx = txs.findIndex(t => t.id === id);
     if (idx === -1) return null;
@@ -824,7 +848,6 @@ export class PaymentRepository {
 
     tx.updatedAt = new Date().toISOString();
     Database.saveTransactions(txs);
-    this.syncMongoTx(tx);
     return tx;
   }
 
@@ -848,8 +871,10 @@ export class PaymentRepository {
   }
 
   static create(txData: any): any {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
+    }
     const tx = Database.addTransaction(txData);
-    this.syncMongoTx(tx);
     return tx;
   }
 
@@ -940,6 +965,9 @@ export class PaymentRepository {
   }
 
   static verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous verify is prohibited to ensure authoritative persistence; use verifyPaymentAsync.');
+    }
     const txs = Database.getTransactions();
     const idx = txs.findIndex(t => t.id === id);
     if (idx === -1) return null;
@@ -975,20 +1003,6 @@ export class PaymentRepository {
 
     tx.updatedAt = new Date().toISOString();
     Database.saveTransactions(txs);
-    this.syncMongoTx(tx);
     return tx;
-  }
-
-  private static syncMongoTx(tx: any): void {
-    if (!isMongoConfigured()) return;
-    getTransactionsCollection()
-      .then(coll => {
-        coll.updateOne(
-          { id: tx.id },
-          { $set: tx },
-          { upsert: true }
-        ).catch(err => console.warn('[MongoDB] Sync Tx notice:', err.message));
-      })
-      .catch(() => {});
   }
 }

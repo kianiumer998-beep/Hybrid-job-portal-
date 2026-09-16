@@ -227,15 +227,15 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
         jobType: isRemote ? 'Remote' : 'On-site',
         region: isPk ? 'Pakistan' : 'Global',
         city: locName || undefined,
-        salary: 'Salary not disclosed',
+        salary: '',
         currency: 'USD' as Currency,
         experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : 'Mid',
-        department: j.departments?.[0]?.name || config.keywords || 'General',
+        department: j.departments?.[0]?.name || config.keywords || '',
         tags: [config.name, 'Greenhouse ATS', isRemote ? 'Remote' : 'On-site'],
         description: cleanDesc.slice(0, 1500) || `Official job listing on ${config.name} careers portal.`,
         requirements: [],
         benefits: [],
-        postedAt: j.updated_at ? new Date(j.updated_at).toLocaleDateString() : 'Recent',
+        postedAt: j.updated_at ? new Date(j.updated_at).toLocaleDateString() : '',
         datePosted: j.updated_at,
         applicationsCount: 0,
         status: config.autoApprove ? 'Approved' : 'Pending',
@@ -294,15 +294,15 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
         jobType: isRemote ? 'Remote' : 'On-site',
         region: isPk ? 'Pakistan' : 'Global',
         city: loc || undefined,
-        salary: 'Salary not disclosed',
+        salary: '',
         currency: 'USD' as Currency,
         experienceLevel: (j.text || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-        department: j.categories?.team || j.categories?.department || 'General',
+        department: j.categories?.team || j.categories?.department || '',
         tags: [config.name, 'Lever ATS', isRemote ? 'Remote' : 'On-site'],
         description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official vacancy on ${config.name}.`,
         requirements: [],
         benefits: [],
-        postedAt: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : 'Recent',
+        postedAt: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : '',
         datePosted: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
         applicationsCount: 0,
         status: config.autoApprove ? 'Approved' : 'Pending',
@@ -352,15 +352,15 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               jobType: (j.location?.remote || (j.name || '').toLowerCase().includes('remote')) ? 'Remote' : 'On-site',
               region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : 'Global',
               city: j.location?.city || undefined,
-              salary: 'Salary not disclosed',
+              salary: '',
               currency: 'USD' as Currency,
               experienceLevel: (j.experienceLevel?.id === 'senior' || (j.name || '').toLowerCase().includes('senior')) ? 'Senior' : 'Mid',
-              department: j.department?.label || 'General',
+              department: j.department?.label || '',
               tags: [config.name, 'SmartRecruiters'],
               description: `Position at ${config.name}. Apply on official portal.`,
               requirements: [],
               benefits: [],
-              postedAt: j.releasedDate ? new Date(j.releasedDate).toLocaleDateString() : 'Recent',
+              postedAt: j.releasedDate ? new Date(j.releasedDate).toLocaleDateString() : '',
               datePosted: j.releasedDate,
               applicationsCount: 0,
               status: config.autoApprove ? 'Approved' : 'Pending',
@@ -397,15 +397,15 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               jobType: j.isRemote ? 'Remote' : 'On-site',
               region: (j.location || '').toLowerCase().includes('pakistan') ? 'Pakistan' : 'Global',
               city: j.location || undefined,
-              salary: 'Salary not disclosed',
+              salary: '',
               currency: 'USD' as Currency,
               experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-              department: j.department || 'General',
+              department: j.department || '',
               tags: [config.name, 'Ashby ATS'],
               description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official listing at ${config.name}`,
               requirements: [],
               benefits: [],
-              postedAt: j.publishedDate ? new Date(j.publishedDate).toLocaleDateString() : 'Recent',
+              postedAt: j.publishedDate ? new Date(j.publishedDate).toLocaleDateString() : '',
               datePosted: j.publishedDate,
               applicationsCount: 0,
               status: config.autoApprove ? 'Approved' : 'Pending',
@@ -557,7 +557,7 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
           const jobType = isRemote ? 'Remote' : 'On-site';
 
           // Factual salary handling: NEVER invent salary if missing
-          let salary = 'Salary not disclosed';
+          let salary = '';
           let currency: Currency = region === 'Pakistan' ? 'PKR' : 'USD';
           if (item.baseSalary) {
             const val = item.baseSalary.value;
@@ -580,12 +580,12 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
             salary,
             currency,
             experienceLevel: title.toLowerCase().includes('senior') ? 'Senior' : title.toLowerCase().includes('junior') ? 'Junior' : 'Mid',
-            department: config.keywords?.split(',')[0]?.trim() || 'General',
+            department: config.keywords?.split(',')[0]?.trim() || '',
             tags: [config.name, jobType, region, 'JSON-LD Verified'],
             description: description.slice(0, 1500) || `Official vacancy listed on ${company}.`,
             requirements: [],
             benefits: [],
-            postedAt: item.datePosted ? new Date(item.datePosted).toLocaleDateString() : 'Recent',
+            postedAt: item.datePosted ? new Date(item.datePosted).toLocaleDateString() : '',
             datePosted: item.datePosted,
             deadlineDate: item.validThrough,
             applicationsCount: 0,
@@ -636,15 +636,15 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
             jobType: item.isRemote || (item.title || '').toLowerCase().includes('remote') ? 'Remote' : 'On-site',
             region: config.isGovtPortal ? 'Pakistan' : 'Global',
             city: item.city || item.location || undefined,
-            salary: item.salary || 'Salary not disclosed',
+            salary: item.salary || '',
             currency: 'USD' as Currency,
             experienceLevel: (item.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-            department: item.department || 'General',
+            department: item.department || '',
             tags: [config.name, 'Next.js SSR'],
             description: item.description || `Listing from ${config.name}`,
             requirements: item.requirements || [],
             benefits: [],
-            postedAt: item.postedAt || 'Recent',
+            postedAt: item.postedAt || '',
             applicationsCount: 0,
             status: config.autoApprove ? 'Approved' : 'Pending',
             sourceUrl: item.url ? resolveUrl(item.url, currentUrl) : currentUrl,
@@ -688,7 +688,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
     const elements = $(sel);
     if (elements.length > 0) {
       elements.each((_, el) => {
-        if (extractedJobs.length >= 35) return;
+        if (extractedJobs.length >= 100) return;
         const container = $(el);
 
         const linkEl = container.find('a[href]').first();
@@ -720,7 +720,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
         }
 
         // Factual salary extraction
-        let salary = 'Salary not disclosed';
+        let salary = '';
         const salaryMatch = combined.match(/(?:pkr|rs|usd|\$|aed|sar|£|€)\s?[\d,]+(?:\s?-\s?[\d,]+)?(?:\s?(?:\/|per)?\s?(?:mo|month|yr|year))?/i);
         if (salaryMatch) {
           salary = salaryMatch[0];
@@ -747,12 +747,12 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           salary,
           currency: region === 'Pakistan' ? 'PKR' : 'USD',
           experienceLevel: rawTitle.toLowerCase().includes('senior') ? 'Senior' : rawTitle.toLowerCase().includes('junior') ? 'Junior' : 'Mid',
-          department: config.keywords?.split(',')[0]?.trim() || 'General',
+          department: config.keywords?.split(',')[0]?.trim() || '',
           tags: [config.name, jobType, region],
           description: snippet || `Official vacancy listed on ${config.name}. Visit source URL for complete qualifications.`,
           requirements: [],
           benefits: [],
-          postedAt: 'Recent',
+          postedAt: '',
           applicationsCount: 0,
           status: config.autoApprove ? 'Approved' : 'Pending',
           sourceUrl: fullUrl,
@@ -780,7 +780,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
   // ADAPTER 8: Generic Fallback - Factual Job Link Extraction
   if (extractedJobs.length === 0) {
     $('a[href]').each((_, el) => {
-      if (extractedJobs.length >= 20) return;
+      if (extractedJobs.length >= 100) return;
       const a = $(el);
       const text = a.text().trim();
       const href = a.attr('href') || '';
@@ -801,15 +801,15 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           company: config.name,
           jobType: text.toLowerCase().includes('remote') ? 'Remote' : 'On-site',
           region: config.isGovtPortal ? 'Pakistan' : 'Global',
-          salary: 'Salary not disclosed',
+          salary: '',
           currency: config.isGovtPortal ? 'PKR' : 'USD',
           experienceLevel: text.toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-          department: config.keywords?.split(',')[0]?.trim() || 'General',
+          department: config.keywords?.split(',')[0]?.trim() || '',
           tags: [config.name, isPdf ? 'PDF Notice' : 'Heuristic'],
           description: `Listing from ${config.name}: ${text}. Refer to original URL for full requirements.`,
           requirements: [],
           benefits: [],
-          postedAt: 'Recent',
+          postedAt: '',
           applicationsCount: 0,
           status: config.autoApprove ? 'Approved' : 'Pending',
           sourceUrl: fullUrl,
@@ -993,8 +993,9 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
     const cutoff = new Date(options.sinceTimestamp).getTime();
     if (!isNaN(cutoff)) {
       filtered = filtered.filter(j => {
-        if (!j.datePosted) return true;
-        const postTime = new Date(j.datePosted).getTime();
+        const rawTimeStr = j.datePosted || j.postedAt;
+        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') return true;
+        const postTime = new Date(rawTimeStr).getTime();
         return isNaN(postTime) || postTime >= cutoff;
       });
     }

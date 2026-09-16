@@ -3,13 +3,13 @@ import path from 'path';
 import crypto from 'crypto';
 import { ApplicationRepository, AuditRepository, JobRepository, CaseRepository } from '../db/repositories';
 import { Database } from '../db/database';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdmin, authMiddleware } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 
 export const applicationRouter = Router();
 
 // 1. Secure Real CV Upload Endpoint
-applicationRouter.post('/upload-cv', async (req, res) => {
+applicationRouter.post('/upload-cv', authMiddleware, async (req, res) => {
   try {
     const { fileName, fileType, fileBase64 } = req.body;
 
@@ -106,7 +106,7 @@ applicationRouter.post('/upload-cv', async (req, res) => {
 });
 
 // 2. Serve / Stream Uploaded CV - STRICTLY PROTECTED
-applicationRouter.get('/cv/:filename', async (req, res) => {
+applicationRouter.get('/cv/:filename', authMiddleware, async (req, res) => {
   try {
     const rawFileName = req.params.filename;
     // Prevent directory traversal
@@ -187,7 +187,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
 });
 
 // 3. Get applications (filter by jobId or applicantId, or all for admin)
-applicationRouter.get('/', async (req, res) => {
+applicationRouter.get('/', authMiddleware, async (req, res) => {
   try {
     const { jobId, applicantId } = req.query as Record<string, string>;
     const user = (req as any).user;
@@ -224,7 +224,7 @@ applicationRouter.get('/', async (req, res) => {
 
 
 // 4. Submit Job Application (Server-side settings enforcement)
-applicationRouter.post('/', async (req, res) => {
+applicationRouter.post('/', authMiddleware, async (req, res) => {
   try {
     const {
       jobId,
@@ -285,9 +285,9 @@ applicationRouter.post('/', async (req, res) => {
       }
     }
 
-    // Never allow a non-admin client to spoof another user's applicantId
+    // Strictly force applicantId to req.user.userId when authenticated, preventing client spoofing
     const authUser = (req as any).user;
-    const effectiveApplicantId = authUser?.userId || authUser?.id || applicantId || 'guest';
+    const effectiveApplicantId = authUser ? (authUser.userId || authUser.id) : (applicantId || 'guest');
     const effectiveApplicantName = authUser?.name || applicantName;
     const effectiveApplicantEmail = authUser?.email || applicantEmail;
 

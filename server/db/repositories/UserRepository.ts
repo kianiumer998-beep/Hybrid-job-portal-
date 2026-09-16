@@ -146,7 +146,10 @@ export class UserRepository {
    * while preserving existing profile, wallet, and history.
    */
   static async syncDemoAdminAsync(): Promise<void> {
-    if (!isMongoConfigured()) return;
+    if (!isMongoConfigured()) {
+      console.log('[UserRepository] MongoDB not configured. Skipping demo admin sync.');
+      return;
+    }
 
     try {
       const coll = await getUsersCollection();
@@ -175,36 +178,19 @@ export class UserRepository {
         await coll.insertOne(canonicalAdmin);
         console.log('[UserRepository] Canonical demo admin created in MongoDB.');
       } else {
-        const updates: any = {
+        const updates = {
           passwordHash: adminHash,
           salt: adminSalt,
+          role: 'Super Admin',
+          permissions: ['all'],
           updatedAt: new Date().toISOString()
         };
-
-        const adminRoles = [
-          'Super Admin',
-          'Admin',
-          'Job Moderator',
-          'Scraper Manager',
-          'Payment Manager',
-          'Finance Manager',
-          'SEO Manager',
-          'Advertisement Manager'
-        ];
-
-        if (!existing.role || !adminRoles.includes(existing.role)) {
-          updates.role = 'Super Admin';
-        }
-
-        if (!existing.permissions || !Array.isArray(existing.permissions) || existing.permissions.length === 0) {
-          updates.permissions = ['all'];
-        }
-
         await coll.updateOne({ email: adminEmail }, { $set: updates });
         console.log('[UserRepository] Demo admin credentials synchronized in MongoDB.');
       }
     } catch (err: any) {
-      console.warn('[UserRepository] Notice during admin sync in MongoDB:', err.message);
+      console.error('[UserRepository] CRITICAL: MongoDB sync failed on production startup!', err);
+      throw err;
     }
   }
 }

@@ -546,10 +546,7 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
           }
 
           const isRemote =
-            item.jobLocationType === 'TELECOMMUTE' ||
-            item.applicantLocationRequirements !== undefined ||
-            title.toLowerCase().includes('remote') ||
-            description.toLowerCase().includes('remote');
+            item.jobLocationType === 'TELECOMMUTE' || item.applicantLocationRequirements !== undefined;
 
           const jobType = isRemote ? 'Remote' : undefined;
 
@@ -626,7 +623,7 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
           if (!title || typeof title !== 'string') continue;
 
           const loc = item.city || item.location || '';
-          const isRemote = item.isRemote || (item.title || '').toLowerCase().includes('remote') || loc.toLowerCase().includes('remote');
+          const isRemote = item.isRemote;
 
           results.push({
             id: `next-${config.id}-${item.id || Date.now().toString(36)}`,

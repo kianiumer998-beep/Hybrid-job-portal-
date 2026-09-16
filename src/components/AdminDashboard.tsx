@@ -2646,10 +2646,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           if (pendingCategoryFilter !== 'all' && pJob.jobCategory !== pendingCategoryFilter) {
             return false;
           }
-          if (pendingSourceFilter === 'scraper' && !pJob.sourceUrl && !pJob.scraperSourceId && !pJob.scrapedSourceDomain && !pJob.id.includes('scraped')) {
+          if (pendingSourceFilter === 'scraper' && !(pJob as any).sourceUrl && !pJob.scraperSourceId && !pJob.scrapedSourceDomain && !pJob.id.includes('scraped')) {
             return false;
           }
-          if (pendingSourceFilter === 'user' && (pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped'))) {
+          if (pendingSourceFilter === 'user' && ((pJob as any).sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped'))) {
             return false;
           }
           if (pendingSourceFilter === 'pdf' && !pJob.isPdfScraped && !pJob.pdfCaseNumber) {
@@ -2661,9 +2661,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             if (!isDupOfLive && !isDupInPending) return false;
           }
           if (showMissingFieldsOnly) {
-            const isScraper = pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped') || pJob.source === 'scraper';
+            const isScraper = (pJob as any).sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped') || (pJob as any).source === 'scraper';
             if (!isScraper) return false;
-            const missing = validateScrapedJobFields({ ...pJob, source: isScraper ? 'scraper' : pJob.source, scraperId: pJob.scraperSourceId });
+            const missing = validateScrapedJobFields({ ...pJob, source: isScraper ? 'scraper' : (pJob as any).source, scraperId: pJob.scraperSourceId });
             if (missing.length === 0) return false;
           }
           return true;
@@ -2965,9 +2965,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                       {/* MISSING FIELDS WARNING BANNER */}
                       {(() => {
-                        const isScraper = pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped') || pJob.source === 'scraper';
+                        const isScraper = (pJob as any).sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped') || (pJob as any).source === 'scraper';
                         if (!isScraper) return null;
-                        const missing = validateScrapedJobFields({ ...pJob, source: isScraper ? 'scraper' : pJob.source, scraperId: pJob.scraperSourceId });
+                        const missing = validateScrapedJobFields({ ...pJob, source: isScraper ? 'scraper' : (pJob as any).source, scraperId: pJob.scraperSourceId });
                         if (missing.length === 0) return null;
                         return (
                           <div className="p-2.5 bg-amber-950/40 border border-amber-500/40 rounded-xl flex items-center justify-between text-xs text-amber-300">

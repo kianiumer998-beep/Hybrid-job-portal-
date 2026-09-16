@@ -28,12 +28,13 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       // Call backend admin authentication endpoint
       const result = await api.auth.adminLogin(password);
       if (result.success && result.token) {
+        localStorage.setItem('hybrid_admin_view_active', 'true');
         setErrorMessage(null);
         setPassword('');
         onLoginSuccess();
         onClose();
       } else {
-        setErrorMessage(result.message || "Incorrect admin password. (Hint: default is 'admin123')");
+        setErrorMessage(result.message || 'Invalid administrative credentials.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Authentication error. Please try again.');

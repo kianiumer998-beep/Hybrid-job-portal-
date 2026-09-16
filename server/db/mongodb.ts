@@ -101,6 +101,46 @@ export async function getUserNotificationRecordsCollection(): Promise<Collection
   return db.collection('user_notification_records');
 }
 
+export async function getTransactionsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('transactions');
+}
+
+export async function getUsersCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('users');
+}
+
+export async function getApplicationsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('applications');
+}
+
+export async function getAdsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('advertisements');
+}
+
+export async function getCasesCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('cases');
+}
+
+export async function getSupportTicketsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('support_tickets');
+}
+
+export async function getSavedJobsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('saved_jobs');
+}
+
+export async function getAuditLogsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('audit_logs');
+}
+
 let indexesInitialized = false;
 async function initMongoIndexes(db: Db): Promise<void> {
   if (indexesInitialized) return;
@@ -113,6 +153,14 @@ async function initMongoIndexes(db: Db): Promise<void> {
     const settingsColl = db.collection('site_settings');
     const notifsColl = db.collection('notifications');
     const userNotifsColl = db.collection('user_notification_records');
+    const txColl = db.collection('transactions');
+    const userColl = db.collection('users');
+    const appColl = db.collection('applications');
+    const adsColl = db.collection('advertisements');
+    const casesColl = db.collection('cases');
+    const ticketsColl = db.collection('support_tickets');
+    const savedJobsColl = db.collection('saved_jobs');
+    const auditColl = db.collection('audit_logs');
 
     await Promise.all([
       jobsColl.createIndex({ id: 1 }, { unique: true, background: true }),
@@ -132,10 +180,24 @@ async function initMongoIndexes(db: Db): Promise<void> {
       notifsColl.createIndex({ id: 1 }, { unique: true, background: true }),
       notifsColl.createIndex({ status: 1, enabled: 1, createdAt: -1 }, { background: true }),
       userNotifsColl.createIndex({ id: 1 }, { unique: true, background: true }),
-      userNotifsColl.createIndex({ userId: 1, notificationId: 1 }, { background: true })
+      userNotifsColl.createIndex({ userId: 1, notificationId: 1 }, { background: true }),
+      txColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      txColl.createIndex({ transactionId: 1 }, { background: true }),
+      txColl.createIndex({ userId: 1, createdAt: -1 }, { background: true }),
+      txColl.createIndex({ idempotencyKey: 1 }, { sparse: true, background: true }),
+      userColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      userColl.createIndex({ email: 1 }, { unique: true, background: true }),
+      appColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      appColl.createIndex({ jobId: 1, applicantId: 1 }, { background: true }),
+      adsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      casesColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      casesColl.createIndex({ caseNumber: 1 }, { unique: true, background: true }),
+      ticketsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      savedJobsColl.createIndex({ userId: 1, jobId: 1 }, { unique: true, background: true }),
+      auditColl.createIndex({ id: 1 }, { unique: true, background: true })
     ]);
     indexesInitialized = true;
-    console.log('[MongoDB] Jobs, pending_jobs, notifications, user_notifications, and site_settings indexes ensured.');
+    console.log('[MongoDB] All production system collections and indexes ensured.');
   } catch (err: any) {
     console.warn('[MongoDB] Index creation notice:', err.message);
   }

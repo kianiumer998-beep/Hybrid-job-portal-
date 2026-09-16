@@ -204,6 +204,23 @@ interface AdminDashboardProps {
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => void;
 }
 
+export function validateScrapedJobFields(job: any): string[] {
+  if (job.source !== 'scraper' && !job.scraperId) return [];
+  const missing: string[] = [];
+  if (!job.company) missing.push('Company');
+  const hasLoc = job.location || job.country || job.region || job.province || job.city || job.district;
+  if (!hasLoc) missing.push('Location');
+  if (!job.salary) missing.push('Salary');
+  if (!job.currency) missing.push('Currency');
+  if (!job.experienceLevel) missing.push('Experience');
+  if (!job.department) missing.push('Department');
+  if (!job.description) missing.push('Description');
+  if (!job.jobType) missing.push('Job Type');
+  if (!job.sourceUrl && !job.applicationUrl && !job.applyUrl) missing.push('Source URL');
+  if (!job.postedAt) missing.push('Posted Date');
+  return missing;
+}
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   jobs,
   pendingJobs,
@@ -663,6 +680,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pendingSortBy, setPendingSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
   const [showPendingDuplicatesOnly, setShowPendingDuplicatesOnly] = useState(false);
+  const [showMissingFieldsOnly, setShowMissingFieldsOnly] = useState(false);
   const [isPendingDuplicateModalOpen, setIsPendingDuplicateModalOpen] = useState(false);
 
   // 3. SUBSCRIBERS TAB SEARCH, FILTERS, BULK SELECTION & MODALS
@@ -2642,6 +2660,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const isDupInPending = pendingClusters.some(c => c.items.some(it => it.id === pJob.id));
             if (!isDupOfLive && !isDupInPending) return false;
           }
+          if (showMissingFieldsOnly) {
+            const isScraper = pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped') || pJob.source === 'scraper';
+            if (!isScraper) return false;
+            const missing = validateScrapedJobFields({ ...pJob, source: isScraper ? 'scraper' : pJob.source, scraperId: pJob.scraperSourceId });
+            if (missing.length === 0) return false;
+          }
           return true;
         }).sort((a, b) => {
           if (pendingSortBy === 'title') return a.title.localeCompare(b.title);
@@ -2811,6 +2835,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   >
                     {showPendingDuplicatesOnly ? 'Showing Duplicates Only' : 'Show Duplicates Only'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMissingFieldsOnly(!showMissingFieldsOnly)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      showMissingFieldsOnly
+                        ? 'bg-amber-500 text-white border-amber-400 font-black'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {showMissingFieldsOnly ? 'Showing Missing Fields Only' : 'Show Missing Fields Only'}
+                  </button>
                 </div>
               </div>
 
@@ -2927,6 +2962,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </button>
                         </div>
                       )}
+
+                      {/* MISSING FIELDS WARNING BANNER */}
+                      {(() => {
+                        const isScraper = pJob.sourceUrl || pJob.scraperSourceId || pJob.scrapedSourceDomain || pJob.id.includes('scraped') || pJob.source === 'scraper';
+                        if (!isScraper) return null;
+                        const missing = validateScrapedJobFields({ ...pJob, source: isScraper ? 'scraper' : pJob.source, scraperId: pJob.scraperSourceId });
+                        if (missing.length === 0) return null;
+                        return (
+                          <div className="p-2.5 bg-amber-950/40 border border-amber-500/40 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                            <div className="flex flex-col space-y-1">
+                              <div className="flex items-center space-x-2">
+                                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                <span>
+                                  <strong>Missing Fields Detected:</strong> This scraped job requires manual completion before approval.
+                                </span>
+                              </div>
+                              <span className="text-amber-400/80 pl-6 font-mono text-[10px]">Missing: {missing.join(', ')}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingJob(pJob);
+                                setIsJobQuickEditOpen(true);
+                              }}
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] rounded-lg cursor-pointer"
+                            >
+                              Quick Edit
+                            </button>
+                          </div>
+                        );
+                      })()}
 
                       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                         <div className="flex items-start space-x-3">

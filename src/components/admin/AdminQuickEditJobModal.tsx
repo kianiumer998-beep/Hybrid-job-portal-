@@ -351,7 +351,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.title}
+                  value={formData.title || ''}
                   onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-bold focus:border-amber-400 outline-none text-sm"
                 />
@@ -362,7 +362,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.company}
+                  value={formData.company || ''}
                   onChange={(e) => setFormData(p => ({ ...p, company: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 />
@@ -405,7 +405,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.salary}
+                  value={formData.salary || ''}
                   onChange={(e) => setFormData(p => ({ ...p, salary: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
                 />
@@ -440,7 +440,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Job Type</label>
                 <select
-                  value={formData.jobType}
+                  value={formData.jobType || 'On-site'}
                   onChange={(e) => setFormData(p => ({ ...p, jobType: e.target.value as JobType }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
@@ -501,7 +501,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <label className="font-bold text-slate-300">Job Description & Details</label>
                 <textarea
                   rows={4}
-                  value={formData.description}
+                  value={formData.description || ""}
                   onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-amber-400 outline-none leading-relaxed"
                 />

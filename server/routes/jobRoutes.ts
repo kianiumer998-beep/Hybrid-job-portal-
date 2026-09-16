@@ -71,17 +71,42 @@ jobRouter.post('/queue/pending/:id/approve', requireAdmin, async (req, res) => {
     const pendingList = await JobRepository.getPending();
     const targetJob = pendingList.find(j => j.id === req.params.id);
 
-    if (targetJob && !force) {
-      const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
-      const otherPending = pendingList.filter(j => j.id !== req.params.id);
-      const dupCheck = detectJobDuplicate(targetJob, liveJobs, otherPending);
-      if (dupCheck.isDuplicate && dupCheck.confidence >= 80) {
-        return res.status(409).json({
-          success: false,
-          isDuplicate: true,
-          duplicateResult: dupCheck,
-          message: `Approval blocked: Detected as duplicate of "${dupCheck.matchedExistingJob?.title || 'existing listing'}" (${dupCheck.confidence}% match). Pass force: true to override.`
-        });
+    if (targetJob) {
+      if (targetJob.source === 'scraper' || targetJob.scraperId) {
+        const missing: string[] = [];
+        if (!targetJob.company) missing.push('Company');
+        const hasLoc = targetJob.location || targetJob.country || targetJob.region || targetJob.province || targetJob.city || targetJob.district;
+        if (!hasLoc) missing.push('Location');
+        if (!targetJob.salary) missing.push('Salary');
+        if (!targetJob.currency) missing.push('Currency');
+        if (!targetJob.experienceLevel) missing.push('Experience');
+        if (!targetJob.department) missing.push('Department');
+        if (!targetJob.description) missing.push('Description');
+        if (!targetJob.jobType) missing.push('Job Type');
+        if (!targetJob.sourceUrl && !targetJob.applicationUrl && !targetJob.applyUrl) missing.push('Source URL');
+        if (!targetJob.postedAt) missing.push('Posted Date');
+        
+        if (missing.length > 0) {
+          return res.status(422).json({
+            success: false,
+            missingFields: missing,
+            message: 'Job requires manual completion before publishing.'
+          });
+        }
+      }
+
+      if (!force) {
+        const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
+        const otherPending = pendingList.filter(j => j.id !== req.params.id);
+        const dupCheck = detectJobDuplicate(targetJob, liveJobs, otherPending);
+        if (dupCheck.isDuplicate && dupCheck.confidence >= 80) {
+          return res.status(409).json({
+            success: false,
+            isDuplicate: true,
+            duplicateResult: dupCheck,
+            message: `Approval blocked: Detected as duplicate of "${dupCheck.matchedExistingJob?.title || 'existing listing'}" (${dupCheck.confidence}% match). Pass force: true to override.`
+          });
+        }
       }
     }
 
@@ -165,6 +190,29 @@ jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
       for (const id of ids) {
         const pendingJob = allPending.find(j => j.id === id);
         if (pendingJob) {
+          if (pendingJob.source === 'scraper' || pendingJob.scraperId) {
+            const missing: string[] = [];
+            if (!pendingJob.company) missing.push('Company');
+            const hasLoc = pendingJob.location || pendingJob.country || pendingJob.region || pendingJob.province || pendingJob.city || pendingJob.district;
+            if (!hasLoc) missing.push('Location');
+            if (!pendingJob.salary) missing.push('Salary');
+            if (!pendingJob.currency) missing.push('Currency');
+            if (!pendingJob.experienceLevel) missing.push('Experience');
+            if (!pendingJob.department) missing.push('Department');
+            if (!pendingJob.description) missing.push('Description');
+            if (!pendingJob.jobType) missing.push('Job Type');
+            if (!pendingJob.sourceUrl && !pendingJob.applicationUrl && !pendingJob.applyUrl) missing.push('Source URL');
+            if (!pendingJob.postedAt) missing.push('Posted Date');
+            
+            if (missing.length > 0) {
+              return res.status(422).json({
+                success: false,
+                missingFields: missing,
+                message: 'Job requires manual completion before publishing.'
+              });
+            }
+          }
+
           const otherPending = allPending.filter(j => j.id !== id);
           const dup = detectJobDuplicate(pendingJob, liveJobs, otherPending);
           if (dup.isDuplicate && dup.confidence >= 80) {

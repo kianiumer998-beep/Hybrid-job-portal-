@@ -706,9 +706,8 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
         const snippet = (container.find('.description, .snippet, p').first().text().trim()) || '';
 
         const combined = `${rawTitle} ${location} ${snippet}`.toLowerCase();
-        const isRemote = combined.includes('remote') || combined.includes('work from home');
-        const isHybrid = combined.includes('hybrid');
-        const jobType = isRemote ? 'Remote' : isHybrid ? 'Hybrid' : undefined;
+        
+        let jobType: 'Remote' | 'On-site' | 'Hybrid' | undefined = undefined;
 
         let region: Region | undefined = undefined;
         if (location.toLowerCase().includes('pakistan')) {

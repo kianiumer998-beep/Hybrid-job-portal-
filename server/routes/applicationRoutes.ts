@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import path from 'path';
 import crypto from 'crypto';
-import { ApplicationRepository, AuditRepository, JobRepository } from '../db/repositories';
+import { ApplicationRepository, AuditRepository, JobRepository, CaseRepository } from '../db/repositories';
 import { Database } from '../db/database';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdmin, authMiddleware, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 
 export const applicationRouter = Router();
 
 // 1. Secure Real CV Upload Endpoint
-applicationRouter.post('/upload-cv', async (req, res) => {
+applicationRouter.post('/upload-cv', authMiddleware, async (req, res) => {
   try {
     const { fileName, fileType, fileBase64 } = req.body;
 
@@ -106,7 +106,7 @@ applicationRouter.post('/upload-cv', async (req, res) => {
 });
 
 // 2. Serve / Stream Uploaded CV - STRICTLY PROTECTED
-applicationRouter.get('/cv/:filename', async (req, res) => {
+applicationRouter.get('/cv/:filename', authMiddleware, async (req, res) => {
   try {
     const rawFileName = req.params.filename;
     // Prevent directory traversal
@@ -187,7 +187,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
 });
 
 // 3. Get applications (filter by jobId or applicantId, or all for admin)
-applicationRouter.get('/', (req, res) => {
+applicationRouter.get('/', authMiddleware, async (req, res) => {
   try {
     const { jobId, applicantId } = req.query as Record<string, string>;
     const user = (req as any).user;
@@ -201,7 +201,7 @@ applicationRouter.get('/', (req, res) => {
       filterApplicantId = user.userId || user.id;
     }
 
-    const apps = ApplicationRepository.getAll({ jobId, applicantId: filterApplicantId });
+    const apps = await ApplicationRepository.getAllAsync({ jobId, applicantId: filterApplicantId });
 
     // Append authorized download tokens to CV URLs for this response so legitimate viewers can open them
     const enrichedApps = apps.map(app => {
@@ -222,23 +222,30 @@ applicationRouter.get('/', (req, res) => {
   }
 });
 
+
 // 4. Submit Job Application (Server-side settings enforcement)
-applicationRouter.post('/', async (req, res) => {
+applicationRouter.post('/', requireAuth, async (req, res) => {
   try {
     const {
       jobId,
       jobTitle,
       companyName,
-      applicantId,
-      applicantName,
-      applicantEmail,
       applicantPhone,
       coverLetter,
       answers,
       cvFileUrl
     } = req.body;
 
-    if (!jobId || !applicantName || !applicantEmail) {
+    const authUser = (req as any).user;
+    if (!authUser || (!authUser.userId && !authUser.id)) {
+      return res.status(401).json({ success: false, message: 'Authentication required. Please log in to apply.' });
+    }
+
+    const effectiveApplicantId = authUser.userId || authUser.id;
+    const effectiveApplicantName = authUser.name || 'Applicant';
+    const effectiveApplicantEmail = authUser.email;
+
+    if (!jobId || !effectiveApplicantName || !effectiveApplicantEmail) {
       return res.status(400).json({ success: false, message: 'Job ID, applicant name, and email are required.' });
     }
 
@@ -260,7 +267,7 @@ applicationRouter.post('/', async (req, res) => {
       }
     }
 
-    if (settings.requireEmail && !applicantEmail.trim()) {
+    if (settings.requireEmail && !effectiveApplicantEmail.trim()) {
       return res.status(400).json({ success: false, message: 'Email address is required.' });
     }
 
@@ -284,19 +291,41 @@ applicationRouter.post('/', async (req, res) => {
       }
     }
 
-    const newApp = ApplicationRepository.create({
+    const newApp = await ApplicationRepository.createAsync({
       jobId,
       jobTitle: jobTitle || 'Position',
       companyName: companyName || 'Company',
-      applicantId: applicantId || (req as any).user?.userId || 'guest',
-      applicantName,
-      applicantEmail,
+      applicantId: effectiveApplicantId,
+      applicantName: effectiveApplicantName,
+      applicantEmail: effectiveApplicantEmail,
       applicantPhone,
       coverLetter,
       answers: answers || {},
       cvFileUrl: cvFileUrl || undefined,
       status: 'Applied'
     });
+
+    // Automatically register application in Universal Case tracking system
+    try {
+      await CaseRepository.createAsync({
+        type: 'application',
+        referenceId: newApp.id,
+        title: `Job Application: ${jobTitle} at ${companyName}`,
+        userId: newApp.applicantId,
+        userName: newApp.applicantName,
+        userEmail: newApp.applicantEmail,
+        status: 'pending',
+        priority: 'medium',
+        metadata: {
+          jobId: newApp.jobId,
+          applicationId: newApp.id,
+          jobTitle: newApp.jobTitle,
+          companyName: newApp.companyName
+        }
+      });
+    } catch (e: any) {
+      console.warn('Case creation notice for application:', e.message);
+    }
 
     // Increment applications count on the job
     const job = await JobRepository.getById(jobId);
@@ -307,12 +336,13 @@ applicationRouter.post('/', async (req, res) => {
     }
 
     AuditRepository.add({
-      user: applicantName,
+      user: effectiveApplicantName,
       role: 'Job Seeker',
       action: 'Job Application Submitted',
-      target: `${jobTitle} at ${companyName}`,
+      target: `${jobTitle || 'Position'} at ${companyName || 'Company'}`,
       status: 'Success'
     });
+
 
     res.status(201).json({
       success: true,
@@ -325,10 +355,10 @@ applicationRouter.post('/', async (req, res) => {
 });
 
 // 5. Update Application Status (Reviewed, Shortlisted, Rejected)
-applicationRouter.patch('/:id/status', requireAdmin, (req, res) => {
+applicationRouter.patch('/:id/status', requireAdmin, async (req, res) => {
   try {
     const { status, notes } = req.body;
-    const updated = ApplicationRepository.updateStatus(req.params.id, status, notes);
+    const updated = await ApplicationRepository.updateStatusAsync(req.params.id, status, notes);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Application not found.' });
     }

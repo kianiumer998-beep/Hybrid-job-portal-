@@ -14,7 +14,7 @@ function ensureDir(dirPath: string) {
   }
 }
 
-function safeReadJson<T>(filename: string, fallback: T): T {
+export function safeReadJson<T>(filename: string, fallback: T): T {
   ensureDir(DATA_DIR);
   const filePath = path.join(DATA_DIR, filename);
   if (!fs.existsSync(filePath)) {
@@ -42,7 +42,7 @@ function safeReadJson<T>(filename: string, fallback: T): T {
   return fallback;
 }
 
-function safeWriteJson<T>(filename: string, data: T): void {
+export function safeWriteJson<T>(filename: string, data: T): void {
   ensureDir(DATA_DIR);
   const filePath = path.join(DATA_DIR, filename);
   const tempPath = `${filePath}.tmp.${Date.now()}_${process.pid}_${Math.random().toString(36).substring(2, 9)}`;
@@ -85,8 +85,8 @@ const DEFAULT_USERS = [
     name: 'Super Administrator',
     email: 'admin@jobportal.com',
     username: 'admin',
-    // SHA256 / scrypt will verify 'admin123'
-    passwordHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', // sha256 of admin123
+    // SHA256 of 'admin123'
+    passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', // sha256 of admin123
     salt: 'dev-salt',
     role: 'Super Admin',
     permissions: ['all'],
@@ -262,7 +262,7 @@ export class Database {
       ...job,
       id: job.id || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       slug: job.slug || generateJobSlug(job.title, job.city, job.id),
-      postedAt: job.postedAt || 'Just now',
+      postedAt: job.postedAt,
       status: job.status || 'Approved',
       applicationsCount: job.applicationsCount || 0,
       createdAt: job.createdAt || new Date().toISOString()
@@ -305,7 +305,7 @@ export class Database {
           ...item,
           id: targetId || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           slug: item.slug || generateJobSlug(item.title, item.city, targetId),
-          postedAt: item.postedAt || 'Just now',
+          postedAt: item.postedAt,
           status: autoApprove ? 'Approved' : (item.status || 'Approved'),
           applicationsCount: item.applicationsCount || 0,
           createdAt: item.createdAt || new Date().toISOString()
@@ -355,7 +355,7 @@ export class Database {
           id: targetId || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           slug: item.slug || generateJobSlug(item.title, item.city, targetId),
           status: 'Pending',
-          postedAt: item.postedAt || 'Just now',
+          postedAt: item.postedAt,
           createdAt: item.createdAt || new Date().toISOString()
         };
         toPrepend.push(freshJob);
@@ -435,7 +435,7 @@ export class Database {
       id: job.id || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       slug: job.slug || generateJobSlug(job.title, job.city, job.id),
       status: 'Pending',
-      postedAt: job.postedAt || 'Just now',
+      postedAt: job.postedAt,
       createdAt: job.createdAt || new Date().toISOString()
     };
     pending.unshift(newJob);
@@ -667,5 +667,325 @@ export class Database {
 
   static saveSeoConfig(config: any): void {
     safeWriteJson('seo_config.json', config);
+  }
+
+  // --- UNIVERSAL CASES & SUBMISSIONS ---
+  static getCases(): any[] {
+    return safeReadJson<any[]>('cases.json', [
+      {
+        id: 'case-demo-1',
+        caseNumber: 'CASE-2026-0001',
+        type: 'deposit',
+        referenceId: 'tx-demo-1',
+        title: 'Initial Wallet Deposit Proof',
+        userId: 'user-demo-qwer-unified',
+        userName: 'Qwer Member',
+        userEmail: 'qwer@jobportal.com',
+        status: 'approved',
+        priority: 'medium',
+        timeline: [
+          {
+            timestamp: new Date(Date.now() - 86400000).toISOString(),
+            actor: 'Qwer Member',
+            role: 'Member',
+            action: 'Case Submitted',
+            note: 'JazzCash receipt proof submitted.'
+          },
+          {
+            timestamp: new Date().toISOString(),
+            actor: 'Super Administrator',
+            role: 'Super Admin',
+            action: 'Case Approved',
+            note: 'Transaction verified and credited to user wallet.'
+          }
+        ],
+        createdAt: new Date(Date.now() - 86400000).toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: 'case-demo-2',
+        caseNumber: 'CASE-2026-0002',
+        type: 'job_submission',
+        referenceId: 'job-1',
+        title: 'Senior React & Node.js Engineer Vacancy Review',
+        userId: 'user-demo-qwer-unified',
+        userName: 'Qwer Member',
+        userEmail: 'qwer@jobportal.com',
+        status: 'approved',
+        priority: 'high',
+        timeline: [
+          {
+            timestamp: new Date().toISOString(),
+            actor: 'System',
+            role: 'System',
+            action: 'Case Created',
+            note: 'Direct employer vacancy review case opened.'
+          }
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ]);
+  }
+
+  static saveCases(cases: any[]): void {
+    safeWriteJson('cases.json', cases);
+  }
+
+  static getCaseById(id: string): any | null {
+    const list = this.getCases();
+    return list.find(c => c.id === id || c.caseNumber === id) || null;
+  }
+
+  static addCase(caseData: any): any {
+    const cases = this.getCases();
+    const caseNumber = caseData.caseNumber || `CASE-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newCase = {
+      ...caseData,
+      id: caseData.id || `case-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      caseNumber,
+      status: caseData.status || 'pending',
+      priority: caseData.priority || 'medium',
+      timeline: caseData.timeline || [
+        {
+          timestamp: new Date().toISOString(),
+          actor: caseData.userName || 'User',
+          role: 'Member',
+          action: 'Case Created',
+          note: caseData.title || 'Case submitted for review.'
+        }
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    cases.unshift(newCase);
+    this.saveCases(cases);
+    return newCase;
+  }
+
+  static updateCase(id: string, updates: any): any | null {
+    const cases = this.getCases();
+    const idx = cases.findIndex(c => c.id === id || c.caseNumber === id);
+    if (idx === -1) return null;
+    
+    const existing = cases[idx];
+    const newTimeline = Array.isArray(updates.timeline)
+      ? updates.timeline
+      : (updates.newTimelineEvent
+          ? [updates.newTimelineEvent, ...(existing.timeline || [])]
+          : existing.timeline);
+
+    cases[idx] = {
+      ...existing,
+      ...updates,
+      timeline: newTimeline,
+      updatedAt: new Date().toISOString()
+    };
+    delete cases[idx].newTimelineEvent;
+    this.saveCases(cases);
+    return cases[idx];
+  }
+
+  // --- SUPPORT TICKETS ---
+  static getSupportTickets(): any[] {
+    return safeReadJson<any[]>('support_tickets.json', [
+      {
+        id: 'ticket-demo-1',
+        ticketNumber: 'TICK-1001',
+        userId: 'user-demo-1',
+        userName: 'Ali Raza',
+        userEmail: 'ali.raza@example.com',
+        subject: 'Inquiry regarding payment verification status',
+        category: 'Billing',
+        status: 'open',
+        priority: 'medium',
+        messages: [
+          {
+            id: 'msg-1',
+            senderId: 'user-demo-1',
+            senderName: 'Ali Raza',
+            senderRole: 'Job Seeker',
+            message: 'Hello, I submitted my Easypaisa deposit receipt for Pro subscription. When will it be activated?',
+            timestamp: new Date(Date.now() - 3600000).toISOString()
+          }
+        ],
+        createdAt: new Date(Date.now() - 3600000).toISOString(),
+        updatedAt: new Date(Date.now() - 3600000).toISOString()
+      }
+    ]);
+  }
+
+  static saveSupportTickets(tickets: any[]): void {
+    safeWriteJson('support_tickets.json', tickets);
+  }
+
+  static addSupportTicket(ticket: any): any {
+    const list = this.getSupportTickets();
+    const ticketNumber = ticket.ticketNumber || `TICK-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newTicket = {
+      ...ticket,
+      id: ticket.id || `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      ticketNumber,
+      status: ticket.status || 'open',
+      priority: ticket.priority || 'medium',
+      messages: ticket.messages || [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    list.unshift(newTicket);
+    this.saveSupportTickets(list);
+    return newTicket;
+  }
+
+  static updateSupportTicket(id: string, updates: any): any | null {
+    const list = this.getSupportTickets();
+    const idx = list.findIndex(t => t.id === id || t.ticketNumber === id);
+    if (idx === -1) return null;
+    list[idx] = {
+      ...list[idx],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    this.saveSupportTickets(list);
+    return list[idx];
+  }
+
+  // --- SAVED JOBS ---
+  static getSavedJobs(userId?: string): any[] {
+    const all = safeReadJson<any[]>('saved_jobs.json', []);
+    return userId ? all.filter(s => s.userId === userId) : all;
+  }
+
+  static saveSavedJobs(list: any[]): void {
+    safeWriteJson('saved_jobs.json', list);
+  }
+
+  static toggleSavedJob(userId: string, job: any): { saved: boolean; count: number } {
+    let list = safeReadJson<any[]>('saved_jobs.json', []);
+    const existingIdx = list.findIndex(s => s.userId === userId && s.jobId === job.id);
+    let saved = false;
+    if (existingIdx !== -1) {
+      list.splice(existingIdx, 1);
+      saved = false;
+    } else {
+      list.unshift({
+        id: `saved-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        userId,
+        jobId: job.id,
+        job,
+        savedAt: new Date().toISOString()
+      });
+      saved = true;
+    }
+    this.saveSavedJobs(list);
+    return { saved, count: list.filter(s => s.userId === userId).length };
+  }
+
+  // --- JOB ALERTS ---
+  static getJobAlerts(userId?: string): any[] {
+    const all = safeReadJson<any[]>('job_alerts.json', []);
+    return userId ? all.filter(a => a.userId === userId) : all;
+  }
+
+  static saveJobAlerts(alerts: any[]): void {
+    safeWriteJson('job_alerts.json', alerts);
+  }
+
+  static addJobAlert(alert: any): any {
+    const list = safeReadJson<any[]>('job_alerts.json', []);
+    const newAlert = {
+      ...alert,
+      id: alert.id || `alert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+      active: alert.active !== false
+    };
+    list.unshift(newAlert);
+    this.saveJobAlerts(list);
+    return newAlert;
+  }
+
+  static deleteJobAlert(id: string, userId?: string): boolean {
+    const list = safeReadJson<any[]>('job_alerts.json', []);
+    const filtered = list.filter(a => a.id !== id && (!userId || a.userId === userId));
+    const deleted = filtered.length !== list.length;
+    if (deleted) this.saveJobAlerts(filtered);
+    return deleted;
+  }
+
+  // --- USER DOCUMENTS ---
+  static getUserDocuments(userId: string): any[] {
+    const all = safeReadJson<any[]>('user_documents.json', []);
+    return all.filter(d => d.userId === userId);
+  }
+
+  static saveUserDocuments(docs: any[]): void {
+    safeWriteJson('user_documents.json', docs);
+  }
+
+  static addUserDocument(doc: any): any {
+    const list = safeReadJson<any[]>('user_documents.json', []);
+    const newDoc = {
+      ...doc,
+      id: doc.id || `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      uploadedAt: new Date().toISOString()
+    };
+    list.unshift(newDoc);
+    this.saveUserDocuments(list);
+    return newDoc;
+  }
+
+  static deleteUserDocument(id: string, userId: string): boolean {
+    const list = safeReadJson<any[]>('user_documents.json', []);
+    const filtered = list.filter(d => !(d.id === id && d.userId === userId));
+    const deleted = filtered.length !== list.length;
+    if (deleted) this.saveUserDocuments(filtered);
+    return deleted;
+  }
+
+  // --- NOTIFICATIONS ---
+  static getNotifications(): any[] {
+    return safeReadJson<any[]>('notifications.json', []);
+  }
+
+  static saveNotifications(notifs: any[]): void {
+    safeWriteJson('notifications.json', notifs);
+  }
+
+  static addNotification(notif: any): any {
+    const list = this.getNotifications();
+    const newNotif = {
+      ...notif,
+      id: notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: notif.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    list.unshift(newNotif);
+    this.saveNotifications(list);
+    return newNotif;
+  }
+
+  static updateNotification(id: string, updates: any): any | null {
+    const list = this.getNotifications();
+    const idx = list.findIndex(n => n.id === id);
+    if (idx === -1) return null;
+    list[idx] = { ...list[idx], ...updates, updatedAt: new Date().toISOString() };
+    this.saveNotifications(list);
+    return list[idx];
+  }
+
+  static deleteNotification(id: string): boolean {
+    const list = this.getNotifications();
+    const filtered = list.filter(n => n.id !== id);
+    const deleted = filtered.length !== list.length;
+    if (deleted) this.saveNotifications(filtered);
+    return deleted;
+  }
+
+  static getUserNotificationRecords(): any[] {
+    return safeReadJson<any[]>('user_notification_records.json', []);
+  }
+
+  static saveUserNotificationRecords(records: any[]): void {
+    safeWriteJson('user_notification_records.json', records);
   }
 }

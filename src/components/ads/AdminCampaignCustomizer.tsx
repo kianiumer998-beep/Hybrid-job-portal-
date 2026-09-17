@@ -69,10 +69,13 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   const [localConfig, setLocalConfig] = useState<CampaignCustomizationConfig>(() => ({
     ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
     ...config,
-    popupSettings: config.popupSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
-    feedInlineSettings: config.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
-    promoBanners: config.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
-    jobPostingFeeSettings: config.jobPostingFeeSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings
+    placementOptions: Array.isArray(config?.placementOptions) && config.placementOptions.length > 0
+      ? config.placementOptions
+      : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
+    popupSettings: config?.popupSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
+    feedInlineSettings: config?.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+    promoBanners: config?.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
+    jobPostingFeeSettings: config?.jobPostingFeeSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings
   }));
 
   const [activeTab, setActiveTab] = useState<

@@ -29,19 +29,21 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       id: 'job-' + Date.now(),
       title: '',
       company: '',
-      jobType: 'On-site',
-      region: 'Pakistan',
-      province: 'Punjab',
-      city: 'Lahore',
-      salary: 'PKR 80,000 - 120,000 / month',
-      currency: 'PKR',
-      experienceLevel: 'Mid',
-      department: 'General Operations',
-      tags: ['Urgent', 'Full-time'],
+      jobType: undefined as any,
+      region: undefined as any,
+      province: undefined,
+      city: undefined,
+      country: undefined,
+      district: undefined,
+      salary: '',
+      currency: undefined as any,
+      experienceLevel: undefined as any,
+      department: '',
+      tags: [],
       description: '',
-      requirements: ['Relevant Bachelor degree', '2+ years experience'],
-      benefits: ['Medical coverage', 'Paid leaves'],
-      postedAt: new Date().toISOString().split('T')[0],
+      requirements: [],
+      benefits: [],
+      postedAt: '',
       applicationsCount: 0,
       status: 'Approved',
       featured: false,
@@ -50,10 +52,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       isFutureJob: false,
       futureIntakeDate: '',
       priorityTier: 'standard',
-      jobCategory: 'Private Corporate',
-      govtScale: 'BPS-17',
+      jobCategory: '',
+      govtScale: undefined,
       isGovtJob: false,
-      deadlineDate: '2026-11-30'
+      deadlineDate: ''
     };
   });
 
@@ -66,15 +68,15 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
     applyStatus: false,
     status: 'Approved' as JobStatus,
     applyRegion: false,
-    region: 'Pakistan' as Region,
+    region: '' as Region,
     applyProvince: false,
-    province: 'Punjab',
+    province: '',
     applyCity: false,
-    city: 'Islamabad',
+    city: '',
     applyJobType: false,
-    jobType: 'On-site' as JobType,
+    jobType: '' as JobType,
     applyDeadline: false,
-    deadlineDate: '2026-12-31',
+    deadlineDate: '',
     applyFeatured: false,
     featured: true,
     applyUrgent: false,
@@ -351,7 +353,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.title}
+                  value={formData.title || ''}
                   onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-bold focus:border-amber-400 outline-none text-sm"
                 />
@@ -362,7 +364,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.company}
+                  value={formData.company || ''}
                   onChange={(e) => setFormData(p => ({ ...p, company: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 />
@@ -371,10 +373,11 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Job Category *</label>
                 <select
-                  value={formData.jobCategory || 'Private Corporate'}
+                  value={formData.jobCategory || ''}
                   onChange={(e) => setFormData(p => ({ ...p, jobCategory: e.target.value, isGovtJob: e.target.value === 'Government Sector' }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
+                  <option value="">Select Category...</option>
                   <option value="Government Sector">Government Sector</option>
                   <option value="Private Corporate">Private Corporate</option>
                   <option value="Newspaper Classified">Newspaper Classified</option>
@@ -390,10 +393,11 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Govt BPS Scale (If Govt Job)</label>
                 <select
-                  value={formData.govtScale || 'BPS-17'}
-                  onChange={(e) => setFormData(p => ({ ...p, govtScale: e.target.value, isGovtJob: true }))}
+                  value={formData.govtScale || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, govtScale: e.target.value || undefined, isGovtJob: e.target.value !== '' && e.target.value !== 'N/A (Private)' }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
+                  <option value="">Select Scale...</option>
                   {['N/A (Private)', 'BPS-01', 'BPS-05', 'BPS-07', 'BPS-09', 'BPS-11', 'BPS-14', 'BPS-16', 'BPS-17', 'BPS-18', 'BPS-19', 'BPS-20', 'BPS-21', 'BPS-22'].map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}
@@ -405,13 +409,104 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.salary}
+                  value={formData.salary || ''}
                   onChange={(e) => setFormData(p => ({ ...p, salary: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
                 />
               </div>
 
+              
               <div className="space-y-1">
+                <label className="font-bold text-slate-300">Country</label>
+                <input
+                  type="text"
+                  value={formData.country || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, country: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Region</label>
+                <input
+                  type="text"
+                  value={formData.region || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, region: e.target.value as any }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">District</label>
+                <input
+                  type="text"
+                  value={formData.district || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, district: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Currency</label>
+                <input
+                  type="text"
+                  value={formData.currency || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, currency: e.target.value as any }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Experience Level</label>
+                <input
+                  type="text"
+                  value={formData.experienceLevel || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, experienceLevel: e.target.value as any }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Department</label>
+                <input
+                  type="text"
+                  value={formData.department || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, department: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Posted At</label>
+                <input
+                  type="date"
+                  value={formData.postedAt || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, postedAt: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="md:col-span-2 space-y-1">
+                <label className="font-bold text-slate-300">Requirements (one per line)</label>
+                <textarea
+                  rows={3}
+                  value={formData.requirements?.join('\n') || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, requirements: e.target.value.split('\n').filter(Boolean) }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="md:col-span-2 space-y-1">
+                <label className="font-bold text-slate-300">Responsibilities (one per line)</label>
+                <textarea
+                  rows={3}
+                  value={formData.responsibilities?.join('\n') || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, responsibilities: e.target.value.split('\n').filter(Boolean) }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+              <div className="md:col-span-2 space-y-1">
+                <label className="font-bold text-slate-300">Benefits (one per line)</label>
+                <textarea
+                  rows={3}
+                  value={formData.benefits?.join('\n') || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, benefits: e.target.value.split('\n').filter(Boolean) }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
+                />
+              </div>
+<div className="space-y-1">
                 <label className="font-bold text-slate-300">City / Location</label>
                 <input
                   type="text"
@@ -425,10 +520,11 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Province / Region</label>
                 <select
-                  value={formData.province || 'Punjab'}
+                  value={formData.province || ''}
                   onChange={(e) => setFormData(p => ({ ...p, province: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
+                  <option value="">Select Province...</option>
                   {PAKISTAN_LOCATIONS.map(p => (
                     <option key={p.province} value={p.province}>{p.province}</option>
                   ))}
@@ -440,10 +536,11 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Job Type</label>
                 <select
-                  value={formData.jobType}
+                  value={formData.jobType || ''}
                   onChange={(e) => setFormData(p => ({ ...p, jobType: e.target.value as JobType }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
+                  <option value="">Select Job Type...</option>
                   <option value="On-site">On-site</option>
                   <option value="Hybrid">Hybrid</option>
                   <option value="Remote">Remote</option>
@@ -501,7 +598,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <label className="font-bold text-slate-300">Job Description & Details</label>
                 <textarea
                   rows={4}
-                  value={formData.description}
+                  value={formData.description || ""}
                   onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-amber-400 outline-none leading-relaxed"
                 />

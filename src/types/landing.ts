@@ -30,6 +30,15 @@ export interface CustomLandingCard {
   bgGradient: string; // Tailwind gradient class
   isEnabled: boolean;
   order: number;
+  imageUrl?: string;
+  mobileVisible?: boolean;
+  desktopVisible?: boolean;
+  mobileSize?: 'compact' | 'standard' | 'large';
+  desktopSize?: 'compact' | 'standard' | 'large';
+  width?: string;
+  height?: string;
+  padding?: string;
+  spacing?: string;
 }
 
 export type LandingSectionId = 
@@ -46,6 +55,14 @@ export interface LandingSectionOrder {
   description: string;
   isEnabled: boolean;
   order: number;
+  mobileVisible?: boolean;
+  desktopVisible?: boolean;
+  mobileSize?: 'compact' | 'standard' | 'large';
+  desktopSize?: 'compact' | 'standard' | 'large';
+  width?: string;
+  height?: string;
+  padding?: string;
+  spacing?: string;
 }
 
 export interface CategoryPostingFee {

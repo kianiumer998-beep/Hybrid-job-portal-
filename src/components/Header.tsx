@@ -15,9 +15,8 @@ interface HeaderProps {
   showAdminView: boolean;
   activeAdsCount?: number;
   onOpenAdDrawer?: () => void;
-  selectedCountryName?: string;
-  selectedCountryFlag?: string;
-  onOpenCountryModal?: () => void;
+  unreadNotificationsCount?: number;
+  onOpenNotificationCenter?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,11 +32,11 @@ export const Header: React.FC<HeaderProps> = ({
   showAdminView,
   activeAdsCount = 0,
   onOpenAdDrawer,
-  selectedCountryName,
-  selectedCountryFlag,
-  onOpenCountryModal
+  unreadNotificationsCount = 0,
+  onOpenNotificationCenter
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white shadow-xl">
@@ -127,21 +126,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Action Controls */}
           <div className="hidden md:flex items-center space-x-3">
-            {/* Selected Country Indicator & Switcher Button */}
-            {onOpenCountryModal && (
-              <button
-                onClick={onOpenCountryModal}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer group"
-                title="Change Country"
-              >
-                <span className="text-sm">{selectedCountryFlag || '🌐'}</span>
-                <span className="text-slate-300 group-hover:text-emerald-400 max-w-[100px] truncate">
-                  {selectedCountryName || 'Global'}
-                </span>
-                <span className="text-[9px] text-slate-400 font-normal">▼</span>
-              </button>
-            )}
-
             {/* Live Announcements / Ads Bell */}
             <button
               onClick={onOpenAdDrawer}
@@ -156,7 +140,24 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
+            {/* Persistent User Notification Center */}
+            {onOpenNotificationCenter && (
+              <button
+                onClick={onOpenNotificationCenter}
+                className="relative p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 hover:border-emerald-500/40 transition-all cursor-pointer"
+                title="Notifications & Portal Requirements"
+              >
+                <Bell className="w-4 h-4 text-emerald-400" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center animate-pulse shadow-md shadow-rose-500/50">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* User Login/Account Button */}
+
             {currentUser ? (
               <button
                 onClick={() => setActiveTab('dashboard')}
@@ -275,7 +276,25 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Job Alerts</span>
           </button>
 
+          {onOpenNotificationCenter && (
+            <button
+              onClick={() => { onOpenNotificationCenter(); setMobileMenuOpen(false); }}
+              className="w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between text-slate-300 hover:bg-slate-800"
+            >
+              <div className="flex items-center space-x-3">
+                <Bell className="w-5 h-5 text-emerald-400" />
+                <span>Notification Center</span>
+              </div>
+              {unreadNotificationsCount > 0 && (
+                <span className="bg-rose-500/20 text-rose-300 text-xs px-2 py-0.5 rounded-full font-bold">
+                  {unreadNotificationsCount} unread
+                </span>
+              )}
+            </button>
+          )}
+
           {currentUser ? (
+
             <button
               onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
               className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center space-x-3 ${

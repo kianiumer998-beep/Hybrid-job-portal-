@@ -262,7 +262,7 @@ export class Database {
       ...job,
       id: job.id || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       slug: job.slug || generateJobSlug(job.title, job.city, job.id),
-      postedAt: job.postedAt,
+      postedAt: job.postedAt || 'Just now',
       status: job.status || 'Approved',
       applicationsCount: job.applicationsCount || 0,
       createdAt: job.createdAt || new Date().toISOString()
@@ -305,7 +305,7 @@ export class Database {
           ...item,
           id: targetId || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           slug: item.slug || generateJobSlug(item.title, item.city, targetId),
-          postedAt: item.postedAt,
+          postedAt: item.postedAt || 'Just now',
           status: autoApprove ? 'Approved' : (item.status || 'Approved'),
           applicationsCount: item.applicationsCount || 0,
           createdAt: item.createdAt || new Date().toISOString()
@@ -355,7 +355,7 @@ export class Database {
           id: targetId || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           slug: item.slug || generateJobSlug(item.title, item.city, targetId),
           status: 'Pending',
-          postedAt: item.postedAt,
+          postedAt: item.postedAt || 'Just now',
           createdAt: item.createdAt || new Date().toISOString()
         };
         toPrepend.push(freshJob);
@@ -435,7 +435,7 @@ export class Database {
       id: job.id || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       slug: job.slug || generateJobSlug(job.title, job.city, job.id),
       status: 'Pending',
-      postedAt: job.postedAt,
+      postedAt: job.postedAt || 'Just now',
       createdAt: job.createdAt || new Date().toISOString()
     };
     pending.unshift(newJob);

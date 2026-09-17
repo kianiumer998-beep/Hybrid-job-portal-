@@ -32,6 +32,8 @@ export async function getMongoClient(): Promise<MongoClient> {
       serverSelectionTimeoutMS: 10000,
       connectTimeoutMS: 10000,
       socketTimeoutMS: 45000,
+      retryWrites: true,
+      retryReads: true,
     });
 
     clientPromise = client.connect().then(async (connectedClient) => {
@@ -233,3 +235,38 @@ export function normalizeMongoJob(doc: any): any {
     status: job.status || 'Approved'
   };
 }
+
+/**
+ * Resets the cached MongoClient and connection state if explicitly requested.
+ */
+export async function resetMongoClient(): Promise<void> {
+  if (cachedClient) {
+    try {
+      await cachedClient.close();
+    } catch {}
+  }
+  cachedClient = null;
+  cachedDb = null;
+  clientPromise = null;
+}
+
+/**
+ * Executes a MongoDB operation with fallback.
+ * Transient MongoDB network errors must NOT automatically close/reset the shared MongoClient.
+ */
+export async function executeWithFallback<T>(
+  mongoOp: () => Promise<T>,
+  fallbackOp: (() => T | Promise<T>) | T
+): Promise<T> {
+  if (!isMongoConfigured()) {
+    return typeof fallbackOp === 'function' ? await (fallbackOp as () => T | Promise<T>)() : fallbackOp;
+  }
+  try {
+    return await mongoOp();
+  } catch (err: any) {
+    console.warn('[MongoDB] Operation failed, falling back to local storage:', err?.message || err);
+    // Automatic resetMongoClient().catch(() => {}); is removed
+    return typeof fallbackOp === 'function' ? await (fallbackOp as () => T | Promise<T>)() : fallbackOp;
+  }
+}
+

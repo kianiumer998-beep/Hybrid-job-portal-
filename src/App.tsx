@@ -396,12 +396,9 @@ export default function App() {
   // Pending Jobs Queue for Admin Verification (Single Backend Source of Truth via /api/jobs/queue/pending)
   const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(true);
-  const [jobsApiError, setJobsApiError] = useState<string | null>(null);
 
   // Fetch jobs from backend Single Source of Truth
   const loadBackendJobs = useCallback(async () => {
-    setIsLoadingJobs(true);
-    setJobsApiError(null);
     try {
       const [liveRes, pendingRes] = await Promise.all([
         api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
@@ -413,9 +410,6 @@ export default function App() {
       } else if (Array.isArray(liveRes)) {
         setJobs(liveRes);
       } else {
-        if (liveRes && liveRes.message && !liveRes.success) {
-          setJobsApiError(liveRes.message);
-        }
         setJobs([]);
       }
 
@@ -427,9 +421,8 @@ export default function App() {
       } else {
         setPendingJobs([]);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('[App] Failed to load jobs from backend /api/jobs:', err);
-      setJobsApiError(err?.message || 'Failed to connect to backend jobs API. Please check your network connection.');
     } finally {
       setIsLoadingJobs(false);
     }
@@ -443,51 +436,7 @@ export default function App() {
     } catch {}
 
     loadBackendJobs();
-
-    // Fetch live MongoDB-backed settings for landing page, campaigns, and WhatsApp widget
-    api.settings.getLanding().then(res => {
-      if (res?.success && res.config) setLandingConfig(res.config);
-    }).catch(() => {});
-
-    api.settings.getCampaigns().then(res => {
-      if (res?.success && res.config) setCampaignConfig(res.config);
-    }).catch(() => {});
-
-    api.settings.getWhatsApp().then(res => {
-      if (res?.success && res.config) setWhatsAppSupportConfig(res.config);
-    }).catch(() => {});
   }, [loadBackendJobs]);
-
-  // MongoDB-backed Settings Updaters with localStorage fallback
-  const handleUpdateLandingConfig = async (newConfig: LandingPageConfig) => {
-    setLandingConfig(newConfig);
-    try {
-      localStorage.setItem('hybrid_landing_page_config', JSON.stringify(newConfig));
-      await api.settings.updateLanding(newConfig);
-    } catch (e) {
-      console.error('[App] Failed to sync landing config to MongoDB:', e);
-    }
-  };
-
-  const handleUpdateCampaignConfig = async (newConfig: CampaignCustomizationConfig) => {
-    setCampaignConfig(newConfig);
-    try {
-      localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(newConfig));
-      await api.settings.updateCampaigns(newConfig);
-    } catch (e) {
-      console.error('[App] Failed to sync campaign config to MongoDB:', e);
-    }
-  };
-
-  const handleUpdateWhatsAppConfig = async (newConfig: WhatsAppSupportConfig) => {
-    setWhatsAppSupportConfig(newConfig);
-    try {
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(newConfig));
-      await api.settings.updateWhatsApp(newConfig);
-    } catch (e) {
-      console.error('[App] Failed to sync WhatsApp config to MongoDB:', e);
-    }
-  };
 
   // Chat Messages State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
@@ -1640,16 +1589,16 @@ export default function App() {
             onResetAdMetrics={handleResetAdMetrics}
             pricingConfig={pricingConfig}
             onUpdatePricingConfig={setPricingConfig}
+            campaignConfig={campaignConfig}
+            onUpdateCampaignConfig={setCampaignConfig}
             onApproveAd={handleApproveAd}
             onRejectAd={handleRejectAd}
             jobPostingPricing={jobPostingPricing}
             onChangeJobPostingPricing={setJobPostingPricing}
             landingConfig={landingConfig}
-            onUpdateLandingConfig={handleUpdateLandingConfig}
+            onUpdateLandingConfig={setLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
-            onUpdateWhatsAppConfig={handleUpdateWhatsAppConfig}
-            campaignConfig={campaignConfig}
-            onUpdateCampaignConfig={handleUpdateCampaignConfig}
+            onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
             paymentTransactions={paymentTransactions}
             onApprovePaymentTransaction={handleApprovePaymentTransaction}
             onRejectPaymentTransaction={handleRejectPaymentTransaction}
@@ -1663,38 +1612,19 @@ export default function App() {
                   .filter((sec) => sec.isEnabled)
                   .sort((a, b) => a.order - b.order)
                   .map((section) => {
-                    // Check responsive visibility
-                    const isSecMobileHidden = section.mobileVisible === false;
-                    const isSecDesktopHidden = section.desktopVisible === false;
-                    if (isSecMobileHidden && isSecDesktopHidden) return null;
-
-                    const secResponsiveClass = isSecMobileHidden
-                      ? 'hidden md:block'
-                      : isSecDesktopHidden
-                      ? 'block md:hidden'
-                      : 'block';
-
-                    const secWidthClass = section.width || 'max-w-7xl';
-                    const secHeightClass = section.height && section.height !== 'auto' ? section.height : '';
-                    const secPaddingClass = section.padding || 'py-0';
-                    const secSpacingClass = section.spacing || 'space-y-6';
-                    const secMobileSizeClass = section.mobileSize === 'compact' ? 'px-2 py-1' : section.mobileSize === 'large' ? 'px-6 py-4' : 'px-4 sm:px-6 lg:px-8';
-                    const secDesktopSizeClass = section.desktopSize === 'compact' ? 'md:px-4' : section.desktopSize === 'large' ? 'md:px-8' : '';
-
                     if (section.id === 'hero') {
                       return (
-                        <div key="section-hero" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secHeightClass} ${secPaddingClass}`}>
-                          <HeroSection
-                            heroConfig={landingConfig.hero}
-                            totalJobsCount={jobs.length}
-                            onExploreClick={() => {
-                              const el = document.getElementById('jobs-section');
-                              el?.scrollIntoView({ behavior: 'smooth' });
-                            }}
-                            onCvClick={() => setActiveTab('cv')}
-                            onPostJobClick={handlePostJobClick}
-                          />
-                        </div>
+                        <HeroSection
+                          key="section-hero"
+                          heroConfig={landingConfig.hero}
+                          totalJobsCount={jobs.length}
+                          onExploreClick={() => {
+                            const el = document.getElementById('jobs-section');
+                            el?.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                          onCvClick={() => setActiveTab('cv')}
+                          onPostJobClick={handlePostJobClick}
+                        />
                       );
                     }
 
@@ -1702,78 +1632,44 @@ export default function App() {
                       const activeBanners = (campaignConfig.promoBanners || []).filter(b => b.isEnabled);
                       if (activeBanners.length === 0) return null;
                       return (
-                        <div key="section-promo" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
-                          {activeBanners.map((banner) => {
-                            const isBannerMobileHidden = banner.mobileVisible === false;
-                            const isBannerDesktopHidden = banner.desktopVisible === false;
-                            if (isBannerMobileHidden && isBannerDesktopHidden) return null;
-
-                            const bannerRespClass = isBannerMobileHidden
-                              ? 'hidden md:flex'
-                              : isBannerDesktopHidden
-                              ? 'flex md:hidden'
-                              : 'flex';
-
-                            const isCompactMobile = banner.mobileSize === 'compact';
-                            const isLargeDesktop = banner.desktopSize === 'large';
-
-                            return (
-                              <div
-                                key={banner.id}
-                                className={`relative overflow-hidden rounded-2xl ${isCompactMobile ? 'p-3 sm:p-5' : 'p-4 sm:p-5'} ${isLargeDesktop ? 'md:p-7' : ''} bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 ${bannerRespClass} flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 border border-white/20`}
-                              >
-                                <div className="flex items-start sm:items-center space-x-3 w-full sm:w-auto">
-                                  {banner.imageUrl && (
-                                    <img
-                                      src={banner.imageUrl}
-                                      alt={banner.title}
-                                      className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl object-cover shrink-0 border border-white/30 shadow"
-                                    />
+                        <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
+                          {activeBanners.map((banner) => (
+                            <div
+                              key={banner.id}
+                              className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
+                                    {banner.badgeText || '🔥 SPECIAL OFFER'}
+                                  </span>
+                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
+                                    {banner.discountPercent}% OFF
+                                  </span>
+                                  {banner.promoCode && (
+                                    <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
+                                      Use Code: {banner.promoCode}
+                                    </span>
                                   )}
-                                  <div className="space-y-1">
-                                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
-                                        {banner.badgeText || '🔥 SPECIAL OFFER'}
-                                      </span>
-                                      <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
-                                        {banner.discountPercent}% OFF
-                                      </span>
-                                      {banner.promoCode && (
-                                        <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
-                                          Use Code: {banner.promoCode}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
-                                    <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
-                                  </div>
                                 </div>
-
-                                <button
-                                  onClick={() => {
-                                    if (banner.ctaUrl?.startsWith('#')) {
-                                      const targetTab = banner.ctaUrl.replace('#', '') as any;
-                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(targetTab)) {
-                                        setActiveTab(targetTab);
-                                      } else {
-                                        const el = document.getElementById(targetTab);
-                                        el?.scrollIntoView({ behavior: 'smooth' });
-                                      }
-                                    } else if (banner.ctaUrl?.startsWith('http')) {
-                                      window.location.href = banner.ctaUrl;
-                                    } else if (currentUser) {
-                                      setActiveTab('dashboard');
-                                    } else {
-                                      setAuthModalOpen(true);
-                                    }
-                                  }}
-                                  className="w-full sm:w-auto text-center px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
-                                >
-                                  {banner.ctaText || 'Book Discount Ad'} →
-                                </button>
+                                <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
+                                <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
                               </div>
-                            );
-                          })}
+
+                              <button
+                                onClick={() => {
+                                  if (currentUser) {
+                                    setActiveTab('dashboard');
+                                  } else {
+                                    setAuthModalOpen(true);
+                                  }
+                                }}
+                                className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                              >
+                                {banner.ctaText || 'Book Discount Ad'} →
+                              </button>
+                            </div>
+                          ))}
                         </div>
                       );
                     }
@@ -1784,7 +1680,7 @@ export default function App() {
 
                     if (section.id === 'quick-stats') {
                       return (
-                        <div key="section-stats" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
+                        <div key="section-stats" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
                             <div className="p-3 text-center">
                               <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
@@ -1811,68 +1707,38 @@ export default function App() {
                       const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
                       if (activeCards.length === 0) return null;
                       return (
-                        <div key="section-cards" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
+                        <div key="section-cards" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {activeCards.sort((a, b) => a.order - b.order).map((card) => {
-                              const isCardMobileHidden = card.mobileVisible === false;
-                              const isCardDesktopHidden = card.desktopVisible === false;
-                              if (isCardMobileHidden && isCardDesktopHidden) return null;
-
-                              const cardRespClass = isCardMobileHidden
-                                  ? 'hidden md:flex'
-                                  : isCardDesktopHidden
-                                  ? 'flex md:hidden'
-                                  : 'flex';
-
-                              const isCompactMobile = card.mobileSize === 'compact';
-                              const isLargeDesktop = card.desktopSize === 'large';
-                              const cardWidth = card.width || 'w-full';
-                              const cardHeight = card.height && card.height !== 'auto' ? card.height : 'h-auto';
-                              const cardPadding = card.padding || (isCompactMobile ? 'p-4 sm:p-6' : 'p-5 sm:p-6');
-                              const cardSpacing = card.spacing || 'space-y-4';
-
-                              return (
-                                <div
-                                  key={card.id}
-                                  className={`rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white ${cardRespClass} ${cardWidth} ${cardHeight} ${cardPadding} ${cardSpacing} flex-col justify-between shadow-xl ${isLargeDesktop ? 'md:p-8' : ''}`}
-                                >
-                                  <div className="space-y-3">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
-                                        {card.badge}
-                                      </span>
-                                      {card.imageUrl && (
-                                        <img
-                                          src={card.imageUrl}
-                                          alt={card.title}
-                                          className="w-8 h-8 rounded-lg object-cover border border-white/20"
-                                        />
-                                      )}
-                                    </div>
-                                    <h4 className="text-lg font-black">{card.title}</h4>
-                                    <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
-                                  </div>
-                                  <button
-                                    onClick={() => {
-                                      if (card.buttonUrl?.startsWith('#')) {
-                                        const tab = card.buttonUrl.replace('#', '') as any;
-                                        if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
-                                          setActiveTab(tab);
-                                        } else {
-                                          const el = document.getElementById(tab);
-                                          el?.scrollIntoView({ behavior: 'smooth' });
-                                        }
-                                      } else if (card.buttonUrl?.startsWith('http')) {
-                                        window.location.href = card.buttonUrl;
-                                      }
-                                    }}
-                                    className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
-                                  >
-                                    {card.buttonText} →
-                                  </button>
+                            {activeCards.sort((a, b) => a.order - b.order).map((card) => (
+                              <div
+                                key={card.id}
+                                className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
+                              >
+                                <div className="space-y-2">
+                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
+                                    {card.badge}
+                                  </span>
+                                  <h4 className="text-lg font-black">{card.title}</h4>
+                                  <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
                                 </div>
-                              );
-                            })}
+                                <button
+                                  onClick={() => {
+                                    if (card.buttonUrl?.startsWith('#')) {
+                                      const tab = card.buttonUrl.replace('#', '') as any;
+                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
+                                        setActiveTab(tab);
+                                      } else {
+                                        const el = document.getElementById(tab);
+                                        el?.scrollIntoView({ behavior: 'smooth' });
+                                      }
+                                    }
+                                  }}
+                                  className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
+                                >
+                                  {card.buttonText} →
+                                </button>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       );
@@ -1880,7 +1746,7 @@ export default function App() {
 
                     if (section.id === 'jobs-feed') {
                       return (
-                        <div key="section-jobs-feed" id="jobs-section" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
+                        <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
                           
                           {/* Active Country Filter Notification Badge */}
                           {userSelectedCountry && userSelectedCountry.code !== 'GL' && (
@@ -1901,25 +1767,6 @@ export default function App() {
                                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] border border-amber-500/20 transition-all cursor-pointer shrink-0"
                               >
                                 Change Country
-                              </button>
-                            </div>
-                          )}
-
-                          {/* API Connection Error Banner */}
-                          {jobsApiError && (
-                            <div className="p-4 bg-rose-950/80 border border-rose-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-rose-200 shadow-lg">
-                              <div className="flex items-center space-x-3">
-                                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-                                <div>
-                                  <p className="font-bold text-white">Backend Connection Notice</p>
-                                  <p className="text-xs text-rose-300">{jobsApiError}</p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => loadBackendJobs()}
-                                className="px-4 py-2 bg-rose-800 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow"
-                              >
-                                Retry Connection
                               </button>
                             </div>
                           )}

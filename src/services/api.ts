@@ -72,13 +72,7 @@ function getAuthHeader(): Record<string, string> {
 
 export async function safeFetchJson<T = any>(url: string, init?: RequestInit): Promise<T> {
   try {
-    const res = await fetch(url, {
-      cache: 'no-store',
-      ...init,
-      headers: {
-        ...(init?.headers || {})
-      }
-    });
+    const res = await fetch(url, init);
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       const text = await res.text();
@@ -437,20 +431,6 @@ export const api = {
         body: JSON.stringify({ sourceIds })
       });
     },
-    async moveSourceToGroup(sourceId: string, targetGroupId?: string | null) {
-      return safeFetchJson(`${API_BASE}/scraper/sources/${sourceId}/move-group`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ targetGroupId })
-      });
-    },
-    async bulkMoveSourcesToGroup(sourceIds: string[], targetGroupId?: string | null) {
-      return safeFetchJson(`${API_BASE}/scraper/sources/bulk-move-group`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ sourceIds, targetGroupId })
-      });
-    },
     async runGroup(id: string) {
       return safeFetchJson(`${API_BASE}/scraper/groups/${id}/run`, {
         method: 'POST',
@@ -579,40 +559,6 @@ export const api = {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(flags)
-      });
-    }
-  },
-
-  // --- SITE SETTINGS (LANDING, CAMPAIGNS, WHATSAPP) ---
-  settings: {
-    async getLanding() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/landing`);
-    },
-    async updateLanding(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/landing`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    },
-    async getCampaigns() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/campaigns`);
-    },
-    async updateCampaigns(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/campaigns`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    },
-    async getWhatsApp() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/whatsapp`);
-    },
-    async updateWhatsApp(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/whatsapp`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
       });
     }
   }

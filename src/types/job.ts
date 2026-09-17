@@ -202,8 +202,6 @@ export interface Job {
   duplicateDetectedAt?: string;
   applicationType?: 'internal' | 'external' | 'both';
   externalApplyUrl?: string;
-  mediaUrl?: string;
-  extractedText?: string;
 }
 
 export interface ChatMessage {

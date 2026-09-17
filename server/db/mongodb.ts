@@ -61,9 +61,6 @@ export async function executeWithFallback<T>(
     try {
       return await mongoFn();
     } catch (err: any) {
-      if (isMongoNetworkError(err)) {
-        resetMongoClient().catch(() => {});
-      }
       console.warn(`[${logContext}] MongoDB notice (${err.name || 'Error'}: ${err.message}), using persistent local data store.`);
       return await fallbackFn();
     }
@@ -79,13 +76,11 @@ export async function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
     const uri = getMongoUri();
     const client = new MongoClient(uri, {
-      maxPoolSize: 10,
-      minPoolSize: 0,
-      serverSelectionTimeoutMS: 4000,
-      connectTimeoutMS: 4000,
-      socketTimeoutMS: 6000,
-      maxIdleTimeMS: 15000,
-      waitQueueTimeoutMS: 4000,
+      maxPoolSize: 20,
+      minPoolSize: 2,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
       retryWrites: true,
       retryReads: true
     });

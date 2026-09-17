@@ -2,7 +2,9 @@ import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
   getScraperGroupsCollection,
-  isMongoConfigured
+  isMongoConfigured,
+  withMongoTimeout,
+  resetMongoClient
 } from '../mongodb';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
 
@@ -110,7 +112,11 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperSourcesCollection();
-        const docs = await coll.find({}, { projection: { _id: 0 } }).toArray();
+        const docs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } }).toArray(),
+          6000,
+          'getConfigs'
+        );
         if (docs && docs.length > 0) {
           let hasMissingStatus = false;
           const normalized = docs.map((s: any) => {
@@ -153,7 +159,7 @@ export class ScraperRepository {
                 healthStatus: clean.healthStatus || 'healthy'
               };
             });
-            await coll.insertMany(cleanDocs);
+            await withMongoTimeout(coll.insertMany(cleanDocs), 6000, 'seedConfigs');
             console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
             this.cachedSources = cleanDocs;
             return cleanDocs;
@@ -162,7 +168,8 @@ export class ScraperRepository {
           }
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_sources:', err.message);
+        console.warn('[ScraperRepository] MongoDB error reading scraper_sources:', err?.message || err);
+        resetMongoClient(err);
       }
     }
 
@@ -182,10 +189,11 @@ export class ScraperRepository {
         for (const cfg of configs) {
           if (!cfg || !cfg.id) continue;
           const { _id, ...clean } = cfg;
-          await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
+          await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 5000, 'saveConfig');
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error saving scraper_sources:', err.message);
+        console.warn('[ScraperRepository] MongoDB error saving scraper_sources:', err?.message || err);
+        resetMongoClient(err);
       }
     }
   }
@@ -197,17 +205,22 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperRunsCollection();
-        const runs = await coll.find({}, { projection: { _id: 0 } })
-          .sort({ startedAt: -1, timestamp: -1 })
-          .limit(100)
-          .toArray();
+        const runs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } })
+            .sort({ startedAt: -1, timestamp: -1 })
+            .limit(100)
+            .toArray(),
+          6000,
+          'getRuns'
+        );
 
         if (runs && runs.length > 0) {
           this.cachedRuns = runs;
           return runs;
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_runs:', err.message);
+        console.warn('[ScraperRepository] MongoDB error reading scraper_runs:', err?.message || err);
+        resetMongoClient(err);
       }
     }
 
@@ -228,9 +241,10 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperRunsCollection();
-        await coll.insertOne(clean);
+        await withMongoTimeout(coll.insertOne(clean), 6000, 'addRun');
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error adding to scraper_runs:', err.message);
+        console.warn('[ScraperRepository] MongoDB error adding to scraper_runs:', err?.message || err);
+        resetMongoClient(err);
       }
     }
 
@@ -272,10 +286,11 @@ export class ScraperRepository {
         if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
 
         if (Object.keys(updateOps).length > 0) {
-          await coll.updateOne({ id: sourceId }, updateOps);
+          await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 5000, 'updateSourceStats');
         }
       } catch (err: any) {
-        console.error(`[ScraperRepository] MongoDB error updating source stats for "${sourceId}":`, err.message);
+        console.warn(`[ScraperRepository] MongoDB notice updating source stats for "${sourceId}":`, err?.message || err);
+        resetMongoClient(err);
       }
     }
 

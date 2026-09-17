@@ -122,8 +122,21 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
   }
 
-  const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
-  const existingPendingJobs = await JobRepository.getPending();
+  let existingLiveJobs: any[] = [];
+  let existingPendingJobs: any[] = [];
+  try {
+    const liveRes = await JobRepository.getAll({ limit: 1000 });
+    existingLiveJobs = liveRes.jobs || [];
+  } catch (e: any) {
+    console.warn('[Scraper Engine] Notice loading live jobs for deduplication:', e.message);
+  }
+
+  try {
+    existingPendingJobs = await JobRepository.getPending({ lightweight: true, limit: 1000 });
+  } catch (e: any) {
+    console.warn('[Scraper Engine] Notice loading pending jobs for deduplication:', e.message);
+  }
+
   const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
 
   const harvestedJobs: any[] = [];
@@ -302,17 +315,29 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           sourceDup++;
           duplicateJobs.push(standardizedJob);
           // Duplicates are NEVER published live. Saved to pending queue with flag
-          await JobRepository.addPending(standardizedJob);
+          try {
+            await JobRepository.addPending(standardizedJob);
+          } catch (pErr: any) {
+            console.warn(`[Scraper Engine] Notice saving duplicate pending job (${pErr?.message}):`, standardizedJob.title);
+          }
           combinedExisting.push(standardizedJob);
         } else {
           sourceNew++;
           uniqueJobs.push(standardizedJob);
 
           if (standardizedJob.status === 'Approved') {
-            await JobRepository.create(standardizedJob);
+            try {
+              await JobRepository.create(standardizedJob);
+            } catch (cErr: any) {
+              console.warn(`[Scraper Engine] Notice saving approved job (${cErr?.message}):`, standardizedJob.title);
+            }
             publishedJobs.push(standardizedJob);
           } else {
-            await JobRepository.addPending(standardizedJob);
+            try {
+              await JobRepository.addPending(standardizedJob);
+            } catch (pErr: any) {
+              console.warn(`[Scraper Engine] Notice saving pending job (${pErr?.message}):`, standardizedJob.title);
+            }
             pendingJobs.push(standardizedJob);
           }
           combinedExisting.push(standardizedJob);

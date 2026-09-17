@@ -19,6 +19,51 @@ export function isMongoConfigured(): boolean {
   return Boolean(uri && uri.trim());
 }
 
+/**
+ * Resets the cached Mongo client and connection pool.
+ * Called automatically when network timeouts, broken sockets, or connection drops occur.
+ */
+export function resetMongoClient(err?: any): void {
+  if (err) {
+    console.warn(`[MongoDB] Resetting connection pool due to network issue: ${err?.message || err}`);
+  }
+  if (cachedClient) {
+    try {
+      cachedClient.close(true).catch(() => {});
+    } catch {}
+  }
+  cachedClient = null;
+  cachedDb = null;
+  clientPromise = null;
+}
+
+/**
+ * Safely executes a MongoDB promise with an enforced timeout to prevent network stalls.
+ */
+export async function withMongoTimeout<T>(promise: Promise<T>, timeoutMs = 12000, label = 'Operation'): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const timeoutErr = new Error(`MongoDB ${label} timed out after ${timeoutMs}ms`);
+      timeoutErr.name = 'MongoNetworkTimeoutError';
+      resetMongoClient(timeoutErr);
+      reject(timeoutErr);
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    return result;
+  } catch (err: any) {
+    if (err?.name === 'MongoNetworkTimeoutError' || err?.name === 'MongoNetworkError' || err?.message?.includes('timed out')) {
+      resetMongoClient(err);
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function getMongoClient(): Promise<MongoClient> {
   if (cachedClient) {
     return cachedClient;
@@ -27,11 +72,14 @@ export async function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
     const uri = getMongoUri();
     const client = new MongoClient(uri, {
-      maxPoolSize: 20,
-      minPoolSize: 2,
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+      minPoolSize: 0,
+      maxIdleTimeMS: 15000,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 12000,
+      retryWrites: true,
+      retryReads: true
     });
 
     clientPromise = client.connect().then(async (connectedClient) => {
@@ -41,9 +89,7 @@ export async function getMongoClient(): Promise<MongoClient> {
       await initMongoIndexes(cachedDb);
       return connectedClient;
     }).catch((err) => {
-      clientPromise = null;
-      cachedClient = null;
-      cachedDb = null;
+      resetMongoClient(err);
       console.error('[MongoDB] Connection error:', err.message);
       throw err;
     });
@@ -106,6 +152,8 @@ async function initMongoIndexes(db: Db): Promise<void> {
       jobsColl.createIndex({ jobType: 1 }, { background: true }),
       pendingColl.createIndex({ id: 1 }, { unique: true, background: true }),
       pendingColl.createIndex({ status: 1, createdAt: -1 }, { background: true }),
+      pendingColl.createIndex({ createdAt: -1 }, { background: true }),
+      pendingColl.createIndex({ status: 1 }, { background: true }),
       scraperSourcesColl.createIndex({ id: 1 }, { unique: true, background: true }),
       scraperRunsColl.createIndex({ id: 1 }, { unique: true, background: true }),
       scraperRunsColl.createIndex({ startedAt: -1 }, { background: true }),

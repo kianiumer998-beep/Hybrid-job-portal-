@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { generateJobSlug } from '../db/database';
+import { generateJobSlug, Database } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdmin } from '../auth/authManager';
 import { JobRepository, AuditRepository } from '../db/repositories';
@@ -23,7 +23,7 @@ jobRouter.get('/', async (req, res) => {
       isFeatured,
       includeExpired,
       page = '1',
-      limit = '10000'
+      limit = '1000'
     } = req.query as Record<string, string>;
 
     const result = await JobRepository.getAll({
@@ -49,18 +49,34 @@ jobRouter.get('/', async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error in GET /api/jobs:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error fetching jobs' });
+    const fallbackJobs = Database.getJobs();
+    res.json({
+      success: true,
+      jobs: fallbackJobs.slice(0, 100),
+      total: fallbackJobs.length,
+      page: 1,
+      limit: 100,
+      warning: 'Loaded from local backup'
+    });
   }
 });
 
 // 2. Get Pending Jobs Queue (Admin Only)
 jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
   try {
-    const pending = await JobRepository.getPending();
-    res.json({ success: true, pendingJobs: pending, jobs: pending });
+    const { limit, page, status, search } = req.query as Record<string, string>;
+    const parsedLimit = limit ? parseInt(limit, 10) : 300;
+    const pending = await JobRepository.getPending({
+      limit: isNaN(parsedLimit) ? 300 : parsedLimit,
+      page: page ? parseInt(page, 10) : 1,
+      status,
+      search
+    });
+    res.json({ success: true, pendingJobs: pending, jobs: pending, count: pending.length });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error fetching pending jobs' });
+    const fallback = Database.getPendingJobs();
+    res.json({ success: true, pendingJobs: fallback, jobs: fallback, count: fallback.length, warning: 'Loaded from local backup cache' });
   }
 });
 

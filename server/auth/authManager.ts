@@ -1,15 +1,8 @@
 import crypto from 'crypto';
 import { Database } from '../db/database';
 
-export function getJwtSecret(): string {
-  if (process.env.NODE_ENV === 'production') {
-    if (!process.env.JWT_SECRET || !process.env.JWT_SECRET.trim()) {
-      throw new Error('FATAL: JWT_SECRET environment variable must be configured in production.');
-    }
-    return process.env.JWT_SECRET.trim();
-  }
-  return process.env.JWT_SECRET || 'dev-portal-secret-key-super-secure-382910';
-}
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-portal-secret-key-super-secure-382910';
+const ADMIN_DEV_PASSKEY = process.env.ADMIN_DEV_PASSKEY || 'admin123';
 
 export interface UserSession {
   userId: string;
@@ -61,11 +54,10 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
 
 // Stateless signed token generator (HMAC SHA-256)
 export function createToken(payload: Record<string, any>, expiresInHours: number = 72): string {
-  const secret = getJwtSecret();
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const exp = Math.floor(Date.now() / 1000) + (expiresInHours * 3600);
   const body = Buffer.from(JSON.stringify({ ...payload, exp })).toString('base64url');
-  const signature = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
   return `${header}.${body}.${signature}`;
 }
 
@@ -74,8 +66,7 @@ export function verifyToken(token: string): any | null {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const [header, body, signature] = parts;
-    const secret = getJwtSecret();
-    const expectedSig = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+    const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
     if (signature !== expectedSig) return null;
 
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'));

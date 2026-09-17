@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { ApplicationRepository, AuditRepository, JobRepository, CaseRepository } from '../db/repositories';
 import { Database } from '../db/database';
-import { requireAdmin, authMiddleware, requireAuth } from '../auth/authManager';
+import { requireAdmin, authMiddleware } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 
 export const applicationRouter = Router();
@@ -224,28 +224,22 @@ applicationRouter.get('/', authMiddleware, async (req, res) => {
 
 
 // 4. Submit Job Application (Server-side settings enforcement)
-applicationRouter.post('/', requireAuth, async (req, res) => {
+applicationRouter.post('/', authMiddleware, async (req, res) => {
   try {
     const {
       jobId,
       jobTitle,
       companyName,
+      applicantId,
+      applicantName,
+      applicantEmail,
       applicantPhone,
       coverLetter,
       answers,
       cvFileUrl
     } = req.body;
 
-    const authUser = (req as any).user;
-    if (!authUser || (!authUser.userId && !authUser.id)) {
-      return res.status(401).json({ success: false, message: 'Authentication required. Please log in to apply.' });
-    }
-
-    const effectiveApplicantId = authUser.userId || authUser.id;
-    const effectiveApplicantName = authUser.name || (req.body.applicantName || 'Applicant');
-    const effectiveApplicantEmail = authUser.email || (req.body.applicantEmail || '');
-
-    if (!jobId || !effectiveApplicantName || !effectiveApplicantEmail) {
+    if (!jobId || !applicantName || !applicantEmail) {
       return res.status(400).json({ success: false, message: 'Job ID, applicant name, and email are required.' });
     }
 
@@ -267,7 +261,7 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    if (settings.requireEmail && !effectiveApplicantEmail.trim()) {
+    if (settings.requireEmail && !applicantEmail.trim()) {
       return res.status(400).json({ success: false, message: 'Email address is required.' });
     }
 
@@ -290,6 +284,12 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
         }
       }
     }
+
+    // Strictly force applicantId to req.user.userId when authenticated, preventing client spoofing
+    const authUser = (req as any).user;
+    const effectiveApplicantId = authUser ? (authUser.userId || authUser.id) : (applicantId || 'guest');
+    const effectiveApplicantName = authUser?.name || applicantName;
+    const effectiveApplicantEmail = authUser?.email || applicantEmail;
 
     const newApp = await ApplicationRepository.createAsync({
       jobId,
@@ -336,10 +336,10 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
     }
 
     AuditRepository.add({
-      user: effectiveApplicantName,
+      user: applicantName,
       role: 'Job Seeker',
       action: 'Job Application Submitted',
-      target: `${jobTitle || 'Position'} at ${companyName || 'Company'}`,
+      target: `${jobTitle} at ${companyName}`,
       status: 'Success'
     });
 

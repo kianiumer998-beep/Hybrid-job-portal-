@@ -1,5 +1,5 @@
 import { Database } from '../database';
-import { getAdsCollection, isMongoConfigured, executeWithFallback } from '../mongodb';
+import { getAdsCollection, isMongoConfigured } from '../mongodb';
 import { PaymentRepository } from './PaymentRepository';
 
 export class AdRepository {
@@ -15,25 +15,19 @@ export class AdRepository {
   }
 
   static async getAllAsync(options?: { status?: string; placement?: string }): Promise<any[]> {
-    return executeWithFallback(
-      async () => {
-        const coll = await getAdsCollection();
-        const query: any = {};
-        if (options?.status) query.status = options.status;
-        if (options?.placement) query.placement = options.placement;
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const query: any = {};
+      if (options?.status) query.status = options.status;
+      if (options?.placement) query.placement = options.placement;
 
-        const ads = await coll.find(query).sort({ createdAt: -1 }).toArray();
-        if (ads && ads.length > 0) {
-          return ads.map(doc => {
-            const { _id, ...safe } = doc;
-            return safe;
-          });
-        }
-        return this.getAll(options);
-      },
-      () => this.getAll(options),
-      'AdRepository.getAllAsync'
-    );
+      const ads = await coll.find(query).sort({ createdAt: -1 }).toArray();
+      return (ads || []).map(doc => {
+        const { _id, ...safe } = doc;
+        return safe;
+      });
+    }
+    return this.getAll(options);
   }
 
   static getById(id: string): any | null {
@@ -42,17 +36,14 @@ export class AdRepository {
   }
 
   static async getByIdAsync(id: string): Promise<any | null> {
-    return executeWithFallback(
-      async () => {
-        const coll = await getAdsCollection();
-        const ad = await coll.findOne({ id });
-        if (!ad) return this.getById(id);
-        const { _id, ...safe } = ad;
-        return safe;
-      },
-      () => this.getById(id),
-      'AdRepository.getByIdAsync'
-    );
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const ad = await coll.findOne({ id });
+      if (!ad) return null;
+      const { _id, ...safe } = ad;
+      return safe;
+    }
+    return this.getById(id);
   }
 
   static async createAsync(adData: any): Promise<any> {
@@ -78,16 +69,16 @@ export class AdRepository {
       return newAd;
     }
 
-    try {
-      const ads = Database.getAds();
-      ads.unshift(newAd);
-      Database.saveAds(ads);
-    } catch {}
-
+    const ads = Database.getAds();
+    ads.unshift(newAd);
+    Database.saveAds(ads);
     return newAd;
   }
 
   static create(adData: any): any {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
+    }
     const ads = Database.getAds();
     const newAd = {
       ...adData,
@@ -115,20 +106,26 @@ export class AdRepository {
         { $set: updatePayload },
         { returnDocument: 'after' }
       );
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
       try {
-        this.update(id, updates);
+        const ads = Database.getAds();
+        const idx = ads.findIndex(a => a.id === id);
+        if (idx !== -1) {
+          ads[idx] = safe;
+          Database.saveAds(ads);
+        }
       } catch {}
-      if (updatedDoc) {
-        const { _id, ...safe } = updatedDoc;
-        return safe;
-      }
-      return null;
+      return safe;
     }
 
     return this.update(id, updates);
   }
 
   static update(id: string, updates: any): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');
+    }
     const ads = Database.getAds();
     const idx = ads.findIndex(a => a.id === id);
     if (idx === -1) return null;
@@ -143,15 +140,19 @@ export class AdRepository {
       const coll = await getAdsCollection();
       const res = await coll.deleteOne({ id });
       try {
-        this.delete(id);
+        const ads = Database.getAds();
+        const filtered = ads.filter(a => a.id !== id);
+        Database.saveAds(filtered);
       } catch {}
       return res.deletedCount > 0;
     }
-
     return this.delete(id);
   }
 
   static delete(id: string): boolean {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous delete is prohibited to ensure authoritative persistence; use deleteAsync.');
+    }
     const ads = Database.getAds();
     const filtered = ads.filter(a => a.id !== id);
     if (filtered.length === ads.length) return false;

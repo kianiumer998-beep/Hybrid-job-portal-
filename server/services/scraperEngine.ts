@@ -150,28 +150,6 @@ export function stopActiveRun(): boolean {
   return false;
 }
 
-export function resetActiveRun(): boolean {
-  activeRunCancelRequested = false;
-  activeRunPauseRequested = false;
-  activeRunState = {
-    runId: '',
-    status: 'Idle',
-    totalSources: 0,
-    completedSourcesCount: 0,
-    remainingSourcesCount: 0,
-    currentSourceIndex: 0,
-    jobsFound: 0,
-    newJobsCount: 0,
-    duplicatesCount: 0,
-    pendingCount: 0,
-    publishedCount: 0,
-    failedSourcesCount: 0,
-    startTime: '',
-    lastUpdatedTime: new Date().toISOString()
-  };
-  return true;
-}
-
 export async function resumeActiveRun(): Promise<ScraperRunSummary | boolean | null> {
   if (activeRunState.status !== 'Paused' && !activeRunPauseRequested) {
     return false;
@@ -197,7 +175,7 @@ export async function resumeActiveRun(): Promise<ScraperRunSummary | boolean | n
   return true;
 }
 
-function createEmptySummary(runId: string, startTime: Date, message: string, totalFailedSources: number = 0): ScraperRunSummary {
+function createEmptySummary(runId: string, startTime: Date, message: string): ScraperRunSummary {
   const endTime = new Date();
   return {
     runId,
@@ -206,7 +184,7 @@ function createEmptySummary(runId: string, startTime: Date, message: string, tot
     totalFound: 0,
     totalNew: 0,
     totalDuplicates: 0,
-    totalFailedSources,
+    totalFailedSources: 0,
     pagesAttempted: 0,
     pagesSuccessful: 0,
     jobsAccepted: 0,
@@ -226,19 +204,9 @@ function createEmptySummary(runId: string, startTime: Date, message: string, tot
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
-  // Prevent concurrent scraper runs (with automatic watchdog recovery for stale runs)
+  // Prevent concurrent scraper runs
   if (activeRunState.status === 'Running') {
-    const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
-    const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-    if (isStale) {
-      console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
-      activeRunState.status = 'Completed';
-      activeRunState.isStopped = true;
-      activeRunCancelRequested = false;
-      activeRunPauseRequested = false;
-    } else {
-      throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
-    }
+    throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
   }
 
   const startTime = new Date();
@@ -301,31 +269,9 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     remainingTargets: [...targets]
   };
 
-  try {
-    let existingLiveJobs: any[] = [];
-    let existingPendingJobs: any[] = [];
-
-    try {
-      existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
-      existingPendingJobs = await JobRepository.getPending();
-    } catch (dbErr: any) {
-      const errMsg = dbErr?.message || String(dbErr);
-      console.warn(`[Scraper Engine] Database availability notice: MongoDB timeout or connection error reading initial jobs: ${errMsg}`);
-      activeRunState.status = 'Error';
-      activeRunState.currentError = `Database unavailable (MongoDB read timeout/error: ${errMsg})`;
-      activeRunState.failedSourcesCount = targets.length;
-      activeRunState.remainingSourcesCount = 0;
-      activeRunState.lastUpdatedTime = new Date().toISOString();
-
-      return createEmptySummary(
-        runId,
-        startTime,
-        `Scraper run aborted: Database unavailable due to MongoDB timeout (${errMsg}). Existing MongoDB data preserved.`,
-        targets.length
-      );
-    }
-
-    const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
+  const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
+  const existingPendingJobs = await JobRepository.getPending();
+  const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
 
   const harvestedJobs: any[] = [];
   const duplicateJobs: any[] = [];
@@ -776,20 +722,5 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     executionDurationMs: duration,
     message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${harvestedJobs.length} verified vacancies.`
   };
-} catch (runErr: any) {
-  console.error(`[Scraper Engine] Fatal run error in ${runId}:`, runErr);
-  if (activeRunState.status !== 'Paused' && activeRunState.status !== 'Stopped') {
-    activeRunState.status = 'Completed';
-    activeRunState.isStopped = true;
-  }
-  activeRunState.currentError = runErr?.message || String(runErr);
-  activeRunState.lastUpdatedTime = new Date().toISOString();
-  throw runErr;
-} finally {
-  if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
-    activeRunState.status = 'Completed';
-  }
-  activeRunState.lastUpdatedTime = new Date().toISOString();
-}
 }
 

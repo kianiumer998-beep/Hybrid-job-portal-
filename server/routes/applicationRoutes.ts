@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import crypto from 'crypto';
-import { ApplicationRepository, AuditRepository, JobRepository, CaseRepository } from '../db/repositories';
+import { ApplicationRepository, AuditRepository, JobRepository } from '../db/repositories';
 import { Database } from '../db/database';
 import { requireAdmin } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
@@ -187,7 +187,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
 });
 
 // 3. Get applications (filter by jobId or applicantId, or all for admin)
-applicationRouter.get('/', async (req, res) => {
+applicationRouter.get('/', (req, res) => {
   try {
     const { jobId, applicantId } = req.query as Record<string, string>;
     const user = (req as any).user;
@@ -201,7 +201,7 @@ applicationRouter.get('/', async (req, res) => {
       filterApplicantId = user.userId || user.id;
     }
 
-    const apps = await ApplicationRepository.getAllAsync({ jobId, applicantId: filterApplicantId });
+    const apps = ApplicationRepository.getAll({ jobId, applicantId: filterApplicantId });
 
     // Append authorized download tokens to CV URLs for this response so legitimate viewers can open them
     const enrichedApps = apps.map(app => {
@@ -221,7 +221,6 @@ applicationRouter.get('/', async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error fetching applications' });
   }
 });
-
 
 // 4. Submit Job Application (Server-side settings enforcement)
 applicationRouter.post('/', async (req, res) => {
@@ -299,28 +298,6 @@ applicationRouter.post('/', async (req, res) => {
       status: 'Applied'
     });
 
-    // Automatically register application in Universal Case tracking system
-    try {
-      CaseRepository.create({
-        type: 'application',
-        referenceId: newApp.id,
-        title: `Job Application: ${jobTitle} at ${companyName}`,
-        userId: newApp.applicantId,
-        userName: newApp.applicantName,
-        userEmail: newApp.applicantEmail,
-        status: 'pending',
-        priority: 'medium',
-        metadata: {
-          jobId: newApp.jobId,
-          applicationId: newApp.id,
-          jobTitle: newApp.jobTitle,
-          companyName: newApp.companyName
-        }
-      });
-    } catch (e: any) {
-      console.warn('Case creation notice for application:', e.message);
-    }
-
     // Increment applications count on the job
     const job = await JobRepository.getById(jobId);
     if (job) {
@@ -336,7 +313,6 @@ applicationRouter.post('/', async (req, res) => {
       target: `${jobTitle} at ${companyName}`,
       status: 'Success'
     });
-
 
     res.status(201).json({
       success: true,

@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { ScraperRepository } from '../db/repositories/ScraperRepository';
 import { JobRepository } from '../db/repositories/JobRepository';
-import { executeScraperWithWizard, getActiveRunStatus, stopActiveRun } from './scraperEngine';
+import { executeScraperWithWizard } from './scraperEngine';
 import { featureFlags } from '../config/featureFlags';
 
 export interface SchedulerSourceStatus {
@@ -43,24 +43,6 @@ function parseIntervalToMs(intervalStr?: string): number {
   return INTERVAL_MS_MAP[intervalStr] || INTERVAL_MS_MAP['24h'];
 }
 
-function isMongoTimeoutNotice(errOrMsg: any): boolean {
-  if (!errOrMsg) return false;
-  const str = String(errOrMsg?.message || errOrMsg).toLowerCase();
-  return (
-    str.includes('mongo') ||
-    str.includes('database unavailable') ||
-    str.includes('server selection timed out') ||
-    str.includes('sockettimeout') ||
-    str.includes('connecttimeout') ||
-    str.includes('connection timed out') ||
-    str.includes('timed out after') ||
-    str.includes('buffering timed out') ||
-    str.includes('topology is closed') ||
-    str.includes('econnrefused') ||
-    (str.includes('timeout') && (str.includes('db') || str.includes('pool') || str.includes('connection')))
-  );
-}
-
 /**
  * Executes a scheduler tick: checks individual source intervals and triggers scraping for due sources.
  */
@@ -86,20 +68,6 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
     if (!featureFlags.enableWebScraper) {
       console.log('[Scheduler Engine] Web scraper is disabled by feature flag.');
       return { triggeredSources: [], summary: 'Web scraper disabled by feature flag' };
-    }
-
-    // 2. Check if a scraper run is already executing (prevent conflicts & handle stale runs)
-    const currentRun = getActiveRunStatus();
-    if (currentRun.isActive) {
-      const lastActiveMs = new Date(currentRun.lastUpdatedTime || currentRun.startTime || 0).getTime();
-      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-      if (isStale) {
-        console.warn(`[Scheduler Engine] Active scraper run (${currentRun.runId || 'unknown'}) is stale (>5m inactive). Auto-stopping to unblock scheduler.`);
-        stopActiveRun();
-      } else {
-        console.log(`[Scheduler Engine] Scraper engine currently active (${currentRun.runId || 'in-progress'}, ${currentRun.status}). Deferring scheduled source runs to next tick.`);
-        return { triggeredSources: [], summary: `Scraper engine busy with run ${currentRun.runId || 'in-progress'}` };
-      }
     }
 
     const sources = await ScraperRepository.getConfigs();
@@ -131,9 +99,6 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         console.log(`[Scheduler Engine] Source "${src.name}" (${src.id}) is due for scrape (Interval: ${src.interval || '24h'}).`);
         triggered.push(src.id);
 
-        let wasBusy = false;
-        let isDbUnavailable = false;
-
         try {
           const runResult = await executeScraperWithWizard({
             mode: 'since_last',
@@ -141,50 +106,11 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
             autoPublishTrusted: src.autoApprove && featureFlags.enableScraperAutoApprove
           });
 
-          const currentRunState = getActiveRunStatus();
-          if (currentRunState.status === 'Error' && isMongoTimeoutNotice(currentRunState.currentError || runResult.message)) {
-            isDbUnavailable = true;
-            console.warn(
-              `[Scheduler Engine] Database availability notice: Scrape for "${src.name}" aborted due to MongoDB timeout (${currentRunState.currentError || runResult.message}). Remote source portal is healthy.`
-            );
-          } else {
-            console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
-          }
+          console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
         } catch (srcErr: any) {
-          const errMsg = String(srcErr?.message || srcErr || '');
-          if (errMsg.includes('already in progress')) {
-            wasBusy = true;
-            console.log(`[Scheduler Engine] Source "${src.name}" tick deferred: Scraper run in progress. Retrying next tick.`);
-          } else if (isMongoTimeoutNotice(errMsg)) {
-            isDbUnavailable = true;
-            console.warn(
-              `[Scheduler Engine] Database availability notice: MongoDB timeout during scrape for "${src.name}": ${errMsg}. Remote source portal is healthy.`
-            );
-          } else {
-            const detail = errMsg.replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
-            console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${detail}`);
-          }
-        }
-
-        if (wasBusy) {
-          // If the engine became busy, defer this source to next tick (2 minutes) rather than skipping full interval
-          updatedSources[i] = {
-            ...updatedSources[i],
-            nextRunAt: new Date(Date.now() + 2 * 60 * 1000).toISOString()
-          };
-          hasUpdates = true;
-          break; // Stop evaluating further sources in this tick
-        }
-
-        if (isDbUnavailable) {
-          // Database is temporarily unavailable (Mongo timeout).
-          // Do not mark portal as failed; defer to next tick to allow MongoDB connectivity to recover.
-          updatedSources[i] = {
-            ...updatedSources[i],
-            nextRunAt: new Date(Date.now() + 2 * 60 * 1000).toISOString()
-          };
-          hasUpdates = true;
-          break; // Stop evaluating further sources in this tick
+          const detail = String(srcErr?.message || srcErr || 'offline')
+            .replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
+          console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${detail}`);
         }
 
         // Schedule next run
@@ -200,11 +126,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
     }
 
     if (hasUpdates) {
-      try {
-        await ScraperRepository.saveConfigs(updatedSources);
-      } catch (saveErr: any) {
-        console.warn('[Scheduler Engine] Notice saving scheduler state:', saveErr?.message || saveErr);
-      }
+      await ScraperRepository.saveConfigs(updatedSources);
     }
 
     return {

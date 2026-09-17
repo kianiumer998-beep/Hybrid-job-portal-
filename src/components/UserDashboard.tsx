@@ -24,8 +24,6 @@ interface UserDashboardProps {
   campaignConfig?: CampaignCustomizationConfig;
   jobPostingPricing?: JobPostingPricingConfig;
   onSubmitCampaign?: (ad: Advertisement, cost: number) => void;
-  onTopUpCampaignBudget?: (adId: string, additionalBudget: number) => void;
-  onUpdateCampaign?: (ad: Advertisement) => void;
   onDepositFunds?: (amount: number, paymentMethod: string) => void;
   onDeleteAd?: (adId: string) => void;
   onDuplicateAd?: (ad: Advertisement) => void;
@@ -57,8 +55,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   campaignConfig,
   jobPostingPricing = DEFAULT_JOB_POSTING_PRICING_CONFIG,
   onSubmitCampaign,
-  onTopUpCampaignBudget,
-  onUpdateCampaign,
   onDepositFunds,
   onDeleteAd,
   onDuplicateAd,
@@ -1803,16 +1799,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           onSubmitCampaign={(newAd, cost) => {
             if (onSubmitCampaign) {
               onSubmitCampaign(newAd, cost);
-            }
-          }}
-          onTopUpCampaignBudget={(adId, additionalBudget) => {
-            if (onTopUpCampaignBudget) {
-              onTopUpCampaignBudget(adId, additionalBudget);
-            }
-          }}
-          onUpdateCampaign={(ad) => {
-            if (onUpdateCampaign) {
-              onUpdateCampaign(ad);
             }
           }}
           onDepositWallet={(amount, paymentMethod) => {

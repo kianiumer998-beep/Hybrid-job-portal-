@@ -197,7 +197,7 @@ export async function resumeActiveRun(): Promise<ScraperRunSummary | boolean | n
   return true;
 }
 
-function createEmptySummary(runId: string, startTime: Date, message: string): ScraperRunSummary {
+function createEmptySummary(runId: string, startTime: Date, message: string, totalFailedSources: number = 0): ScraperRunSummary {
   const endTime = new Date();
   return {
     runId,
@@ -206,7 +206,7 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
     totalFound: 0,
     totalNew: 0,
     totalDuplicates: 0,
-    totalFailedSources: 0,
+    totalFailedSources,
     pagesAttempted: 0,
     pagesSuccessful: 0,
     jobsAccepted: 0,
@@ -302,8 +302,29 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   };
 
   try {
-    const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
-    const existingPendingJobs = await JobRepository.getPending();
+    let existingLiveJobs: any[] = [];
+    let existingPendingJobs: any[] = [];
+
+    try {
+      existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
+      existingPendingJobs = await JobRepository.getPending();
+    } catch (dbErr: any) {
+      const errMsg = dbErr?.message || String(dbErr);
+      console.warn(`[Scraper Engine] Database availability notice: MongoDB timeout or connection error reading initial jobs: ${errMsg}`);
+      activeRunState.status = 'Error';
+      activeRunState.currentError = `Database unavailable (MongoDB read timeout/error: ${errMsg})`;
+      activeRunState.failedSourcesCount = targets.length;
+      activeRunState.remainingSourcesCount = 0;
+      activeRunState.lastUpdatedTime = new Date().toISOString();
+
+      return createEmptySummary(
+        runId,
+        startTime,
+        `Scraper run aborted: Database unavailable due to MongoDB timeout (${errMsg}). Existing MongoDB data preserved.`,
+        targets.length
+      );
+    }
+
     const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
 
   const harvestedJobs: any[] = [];

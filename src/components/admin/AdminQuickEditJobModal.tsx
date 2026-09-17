@@ -29,19 +29,19 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       id: 'job-' + Date.now(),
       title: '',
       company: '',
-      jobType: undefined as any,
-      region: undefined as any,
-      province: undefined,
-      city: undefined,
-      salary: '',
-      currency: undefined as any,
-      experienceLevel: undefined as any,
-      department: '',
-      tags: [],
+      jobType: 'On-site',
+      region: 'Pakistan',
+      province: 'Punjab',
+      city: 'Lahore',
+      salary: 'PKR 80,000 - 120,000 / month',
+      currency: 'PKR',
+      experienceLevel: 'Mid',
+      department: 'General Operations',
+      tags: ['Urgent', 'Full-time'],
       description: '',
-      requirements: [],
-      benefits: [],
-      postedAt: '',
+      requirements: ['Relevant Bachelor degree', '2+ years experience'],
+      benefits: ['Medical coverage', 'Paid leaves'],
+      postedAt: new Date().toISOString().split('T')[0],
       applicationsCount: 0,
       status: 'Approved',
       featured: false,
@@ -351,7 +351,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.title || ''}
+                  value={formData.title}
                   onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-bold focus:border-amber-400 outline-none text-sm"
                 />
@@ -362,7 +362,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.company || ''}
+                  value={formData.company}
                   onChange={(e) => setFormData(p => ({ ...p, company: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 />
@@ -405,104 +405,13 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.salary || ''}
+                  value={formData.salary}
                   onChange={(e) => setFormData(p => ({ ...p, salary: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
                 />
               </div>
 
-              
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">Country</label>
-                <input
-                  type="text"
-                  value={formData.country || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, country: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Region</label>
-                <input
-                  type="text"
-                  value={formData.region || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, region: e.target.value as any }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">District</label>
-                <input
-                  type="text"
-                  value={formData.district || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, district: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Currency</label>
-                <input
-                  type="text"
-                  value={formData.currency || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, currency: e.target.value as any }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Experience Level</label>
-                <input
-                  type="text"
-                  value={formData.experienceLevel || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, experienceLevel: e.target.value as any }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Department</label>
-                <input
-                  type="text"
-                  value={formData.department || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, department: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Posted At</label>
-                <input
-                  type="date"
-                  value={formData.postedAt || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, postedAt: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="md:col-span-2 space-y-1">
-                <label className="font-bold text-slate-300">Requirements (one per line)</label>
-                <textarea
-                  rows={3}
-                  value={formData.requirements?.join('\n') || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, requirements: e.target.value.split('\n').filter(Boolean) }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="md:col-span-2 space-y-1">
-                <label className="font-bold text-slate-300">Responsibilities (one per line)</label>
-                <textarea
-                  rows={3}
-                  value={formData.responsibilities?.join('\n') || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, responsibilities: e.target.value.split('\n').filter(Boolean) }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="md:col-span-2 space-y-1">
-                <label className="font-bold text-slate-300">Benefits (one per line)</label>
-                <textarea
-                  rows={3}
-                  value={formData.benefits?.join('\n') || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, benefits: e.target.value.split('\n').filter(Boolean) }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-<div className="space-y-1">
                 <label className="font-bold text-slate-300">City / Location</label>
                 <input
                   type="text"
@@ -516,11 +425,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Province / Region</label>
                 <select
-                  value={formData.province || ''}
+                  value={formData.province || 'Punjab'}
                   onChange={(e) => setFormData(p => ({ ...p, province: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Province...</option>
                   {PAKISTAN_LOCATIONS.map(p => (
                     <option key={p.province} value={p.province}>{p.province}</option>
                   ))}
@@ -532,11 +440,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Job Type</label>
                 <select
-                  value={formData.jobType || ''}
+                  value={formData.jobType}
                   onChange={(e) => setFormData(p => ({ ...p, jobType: e.target.value as JobType }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Job Type...</option>
                   <option value="On-site">On-site</option>
                   <option value="Hybrid">Hybrid</option>
                   <option value="Remote">Remote</option>
@@ -594,7 +501,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <label className="font-bold text-slate-300">Job Description & Details</label>
                 <textarea
                   rows={4}
-                  value={formData.description || ""}
+                  value={formData.description}
                   onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-amber-400 outline-none leading-relaxed"
                 />

@@ -146,43 +146,65 @@ export class UserRepository {
    * while preserving existing profile, wallet, and history.
    */
   static async syncDemoAdminAsync(): Promise<void> {
-    if (!isMongoConfigured()) throw new Error("MongoDB must be configured in production");
+    if (!isMongoConfigured()) return;
 
-    const coll = await getUsersCollection();
-    const adminEmail = 'admin@jobportal.com';
-    const existing = await coll.findOne({ email: adminEmail });
+    try {
+      const coll = await getUsersCollection();
+      const adminEmail = 'admin@jobportal.com';
+      const existing = await coll.findOne({ email: adminEmail });
 
-    const adminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // sha256 of admin123
-    const adminSalt = 'dev-salt';
+      const adminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // sha256 of admin123
+      const adminSalt = 'dev-salt';
 
-    if (!existing) {
-      const canonicalAdmin = {
-        id: 'user-demo-admin-1',
-        name: 'Super Administrator',
-        email: adminEmail,
-        username: 'admin',
-        passwordHash: adminHash,
-        salt: adminSalt,
-        role: 'Super Admin',
-        permissions: ['all'],
-        plan: 'Premium',
-        walletBalance: 100000,
-        membershipStatus: 'Active',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      await coll.insertOne(canonicalAdmin);
-      console.log('[UserRepository] Canonical demo admin created in MongoDB.');
-    } else {
-      const updates = {
-        passwordHash: adminHash,
-        salt: adminSalt,
-        role: 'Super Admin',
-        permissions: ['all'],
-        updatedAt: new Date().toISOString()
-      };
-      await coll.updateOne({ email: adminEmail }, { $set: updates });
-      console.log('[UserRepository] Demo admin credentials synchronized in MongoDB.');
+      if (!existing) {
+        const canonicalAdmin = {
+          id: 'user-demo-admin-1',
+          name: 'Super Administrator',
+          email: adminEmail,
+          username: 'admin',
+          passwordHash: adminHash,
+          salt: adminSalt,
+          role: 'Super Admin',
+          permissions: ['all'],
+          plan: 'Premium',
+          walletBalance: 100000,
+          membershipStatus: 'Active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await coll.insertOne(canonicalAdmin);
+        console.log('[UserRepository] Canonical demo admin created in MongoDB.');
+      } else {
+        const updates: any = {
+          passwordHash: adminHash,
+          salt: adminSalt,
+          updatedAt: new Date().toISOString()
+        };
+
+        const adminRoles = [
+          'Super Admin',
+          'Admin',
+          'Job Moderator',
+          'Scraper Manager',
+          'Payment Manager',
+          'Finance Manager',
+          'SEO Manager',
+          'Advertisement Manager'
+        ];
+
+        if (!existing.role || !adminRoles.includes(existing.role)) {
+          updates.role = 'Super Admin';
+        }
+
+        if (!existing.permissions || !Array.isArray(existing.permissions) || existing.permissions.length === 0) {
+          updates.permissions = ['all'];
+        }
+
+        await coll.updateOne({ email: adminEmail }, { $set: updates });
+        console.log('[UserRepository] Demo admin credentials synchronized in MongoDB.');
+      }
+    } catch (err: any) {
+      console.warn('[UserRepository] Notice during admin sync in MongoDB:', err.message);
     }
   }
 }

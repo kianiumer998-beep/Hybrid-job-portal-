@@ -99,7 +99,13 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
       // Initialize nextRunAt if not set
       if (!nextRunMs || isNaN(nextRunMs)) {
-        nextRunMs = now;
+        nextRunMs = now + intervalMs;
+        updatedSources[i] = {
+          ...src,
+          nextRunAt: new Date(nextRunMs).toISOString()
+        };
+        hasUpdates = true;
+        continue;
       }
 
       // Check if source is due

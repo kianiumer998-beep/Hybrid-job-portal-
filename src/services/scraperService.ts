@@ -546,7 +546,10 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
           }
 
           const isRemote =
-            item.jobLocationType === 'TELECOMMUTE' || item.applicantLocationRequirements !== undefined;
+            item.jobLocationType === 'TELECOMMUTE' ||
+            item.applicantLocationRequirements !== undefined ||
+            title.toLowerCase().includes('remote') ||
+            description.toLowerCase().includes('remote');
 
           const jobType = isRemote ? 'Remote' : undefined;
 
@@ -623,7 +626,7 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
           if (!title || typeof title !== 'string') continue;
 
           const loc = item.city || item.location || '';
-          const isRemote = item.isRemote;
+          const isRemote = item.isRemote || (item.title || '').toLowerCase().includes('remote') || loc.toLowerCase().includes('remote');
 
           results.push({
             id: `next-${config.id}-${item.id || Date.now().toString(36)}`,
@@ -703,8 +706,9 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
         const snippet = (container.find('.description, .snippet, p').first().text().trim()) || '';
 
         const combined = `${rawTitle} ${location} ${snippet}`.toLowerCase();
-        
-        let jobType: 'Remote' | 'On-site' | 'Hybrid' | undefined = undefined;
+        const isRemote = combined.includes('remote') || combined.includes('work from home');
+        const isHybrid = combined.includes('hybrid');
+        const jobType = isRemote ? 'Remote' : isHybrid ? 'Hybrid' : undefined;
 
         let region: Region | undefined = undefined;
         if (location.toLowerCase().includes('pakistan')) {

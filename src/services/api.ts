@@ -27,7 +27,6 @@ export function getResolvedApiBase(): string {
   const isBrowser = typeof window !== 'undefined';
   const hostname = isBrowser ? window.location.hostname : '';
   const isVercel = Boolean(isBrowser && (hostname.endsWith('.vercel.app') || hostname.includes('vercel.app')));
-  const isRender = Boolean(isBrowser && (hostname.endsWith('.onrender.com') || hostname.includes('onrender.com')));
   const isLocal = Boolean(
     isBrowser &&
     (hostname === 'localhost' ||
@@ -38,8 +37,8 @@ export function getResolvedApiBase(): string {
      hostname.includes('localhost'))
   );
 
-  // 2. Production Vercel or Render deployment where frontend is hosted separately
-  if (isVercel || isRender) {
+  // 2. Production Vercel deployment where frontend is hosted statically on Vercel
+  if (isVercel) {
     const runtimeUrl = isBrowser ? (localStorage.getItem('hybrid_backend_api_url') || '') : '';
     if (runtimeUrl.trim()) {
       const stripped = runtimeUrl.trim().replace(/\/+$/, '').replace(/\/api\/?$/, '');

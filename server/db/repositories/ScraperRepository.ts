@@ -114,7 +114,7 @@ export class ScraperRepository {
         const coll = await getScraperSourcesCollection();
         const docs = await withMongoTimeout(
           coll.find({}, { projection: { _id: 0 } }).toArray(),
-          6000,
+          15000,
           'getConfigs'
         );
         if (docs && docs.length > 0) {
@@ -159,7 +159,7 @@ export class ScraperRepository {
                 healthStatus: clean.healthStatus || 'healthy'
               };
             });
-            await withMongoTimeout(coll.insertMany(cleanDocs), 6000, 'seedConfigs');
+            await withMongoTimeout(coll.insertMany(cleanDocs), 15000, 'seedConfigs');
             console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
             this.cachedSources = cleanDocs;
             return cleanDocs;
@@ -168,8 +168,7 @@ export class ScraperRepository {
           }
         }
       } catch (err: any) {
-        console.warn('[ScraperRepository] MongoDB error reading scraper_sources:', err?.message || err);
-        resetMongoClient(err);
+        console.warn('[ScraperRepository] Notice reading scraper_sources from MongoDB, serving cached sources:', err?.message || err);
       }
     }
 
@@ -189,11 +188,10 @@ export class ScraperRepository {
         for (const cfg of configs) {
           if (!cfg || !cfg.id) continue;
           const { _id, ...clean } = cfg;
-          await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 5000, 'saveConfig');
+          await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
         }
       } catch (err: any) {
-        console.warn('[ScraperRepository] MongoDB error saving scraper_sources:', err?.message || err);
-        resetMongoClient(err);
+        console.warn('[ScraperRepository] Notice saving scraper_sources to MongoDB:', err?.message || err);
       }
     }
   }
@@ -210,7 +208,7 @@ export class ScraperRepository {
             .sort({ startedAt: -1, timestamp: -1 })
             .limit(100)
             .toArray(),
-          6000,
+          15000,
           'getRuns'
         );
 
@@ -219,8 +217,7 @@ export class ScraperRepository {
           return runs;
         }
       } catch (err: any) {
-        console.warn('[ScraperRepository] MongoDB error reading scraper_runs:', err?.message || err);
-        resetMongoClient(err);
+        console.warn('[ScraperRepository] Notice reading scraper_runs from MongoDB, serving cached runs:', err?.message || err);
       }
     }
 
@@ -241,10 +238,9 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperRunsCollection();
-        await withMongoTimeout(coll.insertOne(clean), 6000, 'addRun');
+        await withMongoTimeout(coll.insertOne(clean), 10000, 'addRun');
       } catch (err: any) {
-        console.warn('[ScraperRepository] MongoDB error adding to scraper_runs:', err?.message || err);
-        resetMongoClient(err);
+        console.warn('[ScraperRepository] Notice adding to scraper_runs in MongoDB:', err?.message || err);
       }
     }
 
@@ -286,11 +282,10 @@ export class ScraperRepository {
         if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
 
         if (Object.keys(updateOps).length > 0) {
-          await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 5000, 'updateSourceStats');
+          await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
         }
       } catch (err: any) {
-        console.warn(`[ScraperRepository] MongoDB notice updating source stats for "${sourceId}":`, err?.message || err);
-        resetMongoClient(err);
+        console.warn(`[ScraperRepository] Notice updating source stats for "${sourceId}" in MongoDB:`, err?.message || err);
       }
     }
 
@@ -321,7 +316,11 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperGroupsCollection();
-        const docs = await coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray();
+        const docs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray(),
+          15000,
+          'getGroups'
+        );
         if (docs && docs.length > 0) {
           this.cachedGroups = docs as ScraperSourceGroup[];
           return docs as ScraperSourceGroup[];
@@ -330,13 +329,13 @@ export class ScraperRepository {
         // Auto-seed default groups if empty
         const defaults = getDefaultGroups();
         if (defaults.length > 0) {
-          await coll.insertMany(defaults);
+          await withMongoTimeout(coll.insertMany(defaults), 15000, 'seedGroups');
           console.log(`[ScraperRepository] Seeded ${defaults.length} default source groups into MongoDB.`);
           this.cachedGroups = defaults;
           return defaults;
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_groups:', err.message);
+        console.warn('[ScraperRepository] Notice reading scraper_groups from MongoDB, serving cached groups:', err?.message || err);
       }
     }
     return this.cachedGroups;

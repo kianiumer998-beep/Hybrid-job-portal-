@@ -20,33 +20,26 @@ export function isMongoConfigured(): boolean {
 }
 
 /**
- * Resets the cached Mongo client and connection pool.
- * Called automatically when network timeouts, broken sockets, or connection drops occur.
+ * Safe logging helper for MongoDB connection events.
+ * Does NOT forcibly close active MongoClient instances during server execution,
+ * allowing the official driver's automatic reconnection and socket-pool recovery to function.
  */
 export function resetMongoClient(err?: any): void {
   if (err) {
-    console.warn(`[MongoDB] Resetting connection pool due to network issue: ${err?.message || err}`);
+    console.warn(`[MongoDB] Connection notice: ${err?.message || err}`);
   }
-  if (cachedClient) {
-    try {
-      cachedClient.close(true).catch(() => {});
-    } catch {}
-  }
-  cachedClient = null;
-  cachedDb = null;
-  clientPromise = null;
 }
 
 /**
  * Safely executes a MongoDB promise with an enforced timeout to prevent network stalls.
+ * Does not destroy or close the shared connection pool if an individual query exceeds timeout.
  */
-export async function withMongoTimeout<T>(promise: Promise<T>, timeoutMs = 12000, label = 'Operation'): Promise<T> {
+export async function withMongoTimeout<T>(promise: Promise<T>, timeoutMs = 15000, label = 'Operation'): Promise<T> {
   let timer: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       const timeoutErr = new Error(`MongoDB ${label} timed out after ${timeoutMs}ms`);
       timeoutErr.name = 'MongoNetworkTimeoutError';
-      resetMongoClient(timeoutErr);
       reject(timeoutErr);
     }, timeoutMs);
   });
@@ -54,11 +47,6 @@ export async function withMongoTimeout<T>(promise: Promise<T>, timeoutMs = 12000
   try {
     const result = await Promise.race([promise, timeoutPromise]);
     return result;
-  } catch (err: any) {
-    if (err?.name === 'MongoNetworkTimeoutError' || err?.name === 'MongoNetworkError' || err?.message?.includes('timed out')) {
-      resetMongoClient(err);
-    }
-    throw err;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -72,25 +60,28 @@ export async function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
     const uri = getMongoUri();
     const client = new MongoClient(uri, {
-      maxPoolSize: 10,
-      minPoolSize: 0,
-      maxIdleTimeMS: 15000,
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 5000,
-      socketTimeoutMS: 12000,
+      maxPoolSize: 50,
+      minPoolSize: 2,
+      maxIdleTimeMS: 60000,
+      serverSelectionTimeoutMS: 15000,
+      connectTimeoutMS: 15000,
+      socketTimeoutMS: 30000,
       retryWrites: true,
       retryReads: true
     });
 
-    clientPromise = client.connect().then(async (connectedClient) => {
+    clientPromise = client.connect().then((connectedClient) => {
       cachedClient = connectedClient;
       cachedDb = connectedClient.db();
       console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
-      await initMongoIndexes(cachedDb);
+      // Initialize indexes in background without delaying queries
+      initMongoIndexes(cachedDb).catch((err) => {
+        console.warn('[MongoDB] Background index setup note:', err?.message || err);
+      });
       return connectedClient;
     }).catch((err) => {
-      resetMongoClient(err);
-      console.error('[MongoDB] Connection error:', err.message);
+      clientPromise = null;
+      console.error('[MongoDB] Initial connection error:', err?.message || err);
       throw err;
     });
   }
@@ -135,6 +126,7 @@ export async function getScraperGroupsCollection(): Promise<Collection<any>> {
 let indexesInitialized = false;
 async function initMongoIndexes(db: Db): Promise<void> {
   if (indexesInitialized) return;
+  indexesInitialized = true;
   try {
     const jobsColl = db.collection('jobs');
     const pendingColl = db.collection('pending_jobs');
@@ -142,25 +134,34 @@ async function initMongoIndexes(db: Db): Promise<void> {
     const scraperRunsColl = db.collection('scraper_runs');
     const scraperGroupsColl = db.collection('scraper_groups');
 
-    await Promise.all([
-      jobsColl.createIndex({ id: 1 }, { unique: true, background: true }),
-      jobsColl.createIndex({ slug: 1 }, { background: true }),
-      jobsColl.createIndex({ status: 1, createdAt: -1 }, { background: true }),
-      jobsColl.createIndex({ company: 1 }, { background: true }),
-      jobsColl.createIndex({ region: 1 }, { background: true }),
-      jobsColl.createIndex({ city: 1 }, { background: true }),
-      jobsColl.createIndex({ jobType: 1 }, { background: true }),
-      pendingColl.createIndex({ id: 1 }, { unique: true, background: true }),
-      pendingColl.createIndex({ status: 1, createdAt: -1 }, { background: true }),
-      pendingColl.createIndex({ createdAt: -1 }, { background: true }),
-      pendingColl.createIndex({ status: 1 }, { background: true }),
-      scraperSourcesColl.createIndex({ id: 1 }, { unique: true, background: true }),
-      scraperRunsColl.createIndex({ id: 1 }, { unique: true, background: true }),
-      scraperRunsColl.createIndex({ startedAt: -1 }, { background: true }),
-      scraperGroupsColl.createIndex({ id: 1 }, { unique: true, background: true })
-    ]);
-    indexesInitialized = true;
-    console.log('[MongoDB] Jobs, pending_jobs, scraper_sources, scraper_runs, and scraper_groups indexes ensured.');
+    await jobsColl.createIndexes([
+      { key: { id: 1 }, unique: true },
+      { key: { slug: 1 } },
+      { key: { status: 1, createdAt: -1 } },
+      { key: { company: 1 } },
+      { key: { region: 1 } },
+      { key: { city: 1 } },
+      { key: { jobType: 1 } }
+    ]).catch(e => console.warn('[MongoDB] Jobs indexes setup note:', e.message));
+
+    await pendingColl.createIndexes([
+      { key: { id: 1 }, unique: true },
+      { key: { status: 1, createdAt: -1 } },
+      { key: { createdAt: -1 } }
+    ]).catch(e => console.warn('[MongoDB] Pending jobs indexes setup note:', e.message));
+
+    await scraperSourcesColl.createIndex({ id: 1 }, { unique: true })
+      .catch(e => console.warn('[MongoDB] Scraper sources index note:', e.message));
+
+    await scraperRunsColl.createIndexes([
+      { key: { id: 1 }, unique: true },
+      { key: { startedAt: -1 } }
+    ]).catch(e => console.warn('[MongoDB] Scraper runs indexes note:', e.message));
+
+    await scraperGroupsColl.createIndex({ id: 1 }, { unique: true })
+      .catch(e => console.warn('[MongoDB] Scraper groups index note:', e.message));
+
+    console.log('[MongoDB] Collections indexes ensured.');
   } catch (err: any) {
     console.warn('[MongoDB] Index creation notice:', err.message);
   }

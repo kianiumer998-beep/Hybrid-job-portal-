@@ -1,5 +1,41 @@
 [
   {
+    "id": "log-1789649660421-37if",
+    "timestamp": "2026-09-17T12:54:20.421Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "User Login",
+    "target": "admin@jobportal.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789649656849-2ygn",
+    "timestamp": "2026-09-17T12:54:16.849Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "User Login",
+    "target": "admin@jobportal.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789648830366-bx1i",
+    "timestamp": "2026-09-17T12:40:30.366Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789648082759-0m4i",
+    "timestamp": "2026-09-17T12:28:02.759Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
     "id": "log-1789031040502-jj3c",
     "timestamp": "2026-09-10T09:04:00.502Z",
     "user": "Super Administrator",

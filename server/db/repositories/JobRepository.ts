@@ -3,8 +3,7 @@ import {
   getPendingJobsCollection,
   normalizeMongoJob,
   isMongoConfigured,
-  withMongoTimeout,
-  resetMongoClient
+  withMongoTimeout
 } from '../mongodb';
 import { Database } from '../database';
 import { generateJobSlug } from '../../utils/slugify';
@@ -214,13 +213,15 @@ export class JobRepository {
         }
 
         const mongoPromise = (async () => {
-          const total = await jobsColl.countDocuments(query);
           const cursor = jobsColl.find(query, { projection: { extractedText: 0 } }).sort(sort).skip(skip).limit(limit);
-          const rawDocs = await cursor.toArray();
+          const [total, rawDocs] = await Promise.all([
+            jobsColl.countDocuments(query),
+            cursor.toArray()
+          ]);
           return { total, rawDocs };
         })();
 
-        const { total, rawDocs } = await withMongoTimeout(mongoPromise, 8000, 'getAll');
+        const { total, rawDocs } = await withMongoTimeout(mongoPromise, 15000, 'getAll');
 
         const jobs = rawDocs.map((doc) => {
           const normalized = normalizeMongoJob(doc);
@@ -241,8 +242,7 @@ export class JobRepository {
 
         return { jobs, total, page, limit };
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error in getAll (${err?.message || err}). Serving from local fallback.`);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice reading jobs from MongoDB (${err?.message || err}). Serving from local fallback.`);
       }
     }
 
@@ -265,7 +265,7 @@ export class JobRepository {
     if (isMongoConfigured()) {
       try {
         const jobsColl = await getJobsCollection();
-        const doc = await withMongoTimeout(jobsColl.findOne({ id }), 5000, 'getById');
+        const doc = await withMongoTimeout(jobsColl.findOne({ id }), 10000, 'getById');
         if (doc) {
           const normalized = normalizeMongoJob(doc);
           const isExpired = checkJobExpired(normalized);
@@ -276,8 +276,7 @@ export class JobRepository {
           };
         }
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error in getById for ${id}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice reading job ${id} from MongoDB:`, err?.message || err);
       }
     }
 
@@ -291,7 +290,7 @@ export class JobRepository {
     if (isMongoConfigured()) {
       try {
         const jobsColl = await getJobsCollection();
-        const doc = await withMongoTimeout(jobsColl.findOne({ slug }), 5000, 'getBySlug');
+        const doc = await withMongoTimeout(jobsColl.findOne({ slug }), 10000, 'getBySlug');
         if (doc) {
           const normalized = normalizeMongoJob(doc);
           const isExpired = checkJobExpired(normalized);
@@ -302,8 +301,7 @@ export class JobRepository {
           };
         }
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error in getBySlug for ${slug}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice reading job slug ${slug} from MongoDB:`, err?.message || err);
       }
     }
 
@@ -338,10 +336,9 @@ export class JobRepository {
     if (isMongoConfigured()) {
       try {
         const jobsColl = await getJobsCollection();
-        await withMongoTimeout(jobsColl.updateOne({ id }, { $set: normalized }, { upsert: true }), 8000, 'create');
+        await withMongoTimeout(jobsColl.updateOne({ id }, { $set: normalized }, { upsert: true }), 15000, 'create');
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error creating job ${id}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice creating job ${id} in MongoDB:`, err?.message || err);
       }
     }
 
@@ -369,7 +366,7 @@ export class JobRepository {
 
         const updatedLive = await withMongoTimeout(
           jobsColl.findOneAndUpdate({ id }, { $set: safeUpdates }, { returnDocument: 'after' }),
-          8000,
+          15000,
           'update'
         );
 
@@ -379,7 +376,7 @@ export class JobRepository {
 
         const updatedPending = await withMongoTimeout(
           pendingColl.findOneAndUpdate({ id }, { $set: safeUpdates }, { returnDocument: 'after' }),
-          8000,
+          15000,
           'updatePending'
         );
 
@@ -387,8 +384,7 @@ export class JobRepository {
           return normalizeMongoJob(updatedPending);
         }
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error updating job ${id}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice updating job ${id} in MongoDB:`, err?.message || err);
       }
     }
 
@@ -411,14 +407,13 @@ export class JobRepository {
 
         const [delLive, delPending] = await withMongoTimeout(
           Promise.all([jobsColl.deleteOne({ id }), pendingColl.deleteOne({ id })]),
-          8000,
+          15000,
           'delete'
         );
 
         return (delLive.deletedCount || 0) > 0 || (delPending.deletedCount || 0) > 0 || localDeleted;
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error deleting job ${id}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice deleting job ${id} from MongoDB:`, err?.message || err);
       }
     }
 
@@ -473,7 +468,7 @@ export class JobRepository {
           });
 
         if (operations.length > 0) {
-          const res = await withMongoTimeout(coll.bulkWrite(operations, { ordered: false }), 12000, 'createBatch');
+          const res = await withMongoTimeout(coll.bulkWrite(operations, { ordered: false }), 20000, 'createBatch');
           const total = await coll.countDocuments();
           return {
             inserted: res.upsertedCount || 0,
@@ -482,8 +477,7 @@ export class JobRepository {
           };
         }
       } catch (err: any) {
-        console.warn('[JobRepository] MongoDB error in createBatch:', err?.message);
-        resetMongoClient(err);
+        console.warn('[JobRepository] Notice in createBatch for MongoDB:', err?.message || err);
       }
     }
 
@@ -533,14 +527,13 @@ export class JobRepository {
             jobsColl.deleteMany({ id: { $in: ids } }),
             pendingColl.deleteMany({ id: { $in: ids } })
           ]),
-          8000,
+          15000,
           'bulkDelete'
         );
 
         return (resLive.deletedCount || 0) + (resPending.deletedCount || 0);
       } catch (err: any) {
-        console.warn('[JobRepository] MongoDB error in bulkDelete:', err?.message);
-        resetMongoClient(err);
+        console.warn('[JobRepository] Notice in bulkDelete for MongoDB:', err?.message || err);
       }
     }
 
@@ -601,7 +594,7 @@ export class JobRepository {
           .limit(limit)
           .toArray();
 
-        const docs = await withMongoTimeout(mongoPromise, 8000, 'getPending');
+        const docs = await withMongoTimeout(mongoPromise, 15000, 'getPending');
         const results = docs.map(normalizeMongoJob);
 
         // Keep local pending backup fresh in background
@@ -613,8 +606,7 @@ export class JobRepository {
 
         return results;
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error in getPending (${err?.message || err}). Serving local fallback.`);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice reading pending jobs from MongoDB (${err?.message || err}). Serving local fallback.`);
       }
     }
 
@@ -663,12 +655,11 @@ export class JobRepository {
         const pendingColl = await getPendingJobsCollection();
         await withMongoTimeout(
           pendingColl.updateOne({ id }, { $set: newPending }, { upsert: true }),
-          8000,
+          15000,
           'addPending'
         );
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error adding pending job ${id}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice adding pending job ${id} to MongoDB:`, err?.message || err);
       }
     }
 
@@ -696,7 +687,7 @@ export class JobRepository {
         const pendingColl = await getPendingJobsCollection();
         const jobsColl = await getJobsCollection();
 
-        const pendingDoc = await withMongoTimeout(pendingColl.findOneAndDelete({ id }), 8000, 'approvePendingFind');
+        const pendingDoc = await withMongoTimeout(pendingColl.findOneAndDelete({ id }), 15000, 'approvePendingFind');
         if (!pendingDoc) {
           const existing = await jobsColl.findOne({ id });
           if (existing) {
@@ -717,11 +708,10 @@ export class JobRepository {
           updatedAt: new Date().toISOString()
         });
 
-        await withMongoTimeout(jobsColl.updateOne({ id }, { $set: approvedJob }, { upsert: true }), 8000, 'approvePendingInsert');
+        await withMongoTimeout(jobsColl.updateOne({ id }, { $set: approvedJob }, { upsert: true }), 15000, 'approvePendingInsert');
         return approvedJob;
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error approving pending job ${id}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice approving pending job ${id} in MongoDB:`, err?.message || err);
       }
     }
 
@@ -752,13 +742,12 @@ export class JobRepository {
               }
             }
           ),
-          8000,
+          15000,
           'rejectPending'
         );
         return res.matchedCount > 0 || localRejected;
       } catch (err: any) {
-        console.warn(`[JobRepository] MongoDB error rejecting pending job ${id}:`, err?.message);
-        resetMongoClient(err);
+        console.warn(`[JobRepository] Notice rejecting pending job ${id} in MongoDB:`, err?.message || err);
       }
     }
 
@@ -846,15 +835,15 @@ export class JobRepository {
         if (isMongoConfigured()) {
           try {
             const pendingColl = await getPendingJobsCollection();
-            const doc = await withMongoTimeout(pendingColl.findOne({ id }), 5000, 'findDuplicate');
+            const doc = await withMongoTimeout(pendingColl.findOne({ id }), 10000, 'findDuplicate');
             if (doc) {
-              const res = await withMongoTimeout(pendingColl.deleteOne({ id }), 5000, 'deleteDuplicate');
+              const res = await withMongoTimeout(pendingColl.deleteOne({ id }), 10000, 'deleteDuplicate');
               if (res.deletedCount && res.deletedCount > 0) {
                 deleted = true;
               }
             }
           } catch (mErr: any) {
-            resetMongoClient(mErr);
+            console.warn(`[JobRepository] Notice deleting duplicate ${id} in MongoDB:`, mErr?.message || mErr);
           }
         }
 
@@ -910,9 +899,9 @@ export class JobRepository {
         if (isMongoConfigured()) {
           try {
             const pendingColl = await getPendingJobsCollection();
-            dupDoc = await withMongoTimeout(pendingColl.findOne({ id: dupId }), 5000, 'findDupDoc');
+            dupDoc = await withMongoTimeout(pendingColl.findOne({ id: dupId }), 10000, 'findDupDoc');
           } catch (mErr: any) {
-            resetMongoClient(mErr);
+            console.warn(`[JobRepository] Notice reading duplicate ${dupId} in MongoDB:`, mErr?.message || mErr);
           }
         }
 

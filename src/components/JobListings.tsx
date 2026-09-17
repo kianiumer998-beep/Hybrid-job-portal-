@@ -27,27 +27,6 @@ import { Advertisement, FeedInlineAdSettings } from '../types/ad';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
-function getCustomPatternMatch(positionNumber: number, pattern?: { jobsInterval: number; adCount: number }[]) {
-  if (!pattern || pattern.length === 0) return { matches: false, adCount: 1 };
-  
-  // Calculate total pattern interval sum
-  const totalCycleJobs = pattern.reduce((sum, p) => sum + Math.max(1, p.jobsInterval || 1), 0);
-  if (totalCycleJobs <= 0) return { matches: false, adCount: 1 };
-
-  // Determine relative position in the repeating cycle
-  let cyclePos = positionNumber % totalCycleJobs;
-  if (cyclePos === 0) cyclePos = totalCycleJobs;
-
-  let cumulative = 0;
-  for (const entry of pattern) {
-    cumulative += Math.max(1, entry.jobsInterval || 1);
-    if (cyclePos === cumulative || positionNumber === cumulative) {
-      return { matches: true, adCount: Math.max(1, entry.adCount || 1) };
-    }
-  }
-  return { matches: false, adCount: 1 };
-}
-
 interface JobListingsProps {
   jobs: Job[];
   savedJobIds: string[];
@@ -57,7 +36,6 @@ interface JobListingsProps {
   isSubscribed: boolean;
   currentPage?: number;
   postsPerPage?: number;
-  postsPerPageOptions?: number[];
   onPageChange?: (page: number) => void;
   onPostsPerPageChange?: (postsPerPage: number) => void;
   ads?: Advertisement[];
@@ -75,7 +53,6 @@ export const JobListings: React.FC<JobListingsProps> = ({
   isSubscribed,
   currentPage: controlledPage,
   postsPerPage: controlledPostsPerPage,
-  postsPerPageOptions = [10, 15, 20, 25, 50],
   onPageChange,
   onPostsPerPageChange,
   ads = [],
@@ -173,54 +150,26 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
   return (
     <div className="space-y-6 mb-12">
-      {/* Top Header Summary & Navigation / Posts Per Page Selector */}
+      {/* Top Header Summary & Posts Per Page Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-900/60 border border-slate-800/80 rounded-2xl px-5 py-3.5 shadow-md">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-300">
-          <div className="flex items-center space-x-1.5">
-            <Layers className="w-4 h-4 text-emerald-400" />
-            <span>
-              Showing <strong className="text-white font-bold">{startIndex + 1}–{endIndex}</strong> of{' '}
-              <strong className="text-emerald-400 font-bold">{totalJobs}</strong> jobs
-            </span>
-          </div>
-          <span className="text-slate-600 hidden sm:inline">•</span>
+        <div className="flex items-center space-x-2 text-xs text-slate-300">
+          <Layers className="w-4 h-4 text-emerald-400" />
+          <span>
+            Showing <strong className="text-white font-bold">{startIndex + 1}–{endIndex}</strong> of{' '}
+            <strong className="text-emerald-400 font-bold">{totalJobs}</strong> jobs
+          </span>
+          <span className="text-slate-600">•</span>
           <span className="text-slate-400">
             Page <strong className="text-slate-200">{safePage}</strong> of{' '}
             <strong className="text-slate-200">{totalPages}</strong>
           </span>
-
-          {/* Top Pagination Navigation Buttons */}
-          {totalPages > 1 && (
-            <div className="flex items-center space-x-1 sm:ml-2">
-              <button
-                type="button"
-                onClick={() => handlePageSelect(safePage - 1)}
-                disabled={safePage === 1}
-                className="px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold flex items-center space-x-0.5 cursor-pointer transition-all"
-                title="Previous Page"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Prev</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePageSelect(safePage + 1)}
-                disabled={safePage === totalPages}
-                className="px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold flex items-center space-x-0.5 cursor-pointer transition-all"
-                title="Next Page"
-              >
-                <span className="hidden sm:inline">Next</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Posts per page options */}
+        {/* Posts per page filter options: 10, 15, 20 */}
         <div className="flex items-center space-x-2 self-start sm:self-auto">
           <span className="text-xs font-semibold text-slate-400">Posts per page:</span>
           <div className="inline-flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-            {postsPerPageOptions.map((count) => {
+            {[10, 15, 20].map((count) => {
               const isActive = postsPerPage === count;
               return (
                 <button
@@ -244,67 +193,53 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
       {/* Main Job Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-6">
-        {(() => {
-          let renderedAdsCount = 0;
-          return currentJobs.map((job, index) => {
-            const isSaved = savedJobIds.includes(job.id);
-            const cleanTitle = sanitizeJobTitle(job.title);
-            const cleanCompany = sanitizeJobCompanyName(job.company);
-            const cleanTags = sanitizeJobTags(job.tags);
+        {currentJobs.map((job, index) => {
+          const isSaved = savedJobIds.includes(job.id);
+          const cleanTitle = sanitizeJobTitle(job.title);
+          const cleanCompany = sanitizeJobCompanyName(job.company);
+          const cleanTags = sanitizeJobTags(job.tags);
 
-            // Find candidate inline ad
-            const activeFeedAds = ads.filter(
-              (a) =>
-                a.status === 'active' &&
-                ((a.placement as string) === 'feed-inline' || (a.type === 'banner' && (a.placement as string) === 'feed-inline')) &&
-                (a.targetPages.includes('all') || a.targetPages.includes('jobs'))
-            );
+          // Find candidate inline ad
+          const activeFeedAds = ads.filter(
+            (a) =>
+              a.status === 'active' &&
+              ((a.placement as string) === 'feed-inline' || (a.type === 'banner' && (a.placement as string) === 'feed-inline')) &&
+              (a.targetPages.includes('all') || a.targetPages.includes('jobs'))
+          );
 
-            let shouldInsertAd = false;
-            let adsToInsertCount = 1;
-            const maxAdsPerPage = feedInlineSettings?.maxAdsPerPage ?? 3;
+          let shouldInsertAd = false;
+          const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
 
-            if (activeFeedAds.length > 0 && renderedAdsCount < maxAdsPerPage) {
-              const positionNumber = index + 1; // 1-based index (e.g. 2nd job is position 2)
+          if (activeFeedAds.length > 0) {
+            const positionNumber = index + 1; // 1-based index (e.g. 2nd job is position 2)
 
-              if (feedInlineSettings?.insertionMode === 'cadence') {
-                const cadence = feedInlineSettings.repeatEveryNJobs || 3;
-                shouldInsertAd = positionNumber % cadence === 0;
-                adsToInsertCount = 1;
-              } else if (feedInlineSettings?.insertionMode === 'custom_pattern') {
-                const match = getCustomPatternMatch(positionNumber, feedInlineSettings.customPattern);
-                shouldInsertAd = match.matches;
-                adsToInsertCount = match.adCount;
-              } else {
-                // Custom indices (e.g. [2, 5, 8])
-                const targetIndices =
-                  safePage === 1 &&
-                  feedInlineSettings?.page1SpecificIndices &&
-                  feedInlineSettings.page1SpecificIndices.length > 0
-                    ? feedInlineSettings.page1SpecificIndices
-                    : feedInlineSettings?.customIndices || [2, 5, 8];
+            if (feedInlineSettings?.insertionMode === 'cadence') {
+              const cadence = feedInlineSettings.repeatEveryNJobs || 3;
+              shouldInsertAd = positionNumber % cadence === 0;
+            } else {
+              // Custom indices (e.g. [2, 5, 8])
+              const targetIndices =
+                safePage === 1 &&
+                feedInlineSettings?.page1SpecificIndices &&
+                feedInlineSettings.page1SpecificIndices.length > 0
+                  ? feedInlineSettings.page1SpecificIndices
+                  : feedInlineSettings?.customIndices || [2, 5, 8];
 
-                shouldInsertAd = targetIndices.includes(positionNumber);
-                adsToInsertCount = 1;
-              }
+              shouldInsertAd = targetIndices.includes(positionNumber);
             }
+          }
 
-            // Compute ads to display if any
-            const adsToRender: Advertisement[] = [];
-            if (shouldInsertAd && activeFeedAds.length > 0 && renderedAdsCount < maxAdsPerPage) {
-              const remaining = maxAdsPerPage - renderedAdsCount;
-              const allowedCount = Math.min(adsToInsertCount, remaining);
-              for (let k = 0; k < allowedCount; k++) {
-                const adIdx = (renderedAdsCount + k) % activeFeedAds.length;
-                adsToRender.push(activeFeedAds[adIdx] || activeFeedAds[0]);
-              }
-              renderedAdsCount += allowedCount;
-            }
+          // Compute which ad to display if any
+          let feedAdToRender: Advertisement | null = null;
+          if (shouldInsertAd && activeFeedAds.length > 0) {
+            const adIndex = Math.floor(index / (feedInlineSettings?.repeatEveryNJobs || 3)) % activeFeedAds.length;
+            feedAdToRender = activeFeedAds[adIndex] || activeFeedAds[0];
+          }
 
-            const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';
+          const isTopPriority = job.isPinnedTop || job.priorityTier === 'vip_bundle' || job.priorityTier === 'featured_top';
 
-            return (
-              <React.Fragment key={job.id ? `${job.id}-${index}` : `job-${index}`}>
+          return (
+            <React.Fragment key={job.id ? `${job.id}-${index}` : `job-${index}`}>
               <div
                 className={`group relative rounded-xl sm:rounded-2xl p-2.5 sm:p-5 shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${
                   isTopPriority
@@ -547,30 +482,48 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
             </div>
 
-            {/* Inline Sponsored Feed Ads if matched */}
-            {adsToRender.map((ad, adIdx) => (
+            {/* Inline Sponsored Feed Ad if matched */}
+            {feedAdToRender && (
               <InlineFeedAd
-                key={`inline-ad-${index}-${ad.id || adIdx}`}
-                ad={ad}
+                ad={feedAdToRender}
                 onAdClick={onAdClick || (() => {})}
                 onNavigateTab={onNavigateTab}
               />
-            ))}
+            )}
           </React.Fragment>
           );
-        });
-      })()}
+        })}
       </div>
 
       {/* BOTTOM PAGINATION CONTROLS BAR */}
       {totalPages > 1 && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
           
-          {/* Left: Summary */}
+          {/* Left: Summary and Posts-Per-Page Selector */}
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
             <div>
               Showing <span className="font-bold text-white">{startIndex + 1}–{endIndex}</span> of{' '}
               <span className="font-bold text-emerald-400">{totalJobs}</span> total jobs
+            </div>
+            
+            <div className="hidden sm:flex items-center space-x-1.5 pl-3 border-l border-slate-800">
+              <span>Per page:</span>
+              <div className="inline-flex bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+                {[10, 15, 20].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    onClick={() => handlePostsPerPageSelect(count)}
+                    className={`px-2 py-0.5 text-xs font-bold rounded ${
+                      postsPerPage === count
+                        ? 'bg-emerald-500 text-slate-950'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

@@ -5,5 +5,3 @@ export * from './PaymentRepository';
 export * from './PricingRepository';
 export * from './ScraperRepository';
 export * from './AuditRepository';
-export * from './NotificationRepository';
-

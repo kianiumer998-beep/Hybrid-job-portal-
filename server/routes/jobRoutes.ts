@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdmin } from '../auth/authManager';
-import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
+import { JobRepository, AuditRepository } from '../db/repositories';
 
 export const jobRouter = Router();
 
@@ -67,24 +67,6 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
 // 3. Approve Pending Job
 jobRouter.post('/queue/pending/:id/approve', requireAdmin, async (req, res) => {
   try {
-    const { force } = req.body || {};
-    const pendingList = await JobRepository.getPending();
-    const targetJob = pendingList.find(j => j.id === req.params.id);
-
-    if (targetJob && !force) {
-      const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
-      const otherPending = pendingList.filter(j => j.id !== req.params.id);
-      const dupCheck = detectJobDuplicate(targetJob, liveJobs, otherPending);
-      if (dupCheck.isDuplicate && dupCheck.confidence >= 80) {
-        return res.status(409).json({
-          success: false,
-          isDuplicate: true,
-          duplicateResult: dupCheck,
-          message: `Approval blocked: Detected as duplicate of "${dupCheck.matchedExistingJob?.title || 'existing listing'}" (${dupCheck.confidence}% match). Pass force: true to override.`
-        });
-      }
-    }
-
     const approved = await JobRepository.approvePending(req.params.id);
     if (!approved) {
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
@@ -149,52 +131,25 @@ jobRouter.post('/bulk-delete', requireAdmin, async (req, res) => {
 // 6. Bulk Approve Pending Jobs
 jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
   try {
-    const { ids, force = false } = req.body;
+    const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Array of job IDs is required.' });
     }
-
-    let idsToApprove = ids;
-    let duplicateWarnings: any[] = [];
-
-    if (!force) {
-      const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
-      const allPending = await JobRepository.getPending();
-      const validIds: string[] = [];
-
-      for (const id of ids) {
-        const pendingJob = allPending.find(j => j.id === id);
-        if (pendingJob) {
-          const otherPending = allPending.filter(j => j.id !== id);
-          const dup = detectJobDuplicate(pendingJob, liveJobs, otherPending);
-          if (dup.isDuplicate && dup.confidence >= 80) {
-            duplicateWarnings.push({ id, title: pendingJob.title, match: dup });
-            continue;
-          }
-        }
-        validIds.push(id);
-      }
-      idsToApprove = validIds;
-    }
-
-    const result = await JobRepository.bulkApprovePending(idsToApprove);
+    const result = await JobRepository.bulkApprovePending(ids);
     AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Approved',
-      target: `${result.successCount} jobs approved (${result.failureCount} failed, ${duplicateWarnings.length} duplicates skipped)`,
+      target: `${result.successCount} jobs approved (${result.failureCount} failed)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
     });
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
-      skippedDuplicatesCount: duplicateWarnings.length,
-      duplicateWarnings,
       errors: result.errors,
       approvedCount: result.successCount,
-      approvedJobs: result.approvedJobs,
-      message: `${result.successCount} jobs approved.${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}`
+      approvedJobs: result.approvedJobs
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-approve:', err);
@@ -614,19 +569,6 @@ jobRouter.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Job title and company name are required.' });
     }
 
-    const user = (req as any).user;
-    const authUserId = user?.userId || user?.id;
-    if (authUserId) {
-      const restriction = await NotificationRepository.checkUserRestricted(authUserId, 'post_job');
-      if (restriction.restricted) {
-        return res.status(403).json({
-          success: false,
-          message: restriction.reason || 'You are restricted from posting jobs due to an incomplete mandatory requirement.',
-          notification: restriction.notification
-        });
-      }
-    }
-
     const newJob: any = {
       ...jobData,
       slug: generateJobSlug(jobData.title, jobData.city, jobData.id),
@@ -634,6 +576,7 @@ jobRouter.post('/', async (req, res) => {
       applicationsCount: 0
     };
 
+    const user = (req as any).user;
     const canCreateApproved = Boolean(
       user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role)
     );
@@ -717,90 +660,3 @@ jobRouter.delete('/:id', requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error deleting job' });
   }
 });
-
-// 19. Restore Expired Job to Live (Admin Only) - Preserves original deadlineDate
-jobRouter.post('/restore-expired/:id', requireAdmin, async (req, res) => {
-  try {
-    const restored = await JobRepository.restoreJobToLive(req.params.id);
-    if (!restored) {
-      return res.status(404).json({ success: false, message: 'Job not found.' });
-    }
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
-      action: 'Expired Job Restored to Live',
-      target: `${restored.title} (${restored.id})`,
-      status: 'Success'
-    });
-    res.json({ success: true, job: restored, message: 'Job restored to live status successfully. Original deadline preserved.' });
-  } catch (err: any) {
-    console.error('Error in POST /api/jobs/restore-expired/:id:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error restoring expired job' });
-  }
-});
-
-// 20. Bulk Restore Expired Jobs to Live (Admin Only) - Preserves original deadlineDate
-jobRouter.post('/bulk-restore-expired', requireAdmin, async (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ success: false, message: 'Array of job IDs required' });
-    }
-    const count = await JobRepository.bulkRestoreJobs(ids);
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
-      action: 'Bulk Expired Jobs Restored to Live',
-      target: `${count} Jobs`,
-      status: 'Success'
-    });
-    res.json({ success: true, count, message: `${count} expired jobs restored to live successfully.` });
-  } catch (err: any) {
-    console.error('Error in POST /api/jobs/bulk-restore-expired:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error bulk restoring expired jobs' });
-  }
-});
-
-// 21. Permanently Delete Job (Admin Only)
-jobRouter.delete('/permanent/:id', requireAdmin, async (req, res) => {
-  try {
-    const deleted = await JobRepository.deleteJobPermanently(req.params.id);
-    if (!deleted) {
-      return res.status(404).json({ success: false, message: 'Job not found in live or pending queues.' });
-    }
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
-      action: 'Job Permanently Deleted',
-      target: `Job ID ${req.params.id}`,
-      status: 'Success'
-    });
-    res.json({ success: true, message: 'Job permanently deleted from system.' });
-  } catch (err: any) {
-    console.error('Error in DELETE /api/jobs/permanent/:id:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error deleting job permanently' });
-  }
-});
-
-// 22. Bulk Update Job Locations (Admin Only)
-jobRouter.post('/bulk-update-location', requireAdmin, async (req, res) => {
-  try {
-    const { jobIds, locationData } = req.body;
-    if (!Array.isArray(jobIds) || jobIds.length === 0) {
-      return res.status(400).json({ success: false, message: 'Array of job IDs required' });
-    }
-    const result = await JobRepository.bulkUpdateLocation(jobIds, locationData || {});
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
-      action: 'Bulk Job Location Updated',
-      target: `${result.successCount} Jobs`,
-      status: 'Success'
-    });
-    res.json({ success: true, ...result, message: `Updated location for ${result.successCount} jobs.` });
-  } catch (err: any) {
-    console.error('Error in POST /api/jobs/bulk-update-location:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error bulk updating job location' });
-  }
-});
-

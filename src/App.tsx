@@ -48,23 +48,18 @@ import {
 import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X, Layers, Globe, MapPin, Zap } from 'lucide-react';
 import { SiteSeoConfig } from './types/adminSuite';
 import { INITIAL_SITE_SEO_CONFIG } from './data/mockAdminSuiteData';
-import { LandingPageConfig, 
+import { 
+  LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
   CountryOption, 
   SUPPORTED_COUNTRIES 
 } from './types/landing';
 import { safeLocalStorageSet, safeLocalStorageGet } from './utils/safeStorage';
-import { NotificationCenterModal } from './components/notifications/NotificationCenterModal';
-import { NotificationPopupModal } from './components/notifications/NotificationPopupModal';
-import { MandatoryActionModal } from './components/notifications/MandatoryActionModal';
-import { NotificationItem } from './types/notification';
 
 export default function App() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
-  const [showAdminView, setShowAdminView] = useState<boolean>(() => {
-    return safeLocalStorageGet<string>('hybrid_admin_view_active', 'false') === 'true';
-  });
+  const [showAdminView, setShowAdminView] = useState<boolean>(false);
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
   // User Country Selection State (Pop-up on entry if not set)
@@ -141,54 +136,7 @@ export default function App() {
   // Campaign Customization & Portal Page Scheduling State
   const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(() => {
     const saved = localStorage.getItem('hybrid_campaign_customization_config');
-    if (!saved) return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
-    try {
-      const parsed = JSON.parse(saved);
-      return {
-        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
-        ...parsed,
-        placementOptions: Array.isArray(parsed.placementOptions) && parsed.placementOptions.length > 0
-          ? parsed.placementOptions
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
-        portalPages: Array.isArray(parsed.portalPages) && parsed.portalPages.length > 0
-          ? parsed.portalPages
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
-        durationPresets: Array.isArray(parsed.durationPresets) && parsed.durationPresets.length > 0
-          ? parsed.durationPresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
-        badgePresets: Array.isArray(parsed.badgePresets) && parsed.badgePresets.length > 0
-          ? parsed.badgePresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.badgePresets,
-        ctaPresets: Array.isArray(parsed.ctaPresets) && parsed.ctaPresets.length > 0
-          ? parsed.ctaPresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.ctaPresets,
-        promoBanners: Array.isArray(parsed.promoBanners) && parsed.promoBanners.length > 0
-          ? parsed.promoBanners
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
-        popupSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
-          ...(parsed.popupSettings || {})
-        },
-        feedInlineSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
-          ...(parsed.feedInlineSettings || {})
-        },
-        formRules: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.formRules,
-          ...(parsed.formRules || {})
-        },
-        jobPostingFeeSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings,
-          ...(parsed.jobPostingFeeSettings || {})
-        },
-        jobFeedSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobFeedSettings,
-          ...(parsed.jobFeedSettings || {})
-        }
-      };
-    } catch {
-      return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
-    }
+    return saved ? JSON.parse(saved) : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
   });
 
   useEffect(() => {
@@ -367,9 +315,16 @@ export default function App() {
   const [whatsAppSupportConfig, setWhatsAppSupportConfig] = useState<WhatsAppSupportConfig>(() => {
     try {
       const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return { ...DEFAULT_WHATSAPP_CONFIG, ...JSON.parse(saved) };
+      if (saved) return JSON.parse(saved);
     } catch (e) {}
-    return DEFAULT_WHATSAPP_CONFIG;
+    return {
+      phoneNumber: '923001234567',
+      agentName: 'Ayesha (Lead Career Advisor)',
+      defaultMessage: 'Hello! I need assistance with job applications on CareerPak...',
+      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
+      enabled: true,
+      position: 'bottom-right'
+    };
   });
 
   useEffect(() => {
@@ -495,214 +450,13 @@ export default function App() {
     }).catch(() => {});
 
     api.settings.getCampaigns().then(res => {
-      if (res?.success && res.config) {
-        const feedSettings = res.config.jobFeedSettings;
-        if (feedSettings && typeof feedSettings.defaultPostsPerPage === 'number' && feedSettings.defaultPostsPerPage > 0) {
-          const rawOptions = feedSettings.postsPerPageOptions;
-          const validOptions = Array.isArray(rawOptions) && rawOptions.length > 0
-            ? rawOptions.filter((n: any) => typeof n === 'number' && n > 0)
-            : [10, 15, 20, 25, 50];
-          
-          if (validOptions.includes(feedSettings.defaultPostsPerPage)) {
-            setPostsPerPage(feedSettings.defaultPostsPerPage);
-          }
-        }
-
-        setCampaignConfig(prev => ({
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
-          ...res.config,
-          jobFeedSettings: {
-            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobFeedSettings,
-            ...(res.config.jobFeedSettings || {})
-          },
-          placementOptions: Array.isArray(res.config.placementOptions) && res.config.placementOptions.length > 0
-            ? res.config.placementOptions
-            : (prev?.placementOptions || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions),
-          portalPages: Array.isArray(res.config.portalPages) && res.config.portalPages.length > 0
-            ? res.config.portalPages
-            : (prev?.portalPages || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages),
-          durationPresets: Array.isArray(res.config.durationPresets) && res.config.durationPresets.length > 0
-            ? res.config.durationPresets
-            : (prev?.durationPresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets),
-          badgePresets: Array.isArray(res.config.badgePresets) && res.config.badgePresets.length > 0
-            ? res.config.badgePresets
-            : (prev?.badgePresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.badgePresets),
-          ctaPresets: Array.isArray(res.config.ctaPresets) && res.config.ctaPresets.length > 0
-            ? res.config.ctaPresets
-            : (prev?.ctaPresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.ctaPresets),
-          promoBanners: Array.isArray(res.config.promoBanners) && res.config.promoBanners.length > 0
-            ? res.config.promoBanners
-            : (prev?.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners)
-        }));
-      }
+      if (res?.success && res.config) setCampaignConfig(res.config);
     }).catch(() => {});
 
     api.settings.getWhatsApp().then(res => {
-      if (res?.success && res.config) {
-        setWhatsAppSupportConfig(prev => ({
-          ...DEFAULT_WHATSAPP_CONFIG,
-          ...prev,
-          ...res.config
-        }));
-      }
+      if (res?.success && res.config) setWhatsAppSupportConfig(res.config);
     }).catch(() => {});
   }, [loadBackendJobs]);
-
-  // Validate existing admin authentication / session on app startup & restore admin view if valid
-  useEffect(() => {
-    const token = localStorage.getItem('hybrid_auth_token');
-    const wasAdminViewActive = safeLocalStorageGet<string>('hybrid_admin_view_active', 'false') === 'true';
-
-    if (!token) {
-      setIsAdminLoggedIn(false);
-      setShowAdminView(false);
-      safeLocalStorageSet('hybrid_admin_view_active', 'false');
-      return;
-    }
-
-    api.auth.me().then((res) => {
-      const adminRoles = [
-        'super admin',
-        'admin',
-        'job moderator',
-        'scraper manager',
-        'payment manager',
-        'finance manager',
-        'seo manager',
-        'advertisement manager'
-      ];
-      const userRole = res?.user?.role ? res.user.role.toLowerCase() : '';
-      const isAdmin = res?.success && res?.user && (adminRoles.includes(userRole) || userRole.includes('admin'));
-
-      if (isAdmin) {
-        setIsAdminLoggedIn(true);
-        if (wasAdminViewActive) {
-          setShowAdminView(true);
-        } else {
-          setShowAdminView(false);
-        }
-      } else {
-        setIsAdminLoggedIn(false);
-        setShowAdminView(false);
-        safeLocalStorageSet('hybrid_admin_view_active', 'false');
-      }
-    }).catch(() => {
-      setIsAdminLoggedIn(false);
-      setShowAdminView(false);
-      safeLocalStorageSet('hybrid_admin_view_active', 'false');
-    });
-  }, []);
-
-  // Load User Notifications from MongoDB (Single Source of Truth)
-  const loadUserNotifications = useCallback(async () => {
-    try {
-      const res = await api.notifications.getActive(
-        currentUser ? {
-          userId: currentUser.id,
-          role: currentUser.role,
-          plan: currentUser.plan,
-          membershipStatus: currentUser.membershipStatus
-        } : undefined
-      );
-
-      if (res?.success && Array.isArray(res.notifications)) {
-        setUserNotifications(res.notifications);
-        const unread = res.notifications.filter(n => !n.userState?.read).length;
-        setUnreadNotificationCount(unread);
-
-        // Check for active mandatory restriction for logged-in user
-        if (currentUser) {
-          const mandatoryNotif = res.notifications.find(
-            n => n.isMandatory && !n.userState?.completed && !n.userState?.adminOverridden
-          );
-          setActiveMandatoryNotification(mandatoryNotif || null);
-        } else {
-          setActiveMandatoryNotification(null);
-        }
-
-        // Check for popup notification to display on page load
-        const popupNotif = res.notifications.find(
-          n => n.channels?.popup && !n.userState?.read && (!n.isMandatory || !n.userState?.completed)
-        );
-        if (popupNotif) {
-          setActivePopupNotification(popupNotif);
-        }
-      }
-    } catch (err) {
-      console.warn('[App] Failed to load user notifications:', err);
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    loadUserNotifications();
-  }, [loadUserNotifications]);
-
-  // Notification Action Handlers
-  const handleMarkNotificationRead = async (id: string) => {
-    try {
-      await api.notifications.markRead(id, currentUser?.id);
-      setUserNotifications(prev => prev.map(n => n.id === id ? {
-        ...n,
-        userState: {
-          read: true,
-          readAt: new Date().toISOString(),
-          dismissed: n.userState?.dismissed ?? false,
-          dismissedAt: n.userState?.dismissedAt,
-          completed: n.userState?.completed ?? false,
-          completedAt: n.userState?.completedAt,
-          adminOverridden: n.userState?.adminOverridden
-        }
-      } : n));
-      setUnreadNotificationCount(prev => Math.max(0, prev - 1));
-    } catch (err) {
-      console.error('Failed to mark notification read:', err);
-    }
-  };
-
-  const handleMarkAllNotificationsRead = async () => {
-    try {
-      await api.notifications.markAllRead(currentUser?.id);
-      setUserNotifications(prev => prev.map(n => ({
-        ...n,
-        userState: {
-          read: true,
-          readAt: new Date().toISOString(),
-          dismissed: n.userState?.dismissed ?? false,
-          dismissedAt: n.userState?.dismissedAt,
-          completed: n.userState?.completed ?? false,
-          completedAt: n.userState?.completedAt,
-          adminOverridden: n.userState?.adminOverridden
-        }
-      })));
-      setUnreadNotificationCount(0);
-    } catch (err) {
-      console.error('Failed to mark all notifications read:', err);
-    }
-  };
-
-  const handleDismissNotification = async (id: string) => {
-    try {
-      await api.notifications.dismiss(id, currentUser?.id);
-      setUserNotifications(prev => prev.filter(n => n.id !== id));
-      setUnreadNotificationCount(prev => Math.max(0, prev - 1));
-    } catch (err) {
-      console.error('Failed to dismiss notification:', err);
-    }
-  };
-
-  const handleCompleteMandatoryAction = async (notificationId: string, metadata?: any) => {
-    try {
-      const res = await api.notifications.completeMandatory(notificationId, currentUser?.id, metadata);
-      if (res?.success) {
-        setActiveMandatoryNotification(null);
-        await loadUserNotifications();
-      } else {
-        alert(res?.message || 'Failed to complete mandatory action.');
-      }
-    } catch (err: any) {
-      alert(err?.message || 'Failed to complete mandatory action.');
-    }
-  };
 
   // MongoDB-backed Settings Updaters with localStorage fallback
   const handleUpdateLandingConfig = async (newConfig: LandingPageConfig) => {
@@ -717,17 +471,6 @@ export default function App() {
 
   const handleUpdateCampaignConfig = async (newConfig: CampaignCustomizationConfig) => {
     setCampaignConfig(newConfig);
-    const feedSettings = newConfig.jobFeedSettings;
-    if (feedSettings && typeof feedSettings.defaultPostsPerPage === 'number' && feedSettings.defaultPostsPerPage > 0) {
-      const rawOptions = feedSettings.postsPerPageOptions;
-      const validOptions = Array.isArray(rawOptions) && rawOptions.length > 0
-        ? rawOptions.filter((n: any) => typeof n === 'number' && n > 0)
-        : [10, 15, 20, 25, 50];
-      
-      if (validOptions.includes(feedSettings.defaultPostsPerPage)) {
-        setPostsPerPage(feedSettings.defaultPostsPerPage);
-      }
-    }
     try {
       localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(newConfig));
       await api.settings.updateCampaigns(newConfig);
@@ -863,13 +606,6 @@ export default function App() {
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
 
-  // User Notifications & Mandatory Portal Actions State (MongoDB Single Source of Truth)
-  const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
-  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState<boolean>(false);
-  const [activePopupNotification, setActivePopupNotification] = useState<NotificationItem | null>(null);
-  const [activeMandatoryNotification, setActiveMandatoryNotification] = useState<NotificationItem | null>(null);
-
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
     if (currentUser) {
@@ -911,21 +647,7 @@ export default function App() {
     };
   });
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [postsPerPage, setPostsPerPage] = useState<number>(() => {
-    const configured = campaignConfig?.jobFeedSettings?.defaultPostsPerPage;
-    return typeof configured === 'number' && configured > 0 ? configured : 10;
-  });
-
-  const postsPerPageOptions = useMemo<number[]>(() => {
-    const opts = campaignConfig?.jobFeedSettings?.postsPerPageOptions;
-    if (Array.isArray(opts) && opts.length > 0) {
-      const valid = opts.filter((n) => typeof n === 'number' && n > 0);
-      if (valid.length > 0) {
-        return Array.from(new Set(valid)).sort((a, b) => a - b);
-      }
-    }
-    return [10, 15, 20, 25, 50];
-  }, [campaignConfig?.jobFeedSettings?.postsPerPageOptions]);
+  const [postsPerPage, setPostsPerPage] = useState<number>(10);
 
   const handleSelectCountry = (country: CountryOption) => {
     setUserSelectedCountry(country);
@@ -1064,15 +786,7 @@ export default function App() {
       if (filters.sortBy === 'salary-high') return (b.salaryNumericMin || 0) - (a.salaryNumericMin || 0);
       if (filters.sortBy === 'salary-low') return (a.salaryNumericMin || 0) - (b.salaryNumericMin || 0);
       if (filters.sortBy === 'popular') return b.applicationsCount - a.applicationsCount;
-
-      // Default / 'latest' sorting: sort newest jobs first using postedAt, then createdAt, then updatedAt
-      const getJobTime = (job: Job): number => {
-        const rawDate = job.postedAt || job.createdAt || job.updatedAt;
-        if (!rawDate) return 0;
-        const time = new Date(rawDate).getTime();
-        return isNaN(time) ? 0 : time;
-      };
-      return getJobTime(b) - getJobTime(a);
+      return 0;
     });
   }, [jobs, filters]);
 
@@ -1848,7 +1562,6 @@ export default function App() {
         setActiveTab={(tab) => {
           setActiveTab(tab);
           setShowAdminView(false);
-          safeLocalStorageSet('hybrid_admin_view_active', 'false');
         }}
         isSubscribed={isSubscribed}
         onOpenSubscriptionModal={() => {
@@ -1859,16 +1572,13 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         isAdminLoggedIn={isAdminLoggedIn}
-        onToggleAdminView={() => {
-          const next = !showAdminView;
-          setShowAdminView(next);
-          safeLocalStorageSet('hybrid_admin_view_active', next ? 'true' : 'false');
-        }}
+        onToggleAdminView={() => setShowAdminView(!showAdminView)}
         showAdminView={showAdminView}
         activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
         onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
-        unreadNotificationsCount={unreadNotificationCount}
-        onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
+        selectedCountryName={userSelectedCountry?.name || 'All Countries'}
+        selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
+        onOpenCountryModal={() => setShowCountryModal(true)}
       />
 
       {/* Main View Area */}
@@ -1922,10 +1632,7 @@ export default function App() {
             onBulkDeleteFeeLogs={(logIds) => setJobPostingFeeLogs(prev => prev.filter(l => !logIds.includes(l.id)))}
             monthlyFeePkr={monthlyFeePkr}
             onChangeMonthlyFee={setMonthlyFeePkr}
-            onExitAdmin={() => {
-              setShowAdminView(false);
-              safeLocalStorageSet('hybrid_admin_view_active', 'false');
-            }}
+            onExitAdmin={() => setShowAdminView(false)}
             ads={advertisements}
             onAddAd={handleAddAd}
             onUpdateAd={handleUpdateAd}
@@ -2174,6 +1881,30 @@ export default function App() {
                     if (section.id === 'jobs-feed') {
                       return (
                         <div key="section-jobs-feed" id="jobs-section" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
+                          
+                          {/* Active Country Filter Notification Badge */}
+                          {userSelectedCountry && userSelectedCountry.code !== 'GL' && (
+                            <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                              <div className="flex items-center space-x-2.5">
+                                <span className="text-xl">{userSelectedCountry.flag}</span>
+                                <div>
+                                  <span className="font-bold text-white">
+                                    Showing Jobs for {userSelectedCountry.name} ({userSelectedCountry.nameUrdu})
+                                  </span>
+                                  <p className="text-[11px] text-slate-400">
+                                    Sorted by recently updated & priority verified listings.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setShowCountryModal(true)}
+                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] border border-amber-500/20 transition-all cursor-pointer shrink-0"
+                              >
+                                Change Country
+                              </button>
+                            </div>
+                          )}
+
                           {/* API Connection Error Banner */}
                           {jobsApiError && (
                             <div className="p-4 bg-rose-950/80 border border-rose-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-rose-200 shadow-lg">
@@ -2213,7 +1944,6 @@ export default function App() {
                             isSubscribed={isSubscribed}
                             currentPage={currentPage}
                             postsPerPage={postsPerPage}
-                            postsPerPageOptions={postsPerPageOptions}
                             onPageChange={setCurrentPage}
                             onPostsPerPageChange={handlePostsPerPageChange}
                             ads={advertisements}
@@ -2400,42 +2130,7 @@ export default function App() {
         onLoginSuccess={() => {
           setIsAdminLoggedIn(true);
           setShowAdminView(true);
-          safeLocalStorageSet('hybrid_admin_view_active', 'true');
         }}
-      />
-
-      {/* User Notification Center Modal */}
-      <NotificationCenterModal
-        isOpen={isNotificationCenterOpen}
-        onClose={() => setIsNotificationCenterOpen(false)}
-        notifications={userNotifications}
-        unreadCount={unreadNotificationCount}
-        onMarkRead={handleMarkNotificationRead}
-        onMarkAllRead={handleMarkAllNotificationsRead}
-        onDismiss={handleDismissNotification}
-        onTriggerMandatoryAction={(notif) => {
-          setIsNotificationCenterOpen(false);
-          setActiveMandatoryNotification(notif);
-        }}
-      />
-
-      {/* User Popup Notification Modal */}
-      <NotificationPopupModal
-        notification={activePopupNotification}
-        onClose={() => setActivePopupNotification(null)}
-        onMarkRead={handleMarkNotificationRead}
-        onTriggerMandatoryAction={(notif) => {
-          setActivePopupNotification(null);
-          setActiveMandatoryNotification(notif);
-        }}
-      />
-
-      {/* Mandatory Action Modal */}
-      <MandatoryActionModal
-        notification={activeMandatoryNotification}
-        currentUser={currentUser}
-        onComplete={handleCompleteMandatoryAction}
-        onClose={() => setActiveMandatoryNotification(null)}
       />
 
       {/* Country Selection Modal (Urdu/English First-Time & Switcher) */}

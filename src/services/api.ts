@@ -278,32 +278,6 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })
       });
-    },
-    async restoreExpired(id: string) {
-      return safeFetchJson(`${API_BASE}/jobs/restore-expired/${id}`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async bulkRestoreExpired(ids: string[]) {
-      return safeFetchJson(`${API_BASE}/jobs/bulk-restore-expired`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ ids })
-      });
-    },
-    async permanentDelete(id: string) {
-      return safeFetchJson(`${API_BASE}/jobs/permanent/${id}`, {
-        method: 'DELETE',
-        headers: getAuthHeader()
-      });
-    },
-    async bulkUpdateLocation(jobIds: string[], locationData: { region?: string; province?: string; city?: string; district?: string }) {
-      return safeFetchJson(`${API_BASE}/jobs/bulk-update-location`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ jobIds, locationData })
-      });
     }
   },
 
@@ -507,45 +481,6 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
       });
-    },
-    async getActiveStatus() {
-      return safeFetchJson(`${API_BASE}/scraper/active-status`, { headers: getAuthHeader() });
-    },
-    async pause() {
-      return safeFetchJson(`${API_BASE}/scraper/pause`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async resume() {
-      return safeFetchJson(`${API_BASE}/scraper/resume`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async stop() {
-      return safeFetchJson(`${API_BASE}/scraper/stop`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async getExpirySettings() {
-      return safeFetchJson<{ success: boolean; settings: { offsetDays: number } }>(`${API_BASE}/scraper/expiry-settings`, {
-        headers: getAuthHeader()
-      });
-    },
-    async updateExpirySettings(settings: { offsetDays: number }) {
-      return safeFetchJson<{ success: boolean; settings: { offsetDays: number }; message?: string }>(`${API_BASE}/scraper/expiry-settings`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(settings)
-      });
-    },
-    async scanExpiry() {
-      return safeFetchJson<{ success: boolean; expiredCount: number; expiredJobIds: string[]; message?: string }>(`${API_BASE}/scraper/scan-expiry`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
     }
   },
 
@@ -680,126 +615,8 @@ export const api = {
         body: JSON.stringify(config)
       });
     }
-  },
-
-  // --- NOTIFICATIONS & MANDATORY ACTIONS ---
-  notifications: {
-    async getActive(params?: { userId?: string; role?: string; plan?: string; membershipStatus?: string }) {
-      const q = new URLSearchParams();
-      if (params?.userId) q.append('userId', params.userId);
-      if (params?.role) q.append('role', params.role);
-      if (params?.plan) q.append('plan', params.plan);
-      if (params?.membershipStatus) q.append('membershipStatus', params.membershipStatus);
-
-      return safeFetchJson<{ success: boolean; notifications: any[] }>(
-        `${API_BASE}/notifications?${q.toString()}`,
-        { headers: getAuthHeader() }
-      );
-    },
-    async getForUser(params?: { userId?: string; role?: string; plan?: string; membershipStatus?: string }) {
-      return this.getActive(params);
-    },
-    async getAdminAll() {
-      return safeFetchJson<{ success: boolean; notifications: any[] }>(
-        `${API_BASE}/notifications/admin/all`,
-        { headers: getAuthHeader() }
-      );
-    },
-    async create(data: any) {
-      return safeFetchJson<{ success: boolean; notification?: any; message?: string }>(
-        `${API_BASE}/notifications/admin`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify(data)
-        }
-      );
-    },
-    async update(id: string, updates: any) {
-      return safeFetchJson<{ success: boolean; notification?: any; message?: string }>(
-        `${API_BASE}/notifications/admin/${id}`,
-        {
-          method: 'PUT',
-          headers: getAuthHeader(),
-          body: JSON.stringify(updates)
-        }
-      );
-    },
-    async delete(id: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/admin/${id}`,
-        {
-          method: 'DELETE',
-          headers: getAuthHeader()
-        }
-      );
-    },
-    async markRead(id: string, userId?: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/${id}/read`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId })
-        }
-      );
-    },
-    async markAllRead(userId?: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/read-all`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId })
-        }
-      );
-    },
-    async dismiss(id: string, userId?: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/${id}/dismiss`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId })
-        }
-      );
-    },
-    async completeMandatory(id: string, userIdOrMetadata?: any, maybeMetadata?: any) {
-      let userId: string | undefined;
-      let metadata: any;
-      if (typeof userIdOrMetadata === 'string') {
-        userId = userIdOrMetadata;
-        metadata = maybeMetadata;
-      } else {
-        metadata = userIdOrMetadata;
-      }
-      return safeFetchJson<{ success: boolean; message?: string; policyVersion?: string }>(
-        `${API_BASE}/notifications/${id}/complete-mandatory`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId, metadata })
-        }
-      );
-    },
-    async overrideMandatory(id: string, targetUserId: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/admin/${id}/override-mandatory`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ targetUserId })
-        }
-      );
-    },
-    async checkRestrictions(userId: string, action: string = 'post_job') {
-      return safeFetchJson<{ success: boolean; restricted: boolean; reason?: string; notification?: any }>(
-        `${API_BASE}/notifications/user/${userId}/restrictions?action=${action}`
-      );
-    }
   }
 };
-
 
 export function setRuntimeBackendUrl(url: string): void {
   if (typeof window !== 'undefined') {

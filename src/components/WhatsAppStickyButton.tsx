@@ -16,7 +16,6 @@ export interface WhatsAppSupportConfig {
   desktopSize?: 'compact' | 'standard' | 'large';
   bubbleSize?: 'compact' | 'standard' | 'large';
   iconSize?: 'compact' | 'standard' | 'large';
-  showBubblePrompt?: boolean;
 }
 
 export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
@@ -33,8 +32,7 @@ export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
   mobileSize: 'compact',
   desktopSize: 'standard',
   bubbleSize: 'standard',
-  iconSize: 'standard',
-  showBubblePrompt: true
+  iconSize: 'standard'
 };
 
 interface WhatsAppStickyButtonProps {
@@ -48,21 +46,20 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
   const [isOpenPrompt, setIsOpenPrompt] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
-  // Auto-show a gentle tooltip prompt after 4 seconds if not closed and enabled
+  // Auto-show a gentle tooltip prompt after 4 seconds if not closed
   useEffect(() => {
-    if (config.showBubblePrompt === false) return;
     const timer = setTimeout(() => {
       if (!hasInteracted) {
         setIsOpenPrompt(true);
       }
     }, 4500);
     return () => clearTimeout(timer);
-  }, [hasInteracted, config.showBubblePrompt]);
+  }, [hasInteracted]);
 
   if (!config.enabled) return null;
 
   // Sanitize phone number (strip spaces, dashes, plus signs)
-  const cleanPhone = (config.phoneNumber || '923001234567').replace(/[^0-9]/g, '');
+  const cleanPhone = config.phoneNumber.replace(/[^0-9]/g, '');
   const encodedText = encodeURIComponent(config.defaultMessage || 'Hello HybridJobs Support!');
   const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
 
@@ -75,15 +72,14 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
   const positionClass = config.position === 'bottom-left' 
     ? 'left-4 sm:left-7' 
     : 'right-4 sm:right-7';
-  const alignClass = config.position === 'bottom-left' ? 'items-start' : 'items-end';
 
   // Responsive size calculation
   const mobileBtn = config.mobileSize === 'compact' ? 'w-12 h-12' : config.mobileSize === 'large' ? 'w-16 h-16' : 'w-14 h-14';
   const desktopBtn = config.desktopSize === 'compact' ? 'sm:w-14 sm:h-14' : config.desktopSize === 'large' ? 'sm:w-20 sm:h-20' : 'sm:w-16 sm:h-16';
   const buttonSizeClass = `${mobileBtn} ${desktopBtn}`;
 
-  const mobileIcon = config.iconSize === 'compact' ? 'w-5 h-5' : config.iconSize === 'large' ? 'w-8 h-8' : 'w-6 h-6';
-  const desktopIcon = config.iconSize === 'compact' ? 'sm:w-6 sm:h-6' : config.iconSize === 'large' ? 'sm:w-10 sm:h-10' : 'sm:w-8 sm:h-8';
+  const mobileIcon = config.iconSize === 'compact' ? 'w-5 h-5' : config.iconSize === 'large' ? 'w-7 h-7' : (config.mobileSize === 'compact' ? 'w-6 h-6' : 'w-7 h-7');
+  const desktopIcon = config.iconSize === 'compact' ? 'sm:w-6 sm:h-6' : config.iconSize === 'large' ? 'sm:w-10 sm:h-10' : (config.desktopSize === 'large' ? 'sm:w-10 sm:h-10' : config.desktopSize === 'compact' ? 'sm:w-7 sm:h-7' : 'sm:w-8 sm:h-8');
   const iconSizeClass = `${mobileIcon} ${desktopIcon}`;
 
   const bubbleWidthClass = config.bubbleSize === 'compact'
@@ -95,10 +91,10 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
   return (
     <div 
       id="whatsapp-sticky-container"
-      className={`fixed bottom-4 sm:bottom-6 ${positionClass} z-[9990] flex flex-col ${alignClass} pointer-events-auto select-none`}
+      className={`fixed bottom-4 sm:bottom-6 ${positionClass} z-[9990] flex flex-col items-end pointer-events-auto select-none`}
     >
       {/* Floating Interactive Speech Bubble Prompt */}
-      {config.showBubblePrompt !== false && isOpenPrompt && (
+      {isOpenPrompt && (
         <div 
           id="whatsapp-prompt-bubble"
           className={`mb-2.5 sm:mb-3 ${bubbleWidthClass} bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl shadow-2xl text-slate-100 animate-bounce-subtle relative`}
@@ -124,12 +120,12 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
 
             <div className="flex-1 pr-3 sm:pr-4 min-w-0">
               <div className="flex items-center space-x-1.5 truncate">
-                <span className="text-xs font-black text-white truncate">{config.agentName || 'Ayesha (Career Advisor)'}</span>
+                <span className="text-xs font-black text-white truncate">{config.agentName}</span>
                 <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 shrink-0">
                   {config.badgeText || 'HR Support'}
                 </span>
               </div>
-              <div className="text-[9px] sm:text-[10px] text-slate-400 mb-1.5 sm:mb-2">{config.supportHoursText || 'Online • 9:00 AM - 9:00 PM PKT'}</div>
+              <div className="text-[9px] sm:text-[10px] text-slate-400 mb-1.5 sm:mb-2">{config.supportHoursText}</div>
               
               <p className="text-[10px] sm:text-[11px] text-slate-300 leading-snug bg-slate-950/60 p-2 sm:p-2.5 rounded-xl border border-slate-800">
                 "{config.bubblePromptText || 'Need help applying for remote jobs, hiring candidates, or setting WhatsApp alerts? Chat directly with our team!'}"
@@ -155,7 +151,7 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
         <button
           id="whatsapp-sticky-button"
           onClick={() => {
-            if (config.showBubblePrompt === false || isOpenPrompt) {
+            if (isOpenPrompt) {
               handleOpenWhatsApp();
             } else {
               setIsOpenPrompt(true);

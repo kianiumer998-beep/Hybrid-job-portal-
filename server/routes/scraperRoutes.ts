@@ -1,15 +1,8 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
-import {
-  executeScraperWithWizard,
-  ScraperRunOptions,
-  getActiveRunStatus,
-  pauseActiveRun,
-  resumeActiveRun,
-  stopActiveRun
-} from '../services/scraperEngine';
+import { executeScraperWithWizard, ScraperRunOptions } from '../services/scraperEngine';
 import { requireAdmin } from '../auth/authManager';
-import { ScraperRepository, AuditRepository, JobRepository } from '../db/repositories';
+import { ScraperRepository, AuditRepository } from '../db/repositories';
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
 import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
@@ -390,85 +383,3 @@ scraperRouter.post('/sources/bulk-move-group', requireAdmin, async (req, res) =>
     res.status(500).json({ success: false, message: err.message || 'Error bulk moving sources' });
   }
 });
-
-// 12. Active Run Live Status (Admin Only)
-scraperRouter.get('/active-status', requireAdmin, async (req, res) => {
-  try {
-    const status = getActiveRunStatus();
-    res.json({ success: true, status });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error fetching active run status' });
-  }
-});
-
-// 13. Pause Active Run (Admin Only)
-scraperRouter.post('/pause', requireAdmin, async (req, res) => {
-  try {
-    const paused = pauseActiveRun();
-    res.json({ success: true, paused, message: paused ? 'Scraper run paused.' : 'No active run to pause.' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error pausing run' });
-  }
-});
-
-// 14. Resume Active Run (Admin Only)
-scraperRouter.post('/resume', requireAdmin, async (req, res) => {
-  try {
-    // Start resume in background and return immediate status
-    resumeActiveRun().catch(err => {
-      console.error('[Scraper Routes] Resume error:', err);
-    });
-    res.json({ success: true, message: 'Scraper run resumed.' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error resuming run' });
-  }
-});
-
-// 15. Stop Active Run (Admin Only)
-scraperRouter.post('/stop', requireAdmin, async (req, res) => {
-  try {
-    const stopped = stopActiveRun();
-    res.json({ success: true, stopped, message: stopped ? 'Scraper run stopped.' : 'No active run to stop.' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error stopping run' });
-  }
-});
-
-// 16. Get Portal Expiry Settings (Admin Only)
-scraperRouter.get('/expiry-settings', requireAdmin, async (req, res) => {
-  try {
-    const settings = await ScraperRepository.getExpirySettings();
-    res.json({ success: true, settings });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error getting expiry settings' });
-  }
-});
-
-// 17. Update Portal Expiry Settings (Admin Only)
-scraperRouter.put('/expiry-settings', requireAdmin, async (req, res) => {
-  try {
-    const settings = await ScraperRepository.updateExpirySettings(req.body);
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
-      action: 'Portal Expiry Offset Updated',
-      target: `+${settings.offsetDays} Days`,
-      status: 'Success'
-    });
-    res.json({ success: true, settings, message: `Portal expiry offset saved (+${settings.offsetDays} days).` });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error updating expiry settings' });
-  }
-});
-
-// 18. Trigger Manual Expiry Scan (Admin Only)
-scraperRouter.post('/scan-expiry', requireAdmin, async (req, res) => {
-  try {
-    const settings = await ScraperRepository.getExpirySettings();
-    const result = await JobRepository.scanAndExpireDueJobs(settings.offsetDays);
-    res.json({ success: true, ...result, message: `Expiry scan completed. ${result.expiredCount} jobs moved to Expired status.` });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error scanning expired jobs' });
-  }
-});
-

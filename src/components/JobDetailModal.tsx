@@ -150,56 +150,36 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           )}
 
           {/* Real PDF Gazette Document Notice & Download Link (if authentic PDF exists) */}
-          {(job.pdfSourceUrl || job.pdfFileName || (job.sourceUrl && job.sourceUrl.toLowerCase().endsWith('.pdf'))) && (() => {
-            const pdfTargetUrl = job.pdfSourceUrl || (job.sourceUrl && job.sourceUrl.toLowerCase().endsWith('.pdf') ? job.sourceUrl : undefined);
-            return (
-              <div className="p-4 bg-slate-950/90 border border-indigo-500/30 rounded-xl space-y-3">
-                <div className="flex items-center justify-between text-xs font-bold text-indigo-300">
-                  <span className="flex items-center space-x-1.5">
-                    <ExternalLink className="w-4 h-4 text-indigo-400" />
-                    <span>Official Government PDF Gazette Document</span>
-                  </span>
-                  {job.pdfCaseNumber && <span className="font-mono text-[11px] bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-200">{job.pdfCaseNumber}</span>}
-                </div>
-                
-                <div className="text-xs text-slate-300 space-y-1">
-                  {job.pdfFileName && <div><strong>File Reference:</strong> {job.pdfFileName}</div>}
-                  {job.domicileQuota && <div><strong>Quota Allocation:</strong> {job.domicileQuota}</div>}
-                  {job.challanFee && <div><strong>Challan / Test Fee:</strong> {job.challanFee}</div>}
-                  {job.ageRelaxationNote && <div><strong>Age Criteria:</strong> {job.ageRelaxationNote}</div>}
-                </div>
-
-                {/* Embedded PDF Document Preview (Active only when authentic pdfSourceUrl exists) */}
-                {job.pdfSourceUrl && (
-                  <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900">
-                    <iframe
-                      src={job.pdfSourceUrl}
-                      className="w-full h-64 sm:h-80"
-                      title="Official PDF Document Preview"
-                    />
-                  </div>
-                )}
-
-                <div className="pt-1">
-                  {pdfTargetUrl ? (
-                    <a
-                      href={pdfTargetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center space-x-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all shadow-md"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Open Official PDF Gazette Notice</span>
-                    </a>
-                  ) : (
-                    <span className="text-xs text-slate-400 italic">
-                      PDF Reference available in departmental gazette records.
-                    </span>
-                  )}
-                </div>
+          {(job.pdfSourceUrl || job.pdfFileName || (job.sourceUrl && job.sourceUrl.toLowerCase().endsWith('.pdf'))) && (
+            <div className="p-4 bg-slate-950/90 border border-indigo-500/30 rounded-xl space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-indigo-300">
+                <span className="flex items-center space-x-1.5">
+                  <ExternalLink className="w-4 h-4 text-indigo-400" />
+                  <span>Official Government PDF Gazette Document</span>
+                </span>
+                {job.pdfCaseNumber && <span className="font-mono text-[11px] bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-200">{job.pdfCaseNumber}</span>}
               </div>
-            );
-          })()}
+              
+              <div className="text-xs text-slate-300 space-y-1">
+                {job.pdfFileName && <div><strong>File Reference:</strong> {job.pdfFileName}</div>}
+                {job.domicileQuota && <div><strong>Quota Allocation:</strong> {job.domicileQuota}</div>}
+                {job.challanFee && <div><strong>Challan / Test Fee:</strong> {job.challanFee}</div>}
+                {job.ageRelaxationNote && <div><strong>Age Criteria:</strong> {job.ageRelaxationNote}</div>}
+              </div>
+
+              <div className="pt-1">
+                <a
+                  href={job.pdfSourceUrl || job.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center space-x-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all shadow-md"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Official PDF Gazette Notice</span>
+                </a>
+              </div>
+            </div>
+          )}
 
           {/* Extracted Text (OCR / PDF Parser Text if available) */}
           {job.extractedText && (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   MessageCircle,
   Phone,
@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Copy
 } from 'lucide-react';
-import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from '../WhatsAppStickyButton';
+import { WhatsAppSupportConfig } from '../WhatsAppStickyButton';
 
 interface AdminWhatsAppManagerProps {
   config: WhatsAppSupportConfig;
@@ -28,10 +28,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   onUpdateConfig,
   subscribersCount = 0
 }) => {
-  const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => ({
-    ...DEFAULT_WHATSAPP_CONFIG,
-    ...config
-  }));
+  const [formData, setFormData] = useState<WhatsAppSupportConfig>(config);
   const [groupLink, setGroupLink] = useState<string>(() => {
     return localStorage.getItem('hybrid_whatsapp_group_link') || 'https://chat.whatsapp.com/sampleCareerPakCommunity';
   });
@@ -41,17 +38,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     'السلام علیکم! کیریئر پاک پر جاب الرٹس اور اپلائی کرنے کے لیے رہنمائی درکار ہے۔'
   );
 
-  useEffect(() => {
-    if (config) {
-      setFormData(prev => ({
-        ...DEFAULT_WHATSAPP_CONFIG,
-        ...prev,
-        ...config
-      }));
-    }
-  }, [config]);
-
-  const cleanPhone = (formData.phoneNumber || '923001234567').replace(/[^0-9]/g, '');
+  const cleanPhone = formData.phoneNumber.replace(/[^0-9]/g, '');
   const testChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(formData.defaultMessage || 'Hello Support')}`;
   const testUrduChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(testUrduMessage)}`;
 
@@ -228,10 +215,10 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
               <span>2. Floating Sticky Button Display Options & Layout</span>
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-black text-white">WhatsApp Button (Icon/Monogram)</div>
+                  <div className="text-xs font-black text-white">Enable Floating Sticky Widget</div>
                   <div className="text-[11px] text-slate-400">Show button on all public pages</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -239,22 +226,6 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                     type="checkbox"
                     checked={formData.enabled}
                     onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                </label>
-              </div>
-
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-black text-white">WhatsApp Greeting / Chat Widget</div>
-                  <div className="text-[11px] text-slate-400">Enable / Disable prompt bubble</div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.showBubblePrompt !== false}
-                    onChange={(e) => setFormData({ ...formData, showBubblePrompt: e.target.checked })}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />

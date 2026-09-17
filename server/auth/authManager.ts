@@ -102,11 +102,7 @@ export function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-export const authenticateOptionalUser = authMiddleware;
-export const authenticateUser = requireAuth;
-
 export function requireAdmin(req: any, res: any, next: any) {
-
   if (!req.user) {
     return res.status(401).json({ success: false, message: 'Admin authentication required.' });
   }

@@ -33,8 +33,6 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       region: undefined as any,
       province: undefined,
       city: undefined,
-      country: undefined,
-      district: undefined,
       salary: '',
       currency: undefined as any,
       experienceLevel: undefined as any,
@@ -52,10 +50,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       isFutureJob: false,
       futureIntakeDate: '',
       priorityTier: 'standard',
-      jobCategory: '',
-      govtScale: undefined,
+      jobCategory: 'Private Corporate',
+      govtScale: 'BPS-17',
       isGovtJob: false,
-      deadlineDate: ''
+      deadlineDate: '2026-11-30'
     };
   });
 
@@ -373,11 +371,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Job Category *</label>
                 <select
-                  value={formData.jobCategory || ''}
+                  value={formData.jobCategory || 'Private Corporate'}
                   onChange={(e) => setFormData(p => ({ ...p, jobCategory: e.target.value, isGovtJob: e.target.value === 'Government Sector' }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Category...</option>
                   <option value="Government Sector">Government Sector</option>
                   <option value="Private Corporate">Private Corporate</option>
                   <option value="Newspaper Classified">Newspaper Classified</option>
@@ -393,11 +390,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Govt BPS Scale (If Govt Job)</label>
                 <select
-                  value={formData.govtScale || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, govtScale: e.target.value || undefined, isGovtJob: e.target.value !== '' && e.target.value !== 'N/A (Private)' }))}
+                  value={formData.govtScale || 'BPS-17'}
+                  onChange={(e) => setFormData(p => ({ ...p, govtScale: e.target.value, isGovtJob: true }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Scale...</option>
                   {['N/A (Private)', 'BPS-01', 'BPS-05', 'BPS-07', 'BPS-09', 'BPS-11', 'BPS-14', 'BPS-16', 'BPS-17', 'BPS-18', 'BPS-19', 'BPS-20', 'BPS-21', 'BPS-22'].map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}

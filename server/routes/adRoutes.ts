@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AdRepository, AuditRepository } from '../db/repositories';
-import { requireAdmin, authMiddleware } from '../auth/authManager';
+import { requireAdmin } from '../auth/authManager';
 
 export const adRouter = Router();
 
@@ -16,24 +16,13 @@ adRouter.get('/', async (req, res) => {
 });
 
 // 2. Create Advertisement
-adRouter.post('/', authMiddleware, async (req: any, res) => {
+adRouter.post('/', (req, res) => {
   try {
     const adData = req.body;
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-
-    // Strictly enforce advertiser identity to prevent spoofing another user's wallet
-    if (req.user && !isAdmin) {
-      adData.submittedByUserId = req.user.userId || req.user.id;
-      adData.submittedByUserName = req.user.name || adData.submittedByUserName;
-      adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;
-    } else if (!req.user) {
-      delete adData.submittedByUserId;
-    }
-
-    const newAd = await AdRepository.createAsync(adData);
+    const newAd = AdRepository.create(adData);
 
     AuditRepository.add({
-      user: adData.submittedByUserName || adData.clientName || 'Advertiser',
+      user: adData.clientName || 'Advertiser',
       role: 'Advertiser',
       action: 'Ad Campaign Created',
       target: newAd.title,
@@ -47,9 +36,9 @@ adRouter.post('/', authMiddleware, async (req: any, res) => {
 });
 
 // 3. Update Advertisement
-adRouter.put('/:id', requireAdmin, async (req, res) => {
+adRouter.put('/:id', requireAdmin, (req, res) => {
   try {
-    const updated = await AdRepository.updateAsync(req.params.id, req.body);
+    const updated = AdRepository.update(req.params.id, req.body);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Ad not found.' });
     }
@@ -61,42 +50,23 @@ adRouter.put('/:id', requireAdmin, async (req, res) => {
 });
 
 // 4. Delete Advertisement
-adRouter.delete('/:id', requireAdmin, async (req, res) => {
-  try {
-    const deleted = await AdRepository.deleteAsync(req.params.id);
-    if (!deleted) {
-      return res.status(404).json({ success: false, message: 'Ad not found.' });
-    }
-    res.json({ success: true, message: 'Advertisement deleted.' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error deleting advertisement' });
+adRouter.delete('/:id', requireAdmin, (req, res) => {
+  const deleted = AdRepository.delete(req.params.id);
+  if (!deleted) {
+    return res.status(404).json({ success: false, message: 'Ad not found.' });
   }
+  res.json({ success: true, message: 'Advertisement deleted.' });
 });
 
-// 5. Track Click (Server-authoritative CPC billing against advertiser wallet)
-adRouter.post('/:id/click', async (req, res) => {
-  try {
-    const idempotencyKey = req.body?.idempotencyKey || (req.headers['x-idempotency-key'] as string);
-    const updated = await AdRepository.trackClickAsync(req.params.id, { idempotencyKey });
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'Ad campaign not found' });
-    }
-    res.json({ success: true, advertisement: updated });
-  } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message || 'Failed to record ad click' });
-  }
+// 5. Track Click
+adRouter.post('/:id/click', (req, res) => {
+  AdRepository.trackClick(req.params.id);
+  res.json({ success: true });
 });
 
-// 6. Track Impression (Server-authoritative CPM billing against advertiser wallet)
-adRouter.post('/:id/impression', async (req, res) => {
-  try {
-    const idempotencyKey = req.body?.idempotencyKey || (req.headers['x-idempotency-key'] as string);
-    const updated = await AdRepository.trackImpressionAsync(req.params.id, { idempotencyKey });
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'Ad campaign not found' });
-    }
-    res.json({ success: true, advertisement: updated });
-  } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message || 'Failed to record ad impression' });
-  }
+// 6. Track Impression
+adRouter.post('/:id/impression', (req, res) => {
+  AdRepository.trackImpression(req.params.id);
+  res.json({ success: true });
 });
+

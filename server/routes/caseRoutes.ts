@@ -1,78 +1,56 @@
 import { Router } from 'express';
 import { CaseRepository, AuditRepository } from '../db/repositories';
-import { requireAdmin, requireAuth } from '../auth/authManager';
+import { requireAdmin } from '../auth/authManager';
 
 export const caseRouter = Router();
 
-// 1. Get cases (scoped to authenticated user, or all for admin)
-caseRouter.get('/', requireAuth, async (req: any, res) => {
+// 1. Get all cases (filter by type, status, userId)
+caseRouter.get('/', async (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const { type, status } = req.query as Record<string, string>;
-
-    const queryUserId = req.query.userId as string | undefined;
-    const targetUserId = isAdmin && queryUserId ? queryUserId : (req.user?.userId || req.user?.id);
-
-    const cases = await CaseRepository.getAllAsync({
-      type,
-      status,
-      userId: isAdmin && !queryUserId ? undefined : targetUserId
-    });
+    const { type, status, userId } = req.query as Record<string, string>;
+    const cases = await CaseRepository.getAllAsync({ type, status, userId });
     res.json({ success: true, cases });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching cases' });
   }
 });
 
-// 2. Get single case by ID or Case Number (strictly authorization-checked)
-caseRouter.get('/:id', requireAuth, async (req: any, res) => {
+// 2. Get single case by ID or Case Number
+caseRouter.get('/:id', async (req, res) => {
   try {
     const found = await CaseRepository.getByIdAsync(req.params.id);
     if (!found) {
       return res.status(404).json({ success: false, message: 'Case not found' });
     }
-
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && found.userId && found.userId !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own cases.' });
-    }
-
     res.json({ success: true, case: found });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching case' });
   }
 });
 
+
 // 3. Create a universal submission case
-caseRouter.post('/', requireAuth, async (req: any, res) => {
+caseRouter.post('/', (req, res) => {
   try {
-    const { type, referenceId, title, priority, metadata } = req.body;
+    const { type, referenceId, title, userId, userName, userEmail, priority, metadata } = req.body;
     if (!title || !type) {
       return res.status(400).json({ success: false, message: 'Title and type are required to create a case.' });
     }
 
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-    const targetUserId = isAdmin && req.body.userId ? req.body.userId : currentUserId;
-    const targetUserName = isAdmin && req.body.userName ? req.body.userName : (req.user?.name || 'Member');
-    const targetUserEmail = isAdmin && req.body.userEmail ? req.body.userEmail : (req.user?.email || '');
-
-    const newCase = await CaseRepository.createAsync({
+    const newCase = CaseRepository.create({
       type,
       referenceId,
       title,
-      userId: targetUserId,
-      userName: targetUserName,
-      userEmail: targetUserEmail,
+      userId,
+      userName,
+      userEmail,
       priority: priority || 'medium',
       metadata
     });
 
     AuditRepository.add({
-      user: targetUserName,
-      role: req.user?.role || 'Member',
+      user: userName || 'Member',
+      role: 'Member',
       action: 'Universal Case Created',
       target: `${newCase.caseNumber}: ${newCase.title}`,
       status: 'Success',
@@ -86,21 +64,18 @@ caseRouter.post('/', requireAuth, async (req: any, res) => {
 });
 
 // 4. Update case status (Admin only)
-caseRouter.patch('/:id/status', requireAdmin, async (req: any, res) => {
+caseRouter.patch('/:id/status', requireAdmin, (req, res) => {
   try {
-    const { status, note } = req.body;
+    const { status, note, actor, role } = req.body;
     if (!status) {
       return res.status(400).json({ success: false, message: 'Status is required.' });
     }
 
-    const actor = req.user?.name || 'Admin';
-    const role = req.user?.role || 'Super Admin';
-
-    const updated = await CaseRepository.updateStatusAsync(
+    const updated = CaseRepository.updateStatus(
       req.params.id,
       status,
-      actor,
-      role,
+      actor || 'System Admin',
+      role || 'Super Admin',
       note
     );
 
@@ -109,8 +84,8 @@ caseRouter.patch('/:id/status', requireAdmin, async (req: any, res) => {
     }
 
     AuditRepository.add({
-      user: actor,
-      role: role,
+      user: actor || 'Admin',
+      role: role || 'Super Admin',
       action: 'Case Status Transition',
       target: `${updated.caseNumber} -> ${status}`,
       status: 'Success',
@@ -124,31 +99,23 @@ caseRouter.patch('/:id/status', requireAdmin, async (req: any, res) => {
 });
 
 // 5. Add custom timeline event
-caseRouter.post('/:id/timeline', requireAuth, async (req: any, res) => {
+caseRouter.post('/:id/timeline', (req, res) => {
   try {
-    const { action, note } = req.body;
+    const { actor, role, action, note } = req.body;
     if (!action || !note) {
       return res.status(400).json({ success: false, message: 'Action and note are required.' });
     }
 
-    const existing = await CaseRepository.getByIdAsync(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Case not found' });
-    }
-
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && existing.userId && existing.userId !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only annotate your own cases.' });
-    }
-
-    const updated = await CaseRepository.addTimelineEventAsync(existing.id, {
-      actor: req.user?.name || 'Member',
-      role: req.user?.role || 'Member',
+    const updated = CaseRepository.addTimelineEvent(req.params.id, {
+      actor: actor || 'User',
+      role: role || 'Member',
       action,
       note
     });
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Case not found' });
+    }
 
     res.json({ success: true, case: updated });
   } catch (err: any) {
@@ -157,20 +124,17 @@ caseRouter.post('/:id/timeline', requireAuth, async (req: any, res) => {
 });
 
 // 6. Request correction (Admin)
-caseRouter.post('/:id/request-correction', requireAdmin, async (req: any, res) => {
+caseRouter.post('/:id/request-correction', requireAdmin, (req, res) => {
   try {
-    const { correctionNotes } = req.body;
+    const { correctionNotes, actor, role } = req.body;
     if (!correctionNotes) {
       return res.status(400).json({ success: false, message: 'Correction instructions are required.' });
     }
 
-    const actor = req.user?.name || 'Review Admin';
-    const role = req.user?.role || 'Super Admin';
-
-    const updated = await CaseRepository.requestCorrectionAsync(
+    const updated = CaseRepository.requestCorrection(
       req.params.id,
-      actor,
-      role,
+      actor || 'Review Admin',
+      role || 'Super Admin',
       correctionNotes
     );
 
@@ -184,40 +148,32 @@ caseRouter.post('/:id/request-correction', requireAdmin, async (req: any, res) =
   }
 });
 
-// 7. Submit dispute (Case Owner only or Admin)
-caseRouter.post('/:id/dispute', requireAuth, async (req: any, res) => {
+// 7. Submit dispute (User or Employer)
+caseRouter.post('/:id/dispute', (req, res) => {
   try {
-    const { disputeNotes } = req.body;
+    const { disputeNotes, actor, role } = req.body;
     if (!disputeNotes) {
       return res.status(400).json({ success: false, message: 'Dispute reasoning is required.' });
     }
 
-    const existing = await CaseRepository.getByIdAsync(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Case not found' });
-    }
-
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && existing.userId && existing.userId !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only dispute your own cases.' });
-    }
-
-    const updated = await CaseRepository.submitDisputeAsync(
-      existing.id,
-      req.user?.name || 'Member',
-      req.user?.role || 'Member',
+    const updated = CaseRepository.submitDispute(
+      req.params.id,
+      actor || 'Member',
+      role || 'Member',
       disputeNotes
     );
 
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Case not found' });
+    }
+
     AuditRepository.add({
-      user: req.user?.name || 'User',
-      role: req.user?.role || 'Member',
+      user: actor || 'User',
+      role: role || 'Member',
       action: 'Case Disputed',
-      target: `${updated?.caseNumber}`,
+      target: `${updated.caseNumber}`,
       status: 'Warning',
-      metadata: { caseNumber: updated?.caseNumber, disputeNotes }
+      metadata: { caseNumber: updated.caseNumber, disputeNotes }
     });
 
     res.json({ success: true, case: updated, message: 'Dispute submitted for arbitration review.' });
@@ -227,20 +183,17 @@ caseRouter.post('/:id/dispute', requireAuth, async (req: any, res) => {
 });
 
 // 8. Resolve dispute (Admin)
-caseRouter.post('/:id/resolve-dispute', requireAdmin, async (req: any, res) => {
+caseRouter.post('/:id/resolve-dispute', requireAdmin, (req, res) => {
   try {
-    const { resolutionNotes, newStatus } = req.body;
+    const { resolutionNotes, actor, role, newStatus } = req.body;
     if (!resolutionNotes) {
       return res.status(400).json({ success: false, message: 'Resolution notes are required.' });
     }
 
-    const actor = req.user?.name || 'Senior Arbiter';
-    const role = req.user?.role || 'Super Admin';
-
-    const updated = await CaseRepository.resolveDisputeAsync(
+    const updated = CaseRepository.resolveDispute(
       req.params.id,
-      actor,
-      role,
+      actor || 'Senior Arbiter',
+      role || 'Super Admin',
       resolutionNotes,
       newStatus || 'resolved'
     );
@@ -250,8 +203,8 @@ caseRouter.post('/:id/resolve-dispute', requireAdmin, async (req: any, res) => {
     }
 
     AuditRepository.add({
-      user: actor,
-      role: role,
+      user: actor || 'Admin',
+      role: role || 'Super Admin',
       action: 'Dispute Resolved',
       target: `${updated.caseNumber} -> ${newStatus || 'resolved'}`,
       status: 'Success',

@@ -1,23 +1,14 @@
 import { Router } from 'express';
 import { SupportRepository, CaseRepository, AuditRepository } from '../db/repositories';
-import { requireAuth, authMiddleware } from '../auth/authManager';
+import { requireAdmin } from '../auth/authManager';
 
 export const supportRouter = Router();
 
-// 1. Get support tickets (strictly filtered for non-admin users)
-supportRouter.get('/', authMiddleware, async (req: any, res) => {
+// 1. Get support tickets
+supportRouter.get('/', async (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!req.user) {
-      return res.status(401).json({ success: false, message: 'Authentication required to view tickets.' });
-    }
-
-    const queryUserId = req.query.userId as string | undefined;
-    const targetUserId = isAdmin && queryUserId ? queryUserId : (isAdmin ? undefined : currentUserId);
-
-    const tickets = await SupportRepository.getAllAsync(targetUserId);
+    const { userId } = req.query as Record<string, string>;
+    const tickets = await SupportRepository.getAllAsync(userId);
     res.json({ success: true, tickets });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching support tickets' });
@@ -25,53 +16,41 @@ supportRouter.get('/', authMiddleware, async (req: any, res) => {
 });
 
 // 2. Get single ticket by ID or Ticket Number
-supportRouter.get('/:id', authMiddleware, async (req: any, res) => {
+supportRouter.get('/:id', async (req, res) => {
   try {
     const ticket = await SupportRepository.getByIdAsync(req.params.id);
     if (!ticket) {
       return res.status(404).json({ success: false, message: 'Ticket not found' });
     }
-
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && ticket.userId && ticket.userId !== 'guest' && ticket.userId !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own support tickets.' });
-    }
-
     res.json({ success: true, ticket });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching ticket' });
   }
 });
 
+
 // 3. Create ticket (and link to Universal Case system)
-supportRouter.post('/', authMiddleware, async (req: any, res) => {
+supportRouter.post('/', (req, res) => {
   try {
-    const { subject, category, priority, message } = req.body;
+    const { userId, userName, userEmail, subject, category, priority, message } = req.body;
     if (!subject || !message) {
       return res.status(400).json({ success: false, message: 'Subject and initial message are required.' });
     }
 
-    // Authoritative user context if authenticated
-    const targetUserId = req.user?.userId || req.user?.id || 'guest';
-    const targetUserName = req.user?.name || req.body.userName || 'Job Seeker';
-    const targetUserEmail = req.user?.email || req.body.userEmail || '';
-
-    const newTicket = await SupportRepository.createAsync({
-      userId: targetUserId,
-      userName: targetUserName,
-      userEmail: targetUserEmail,
+    const newTicket = SupportRepository.create({
+      userId: userId || 'guest',
+      userName: userName || 'Job Seeker',
+      userEmail: userEmail || 'user@jobportal.com',
       subject,
       category: category || 'General',
       priority: priority || 'medium',
       status: 'open',
       messages: [
         {
-          id: `msg-${Date.now()}`,
-          senderId: targetUserId,
-          senderName: targetUserName,
-          senderRole: req.user?.role || 'Member',
+          id: `msg-1`,
+          senderId: userId || 'guest',
+          senderName: userName || 'Job Seeker',
+          senderRole: 'Member',
           message,
           timestamp: new Date().toISOString()
         }
@@ -79,7 +58,7 @@ supportRouter.post('/', authMiddleware, async (req: any, res) => {
     });
 
     // Also register in Universal Case tracking system
-    await CaseRepository.createAsync({
+    CaseRepository.create({
       type: 'support',
       referenceId: newTicket.id,
       title: `Support Ticket: ${subject} (${category || 'General'})`,
@@ -92,8 +71,8 @@ supportRouter.post('/', authMiddleware, async (req: any, res) => {
     });
 
     AuditRepository.add({
-      user: targetUserName,
-      role: req.user?.role || 'Member',
+      user: userName || 'Member',
+      role: 'Member',
       action: 'Support Ticket Opened',
       target: `${newTicket.ticketNumber}: ${subject}`,
       status: 'Success',
@@ -107,32 +86,24 @@ supportRouter.post('/', authMiddleware, async (req: any, res) => {
 });
 
 // 4. Post message to ticket thread
-supportRouter.post('/:id/messages', requireAuth, async (req: any, res) => {
+supportRouter.post('/:id/messages', (req, res) => {
   try {
-    const { message, attachments } = req.body;
+    const { senderId, senderName, senderRole, message, attachments } = req.body;
     if (!message || !message.trim()) {
       return res.status(400).json({ success: false, message: 'Message content is required.' });
     }
 
-    const ticket = await SupportRepository.getByIdAsync(req.params.id);
-    if (!ticket) {
-      return res.status(404).json({ success: false, message: 'Ticket not found' });
-    }
-
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && ticket.userId && ticket.userId !== 'guest' && ticket.userId !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You cannot reply to another user\'s support ticket.' });
-    }
-
-    const updated = await SupportRepository.addMessageAsync(ticket.id, {
-      senderId: currentUserId,
-      senderName: req.user?.name || 'Member',
-      senderRole: req.user?.role || 'Member',
+    const updated = SupportRepository.addMessage(req.params.id, {
+      senderId: senderId || 'user',
+      senderName: senderName || 'Member',
+      senderRole: senderRole || 'Job Seeker',
       message,
       attachments
     });
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Ticket not found' });
+    }
 
     res.json({ success: true, ticket: updated });
   } catch (err: any) {
@@ -140,32 +111,19 @@ supportRouter.post('/:id/messages', requireAuth, async (req: any, res) => {
   }
 });
 
-// 5. Update ticket status (Admin or Ticket Owner resolve/close)
-supportRouter.patch('/:id/status', requireAuth, async (req: any, res) => {
+// 5. Update ticket status (Admin or User resolve)
+supportRouter.patch('/:id/status', (req, res) => {
   try {
     const { status } = req.body;
     if (!status) {
       return res.status(400).json({ success: false, message: 'Status is required.' });
     }
 
-    const ticket = await SupportRepository.getByIdAsync(req.params.id);
-    if (!ticket) {
+    const updated = SupportRepository.updateStatus(req.params.id, status);
+    if (!updated) {
       return res.status(404).json({ success: false, message: 'Ticket not found' });
     }
 
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin) {
-      if (ticket.userId !== currentUserId) {
-        return res.status(403).json({ success: false, message: 'Access denied: You can only update your own ticket.' });
-      }
-      if (!['resolved', 'closed'].includes(status)) {
-        return res.status(403).json({ success: false, message: 'Users can only mark their tickets as resolved or closed.' });
-      }
-    }
-
-    const updated = await SupportRepository.updateStatusAsync(ticket.id, status);
     res.json({ success: true, ticket: updated });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating status' });

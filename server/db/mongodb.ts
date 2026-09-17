@@ -19,55 +19,6 @@ export function isMongoConfigured(): boolean {
   return Boolean(uri && uri.trim());
 }
 
-export async function resetMongoClient(): Promise<void> {
-  const client = cachedClient;
-  cachedClient = null;
-  cachedDb = null;
-  clientPromise = null;
-  if (client) {
-    try {
-      await client.close();
-    } catch {}
-  }
-}
-
-export function isMongoNetworkError(err: any): boolean {
-  if (!err) return false;
-  const name = err.name || '';
-  const msg = err.message || '';
-  return (
-    name === 'MongoNetworkTimeoutError' ||
-    name === 'MongoNetworkError' ||
-    name === 'MongoServerSelectionError' ||
-    name === 'MongoTimeoutError' ||
-    msg.includes('timed out') ||
-    msg.includes('topology was destroyed') ||
-    msg.includes('connection timed out') ||
-    msg.includes('ECONNREFUSED') ||
-    msg.includes('ETIMEDOUT') ||
-    msg.includes('ENOTFOUND') ||
-    msg.includes('socket timed out') ||
-    msg.includes('connection reset') ||
-    err.errorLabels?.has?.('RetryableWriteError')
-  );
-}
-
-export async function executeWithFallback<T>(
-  mongoFn: () => Promise<T>,
-  fallbackFn: () => T | Promise<T>,
-  logContext: string = 'DB'
-): Promise<T> {
-  if (isMongoConfigured()) {
-    try {
-      return await mongoFn();
-    } catch (err: any) {
-      console.warn(`[${logContext}] MongoDB notice (${err.name || 'Error'}: ${err.message}), using persistent local data store.`);
-      return await fallbackFn();
-    }
-  }
-  return await fallbackFn();
-}
-
 export async function getMongoClient(): Promise<MongoClient> {
   if (cachedClient) {
     return cachedClient;
@@ -81,15 +32,13 @@ export async function getMongoClient(): Promise<MongoClient> {
       serverSelectionTimeoutMS: 10000,
       connectTimeoutMS: 10000,
       socketTimeoutMS: 45000,
-      retryWrites: true,
-      retryReads: true
     });
 
     clientPromise = client.connect().then(async (connectedClient) => {
       cachedClient = connectedClient;
       cachedDb = connectedClient.db();
       console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
-      initMongoIndexes(cachedDb).catch(() => {});
+      await initMongoIndexes(cachedDb);
       return connectedClient;
     }).catch((err) => {
       clientPromise = null;
@@ -247,21 +196,6 @@ async function initMongoIndexes(db: Db): Promise<void> {
       savedJobsColl.createIndex({ userId: 1, jobId: 1 }, { unique: true, background: true }),
       auditColl.createIndex({ id: 1 }, { unique: true, background: true })
     ]);
-
-    // Authoritative Admin credentials sync in MongoDB (preserve existing ID, role, wallet, permissions)
-    const adminEmail = 'admin@jobportal.com';
-    const correctAdminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
-    const existingAdmin = await userColl.findOne({ email: adminEmail });
-    if (existingAdmin) {
-      if (existingAdmin.passwordHash !== correctAdminHash) {
-        await userColl.updateOne(
-          { email: adminEmail },
-          { $set: { passwordHash: correctAdminHash, updatedAt: new Date().toISOString() } }
-        );
-        console.log('[MongoDB] Synchronized administrative password hash for', adminEmail);
-      }
-    }
-
     indexesInitialized = true;
     console.log('[MongoDB] All production system collections and indexes ensured.');
   } catch (err: any) {

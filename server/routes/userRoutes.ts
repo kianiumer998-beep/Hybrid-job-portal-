@@ -19,40 +19,11 @@ userRouter.get('/', requireAdmin, async (req, res) => {
   }
 });
 
-// 1b. Get Single User Profile (Self or Admin)
-userRouter.get('/:id', requireAuth, async (req: any, res) => {
+
+// 2. Get User Wallet Summary
+userRouter.get('/:id/wallet', (req, res) => {
   try {
-    const { id } = req.params;
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && id !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own profile.' });
-    }
-
-    const user = await UserRepository.getByIdAsync(id);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-
-    const { passwordHash, salt, password, ...safeUser } = user;
-    res.json({ success: true, user: safeUser });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error fetching user profile' });
-  }
-});
-
-// 2. Get User Wallet Summary (Strictly authorization protected)
-userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
-  try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && req.params.id !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own wallet.' });
-    }
-
-    const summary = await PaymentRepository.getUserWalletAsync(req.params.id);
+    const summary = PaymentRepository.getUserWallet(req.params.id);
     res.json({ success: true, wallet: summary });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching user wallet' });
@@ -60,30 +31,27 @@ userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
 });
 
 // 3. User Saved Jobs
-userRouter.get('/saved-jobs', requireAuth, (req: any, res) => {
+userRouter.get('/saved-jobs', (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-    const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
-
-    if (!targetUserId) {
-      return res.status(400).json({ success: false, message: 'userId is required.' });
+    const userId = (req.query.userId as string) || (req as any).user?.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId query parameter is required.' });
     }
-    const saved = Database.getSavedJobs(targetUserId);
+    const saved = Database.getSavedJobs(userId);
     res.json({ success: true, savedJobs: saved });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching saved jobs' });
   }
 });
 
-userRouter.post('/saved-jobs/toggle', requireAuth, (req: any, res) => {
+userRouter.post('/saved-jobs/toggle', (req, res) => {
   try {
-    const { job } = req.body;
-    const currentUserId = req.user?.userId || req.user?.id;
-    if (!currentUserId || !job?.id) {
-      return res.status(400).json({ success: false, message: 'Valid user session and job with id are required.' });
+    const { userId, job } = req.body;
+    const targetUserId = userId || (req as any).user?.userId;
+    if (!targetUserId || !job?.id) {
+      return res.status(400).json({ success: false, message: 'userId and job with id are required.' });
     }
-    const result = Database.toggleSavedJob(currentUserId, job);
+    const result = Database.toggleSavedJob(targetUserId, job);
     res.json({ success: true, saved: result.saved, count: result.count });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error toggling saved job' });
@@ -91,33 +59,30 @@ userRouter.post('/saved-jobs/toggle', requireAuth, (req: any, res) => {
 });
 
 // 4. User Job Alerts
-userRouter.get('/job-alerts', requireAuth, (req: any, res) => {
+userRouter.get('/job-alerts', (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-    const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
-
-    const alerts = Database.getJobAlerts(targetUserId);
+    const userId = (req.query.userId as string) || (req as any).user?.userId;
+    const alerts = Database.getJobAlerts(userId);
     res.json({ success: true, alerts });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching alerts' });
   }
 });
 
-userRouter.post('/job-alerts', requireAuth, (req: any, res) => {
+userRouter.post('/job-alerts', (req, res) => {
   try {
-    const { keyword, city, jobType, frequency, email } = req.body;
-    const currentUserId = req.user?.userId || req.user?.id;
+    const { userId, keyword, city, jobType, frequency, email } = req.body;
+    const targetUserId = userId || (req as any).user?.userId;
     if (!keyword && !city && !jobType) {
       return res.status(400).json({ success: false, message: 'At least one filter criteria (keyword, city, jobType) is required.' });
     }
     const newAlert = Database.addJobAlert({
-      userId: currentUserId,
+      userId: targetUserId || 'anonymous',
       keyword,
       city,
       jobType,
       frequency: frequency || 'daily',
-      email: email || req.user?.email
+      email
     });
     res.status(201).json({ success: true, alert: newAlert, message: 'Job alert created successfully!' });
   } catch (err: any) {
@@ -125,13 +90,10 @@ userRouter.post('/job-alerts', requireAuth, (req: any, res) => {
   }
 });
 
-userRouter.delete('/job-alerts/:id', requireAuth, (req: any, res) => {
+userRouter.delete('/job-alerts/:id', (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-    const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
-
-    const deleted = Database.deleteJobAlert(req.params.id, targetUserId);
+    const userId = (req.query.userId as string) || (req as any).user?.userId;
+    const deleted = Database.deleteJobAlert(req.params.id, userId);
     res.json({ success: deleted, message: deleted ? 'Alert removed.' : 'Alert not found.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error deleting job alert' });
@@ -139,31 +101,28 @@ userRouter.delete('/job-alerts/:id', requireAuth, (req: any, res) => {
 });
 
 // 5. User Documents (CVs & Portfolios)
-userRouter.get('/documents', requireAuth, (req: any, res) => {
+userRouter.get('/documents', (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-    const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
-
-    if (!targetUserId) {
+    const userId = (req.query.userId as string) || (req as any).user?.userId;
+    if (!userId) {
       return res.status(400).json({ success: false, message: 'userId is required.' });
     }
-    const docs = Database.getUserDocuments(targetUserId);
+    const docs = Database.getUserDocuments(userId);
     res.json({ success: true, documents: docs });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching documents' });
   }
 });
 
-userRouter.post('/documents', requireAuth, (req: any, res) => {
+userRouter.post('/documents', (req, res) => {
   try {
-    const { title, type, fileUrl, fileSize, fileName } = req.body;
-    const currentUserId = req.user?.userId || req.user?.id;
-    if (!currentUserId || !title) {
-      return res.status(400).json({ success: false, message: 'Valid user session and title are required.' });
+    const { userId, title, type, fileUrl, fileSize, fileName } = req.body;
+    const targetUserId = userId || (req as any).user?.userId;
+    if (!targetUserId || !title) {
+      return res.status(400).json({ success: false, message: 'userId and title are required.' });
     }
     const doc = Database.addUserDocument({
-      userId: currentUserId,
+      userId: targetUserId,
       title,
       type: type || 'CV',
       fileUrl,
@@ -176,16 +135,13 @@ userRouter.post('/documents', requireAuth, (req: any, res) => {
   }
 });
 
-userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
+userRouter.delete('/documents/:id', (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-    const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
-
-    if (!targetUserId) {
+    const userId = (req.query.userId as string) || (req as any).user?.userId;
+    if (!userId) {
       return res.status(400).json({ success: false, message: 'userId is required.' });
     }
-    const deleted = Database.deleteUserDocument(req.params.id, targetUserId);
+    const deleted = Database.deleteUserDocument(req.params.id, userId);
     res.json({ success: deleted, message: deleted ? 'Document removed.' : 'Document not found.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error deleting document' });
@@ -193,29 +149,16 @@ userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
 });
 
 // 6. Update User Profile or Admin Status
-userRouter.put('/:id', requireAuth, async (req: any, res) => {
+userRouter.put('/:id', (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    // Normal users can only edit their own profile, and cannot modify their role or wallet balance
-    if (!isAdmin) {
-      if (id !== currentUserId) {
-        return res.status(403).json({ success: false, message: 'Access denied: You can only edit your own profile.' });
-      }
-      delete updates.role;
-      delete updates.walletBalance;
-      delete updates.membershipStatus;
-      delete updates.permissions;
-    }
 
     // Do not allow updating passwordHash directly via this endpoint
     delete updates.passwordHash;
     delete updates.salt;
 
-    const updated = await UserRepository.updateAsync(id, updates);
+    const updated = UserRepository.update(id, updates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
@@ -226,3 +169,5 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error updating user' });
   }
 });
+
+

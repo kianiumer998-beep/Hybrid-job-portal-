@@ -3,13 +3,13 @@ import path from 'path';
 import crypto from 'crypto';
 import { ApplicationRepository, AuditRepository, JobRepository, CaseRepository } from '../db/repositories';
 import { Database } from '../db/database';
-import { requireAdmin, authMiddleware, requireAuth } from '../auth/authManager';
+import { requireAdmin } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 
 export const applicationRouter = Router();
 
 // 1. Secure Real CV Upload Endpoint
-applicationRouter.post('/upload-cv', authMiddleware, async (req, res) => {
+applicationRouter.post('/upload-cv', async (req, res) => {
   try {
     const { fileName, fileType, fileBase64 } = req.body;
 
@@ -106,7 +106,7 @@ applicationRouter.post('/upload-cv', authMiddleware, async (req, res) => {
 });
 
 // 2. Serve / Stream Uploaded CV - STRICTLY PROTECTED
-applicationRouter.get('/cv/:filename', authMiddleware, async (req, res) => {
+applicationRouter.get('/cv/:filename', async (req, res) => {
   try {
     const rawFileName = req.params.filename;
     // Prevent directory traversal
@@ -187,7 +187,7 @@ applicationRouter.get('/cv/:filename', authMiddleware, async (req, res) => {
 });
 
 // 3. Get applications (filter by jobId or applicantId, or all for admin)
-applicationRouter.get('/', authMiddleware, async (req, res) => {
+applicationRouter.get('/', async (req, res) => {
   try {
     const { jobId, applicantId } = req.query as Record<string, string>;
     const user = (req as any).user;
@@ -224,28 +224,22 @@ applicationRouter.get('/', authMiddleware, async (req, res) => {
 
 
 // 4. Submit Job Application (Server-side settings enforcement)
-applicationRouter.post('/', requireAuth, async (req, res) => {
+applicationRouter.post('/', async (req, res) => {
   try {
     const {
       jobId,
       jobTitle,
       companyName,
+      applicantId,
+      applicantName,
+      applicantEmail,
       applicantPhone,
       coverLetter,
       answers,
       cvFileUrl
     } = req.body;
 
-    const authUser = (req as any).user;
-    if (!authUser || (!authUser.userId && !authUser.id)) {
-      return res.status(401).json({ success: false, message: 'Authentication required. Please log in to apply.' });
-    }
-
-    const effectiveApplicantId = authUser.userId || authUser.id;
-    const effectiveApplicantName = authUser.name || 'Applicant';
-    const effectiveApplicantEmail = authUser.email;
-
-    if (!jobId || !effectiveApplicantName || !effectiveApplicantEmail) {
+    if (!jobId || !applicantName || !applicantEmail) {
       return res.status(400).json({ success: false, message: 'Job ID, applicant name, and email are required.' });
     }
 
@@ -267,7 +261,7 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    if (settings.requireEmail && !effectiveApplicantEmail.trim()) {
+    if (settings.requireEmail && !applicantEmail.trim()) {
       return res.status(400).json({ success: false, message: 'Email address is required.' });
     }
 
@@ -291,13 +285,13 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    const newApp = await ApplicationRepository.createAsync({
+    const newApp = ApplicationRepository.create({
       jobId,
       jobTitle: jobTitle || 'Position',
       companyName: companyName || 'Company',
-      applicantId: effectiveApplicantId,
-      applicantName: effectiveApplicantName,
-      applicantEmail: effectiveApplicantEmail,
+      applicantId: applicantId || (req as any).user?.userId || 'guest',
+      applicantName,
+      applicantEmail,
       applicantPhone,
       coverLetter,
       answers: answers || {},
@@ -307,7 +301,7 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
 
     // Automatically register application in Universal Case tracking system
     try {
-      await CaseRepository.createAsync({
+      CaseRepository.create({
         type: 'application',
         referenceId: newApp.id,
         title: `Job Application: ${jobTitle} at ${companyName}`,
@@ -336,10 +330,10 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
     }
 
     AuditRepository.add({
-      user: effectiveApplicantName,
+      user: applicantName,
       role: 'Job Seeker',
       action: 'Job Application Submitted',
-      target: `${jobTitle || 'Position'} at ${companyName || 'Company'}`,
+      target: `${jobTitle} at ${companyName}`,
       status: 'Success'
     });
 
@@ -355,10 +349,10 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
 });
 
 // 5. Update Application Status (Reviewed, Shortlisted, Rejected)
-applicationRouter.patch('/:id/status', requireAdmin, async (req, res) => {
+applicationRouter.patch('/:id/status', requireAdmin, (req, res) => {
   try {
     const { status, notes } = req.body;
-    const updated = await ApplicationRepository.updateStatusAsync(req.params.id, status, notes);
+    const updated = ApplicationRepository.updateStatus(req.params.id, status, notes);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Application not found.' });
     }

@@ -386,18 +386,19 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         sinceTimestamp = options.fromTimestamp;
       }
 
-      // 2. Dynamic next-page crawl loop (no hard-coded 25-page limit)
+      // 2. Dynamic next-page crawl loop
       const rawResults: ScrapedJobResult[] = [];
+      const MAX_SAFETY_PAGES = 25;
 
       let startPage = 1;
       let maxAllowedPage = 1;
 
       if (options.mode === 'page_range') {
         startPage = Math.max(1, options.startPage || 1);
-        maxAllowedPage = options.endPage ? Math.max(startPage, options.endPage) : startPage;
+        maxAllowedPage = Math.max(startPage, Math.min(startPage + MAX_SAFETY_PAGES, options.endPage || startPage));
       } else if (options.mode === 'complete') {
         startPage = 1;
-        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 1000;
+        maxAllowedPage = MAX_SAFETY_PAGES;
       }
 
       let currentPage = startPage;
@@ -466,40 +467,15 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         }
       }
 
-      // Date filtering for custom_date, since_last, and cutoff bounds
+      // Custom date upper cutoff
       let filteredResults = rawResults;
-      const parseJobTime = (j: ScrapedJobResult): number | null => {
-        const rawTimeStr = j.datePosted || j.postedAt;
-        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') return null;
-        const parsed = new Date(rawTimeStr).getTime();
-        return isNaN(parsed) ? null : parsed;
-      };
-
-      if (options.mode === 'custom_date') {
-        if (options.fromTimestamp) {
-          const fromTime = new Date(options.fromTimestamp).getTime();
-          if (!isNaN(fromTime)) {
-            filteredResults = filteredResults.filter(j => {
-              const postTime = parseJobTime(j);
-              return postTime !== null && postTime >= fromTime;
-            });
-          }
-        }
-        if (options.toTimestamp) {
-          const toTime = new Date(options.toTimestamp).getTime();
-          if (!isNaN(toTime)) {
-            filteredResults = filteredResults.filter(j => {
-              const postTime = parseJobTime(j);
-              return postTime !== null && postTime <= toTime;
-            });
-          }
-        }
-      } else if (sinceTimestamp) {
-        const cutoffTime = new Date(sinceTimestamp).getTime();
-        if (!isNaN(cutoffTime)) {
+      if (options.mode === 'custom_date' && options.toTimestamp) {
+        const toTime = new Date(options.toTimestamp).getTime();
+        if (!isNaN(toTime)) {
           filteredResults = filteredResults.filter(j => {
-            const postTime = parseJobTime(j);
-            return postTime !== null && postTime >= cutoffTime;
+            if (!j.datePosted) return true;
+            const postTime = new Date(j.datePosted).getTime();
+            return isNaN(postTime) || postTime <= toTime;
           });
         }
       }
@@ -507,9 +483,9 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       sourceFound = filteredResults.length;
 
       for (const raw of filteredResults) {
-        const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable' && raw.salary.toLowerCase() !== 'salary not disclosed')
-          ? raw.salary.trim()
-          : (raw.salary && raw.salary.trim() ? raw.salary.trim() : undefined);
+        const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable')
+          ? raw.salary
+          : 'Salary not disclosed';
 
         const isQualityAcceptable = !!(raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2);
         if (!isQualityAcceptable) {
@@ -520,10 +496,16 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
 
         // Location determination - preserve extracted location, or fallback to source configuration
-        let resolvedRegion = (raw.region && raw.region !== 'Global') ? raw.region : ((target as any).region || undefined);
-        let resolvedProvince = raw.province || (target as any).province || undefined;
-        let resolvedCity = raw.city || (target as any).city || undefined;
-        let resolvedDistrict = (raw as any).district || (target as any).district || undefined;
+        const isPakPortal = (target as any).region === 'Pakistan' ||
+          target.isGovtPortal ||
+          domain.endsWith('.pk') ||
+          /pakistan|fpsc|ppsc|spsc|kppsc|bpsc|federal|punjab|sindh|kpk|balochistan|islamabad|lahore|karachi|peshawar|quetta|wapda|nadra|hec|ptcl|ogdcl|fia|nab|fbr/i.test(target.name) ||
+          /pakistan|islamabad|lahore|karachi|rawalpindi|peshawar|quetta|multan|faisalabad|sialkot|gujranwala/i.test(`${raw.title} ${raw.city || ''} ${raw.department || ''} ${raw.province || ''}`);
+
+        let resolvedRegion = (raw.region && raw.region !== 'Global') ? raw.region : ((target as any).region || (isPakPortal ? 'Pakistan' : 'Global'));
+        let resolvedProvince = raw.province || (target as any).province;
+        let resolvedCity = raw.city || (target as any).city;
+        let resolvedDistrict = (raw as any).district || (target as any).district;
 
         // If source location enforcement is enabled, override with source settings
         if (target.useSourceLocation) {
@@ -533,10 +515,30 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           if (target.district) resolvedDistrict = target.district;
         }
 
+        // Pakistani province auto-detection if still unassigned
+        if ((resolvedRegion === 'Pakistan' || isPakPortal) && !resolvedProvince) {
+          const combinedLocText = `${target.name} ${raw.title} ${resolvedCity || ''} ${raw.department || ''}`.toLowerCase();
+          if (combinedLocText.includes('federal') || combinedLocText.includes('fpsc') || combinedLocText.includes('islamabad') || combinedLocText.includes('national')) {
+            resolvedProvince = 'Federal';
+          } else if (combinedLocText.includes('punjab') || combinedLocText.includes('ppsc') || combinedLocText.includes('lahore') || combinedLocText.includes('rawalpindi') || combinedLocText.includes('multan') || combinedLocText.includes('faisalabad')) {
+            resolvedProvince = 'Punjab';
+          } else if (combinedLocText.includes('sindh') || combinedLocText.includes('spsc') || combinedLocText.includes('karachi') || combinedLocText.includes('hyderabad') || combinedLocText.includes('sukkur')) {
+            resolvedProvince = 'Sindh';
+          } else if (combinedLocText.includes('kpk') || combinedLocText.includes('kp') || combinedLocText.includes('kppsc') || combinedLocText.includes('peshawar') || combinedLocText.includes('abbottabad')) {
+            resolvedProvince = 'Khyber Pakhtunkhwa';
+          } else if (combinedLocText.includes('balochistan') || combinedLocText.includes('bpsc') || combinedLocText.includes('quetta') || combinedLocText.includes('gwadar')) {
+            resolvedProvince = 'Balochistan';
+          } else if (combinedLocText.includes('ajk') || combinedLocText.includes('azad kashmir') || combinedLocText.includes('muzaffarabad')) {
+            resolvedProvince = 'Azad Kashmir';
+          } else if (combinedLocText.includes('gilgit') || combinedLocText.includes('baltistan')) {
+            resolvedProvince = 'Gilgit-Baltistan';
+          }
+        }
+
         const standardizedJob: any = {
           ...raw,
           id: raw.id || `scraped-${target.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-          salary: standardizedSalary || '',
+          salary: standardizedSalary,
           scraperSourceId: target.id,
           scraperSourceName: target.name,
           scrapedSourceDomain: domain,
@@ -548,14 +550,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           scrapedTime: startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
           extractionMethod: raw.extractionMethod || 'html_cheerio',
           scrapeRunId: runId,
-          jobCategory: (target as any).category || (raw as any).jobCategory || undefined,
+          jobCategory: (target as any).category || 'General',
           region: resolvedRegion,
           province: resolvedProvince || undefined,
           city: resolvedCity || undefined,
           district: resolvedDistrict || undefined,
-          isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || !!raw.isGovtJob,
-          isNewspaperAd: (target as any).category === 'Newspaper Classified' || !!raw.isNewspaperAd,
-          newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : (raw.newspaperName || undefined),
+          isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || raw.isGovtJob,
+          isNewspaperAd: (target as any).category === 'Newspaper Classified',
+          newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : undefined,
           clippingImageUrl: raw.clippingImageUrl || raw.mediaUrl || undefined,
           pdfSourceUrl: raw.pdfSourceUrl || (raw.sourceUrl && typeof raw.sourceUrl === 'string' && raw.sourceUrl.toLowerCase().endsWith('.pdf') ? raw.sourceUrl : undefined),
           extractedText: raw.extractedText || raw.rawText || undefined,

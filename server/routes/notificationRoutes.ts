@@ -8,17 +8,10 @@ export const notificationRouter = Router();
 notificationRouter.get('/', authenticateOptionalUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    let userId: string | undefined = undefined;
-    let role: string | undefined = undefined;
-    let plan: string | undefined = undefined;
-    let membershipStatus: string | undefined = undefined;
-
-    if (user && (user.userId || user.id)) {
-      userId = user.userId || user.id;
-      role = user.role;
-      plan = user.plan;
-      membershipStatus = user.membershipStatus;
-    }
+    const userId = req.query.userId as string || user?.id;
+    const role = req.query.role as string || user?.role;
+    const plan = req.query.plan as string || user?.plan;
+    const membershipStatus = req.query.membershipStatus as string || user?.membershipStatus;
 
     const notifs = await NotificationRepository.getForUser({
       userId,
@@ -259,32 +252,10 @@ notificationRouter.post('/admin/:id/override-mandatory', requireAdmin, async (re
 });
 
 // 11. Check user restriction status
-notificationRouter.get('/user/:userId/restrictions', authenticateUser, async (req, res) => {
+notificationRouter.get('/user/:userId/restrictions', async (req, res) => {
   try {
-    const user = (req as any).user;
-    const currentUserId = user?.userId || user?.id;
-    const targetUserId = req.params.userId;
-    const adminRoles = [
-      'Super Admin',
-      'Admin',
-      'Job Moderator',
-      'Scraper Manager',
-      'Payment Manager',
-      'Finance Manager',
-      'SEO Manager',
-      'Advertisement Manager'
-    ];
-    const isAdmin = user?.role && adminRoles.includes(user.role);
-
-    if (!isAdmin && currentUserId !== targetUserId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied: You can only query your own restriction status.'
-      });
-    }
-
     const action = (req.query.action as string) || 'post_job';
-    const check = await NotificationRepository.checkUserRestricted(targetUserId, action);
+    const check = await NotificationRepository.checkUserRestricted(req.params.userId, action);
     res.json({
       success: true,
       ...check

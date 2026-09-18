@@ -220,8 +220,8 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
 
       return {
         id: `gh-${config.id}-${j.id}`,
-        title: (j.title || '').trim() || 'Untitled Position',
-        company: j.company_name || config.name || '',
+        title: (j.title || '').trim(),
+        company: j.company_name ? String(j.company_name).trim() : '',
         jobType: undefined,
         region: undefined,
         city: locName || undefined,
@@ -287,8 +287,8 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
 
       return {
         id: `lever-${config.id}-${j.id}`,
-        title: (j.text || '').trim() || 'Untitled Position',
-        company: config.name || '',
+        title: (j.text || '').trim(),
+        company: (j.company || j.employer || '').trim(),
         jobType,
         region: undefined,
         city: loc || undefined,
@@ -345,8 +345,8 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
           if (data && Array.isArray(data.content)) {
             const jobs: ScrapedJobResult[] = data.content.map((j: any) => ({
               id: `sr-${config.id}-${j.id}`,
-              title: j.name || 'Untitled Position',
-              company: j.company?.name || company || config.name || '',
+              title: (j.name || '').trim(),
+              company: (j.company?.name || company || '').trim(),
               jobType: j.location?.remote ? 'Remote' : undefined,
               region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : undefined,
               city: j.location?.city || undefined,
@@ -390,8 +390,8 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
           if (data && Array.isArray(data.jobs)) {
             const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => ({
               id: `ashby-${config.id}-${j.id}`,
-              title: j.title || 'Untitled Position',
-              company: company || config.name || '',
+              title: (j.title || '').trim(),
+              company: (company || '').trim(),
               jobType: j.isRemote ? 'Remote' : undefined,
               region: undefined,
               city: j.location || undefined,

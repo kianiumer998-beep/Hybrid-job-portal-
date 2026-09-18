@@ -3,6 +3,7 @@ import { generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdmin } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
+import { calculateJobMissingFields, isScrapedJob } from '../services/jobValidation';
 
 export const jobRouter = Router();
 
@@ -72,6 +73,18 @@ jobRouter.post('/queue/pending/:id/approve', requireAdmin, async (req, res) => {
     const targetJob = pendingList.find(j => j.id === req.params.id);
 
     if (targetJob && !force) {
+      if (isScrapedJob(targetJob)) {
+        const missingFields = calculateJobMissingFields(targetJob);
+        if (missingFields.length > 0) {
+          return res.status(422).json({
+            success: false,
+            hasMissingFields: true,
+            missingFields,
+            message: `Approval blocked: Scraped job is missing required factual fields (${missingFields.join(', ')}). Please use Quick Edit to provide required information before publishing.`
+          });
+        }
+      }
+
       const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
       const otherPending = pendingList.filter(j => j.id !== req.params.id);
       const dupCheck = detectJobDuplicate(targetJob, liveJobs, otherPending);
@@ -156,6 +169,7 @@ jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
 
     let idsToApprove = ids;
     let duplicateWarnings: any[] = [];
+    let missingFieldWarnings: any[] = [];
 
     if (!force) {
       const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
@@ -165,6 +179,13 @@ jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
       for (const id of ids) {
         const pendingJob = allPending.find(j => j.id === id);
         if (pendingJob) {
+          if (isScrapedJob(pendingJob)) {
+            const missingFields = calculateJobMissingFields(pendingJob);
+            if (missingFields.length > 0) {
+              missingFieldWarnings.push({ id, title: pendingJob.title, missingFields });
+              continue;
+            }
+          }
           const otherPending = allPending.filter(j => j.id !== id);
           const dup = detectJobDuplicate(pendingJob, liveJobs, otherPending);
           if (dup.isDuplicate && dup.confidence >= 80) {
@@ -182,7 +203,7 @@ jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Approved',
-      target: `${result.successCount} jobs approved (${result.failureCount} failed, ${duplicateWarnings.length} duplicates skipped)`,
+      target: `${result.successCount} jobs approved (${result.failureCount} failed, ${duplicateWarnings.length} duplicates skipped, ${missingFieldWarnings.length} missing fields skipped)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
     });
     res.json({
@@ -190,11 +211,13 @@ jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
       successCount: result.successCount,
       failureCount: result.failureCount,
       skippedDuplicatesCount: duplicateWarnings.length,
+      skippedMissingFieldsCount: missingFieldWarnings.length,
       duplicateWarnings,
+      missingFieldWarnings,
       errors: result.errors,
       approvedCount: result.successCount,
       approvedJobs: result.approvedJobs,
-      message: `${result.successCount} jobs approved.${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}`
+      message: `${result.successCount} jobs approved.${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}${missingFieldWarnings.length > 0 ? ` (${missingFieldWarnings.length} skipped with missing fields)` : ''}`
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-approve:', err);

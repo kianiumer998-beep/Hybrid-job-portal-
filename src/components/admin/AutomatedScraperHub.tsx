@@ -40,6 +40,8 @@ import {
 } from 'lucide-react';
 import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
+import { calculateJobMissingFields, isScrapedJob, formatMissingFieldsNotice } from '../../utils/jobValidation';
+import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
 
 export interface SourceGroup {
   id: string;
@@ -421,6 +423,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
   // Inspect Run Modal State
   const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
+
+  // Quick Edit Modal State for Review Queue
+  const [quickEditingJob, setQuickEditingJob] = useState<Job | null>(null);
+  const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
 
   // Global Settings State
   const [globalInterval, setGlobalInterval] = useState('24h');
@@ -1900,12 +1906,64 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     setSelectedReviewIds([]);
   };
 
+  const handleSaveQuickEditJob = async (updatedJob: Job) => {
+    try {
+      const res = await api.jobs.update(updatedJob.id, updatedJob);
+      if (res?.success) {
+        setStatusMessage({ text: `Updated job "${updatedJob.title}" successfully.`, type: 'success' });
+        await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to update job.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Update error: ${err.message}`, type: 'error' });
+    }
+  };
+
+  const handleSaveAndApproveJob = async (updatedJob: Job) => {
+    try {
+      await api.jobs.update(updatedJob.id, updatedJob);
+      const approveRes = await api.jobs.bulkApprove([updatedJob.id]);
+      if (approveRes?.success) {
+        if (approveRes.skippedMissingFieldsCount > 0) {
+          const missing = calculateJobMissingFields(updatedJob);
+          setStatusMessage({ text: `Cannot approve "${updatedJob.title}": Missing required fields (${missing.join(', ')}).`, type: 'error' });
+        } else {
+          setStatusMessage({ text: `Saved and published "${updatedJob.title}" directly to Live!`, type: 'success' });
+          await fetchPendingQueue();
+          if (onReloadJobs) await onReloadJobs();
+        }
+      } else {
+        setStatusMessage({ text: approveRes?.message || 'Failed to approve job.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
+    }
+  };
+
   const handleApproveSelected = async () => {
     if (selectedReviewIds.length === 0) return;
+
+    const selectedJobsData = reviewItems.filter(j => selectedReviewIds.includes(j.id));
+    const jobsWithMissing = selectedJobsData.filter(j => isScrapedJob(j) && calculateJobMissingFields(j).length > 0);
+    if (jobsWithMissing.length > 0) {
+      const summaryList = jobsWithMissing.map(j => `• "${j.title}" (Missing: ${calculateJobMissingFields(j).join(', ')})`).slice(0, 5).join('\n');
+      const proceed = confirm(
+        `Data Integrity Notice:\n${jobsWithMissing.length} of ${selectedReviewIds.length} selected scraped jobs have missing required factual fields:\n\n${summaryList}${jobsWithMissing.length > 5 ? `\n...and ${jobsWithMissing.length - 5} more` : ''}\n\nIncomplete scraped jobs will be safely skipped from live publishing until completed via Quick Edit.\n\nDo you want to proceed approving the valid jobs?`
+      );
+      if (!proceed) {
+        return;
+      }
+    }
+
     setIsProcessingReview(true);
     try {
       const res = await api.jobs.bulkApprove(selectedReviewIds);
       if (res?.success) {
+        const skippedMissing = res.skippedMissingFieldsCount || 0;
+        const skippedDups = res.skippedDuplicatesCount || 0;
+
         if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
           const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
           setStatusMessage({
@@ -1913,13 +1971,21 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             type: 'error'
           });
         } else {
+          let msg = `Successfully approved ${res.successCount || 0} jobs to live listings!`;
+          if (skippedMissing > 0) {
+            msg += ` (${skippedMissing} skipped with missing required fields)`;
+          }
+          if (skippedDups > 0) {
+            msg += ` (${skippedDups} duplicates skipped)`;
+          }
           setStatusMessage({
-            text: `Successfully approved ${res.successCount || selectedReviewIds.length} jobs to live listings!`,
-            type: 'success'
+            text: msg,
+            type: skippedMissing > 0 ? 'info' : 'success'
           });
         }
         setSelectedReviewIds([]);
         await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
       } else {
         setStatusMessage({ text: res?.message || 'Failed to approve selected jobs.', type: 'error' });
       }
@@ -4452,79 +4518,109 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
                 {paginatedReviewItems.map(job => {
                   const isExpired = job.status === 'Expired';
-                const isDup = (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate');
-                const isSelected = selectedReviewIds.includes(job.id);
+                  const isDup = (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate');
+                  const isSelected = selectedReviewIds.includes(job.id);
+                  const missingFields = calculateJobMissingFields(job);
+                  const hasMissingFields = isScrapedJob(job) && missingFields.length > 0;
 
-                return (
-                  <div
-                    key={job.id}
-                    className={`bg-slate-900 border rounded-2xl p-5 transition-all shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                      isExpired
-                        ? 'border-rose-800/40 bg-rose-950/10'
-                        : isDup
-                        ? 'border-purple-800/60 bg-purple-950/10'
-                        : 'border-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-start space-x-3.5">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select job ${job.title}`}
-                        checked={isSelected}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedReviewIds(prev => [...prev, job.id]);
-                          } else {
-                            setSelectedReviewIds(prev => prev.filter(id => id !== job.id));
-                          }
-                        }}
-                        className="mt-1 rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
-                      />
+                  return (
+                    <div
+                      key={job.id}
+                      className={`bg-slate-900 border rounded-2xl p-5 transition-all shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                        isExpired
+                          ? 'border-rose-800/40 bg-rose-950/10'
+                          : isDup
+                          ? 'border-purple-800/60 bg-purple-950/10'
+                          : hasMissingFields
+                          ? 'border-amber-700/50 bg-amber-950/10'
+                          : 'border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-3.5">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select job ${job.title}`}
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedReviewIds(prev => [...prev, job.id]);
+                            } else {
+                              setSelectedReviewIds(prev => prev.filter(id => id !== job.id));
+                            }
+                          }}
+                          className="mt-1 rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
+                        />
 
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-2 flex-wrap">
-                          <h4 className="text-sm font-black text-white">{job.title}</h4>
-                          {isExpired ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
-                              <Clock className="w-3 h-3" />
-                              <span>Expired (Deadline: {job.deadlineDate || 'Passed'})</span>
-                            </span>
-                          ) : isDup ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center space-x-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              <span>Duplicate Alert</span>
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              Pending Review
-                            </span>
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2 flex-wrap">
+                            <h4 className="text-sm font-black text-white">{job.title}</h4>
+                            {isExpired ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
+                                <Clock className="w-3 h-3" />
+                                <span>Expired (Deadline: {job.deadlineDate || 'Passed'})</span>
+                              </span>
+                            ) : isDup ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center space-x-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                <span>Duplicate Alert</span>
+                              </span>
+                            ) : hasMissingFields ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1" title={`Missing: ${missingFields.join(', ')}`}>
+                                <AlertCircle className="w-3 h-3 text-rose-400" />
+                                <span>Missing: {missingFields.join(', ')}</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                Pending Review
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-slate-400">
+                            {job.company} • {job.region} • Source: <span className="text-indigo-400 font-semibold">{(job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'External'}</span>
+                            {job.deadlineDate && (
+                              <span className="ml-2 text-slate-500">
+                                • Official Deadline: <span className="text-amber-300/90 font-mono">{job.deadlineDate}</span>
+                              </span>
+                            )}
+                          </p>
+
+                          {hasMissingFields && !isExpired && (
+                            <p className="text-[11px] text-amber-300/90 pt-0.5 flex items-center space-x-1 font-medium">
+                              <AlertCircle className="w-3 h-3 flex-shrink-0 text-amber-400" />
+                              <span>Missing required factual data: <strong className="text-rose-300">{missingFields.join(', ')}</strong>. Please use Quick Edit to complete before approving.</span>
+                            </p>
+                          )}
+
+                          {isExpired && (
+                            <p className="text-[11px] text-rose-300/80 pt-0.5">
+                              Notice: This job passed its application deadline and was transitioned to Expired by the portal scheduler.
+                            </p>
+                          )}
+
+                          {isDup && !isExpired && (
+                            <p className="text-[11px] text-purple-300/80 pt-0.5">
+                              Notice: A job with a very similar title and employer already exists in active listings.
+                            </p>
                           )}
                         </div>
-
-                        <p className="text-xs text-slate-400">
-                          {job.company} • {job.region} • Source: <span className="text-indigo-400 font-semibold">{(job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'External'}</span>
-                          {job.deadlineDate && (
-                            <span className="ml-2 text-slate-500">
-                              • Official Deadline: <span className="text-amber-300/90 font-mono">{job.deadlineDate}</span>
-                            </span>
-                          )}
-                        </p>
-
-                        {isExpired && (
-                          <p className="text-[11px] text-rose-300/80 pt-0.5">
-                            Notice: This job passed its application deadline and was transitioned to Expired by the portal scheduler.
-                          </p>
-                        )}
-
-                        {isDup && !isExpired && (
-                          <p className="text-[11px] text-purple-300/80 pt-0.5">
-                            Notice: A job with a very similar title and employer already exists in active listings.
-                          </p>
-                        )}
                       </div>
-                    </div>
 
-                    <div className="flex items-center space-x-2 flex-wrap gap-2">
+                      <div className="flex items-center space-x-2 flex-wrap gap-2">
+                        {!isExpired && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuickEditingJob(job);
+                              setIsQuickEditOpen(true);
+                            }}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer"
+                            title="Edit job and complete missing fields"
+                          >
+                            <Edit3 className="w-3 h-3 text-amber-400" />
+                            <span>Quick Edit</span>
+                          </button>
+                        )}
                       {isExpired ? (
                         <>
                           <button
@@ -4599,12 +4695,31 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           type="button"
                           disabled={isProcessingReview}
                           onClick={async () => {
+                            if (hasMissingFields) {
+                              setStatusMessage({
+                                text: `Cannot approve "${job.title}": Missing required factual fields (${missingFields.join(', ')}). Please complete them via Quick Edit before publishing.`,
+                                type: 'error'
+                              });
+                              setQuickEditingJob(job);
+                              setIsQuickEditOpen(true);
+                              return;
+                            }
                             setIsProcessingReview(true);
                             try {
                               const res = await api.jobs.bulkApprove([job.id]);
                               if (res?.success) {
-                                setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
-                                await fetchPendingQueue();
+                                if (res.skippedMissingFieldsCount > 0) {
+                                  setStatusMessage({
+                                    text: `Cannot approve "${job.title}": Missing required fields (${missingFields.join(', ')}).`,
+                                    type: 'error'
+                                  });
+                                } else {
+                                  setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
+                                  await fetchPendingQueue();
+                                  if (onReloadJobs) await onReloadJobs();
+                                }
+                              } else {
+                                setStatusMessage({ text: res?.message || 'Failed to approve job.', type: 'error' });
                               }
                             } catch (err: any) {
                               setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
@@ -4612,10 +4727,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                               setIsProcessingReview(false);
                             }
                           }}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 ${
+                            hasMissingFields
+                              ? 'bg-amber-600/70 hover:bg-amber-600 text-amber-100 border border-amber-500/40'
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          }`}
+                          title={hasMissingFields ? `Missing: ${missingFields.join(', ')} - Click to Quick Edit` : 'Approve job to live listings'}
                         >
                           <Check className="w-3.5 h-3.5" />
-                          <span>Approve to Live</span>
+                          <span>{hasMissingFields ? 'Complete & Approve' : 'Approve to Live'}</span>
                         </button>
                       )}
 
@@ -5912,6 +6032,20 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Quick Edit Job Modal */}
+      {isQuickEditOpen && (
+        <AdminQuickEditJobModal
+          job={quickEditingJob}
+          isOpen={isQuickEditOpen}
+          onClose={() => {
+            setIsQuickEditOpen(false);
+            setQuickEditingJob(null);
+          }}
+          onSaveJob={handleSaveQuickEditJob}
+          onSaveAndApproveJob={handleSaveAndApproveJob}
+        />
       )}
     </div>
   );

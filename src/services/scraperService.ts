@@ -439,7 +439,9 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
 
   if (!isExplicitPdfOrDoc) return null;
 
-  const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : effectiveUrl;
+  const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http'))
+    ? config.pdfUrl
+    : (/\.(pdf|jpg|jpeg|png|webp)(\?|$)/i.test(effectiveUrl) ? effectiveUrl : '');
   if (!targetPdfUrl || !targetPdfUrl.startsWith('http')) return null;
 
   try {
@@ -875,8 +877,18 @@ export async function scrapeTargetPortal(
       return filterByOptions(restResult.jobs, options);
     }
 
-    // 5. Build paginated target URL if page > 1
-    let targetUrl = effectiveUrl;
+    // 5. Fall back to existing configured portalUrl / source URL for HTML extraction if PDF was unreachable, 404, or yielded 0 jobs
+    const isDocUrl = (u?: string) => !!u && /\.(pdf|jpg|jpeg|png|webp)(\?|$)/i.test(u.toLowerCase());
+    let targetHtmlUrl = effectiveUrl;
+    if (config.portalUrl && config.portalUrl.startsWith('http') && (!isDocUrl(config.portalUrl) || isDocUrl(targetHtmlUrl))) {
+      targetHtmlUrl = config.portalUrl;
+    } else if (config.url && config.url.startsWith('http') && !isDocUrl(config.url)) {
+      targetHtmlUrl = config.url;
+    } else if (config.portalUrl && config.portalUrl.startsWith('http')) {
+      targetHtmlUrl = config.portalUrl;
+    }
+
+    let targetUrl = targetHtmlUrl;
     if (options.page && options.page > 1) {
       try {
         const urlObj = new URL(targetUrl);
@@ -997,13 +1009,25 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
     if (!isNaN(cutoff)) {
       filtered = filtered.filter(j => {
         const rawTimeStr = j.datePosted || j.postedAt;
-        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') {
-          return false;
+        // If posting date is missing/undefined or placeholder/non-date (e.g. "Recent", "Just now"),
+        // NEVER fabricate or guess a date. Preserve authentic job with the date field empty.
+        if (!rawTimeStr || typeof rawTimeStr !== 'string' || /^(recent|just now|recently)$/i.test(rawTimeStr.trim())) {
+          if (j.postedAt && (typeof j.postedAt !== 'string' || /^(recent|just now|recently)$/i.test(j.postedAt.trim()))) {
+            j.postedAt = undefined;
+          }
+          if (j.datePosted && (typeof j.datePosted !== 'string' || /^(recent|just now|recently)$/i.test(j.datePosted.trim()))) {
+            j.datePosted = undefined;
+          }
+          return true;
         }
         const postTime = new Date(rawTimeStr).getTime();
         if (isNaN(postTime)) {
-          return false;
+          // Cannot be reliably parsed: preserve authentic job with date field empty
+          j.postedAt = undefined;
+          j.datePosted = undefined;
+          return true;
         }
+        // Factual valid date: apply existing cutoff normally
         return postTime >= cutoff;
       });
     }

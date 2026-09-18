@@ -470,9 +470,22 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       let filteredResults = rawResults;
       const parseJobTime = (j: ScrapedJobResult): number | null => {
         const rawTimeStr = j.datePosted || j.postedAt;
-        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') return null;
+        if (!rawTimeStr || typeof rawTimeStr !== 'string' || /^(recent|just now|recently)$/i.test(rawTimeStr.trim())) {
+          if (j.postedAt && (typeof j.postedAt !== 'string' || /^(recent|just now|recently)$/i.test(j.postedAt.trim()))) {
+            j.postedAt = undefined;
+          }
+          if (j.datePosted && (typeof j.datePosted !== 'string' || /^(recent|just now|recently)$/i.test(j.datePosted.trim()))) {
+            j.datePosted = undefined;
+          }
+          return null;
+        }
         const parsed = new Date(rawTimeStr).getTime();
-        return isNaN(parsed) ? null : parsed;
+        if (isNaN(parsed)) {
+          j.postedAt = undefined;
+          j.datePosted = undefined;
+          return null;
+        }
+        return parsed;
       };
 
       if (options.mode === 'custom_date') {
@@ -499,7 +512,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         if (!isNaN(cutoffTime)) {
           filteredResults = filteredResults.filter(j => {
             const postTime = parseJobTime(j);
-            return postTime !== null && postTime >= cutoffTime;
+            // If job has a valid factual posting date, apply cutoff normally;
+            // if posting date is missing/undefined or cannot be reliably parsed,
+            // preserve the authentic job with empty date field.
+            return postTime !== null ? postTime >= cutoffTime : true;
           });
         }
       }

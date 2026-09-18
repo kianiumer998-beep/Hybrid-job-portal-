@@ -54,15 +54,14 @@ export function isGenericOrFallbackSalary(salary: string | undefined | null): bo
  * - Title (must be specified and not 'Untitled Position')
  * - Company / Employer (must be specified)
  * - Location (must have city, province, region, country, or location)
- * - Job Type (must be specified, e.g. Remote, Hybrid, On-site)
  * 
- * Note: Salary and Experience Level are preserved when provided by the source,
+ * Note: Job Type, Salary, and Experience Level are preserved when provided by the source,
  * but are NOT blindly mandatory for publication if the source legitimately
- * did not publish them (e.g. government gazettes, unstated compensation).
+ * did not publish them (e.g. government gazettes, unstated compensation/modality).
  */
 export function calculateJobMissingFields(job: Partial<Job> | null | undefined): string[] {
   if (!job) {
-    return ['Title', 'Company', 'Location', 'Job Type'];
+    return ['Title', 'Company', 'Location'];
   }
 
   const missing: string[] = [];
@@ -87,12 +86,6 @@ export function calculateJobMissingFields(job: Partial<Job> | null | undefined):
   const hasLocation = Boolean((job as any).location && String((job as any).location).trim());
   if (!hasCity && !hasProvince && !hasRegion && !hasCountry && !hasLocation) {
     missing.push('Location');
-  }
-
-  // Job Type (Remote, Hybrid, On-site) - required for publishing
-  const jobType = job.jobType ? String(job.jobType).trim() : '';
-  if (!jobType) {
-    missing.push('Job Type');
   }
 
   return missing;

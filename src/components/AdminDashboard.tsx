@@ -551,7 +551,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const incompleteJobs = uniqueJobs.filter(j => isScrapedJob(j) && calculateJobMissingFields(j).length > 0);
 
     if (readyJobs.length === 0) {
-      alert(`Cannot approve: All ${incompleteJobs.length} scraped jobs have missing required factual fields (Title, Company, Location, Salary, or Experience Level). Please review and complete them via Quick Edit first.`);
+      alert(`Cannot approve: All ${incompleteJobs.length} scraped jobs have missing required factual fields (Title, Company, Location, or Job Type). Please review and complete them via Quick Edit first.`);
       return;
     }
 

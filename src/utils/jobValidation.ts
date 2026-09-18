@@ -49,34 +49,37 @@ export function isGenericOrFallbackSalary(salary: string | undefined | null): bo
  * Calculates the list of critical factual fields that are missing from a job record.
  * Does not invent values; calculates directly from the record.
  * 
- * Critical factual fields for publication:
- * - Title
- * - Company
+ * In accordance with production business rules, only fields that are actually
+ * required for publishing block approval:
+ * - Title (must be specified and not 'Untitled Position')
+ * - Company / Employer (must be specified)
  * - Location (must have city, province, region, country, or location)
  * - Job Type (must be specified, e.g. Remote, Hybrid, On-site)
- * - Salary (must be a factual salary, not a generic fallback)
- * - Experience (must specify experience level)
+ * 
+ * Note: Salary and Experience Level are preserved when provided by the source,
+ * but are NOT blindly mandatory for publication if the source legitimately
+ * did not publish them (e.g. government gazettes, unstated compensation).
  */
 export function calculateJobMissingFields(job: Partial<Job> | null | undefined): string[] {
   if (!job) {
-    return ['Title', 'Company', 'Location', 'Job Type', 'Salary', 'Experience'];
+    return ['Title', 'Company', 'Location', 'Job Type'];
   }
 
   const missing: string[] = [];
 
-  // Title
+  // Title - required for publishing
   const title = job.title ? String(job.title).trim() : '';
   if (!title || title.toLowerCase() === 'untitled position') {
     missing.push('Title');
   }
 
-  // Company / Employer
+  // Company / Employer - required for publishing
   const company = job.company ? String(job.company).trim() : '';
   if (!company) {
     missing.push('Company');
   }
 
-  // Location: city, province, region, country, or location
+  // Location: city, province, region, country, or location - required for publishing
   const hasCity = Boolean(job.city && String(job.city).trim());
   const hasProvince = Boolean(job.province && String(job.province).trim());
   const hasRegion = Boolean(job.region && String(job.region).trim() && job.region !== 'Global');
@@ -86,21 +89,10 @@ export function calculateJobMissingFields(job: Partial<Job> | null | undefined):
     missing.push('Location');
   }
 
-  // Job Type
+  // Job Type (Remote, Hybrid, On-site) - required for publishing
   const jobType = job.jobType ? String(job.jobType).trim() : '';
   if (!jobType) {
     missing.push('Job Type');
-  }
-
-  // Salary
-  if (isGenericOrFallbackSalary(job.salary)) {
-    missing.push('Salary');
-  }
-
-  // Experience
-  const exp = job.experienceLevel ? String(job.experienceLevel).trim() : '';
-  if (!exp) {
-    missing.push('Experience');
   }
 
   return missing;

@@ -380,7 +380,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                     Missing Required Factual Fields: <span className="text-rose-400 font-bold">{currentMissingFields.join(', ')}</span>
                   </div>
                   <p className="text-[11px] text-slate-300 mt-0.5">
-                    To maintain data accuracy, scraped listings must have factual Title, Company, Location, Job Type, Salary, and Experience Level before being published live.
+                    To maintain data accuracy, scraped listings must have factual Title, Company, Location, and Job Type before being published live.
                   </p>
                 </div>
               </div>
@@ -442,19 +442,14 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">Salary / Pay Scale *</label>
+                <label className="font-bold text-slate-300">Salary / Pay Scale (Optional if not disclosed)</label>
                 <div className="flex items-center space-x-2">
                   <input
                     type="text"
-                    required
                     value={formData.salary || ''}
-                    placeholder="e.g. PKR 75,000 - 100,000 / month"
+                    placeholder="e.g. PKR 75,000 - 100,000 / month (Leave empty if not disclosed)"
                     onChange={(e) => setFormData(p => ({ ...p, salary: e.target.value }))}
-                    className={`flex-1 bg-slate-950 border rounded-xl px-3 py-2 text-white font-medium outline-none ${
-                      !formData.salary || formData.salary.toLowerCase().includes('not disclosed')
-                        ? 'border-amber-500/60 focus:border-amber-400'
-                        : 'border-slate-800 focus:border-amber-400'
-                    }`}
+                    className="flex-1 bg-slate-950 border border-slate-800 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-medium outline-none"
                   />
                   <select
                     value={formData.currency || 'PKR'}
@@ -472,15 +467,13 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">Experience Level *</label>
+                <label className="font-bold text-slate-300">Experience Level (Optional)</label>
                 <select
                   value={formData.experienceLevel || ''}
                   onChange={(e) => setFormData(p => ({ ...p, experienceLevel: e.target.value as any }))}
-                  className={`w-full bg-slate-950 border rounded-xl px-3 py-2 text-white font-bold outline-none ${
-                    !formData.experienceLevel ? 'border-amber-500/60 focus:border-amber-400' : 'border-slate-800 focus:border-amber-400'
-                  }`}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">-- Select Required Experience --</option>
+                  <option value="">-- Not Specified / Any Experience --</option>
                   <option value="Entry">Entry Level (0-2 years)</option>
                   <option value="Mid">Mid Level (2-5 years)</option>
                   <option value="Senior">Senior Level (5-8 years)</option>

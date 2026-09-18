@@ -463,6 +463,9 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         } catch (pageErr: any) {
           console.log(`[Scraper Engine] Page ${currentPage} notice on source ${target.name}: ${pageErr?.message || pageErr}`);
           hasMorePages = false;
+          if (sourcePagesSuccessful === 0) {
+            throw pageErr;
+          }
         }
       }
 

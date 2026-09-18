@@ -849,7 +849,9 @@ export async function scrapeTargetPortal(
 
   if (!effectiveUrl) {
     console.log(`[Scraper Pipeline] Portal "${config.name}" has no valid URL configured.`);
-    return [];
+    const err: any = new Error(`Portal "${config.name}" has no valid URL configured.`);
+    err.status = 400;
+    throw err;
   }
 
   try {
@@ -901,7 +903,11 @@ export async function scrapeTargetPortal(
     const response = await safeFetchWithRetry(targetUrl, {}, 10000, 1);
     if (!response.ok) {
       console.log(`[Scraper Pipeline] Target ${config.name} (${targetUrl}) responded with HTTP ${response.status}.`);
-      return [];
+      const httpErr: any = new Error(`HTTP ${response.status} ${response.statusText || 'Error'} fetching ${targetUrl}`);
+      httpErr.status = response.status;
+      httpErr.statusCode = response.status;
+      httpErr.httpStatus = response.status;
+      throw httpErr;
     }
 
     // Check if Content-Type is PDF or direct image (e.g. redirected or served without .pdf extension)
@@ -920,6 +926,10 @@ export async function scrapeTargetPortal(
           extractedText: j.extractedText || pdfRes.rawTextSample || undefined,
           rawText: j.extractedText || pdfRes.rawTextSample || undefined
         })) as any, options);
+      }
+      if (!pdfRes.success) {
+        const err: any = new Error(pdfRes.message || `Failed to process document from ${targetUrl}`);
+        throw err;
       }
       return [];
     }
@@ -993,8 +1003,8 @@ export async function scrapeTargetPortal(
     const detail = String(error?.message || 'Remote portal did not respond')
       .replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
     console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${detail}`);
-    // Never invent fake jobs on error - return empty array on failure
-    return [];
+    // Preserve error status for observability - distinguish real network/HTTP/parse failure from genuine 0 jobs
+    throw error;
   }
 }
 

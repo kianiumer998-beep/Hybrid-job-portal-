@@ -99,3 +99,93 @@ export function formatMissingFieldsNotice(missingFields: string[]): string {
   if (!missingFields || missingFields.length === 0) return '';
   return `Missing: ${missingFields.join(', ')}`;
 }
+
+// -------------------------------------------------------------
+// Detailed Field Checkers for Admin Scraper Review Filtering
+// -------------------------------------------------------------
+
+export function hasMissingDescription(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return true;
+  const desc = job.description ? String(job.description).trim() : '';
+  return !desc || desc.length < 15;
+}
+
+export function hasMissingLocation(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return true;
+  const hasCity = Boolean(job.city && String(job.city).trim());
+  const hasProvince = Boolean(job.province && String(job.province).trim());
+  const hasRegion = Boolean(job.region && String(job.region).trim() && job.region !== 'Global');
+  const hasCountry = Boolean((job as any).country && String((job as any).country).trim());
+  const hasLocation = Boolean((job as any).location && String((job as any).location).trim());
+  return !hasCity && !hasProvince && !hasRegion && !hasCountry && !hasLocation;
+}
+
+export function hasMissingCompany(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return true;
+  const comp = job.company ? String(job.company).trim() : '';
+  return !comp || comp.toLowerCase() === 'unknown' || comp.toLowerCase() === 'unspecified';
+}
+
+export function hasMissingSalary(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return true;
+  return !job.salary || isGenericOrFallbackSalary(job.salary);
+}
+
+export function hasMissingDeadline(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return true;
+  const j = job as any;
+  const deadline = job.deadlineDate || j.deadline || j.closingDeadline || j.lastDate;
+  return !deadline || !String(deadline).trim();
+}
+
+export function hasMissingExperience(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return true;
+  const exp = job.experienceLevel ? String(job.experienceLevel).trim() : '';
+  return !exp || exp.toLowerCase() === 'unspecified';
+}
+
+export function hasMissingJobType(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return true;
+  const jt = job.jobType ? String(job.jobType).trim() : '';
+  return !jt;
+}
+
+export function isPdfDocumentJob(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return false;
+  const j = job as any;
+  if (j.isPdfScraped === true) return true;
+  if (Boolean(j.pdfSourceUrl && String(j.pdfSourceUrl).trim())) return true;
+  if (Boolean(j.sourcePdfUrl && String(j.sourcePdfUrl).trim())) return true;
+  if (j.extractionMethod === 'OCR' || j.extractionMethod === 'PDF_STRUCTURED') return true;
+  const url = String(j.sourceUrl || j.applicationUrl || '').toLowerCase();
+  return url.includes('.pdf') || url.includes('/advertisement') || url.includes('/jobs/download');
+}
+
+export function isOcrRequired(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return false;
+  const j = job as any;
+  if (j.documentProcessingStatus === 'OCR_REQUIRED') return true;
+  if (isPdfDocumentJob(job) && (!job.description || job.description.trim().length < 30) && !j.documentProcessingStatus) {
+    return true;
+  }
+  return false;
+}
+
+export function isOcrFailed(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return false;
+  const j = job as any;
+  return j.documentProcessingStatus === 'OCR_FAILED' || Boolean(j.documentProcessingError);
+}
+
+export function isNonJobRecord(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return false;
+  const j = job as any;
+  return j.isNonJob === true || j.classificationState === 'NON_JOB' || j.reviewStatus === 'NON_JOB';
+}
+
+export function isNeedsReviewRecord(job: Partial<Job> | null | undefined): boolean {
+  if (!job) return false;
+  const j = job as any;
+  return j.classificationState === 'NEEDS_REVIEW' || j.reviewStatus === 'NEEDS_REVIEW';
+}
+

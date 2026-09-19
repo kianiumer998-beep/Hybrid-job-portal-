@@ -967,4 +967,65 @@ export class JobRepository {
       errors: []
     };
   }
+
+  /**
+   * Bulk marks pending jobs as Non-Job records with classification reason.
+   */
+  static async bulkMarkNonJob(
+    ids: string[],
+    reason: string = 'Classified as Non-Job by administrator'
+  ): Promise<{ successCount: number; errors: any[] }> {
+    assertMongoAvailable();
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { successCount: 0, errors: [] };
+    }
+
+    const pendingColl = await getPendingJobsCollection();
+    const now = new Date().toISOString();
+
+    const res = await pendingColl.updateMany(
+      { id: { $in: ids } },
+      {
+        $set: {
+          isNonJob: true,
+          classificationState: 'NON_JOB',
+          reviewStatus: 'NON_JOB',
+          nonJobReason: reason,
+          classifiedAt: now,
+          updatedAt: now
+        }
+      }
+    );
+
+    return {
+      successCount: res.modifiedCount || 0,
+      errors: []
+    };
+  }
+
+  /**
+   * Converts a Non-Job or Needs-Review record back to a standard Job classification.
+   */
+  static async convertToJob(id: string): Promise<boolean> {
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const now = new Date().toISOString();
+
+    const res = await pendingColl.updateOne(
+      { id },
+      {
+        $set: {
+          isNonJob: false,
+          classificationState: 'JOB',
+          reviewStatus: 'PENDING',
+          updatedAt: now
+        },
+        $unset: {
+          nonJobReason: ''
+        }
+      }
+    );
+
+    return res.modifiedCount > 0;
+  }
 }

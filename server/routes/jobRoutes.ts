@@ -827,3 +827,51 @@ jobRouter.post('/bulk-update-location', requireAdmin, async (req, res) => {
   }
 });
 
+// 23. Bulk Mark Pending Records as Non-Job (Admin Only)
+jobRouter.post('/bulk-mark-non-job', requireAdmin, async (req, res) => {
+  try {
+    const { ids, reason } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of job IDs required' });
+    }
+    const result = await JobRepository.bulkMarkNonJob(ids, reason || 'Marked as Non-Job by administrator');
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Bulk Jobs Marked as Non-Job',
+      target: `${result.successCount} Jobs marked as Non-Job`,
+      status: 'Success'
+    });
+    res.json({ success: true, ...result, message: `${result.successCount} records retained as Non-Job.` });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/bulk-mark-non-job:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error marking records as non-job' });
+  }
+});
+
+// 24. Convert Non-Job/Needs-Review record to Standard Job (Admin Only)
+jobRouter.post('/convert-to-job', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Job ID is required' });
+    }
+    const success = await JobRepository.convertToJob(id);
+    if (!success) {
+      return res.status(404).json({ success: false, message: 'Job not found in pending queue.' });
+    }
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Record Converted to Job',
+      target: `Job ID ${id}`,
+      status: 'Success'
+    });
+    res.json({ success: true, message: 'Record converted to standard Job successfully.' });
+  } catch (err: any) {
+    console.error('Error in POST /api/jobs/convert-to-job:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error converting record to job' });
+  }
+});
+
+

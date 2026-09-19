@@ -214,6 +214,21 @@ export interface Job {
   externalApplyUrl?: string;
   mediaUrl?: string;
   extractedText?: string;
+
+  // Non-Job & OCR Review Attributes
+  isNonJob?: boolean;
+  nonJobClassificationReason?: string;
+  nonJobReason?: string;
+  isNeedsReview?: boolean;
+  needsReviewReason?: string;
+  documentUrl?: string;
+  originalPostingUrl?: string;
+  isPdfDocument?: boolean;
+  ocrRequired?: boolean;
+  ocrCompleted?: boolean;
+  ocrFailed?: boolean;
+  documentProcessingError?: string;
+  ocrExtractedText?: string;
 }
 
 export interface ChatMessage {

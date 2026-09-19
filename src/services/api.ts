@@ -301,6 +301,20 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify({ jobIds, locationData })
       });
+    },
+    async bulkMarkNonJob(ids: string[], reason?: string) {
+      return safeFetchJson(`${API_BASE}/jobs/bulk-mark-non-job`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ ids, reason })
+      });
+    },
+    async convertToJob(id: string) {
+      return safeFetchJson(`${API_BASE}/jobs/convert-to-job`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ id })
+      });
     }
   },
 

@@ -2,7 +2,7 @@ import { ScraperRepository } from '../db/repositories/ScraperRepository';
 import { JobRepository } from '../db/repositories/JobRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { scrapeTargetPortal, ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
-import { detectJobDuplicate, DuplicateMatchResult } from './duplicateEngine';
+import { detectJobDuplicate, DuplicateIndex, DuplicateMatchResult } from './duplicateEngine';
 
 export interface ScraperRunOptions {
   mode: 'complete' | 'since_last' | 'page_range' | 'custom_date' | 'keyword_drill';
@@ -305,6 +305,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
     const existingPendingJobs = await JobRepository.getPending();
     const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
+    const duplicateIndex = new DuplicateIndex(combinedExisting);
 
   const harvestedJobs: any[] = [];
   const duplicateJobs: any[] = [];
@@ -543,8 +544,17 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       sourceFound = filteredResults.length;
       totalDiscoveredJobs += sourceFound;
 
-      for (const raw of filteredResults) {
+      const sourcePendingJobs: any[] = [];
+      const sourceApprovedJobs: any[] = [];
+
+      for (let rIdx = 0; rIdx < filteredResults.length; rIdx++) {
+        const raw = filteredResults[rIdx];
         updateHeartbeat();
+
+        // Responsive async boundary every 100 jobs to keep event loop and heartbeat responsive on massive lists
+        if (rIdx > 0 && rIdx % 100 === 0) {
+          await new Promise(r => setTimeout(r, 0));
+        }
 
         const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable' && raw.salary.toLowerCase() !== 'salary not disclosed')
           ? raw.salary.trim()
@@ -610,11 +620,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           status: (target.autoApprove && options.autoPublishTrusted) ? 'Approved' : 'Pending'
         };
 
-        // Deduplication check
+        // Deduplication check with high-performance indexed lookup
         const dupCheck: DuplicateMatchResult = detectJobDuplicate(
           standardizedJob,
-          combinedExisting,
-          harvestedJobs
+          duplicateIndex
         );
 
         standardizedJob.isDuplicate = dupCheck.isDuplicate;
@@ -626,24 +635,43 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
 
         harvestedJobs.push(standardizedJob);
+        duplicateIndex.addBatchJob(standardizedJob);
+        combinedExisting.push(standardizedJob);
 
         if (dupCheck.isDuplicate) {
           sourceDup++;
           duplicateJobs.push(standardizedJob);
-          await JobRepository.addPending(standardizedJob);
-          combinedExisting.push(standardizedJob);
+          sourcePendingJobs.push(standardizedJob);
         } else {
           sourceNew++;
           uniqueJobs.push(standardizedJob);
 
           if (standardizedJob.status === 'Approved') {
-            await JobRepository.create(standardizedJob);
+            sourceApprovedJobs.push(standardizedJob);
             publishedJobs.push(standardizedJob);
           } else {
-            await JobRepository.addPending(standardizedJob);
+            sourcePendingJobs.push(standardizedJob);
             pendingJobs.push(standardizedJob);
           }
-          combinedExisting.push(standardizedJob);
+        }
+      }
+
+      // Batch persist accumulated jobs in bounded chunks of 500
+      const BATCH_CHUNK_SIZE = 500;
+
+      if (sourcePendingJobs.length > 0) {
+        for (let c = 0; c < sourcePendingJobs.length; c += BATCH_CHUNK_SIZE) {
+          updateHeartbeat();
+          const chunk = sourcePendingJobs.slice(c, c + BATCH_CHUNK_SIZE);
+          await JobRepository.addPendingBatch(chunk);
+        }
+      }
+
+      if (sourceApprovedJobs.length > 0) {
+        for (let c = 0; c < sourceApprovedJobs.length; c += BATCH_CHUNK_SIZE) {
+          updateHeartbeat();
+          const chunk = sourceApprovedJobs.slice(c, c + BATCH_CHUNK_SIZE);
+          await JobRepository.createBatch(chunk, true);
         }
       }
 

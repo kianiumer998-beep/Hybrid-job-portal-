@@ -93,9 +93,12 @@ function parseIntervalToMs(intervalStr?: string): number {
 export function startScraperScheduler(): void {
   isSchedulerEnabled = true;
   batchState.cancelRequested = false;
+  batchState.generationId++;
 
-  if (batchState.batchStatus === 'Stopped') {
+  if (batchState.batchStatus === 'Stopped' || batchState.batchStatus === 'Stopping') {
     batchState.batchStatus = 'Idle';
+    batchState.batchCurrentSourceId = null;
+    batchState.batchCurrentSourceName = null;
   }
 
   if (!scheduledTask) {
@@ -257,10 +260,12 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       // CRITICAL: Check cancellation / stop / generation token before starting every next source!
       if (!isSchedulerEnabled || batchState.cancelRequested || batchState.generationId !== currentGen) {
         console.log(`[Scheduler Engine] Batch ${batchRunId} cancelled/stopped before source ${i + 1}/${dueSources.length} ("${src.name}"). Halting batch.`);
-        batchState.batchStatus = 'Stopped';
-        batchState.batchCurrentSourceId = null;
-        batchState.batchCurrentSourceName = null;
-        batchState.batchLastUpdatedAt = new Date().toISOString();
+        if (!isSchedulerEnabled || batchState.cancelRequested) {
+          batchState.batchStatus = 'Stopped';
+          batchState.batchCurrentSourceId = null;
+          batchState.batchCurrentSourceName = null;
+          batchState.batchLastUpdatedAt = new Date().toISOString();
+        }
         break;
       }
 
@@ -286,7 +291,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         console.log(`[Scheduler Engine] Batch ${batchRunId} source "${src.name}" completed. Found: ${runResult.totalFound}`);
       } catch (srcErr: any) {
         const errMsg = String(srcErr?.message || srcErr || '');
-        if (errMsg.includes('already in progress')) {
+        if (errMsg.includes('already in progress') || errMsg.includes('currently in progress') || errMsg.includes('currently executing')) {
           wasBusy = true;
           console.log(`[Scheduler Engine] Source "${src.name}" tick deferred: Scraper run in progress.`);
         } else {
@@ -313,10 +318,12 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           }
         }
         console.log(`[Scheduler Engine] Batch ${batchRunId} stopped after source ${i + 1}/${dueSources.length} ("${src.name}").`);
-        batchState.batchStatus = 'Stopped';
-        batchState.batchCurrentSourceId = null;
-        batchState.batchCurrentSourceName = null;
-        batchState.batchLastUpdatedAt = new Date().toISOString();
+        if (!isSchedulerEnabled || batchState.cancelRequested) {
+          batchState.batchStatus = 'Stopped';
+          batchState.batchCurrentSourceId = null;
+          batchState.batchCurrentSourceName = null;
+          batchState.batchLastUpdatedAt = new Date().toISOString();
+        }
         break;
       }
 

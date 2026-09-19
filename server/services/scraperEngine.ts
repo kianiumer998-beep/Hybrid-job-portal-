@@ -105,6 +105,7 @@ let activeRunState: ActiveScraperRunState & {
 
 let activeRunCancelRequested = false;
 let activeRunPauseRequested = false;
+let isSchedulerSourceActive = false;
 
 export function getActiveRunStatus(): any {
   const isPaused = activeRunState.status === 'Paused' || activeRunPauseRequested;
@@ -227,18 +228,42 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
-  // Prevent concurrent manual scraper runs (with automatic watchdog recovery for stale runs)
-  if (!options.isSchedulerRun && activeRunState.status === 'Running') {
-    const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
-    const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-    if (isStale) {
-      console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
-      activeRunState.status = 'Completed';
-      activeRunState.isStopped = true;
-      activeRunCancelRequested = false;
-      activeRunPauseRequested = false;
-    } else {
-      throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
+  // Concurrency guard: Prevent overlapping manual & scheduler scraper executions
+  if (options.isSchedulerRun) {
+    if (activeRunState.status === 'Running' || activeRunState.status === 'Paused') {
+      const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
+      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
+      if (isStale) {
+        console.warn(`[Scraper Engine] Previous manual run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state.`);
+        activeRunState.status = 'Completed';
+        activeRunState.isStopped = true;
+        activeRunCancelRequested = false;
+        activeRunPauseRequested = false;
+      } else {
+        throw new Error('A manual scraper run is currently in progress. Deferring scheduled source execution.');
+      }
+    }
+    if (isSchedulerSourceActive) {
+      throw new Error('A scheduled scraper source is already executing.');
+    }
+    isSchedulerSourceActive = true;
+  } else {
+    if (isSchedulerSourceActive) {
+      throw new Error('A background scheduled scraper source is currently executing. Please try again in a few seconds.');
+    }
+    // Prevent concurrent manual scraper runs (with automatic watchdog recovery for stale runs)
+    if (activeRunState.status === 'Running') {
+      const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
+      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
+      if (isStale) {
+        console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
+        activeRunState.status = 'Completed';
+        activeRunState.isStopped = true;
+        activeRunCancelRequested = false;
+        activeRunPauseRequested = false;
+      } else {
+        throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
+      }
     }
   }
 
@@ -897,8 +922,12 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   activeRunState.lastUpdatedTime = new Date().toISOString();
   throw runErr;
 } finally {
-  if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
-    activeRunState.status = 'Completed';
+  if (options.isSchedulerRun) {
+    isSchedulerSourceActive = false;
+  } else {
+    if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
+      activeRunState.status = 'Completed';
+    }
   }
   activeRunState.lastUpdatedTime = new Date().toISOString();
 }

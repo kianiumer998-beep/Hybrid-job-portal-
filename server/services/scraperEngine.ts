@@ -14,6 +14,7 @@ export interface ScraperRunOptions {
   fromTimestamp?: string;
   toTimestamp?: string;
   autoPublishTrusted?: boolean;
+  isSchedulerRun?: boolean;
 }
 
 export interface ActiveScraperRunState {
@@ -226,8 +227,8 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
-  // Prevent concurrent scraper runs (with automatic watchdog recovery for stale runs)
-  if (activeRunState.status === 'Running') {
+  // Prevent concurrent manual scraper runs (with automatic watchdog recovery for stale runs)
+  if (!options.isSchedulerRun && activeRunState.status === 'Running') {
     const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
     const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
     if (isStale) {
@@ -245,8 +246,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const timestampStr = startTime.toISOString().replace('T', ' ').substring(0, 19);
   const runId = `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-  activeRunCancelRequested = false;
-  activeRunPauseRequested = false;
+  if (!options.isSchedulerRun) {
+    activeRunCancelRequested = false;
+    activeRunPauseRequested = false;
+  }
 
   const allSources = await ScraperRepository.getConfigs();
   let targets: ScraperTargetConfig[] = [];
@@ -281,25 +284,27 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
   }
 
-  // Initialize live tracking state
-  activeRunState = {
-    runId,
-    status: 'Running',
-    totalSources: targets.length,
-    completedSourcesCount: 0,
-    remainingSourcesCount: targets.length,
-    currentSourceIndex: 0,
-    jobsFound: 0,
-    newJobsCount: 0,
-    duplicatesCount: 0,
-    pendingCount: 0,
-    publishedCount: 0,
-    failedSourcesCount: 0,
-    startTime: startTime.toISOString(),
-    lastUpdatedTime: new Date().toISOString(),
-    options,
-    remainingTargets: [...targets]
-  };
+  // Initialize live tracking state for manual/wizard runs
+  if (!options.isSchedulerRun) {
+    activeRunState = {
+      runId,
+      status: 'Running',
+      totalSources: targets.length,
+      completedSourcesCount: 0,
+      remainingSourcesCount: targets.length,
+      currentSourceIndex: 0,
+      jobsFound: 0,
+      newJobsCount: 0,
+      duplicatesCount: 0,
+      pendingCount: 0,
+      publishedCount: 0,
+      failedSourcesCount: 0,
+      startTime: startTime.toISOString(),
+      lastUpdatedTime: new Date().toISOString(),
+      options,
+      remainingTargets: [...targets]
+    };
+  }
 
   try {
     const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;

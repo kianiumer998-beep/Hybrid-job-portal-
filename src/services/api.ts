@@ -509,6 +509,18 @@ export const api = {
         headers: getAuthHeader()
       });
     },
+    async startScheduler() {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-start`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async stopScheduler() {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-stop`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
     async parseUrl(dataOrUrl: { url: string; organization?: string; title?: string } | string, organization?: string, title?: string) {
       const payload = typeof dataOrUrl === 'string'
         ? { url: dataOrUrl, organization, title }

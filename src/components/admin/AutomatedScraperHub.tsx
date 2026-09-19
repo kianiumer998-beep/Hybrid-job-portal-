@@ -694,6 +694,44 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     };
   }, [liveRuns, jobs, pendingJobs]);
 
+  const [isTogglingScheduler, setIsTogglingScheduler] = useState(false);
+
+  const handleStartScheduler = async () => {
+    setIsTogglingScheduler(true);
+    setStatusMessage({ text: 'Starting background scheduler...', type: 'info' });
+    try {
+      const res = await api.scraper.startScheduler();
+      if (res?.success) {
+        setStatusMessage({ text: 'Background scheduler started successfully.', type: 'success' });
+        await fetchLiveScraperData();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to start scheduler.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Error starting scheduler: ${err?.message || 'Network error'}`, type: 'error' });
+    } finally {
+      setIsTogglingScheduler(false);
+    }
+  };
+
+  const handleStopScheduler = async () => {
+    setIsTogglingScheduler(true);
+    setStatusMessage({ text: 'Stopping background scheduler & cancelling active batch...', type: 'info' });
+    try {
+      const res = await api.scraper.stopScheduler();
+      if (res?.success) {
+        setStatusMessage({ text: 'Background scheduler stopped successfully.', type: 'success' });
+        await fetchLiveScraperData();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to stop scheduler.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Error stopping scheduler: ${err?.message || 'Network error'}`, type: 'error' });
+    } finally {
+      setIsTogglingScheduler(false);
+    }
+  };
+
   const [isTriggeringTick, setIsTriggeringTick] = useState(false);
 
   const handleTriggerTick = async () => {

@@ -790,6 +790,12 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       if (isTimeout) {
         classifiedHealth = 'Timeout';
         humanReadableError = 'Source execution timed out after 45 seconds';
+      } else if (httpStatus === 429 || errLower.includes('429') || errLower.includes('too many requests') || errLower.includes('rate limit')) {
+        classifiedHealth = 'Rate Limited';
+        if (!httpStatus) httpStatus = 429;
+        humanReadableError = err?.retryAfter
+          ? `Target portal rate limited requests (HTTP 429, Retry-After: ${err.retryAfter})`
+          : 'Target portal rate limited requests (HTTP 429)';
       } else if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
         classifiedHealth = '404';
         if (!httpStatus) httpStatus = 404;

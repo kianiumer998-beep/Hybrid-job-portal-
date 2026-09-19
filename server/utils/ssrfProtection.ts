@@ -155,6 +155,28 @@ export async function safeFetchWithRetry(
           dispatcher: (options as any)?.dispatcher || scraperTlsDispatcher
         });
 
+        // Handle HTTP 429 Rate Limiting with bounded backoff
+        if (res.status === 429) {
+          const retryAfter = res.headers.get('retry-after');
+          let delayMs = 1000;
+          if (retryAfter) {
+            const parsed = parseInt(retryAfter, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+              delayMs = Math.min(parsed * 1000, 2000); // Bounded backoff max 2s
+            }
+          }
+          if (attempt < maxRetries) {
+            attempt++;
+            await new Promise(r => setTimeout(r, delayMs));
+            continue;
+          }
+          clearTimeout(timeoutId);
+          if (options.signal) {
+            options.signal.removeEventListener('abort', onParentAbort);
+          }
+          return res;
+        }
+
         // Check if response is a redirect
         if (REDIRECT_STATUSES.has(res.status)) {
           const location = res.headers.get('location');

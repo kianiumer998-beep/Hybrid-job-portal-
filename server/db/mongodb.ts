@@ -194,7 +194,8 @@ async function initMongoIndexes(db: Db): Promise<void> {
       casesColl.createIndex({ caseNumber: 1 }, { unique: true, background: true }),
       ticketsColl.createIndex({ id: 1 }, { unique: true, background: true }),
       savedJobsColl.createIndex({ userId: 1, jobId: 1 }, { unique: true, background: true }),
-      auditColl.createIndex({ id: 1 }, { unique: true, background: true })
+      auditColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      db.collection('scraper_locks').createIndex({ id: 1 }, { unique: true, background: true })
     ]);
     indexesInitialized = true;
     console.log('[MongoDB] All production system collections and indexes ensured.');

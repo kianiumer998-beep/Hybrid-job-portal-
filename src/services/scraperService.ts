@@ -904,10 +904,18 @@ export async function scrapeTargetPortal(
     const response = await safeFetchWithRetry(targetUrl, { signal: options.signal }, 10000, 1);
     if (!response.ok) {
       console.log(`[Scraper Pipeline] Target ${config.name} (${targetUrl}) responded with HTTP ${response.status}.`);
-      const httpErr: any = new Error(`HTTP ${response.status} ${response.statusText || 'Error'} fetching ${targetUrl}`);
+      const retryAfterHeader = response.status === 429 ? (response.headers.get('retry-after') || undefined) : undefined;
+      const httpErr: any = new Error(
+        response.status === 429
+          ? `HTTP 429 Rate limited fetching ${targetUrl}${retryAfterHeader ? ` (Retry-After: ${retryAfterHeader})` : ''}`
+          : `HTTP ${response.status} ${response.statusText || 'Error'} fetching ${targetUrl}`
+      );
       httpErr.status = response.status;
       httpErr.statusCode = response.status;
       httpErr.httpStatus = response.status;
+      if (retryAfterHeader) {
+        httpErr.retryAfter = retryAfterHeader;
+      }
       throw httpErr;
     }
 

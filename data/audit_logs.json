@@ -1,5 +1,1320 @@
 [
   {
+    "id": "log-1789829966272-bd5e",
+    "timestamp": "2026-09-19T14:59:26.272Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (43 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 43,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 43,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829927597-i07i",
+    "timestamp": "2026-09-19T14:58:47.597Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789829845828-qb2t",
+    "timestamp": "2026-09-19T14:57:25.828Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829806626-xken",
+    "timestamp": "2026-09-19T14:56:46.626Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789829725420-u6e8",
+    "timestamp": "2026-09-19T14:55:25.420Z",
+    "user": "Ali Raza",
+    "role": "Job Seeker",
+    "action": "User Login",
+    "target": "ali.raza@example.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829725089-thkb",
+    "timestamp": "2026-09-19T14:55:25.089Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829686128-yz42",
+    "timestamp": "2026-09-19T14:54:46.128Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789829680213-647o",
+    "timestamp": "2026-09-19T14:54:40.213Z",
+    "user": "Ali Raza",
+    "role": "Job Seeker",
+    "action": "User Login",
+    "target": "ali.raza@example.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829642418-k0xp",
+    "timestamp": "2026-09-19T14:54:02.418Z",
+    "user": "Ali Raza",
+    "role": "Job Seeker",
+    "action": "User Login",
+    "target": "ali.raza@example.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829642102-i3kg",
+    "timestamp": "2026-09-19T14:54:02.102Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829597179-kuic",
+    "timestamp": "2026-09-19T14:53:17.179Z",
+    "user": "Ali Raza",
+    "role": "Job Seeker",
+    "action": "User Login",
+    "target": "ali.raza@example.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829596829-5ed6",
+    "timestamp": "2026-09-19T14:53:16.829Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829565819-mbaz",
+    "timestamp": "2026-09-19T14:52:45.819Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789829518080-cdb7",
+    "timestamp": "2026-09-19T14:51:58.080Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829505009-jmgb",
+    "timestamp": "2026-09-19T14:51:45.010Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829491338-clb3",
+    "timestamp": "2026-09-19T14:51:31.338Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829476162-blez",
+    "timestamp": "2026-09-19T14:51:16.162Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829387670-822g",
+    "timestamp": "2026-09-19T14:49:47.670Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (10 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 10,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 10,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829350426-2x0l",
+    "timestamp": "2026-09-19T14:49:10.426Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1789829348878-ykqk",
+    "timestamp": "2026-09-19T14:49:08.878Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (12 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 12,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 12,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829310648-5xpp",
+    "timestamp": "2026-09-19T14:48:30.648Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (2 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 2,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 2,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829274229-2c6x",
+    "timestamp": "2026-09-19T14:47:54.229Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829234096-7qvt",
+    "timestamp": "2026-09-19T14:47:14.096Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (1 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 1,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 1,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829197658-64da",
+    "timestamp": "2026-09-19T14:46:37.658Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829161179-0ao9",
+    "timestamp": "2026-09-19T14:46:01.179Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789829124191-uyq0",
+    "timestamp": "2026-09-19T14:45:24.191Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789829088499-x6id",
+    "timestamp": "2026-09-19T14:44:48.499Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829051213-cl20",
+    "timestamp": "2026-09-19T14:44:11.213Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789829014905-apei",
+    "timestamp": "2026-09-19T14:43:34.905Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828978392-4iax",
+    "timestamp": "2026-09-19T14:42:58.392Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (6 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 6,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 6,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828939575-691n",
+    "timestamp": "2026-09-19T14:42:19.575Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828863350-punx",
+    "timestamp": "2026-09-19T14:41:03.350Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (30 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 30,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 30,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828827214-msex",
+    "timestamp": "2026-09-19T14:40:27.214Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828792127-p4gz",
+    "timestamp": "2026-09-19T14:39:52.127Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828758111-jpqu",
+    "timestamp": "2026-09-19T14:39:18.111Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828724065-2n2w",
+    "timestamp": "2026-09-19T14:38:44.065Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828686487-7ivg",
+    "timestamp": "2026-09-19T14:38:06.487Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828652767-oyl4",
+    "timestamp": "2026-09-19T14:37:32.767Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828619914-by8p",
+    "timestamp": "2026-09-19T14:36:59.914Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828586141-pjk4",
+    "timestamp": "2026-09-19T14:36:26.141Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (2 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 2,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 2,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828551710-qvwm",
+    "timestamp": "2026-09-19T14:35:51.710Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828518094-5wyy",
+    "timestamp": "2026-09-19T14:35:18.094Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828485107-u23g",
+    "timestamp": "2026-09-19T14:34:45.107Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828449408-738v",
+    "timestamp": "2026-09-19T14:34:09.408Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (4 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 4,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 4,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828413924-i2p5",
+    "timestamp": "2026-09-19T14:33:33.924Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (10 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 10,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 10,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828374630-lbp7",
+    "timestamp": "2026-09-19T14:32:54.630Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828341983-8o6n",
+    "timestamp": "2026-09-19T14:32:21.983Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (2 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 2,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 2,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828307426-mnp6",
+    "timestamp": "2026-09-19T14:31:47.426Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828275775-gyle",
+    "timestamp": "2026-09-19T14:31:15.775Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828242429-nrlr",
+    "timestamp": "2026-09-19T14:30:42.429Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828168787-kvm3",
+    "timestamp": "2026-09-19T14:29:28.787Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (1 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 1,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 1,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828136357-lm07",
+    "timestamp": "2026-09-19T14:28:56.357Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828104019-ydmq",
+    "timestamp": "2026-09-19T14:28:24.019Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789828067185-g65o",
+    "timestamp": "2026-09-19T14:27:47.185Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789828015382-dfio",
+    "timestamp": "2026-09-19T14:26:55.382Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827984062-s1je",
+    "timestamp": "2026-09-19T14:26:24.062Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789827952343-5059",
+    "timestamp": "2026-09-19T14:25:52.343Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827919931-buhc",
+    "timestamp": "2026-09-19T14:25:19.931Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827888522-540u",
+    "timestamp": "2026-09-19T14:24:48.522Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827855861-3zf0",
+    "timestamp": "2026-09-19T14:24:15.861Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827823787-71mo",
+    "timestamp": "2026-09-19T14:23:43.787Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827790902-h2h8",
+    "timestamp": "2026-09-19T14:23:10.902Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827757719-juzm",
+    "timestamp": "2026-09-19T14:22:37.719Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827724596-kggm",
+    "timestamp": "2026-09-19T14:22:04.596Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827691468-520m",
+    "timestamp": "2026-09-19T14:21:31.468Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827659058-ulfw",
+    "timestamp": "2026-09-19T14:20:59.058Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789827627431-xam3",
+    "timestamp": "2026-09-19T14:20:27.431Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827593930-2voc",
+    "timestamp": "2026-09-19T14:19:53.930Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (1 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 1,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 1,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789827553514-fgqq",
+    "timestamp": "2026-09-19T14:19:13.514Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827520722-i1z9",
+    "timestamp": "2026-09-19T14:18:40.722Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789827488532-7s1o",
+    "timestamp": "2026-09-19T14:18:08.532Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (3 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 3,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 3,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789827455964-8mm4",
+    "timestamp": "2026-09-19T14:17:35.964Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827409971-fqnb",
+    "timestamp": "2026-09-19T14:16:49.971Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789827378071-61zo",
+    "timestamp": "2026-09-19T14:16:18.071Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1789827346093-mmi5",
+    "timestamp": "2026-09-19T14:15:46.093Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827311992-7y27",
+    "timestamp": "2026-09-19T14:15:11.992Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827277258-ac7x",
+    "timestamp": "2026-09-19T14:14:37.258Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827242131-7cto",
+    "timestamp": "2026-09-19T14:14:02.131Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827209120-e7yo",
+    "timestamp": "2026-09-19T14:13:29.120Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827175022-ujlf",
+    "timestamp": "2026-09-19T14:12:55.022Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827122807-6hf9",
+    "timestamp": "2026-09-19T14:12:02.807Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789827046570-49za",
+    "timestamp": "2026-09-19T14:10:46.570Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1789826921409-48eo",
+    "timestamp": "2026-09-19T14:08:41.409Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
     "id": "log-1789826906264-3z5f",
     "timestamp": "2026-09-19T14:08:26.265Z",
     "user": "Super Administrator",
@@ -9,63 +1324,12 @@
     "status": "Success"
   },
   {
-    "id": "log-1789826897231-4ylr",
-    "timestamp": "2026-09-19T14:08:17.231Z",
-    "user": "User A",
-    "role": "Job Seeker",
-    "action": "Valid User Log Action",
-    "target": "Portal",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826896166-n6qv",
-    "timestamp": "2026-09-19T14:08:16.166Z",
-    "user": "Job Seeker",
-    "role": "Member",
-    "action": "Support Ticket Opened",
-    "target": "TICK-MU8GPZBS-9C00: Guest Inquiry",
-    "status": "Success",
-    "metadata": {
-      "ticketNumber": "TICK-MU8GPZBS-9C00"
-    }
-  },
-  {
-    "id": "log-1789826895634-6zin",
-    "timestamp": "2026-09-19T14:08:15.634Z",
-    "user": "User B",
-    "role": "Job Seeker",
-    "action": "Support Ticket Opened",
-    "target": "TICK-MU8GPYWR-ONP1: Private User B Issue",
-    "status": "Success",
-    "metadata": {
-      "ticketNumber": "TICK-MU8GPYWR-ONP1"
-    }
-  },
-  {
     "id": "log-1789826894050-s8g7",
     "timestamp": "2026-09-19T14:08:14.050Z",
     "user": "Super Administrator",
     "role": "Admin",
     "action": "Feature Flags Updated",
     "target": "System Configuration",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826894032-v2zj",
-    "timestamp": "2026-09-19T14:08:14.032Z",
-    "user": "User B",
-    "role": "Job Seeker",
-    "action": "User Registered",
-    "target": "testuser_b_1789826893467@example.com",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826893465-prgo",
-    "timestamp": "2026-09-19T14:08:13.465Z",
-    "user": "User A",
-    "role": "Job Seeker",
-    "action": "User Registered",
-    "target": "testuser_a_1789826892899@example.com",
     "status": "Success"
   },
   {
@@ -78,63 +1342,12 @@
     "status": "Success"
   },
   {
-    "id": "log-1789826857547-a74y",
-    "timestamp": "2026-09-19T14:07:37.547Z",
-    "user": "User A",
-    "role": "Job Seeker",
-    "action": "Valid User Log Action",
-    "target": "Portal",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826856456-0mgo",
-    "timestamp": "2026-09-19T14:07:36.456Z",
-    "user": "Job Seeker",
-    "role": "Member",
-    "action": "Support Ticket Opened",
-    "target": "TICK-MU8GP4O4-N5WY: Guest Inquiry",
-    "status": "Success",
-    "metadata": {
-      "ticketNumber": "TICK-MU8GP4O4-N5WY"
-    }
-  },
-  {
-    "id": "log-1789826855903-d7lh",
-    "timestamp": "2026-09-19T14:07:35.903Z",
-    "user": "User B",
-    "role": "Job Seeker",
-    "action": "Support Ticket Opened",
-    "target": "TICK-MU8GP48Z-8F49: Private User B Issue",
-    "status": "Success",
-    "metadata": {
-      "ticketNumber": "TICK-MU8GP48Z-8F49"
-    }
-  },
-  {
     "id": "log-1789826854286-0xp4",
     "timestamp": "2026-09-19T14:07:34.286Z",
     "user": "Super Administrator",
     "role": "Admin",
     "action": "Feature Flags Updated",
     "target": "System Configuration",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826854265-ybhr",
-    "timestamp": "2026-09-19T14:07:34.265Z",
-    "user": "User B",
-    "role": "Job Seeker",
-    "action": "User Registered",
-    "target": "testuser_b_1789826853676@example.com",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826853674-9fnd",
-    "timestamp": "2026-09-19T14:07:33.674Z",
-    "user": "User A",
-    "role": "Job Seeker",
-    "action": "User Registered",
-    "target": "testuser_a_1789826853094@example.com",
     "status": "Success"
   },
   {
@@ -147,63 +1360,12 @@
     "status": "Success"
   },
   {
-    "id": "log-1789826842008-ltap",
-    "timestamp": "2026-09-19T14:07:22.008Z",
-    "user": "User A",
-    "role": "Job Seeker",
-    "action": "Valid User Log Action",
-    "target": "Portal",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826840913-bwif",
-    "timestamp": "2026-09-19T14:07:20.913Z",
-    "user": "Job Seeker",
-    "role": "Member",
-    "action": "Support Ticket Opened",
-    "target": "TICK-MU8GOSOO-7V6I: Guest Inquiry",
-    "status": "Success",
-    "metadata": {
-      "ticketNumber": "TICK-MU8GOSOO-7V6I"
-    }
-  },
-  {
-    "id": "log-1789826840369-hpo0",
-    "timestamp": "2026-09-19T14:07:20.369Z",
-    "user": "User B",
-    "role": "Job Seeker",
-    "action": "Support Ticket Opened",
-    "target": "TICK-MU8GOS9C-F2FB: Private User B Issue",
-    "status": "Success",
-    "metadata": {
-      "ticketNumber": "TICK-MU8GOS9C-F2FB"
-    }
-  },
-  {
     "id": "log-1789826838743-ugcn",
     "timestamp": "2026-09-19T14:07:18.743Z",
     "user": "Super Administrator",
     "role": "Admin",
     "action": "Feature Flags Updated",
     "target": "System Configuration",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826838721-ey40",
-    "timestamp": "2026-09-19T14:07:18.721Z",
-    "user": "User B",
-    "role": "Job Seeker",
-    "action": "User Registered",
-    "target": "testuser_b_1789826838145@example.com",
-    "status": "Success"
-  },
-  {
-    "id": "log-1789826838142-p4vc",
-    "timestamp": "2026-09-19T14:07:18.142Z",
-    "user": "User A",
-    "role": "Job Seeker",
-    "action": "User Registered",
-    "target": "testuser_a_1789826837553@example.com",
     "status": "Success"
   },
   {

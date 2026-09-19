@@ -8,12 +8,18 @@ export class UserRepository {
 
   static async getAllAsync(): Promise<any[]> {
     if (isMongoConfigured()) {
-      const coll = await getUsersCollection();
-      const users = await coll.find({}).sort({ createdAt: -1 }).toArray();
-      return users.map(u => {
-        const { _id, ...safe } = u;
-        return safe;
-      });
+      try {
+        const coll = await getUsersCollection();
+        const users = await coll.find({}).sort({ createdAt: -1 }).toArray();
+        if (users && users.length > 0) {
+          return users.map(u => {
+            const { _id, ...safe } = u;
+            return safe;
+          });
+        }
+      } catch (err) {
+        // Fallback to local database
+      }
     }
     return Database.getUsers();
   }
@@ -24,11 +30,16 @@ export class UserRepository {
 
   static async getByIdAsync(id: string): Promise<any | null> {
     if (isMongoConfigured()) {
-      const coll = await getUsersCollection();
-      const user = await coll.findOne({ id });
-      if (!user) return null;
-      const { _id, ...safe } = user;
-      return safe;
+      try {
+        const coll = await getUsersCollection();
+        const user = await coll.findOne({ id });
+        if (user) {
+          const { _id, ...safe } = user;
+          return safe;
+        }
+      } catch (err) {
+        // Fallback to local database
+      }
     }
     return Database.getUserById(id);
   }
@@ -40,11 +51,16 @@ export class UserRepository {
   static async getByEmailAsync(email: string): Promise<any | null> {
     if (!email) return null;
     if (isMongoConfigured()) {
-      const coll = await getUsersCollection();
-      const user = await coll.findOne({ email: email.toLowerCase().trim() });
-      if (!user) return null;
-      const { _id, ...safe } = user;
-      return safe;
+      try {
+        const coll = await getUsersCollection();
+        const user = await coll.findOne({ email: email.toLowerCase().trim() });
+        if (user) {
+          const { _id, ...safe } = user;
+          return safe;
+        }
+      } catch (err) {
+        // Fallback to local database
+      }
     }
     return Database.getUserByEmail(email);
   }
@@ -93,18 +109,23 @@ export class UserRepository {
     };
 
     if (isMongoConfigured()) {
-      const coll = await getUsersCollection();
-      const updatedDoc = await coll.findOneAndUpdate(
-        { id },
-        { $set: updatePayload },
-        { returnDocument: 'after' }
-      );
-      if (!updatedDoc) return null;
-      const { _id, ...safe } = updatedDoc;
       try {
-        Database.updateUser(id, updates);
-      } catch {}
-      return safe;
+        const coll = await getUsersCollection();
+        const updatedDoc = await coll.findOneAndUpdate(
+          { id },
+          { $set: updatePayload },
+          { returnDocument: 'after' }
+        );
+        if (updatedDoc) {
+          const { _id, ...safe } = updatedDoc;
+          try {
+            Database.updateUser(id, updates);
+          } catch {}
+          return safe;
+        }
+      } catch (err) {
+        // Fallback to local database
+      }
     }
 
     return Database.updateUser(id, updates);

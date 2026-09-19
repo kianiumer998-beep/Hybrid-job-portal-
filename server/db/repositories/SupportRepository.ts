@@ -37,15 +37,21 @@ export class SupportRepository {
 
   static async getAllAsync(userId?: string): Promise<SupportTicket[]> {
     if (isMongoConfigured()) {
-      const coll = await getSupportTicketsCollection();
-      const query: Record<string, any> = {};
-      if (userId) query.userId = userId;
+      try {
+        const coll = await getSupportTicketsCollection();
+        const query: Record<string, any> = {};
+        if (userId) query.userId = userId;
 
-      const docs = await coll.find(query).sort({ createdAt: -1 }).toArray();
-      return (docs || []).map(d => {
-        const { _id, ...rest } = d;
-        return rest as SupportTicket;
-      });
+        const docs = await coll.find(query).sort({ createdAt: -1 }).toArray();
+        if (docs && docs.length > 0) {
+          return docs.map(d => {
+            const { _id, ...rest } = d;
+            return rest as SupportTicket;
+          });
+        }
+      } catch (err) {
+        // Fallback to local database
+      }
     }
     return this.getAll(userId);
   }
@@ -57,11 +63,16 @@ export class SupportRepository {
 
   static async getByIdAsync(id: string): Promise<SupportTicket | null> {
     if (isMongoConfigured()) {
-      const coll = await getSupportTicketsCollection();
-      const doc = await coll.findOne({ $or: [{ id }, { ticketNumber: id }] });
-      if (!doc) return null;
-      const { _id, ...rest } = doc;
-      return rest as SupportTicket;
+      try {
+        const coll = await getSupportTicketsCollection();
+        const doc = await coll.findOne({ $or: [{ id }, { ticketNumber: id }] });
+        if (doc) {
+          const { _id, ...rest } = doc;
+          return rest as SupportTicket;
+        }
+      } catch (err) {
+        // Fallback to local database
+      }
     }
     return this.getById(id);
   }

@@ -315,6 +315,22 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   let totalPagesAttempted = 0;
   let totalPagesSuccessful = 0;
   let totalJobsRejected = 0;
+  let totalDiscoveredJobs = 0;
+
+  let lastHeartbeatTime = Date.now();
+  const updateHeartbeat = () => {
+    const now = Date.now();
+    if (now - lastHeartbeatTime >= 15000) {
+      lastHeartbeatTime = now;
+      activeRunState.lastUpdatedTime = new Date(now).toISOString();
+      activeRunState.jobsFound = totalDiscoveredJobs;
+      activeRunState.newJobsCount = uniqueJobs.length;
+      activeRunState.duplicatesCount = duplicateJobs.length;
+      activeRunState.pendingCount = pendingJobs.length;
+      activeRunState.publishedCount = publishedJobs.length;
+      activeRunState.failedSourcesCount = failedCount;
+    }
+  };
 
   const sourcesStats: ScraperRunSummary['sourcesStats'] = [];
 
@@ -404,6 +420,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       let hasMorePages = true;
 
       while (currentPage <= maxAllowedPage && hasMorePages) {
+        updateHeartbeat();
         if (activeRunPauseRequested) {
           activeRunState.status = 'Paused';
           activeRunState.isPaused = true;
@@ -524,13 +541,22 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       }
 
       sourceFound = filteredResults.length;
+      totalDiscoveredJobs += sourceFound;
 
       for (const raw of filteredResults) {
+        updateHeartbeat();
+
         const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable' && raw.salary.toLowerCase() !== 'salary not disclosed')
           ? raw.salary.trim()
           : (raw.salary && raw.salary.trim() ? raw.salary.trim() : undefined);
 
-        const isQualityAcceptable = !!(raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2);
+        const effectiveCompany = (raw.company || (target as any).organization || '').trim();
+
+        const isQualityAcceptable = !!(
+          raw.title &&
+          raw.title.trim().length >= 3 &&
+          effectiveCompany.length >= 2
+        );
         if (!isQualityAcceptable) {
           totalJobsRejected++;
           continue;
@@ -555,6 +581,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         const standardizedJob: any = {
           ...raw,
           id: raw.id || `scraped-${target.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+          company: effectiveCompany,
           salary: standardizedSalary || undefined,
           scraperSourceId: target.id,
           scraperSourceName: target.name,
@@ -702,7 +729,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     // Update live state counts after each source
     activeRunState.completedSourcesCount = tIdx + 1;
     activeRunState.remainingSourcesCount = targets.length - (tIdx + 1);
-    activeRunState.jobsFound = harvestedJobs.length;
+    activeRunState.jobsFound = totalDiscoveredJobs;
     activeRunState.newJobsCount = uniqueJobs.length;
     activeRunState.duplicatesCount = duplicateJobs.length;
     activeRunState.pendingCount = pendingJobs.length;
@@ -728,7 +755,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     completedAt: endTime.toISOString(),
     mode: options.mode,
     targetsScraped: sourcesStats.length,
-    totalFound: harvestedJobs.length,
+    totalFound: totalDiscoveredJobs,
     newPublished: publishedJobs.length,
     newPending: pendingJobs.length,
     duplicatesFlagged: duplicateJobs.length,
@@ -741,11 +768,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     user: 'Administrator',
     role: 'Scraper Hub',
     action: 'Scraper Run Completed',
-    target: `${sourcesStats.length} Source Portals (${harvestedJobs.length} Jobs Harvested)`,
+    target: `${sourcesStats.length} Source Portals (${totalDiscoveredJobs} Jobs Harvested)`,
     status: failedCount > 0 ? 'Warning' : 'Success',
     metadata: {
       mode: options.mode,
-      totalFound: harvestedJobs.length,
+      totalFound: totalDiscoveredJobs,
       published: publishedJobs.length,
       pending: pendingJobs.length,
       duplicates: duplicateJobs.length,
@@ -757,7 +784,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     runId,
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
-    totalFound: harvestedJobs.length,
+    totalFound: totalDiscoveredJobs,
     totalNew: uniqueJobs.length,
     totalDuplicates: duplicateJobs.length,
     totalFailedSources: failedCount,
@@ -770,7 +797,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     duplicateJobs,
     sourcesStats,
     executionDurationMs: duration,
-    message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${harvestedJobs.length} verified vacancies.`
+    message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${totalDiscoveredJobs} verified vacancies.`
   };
 } catch (runErr: any) {
   console.error(`[Scraper Engine] Fatal run error in ${runId}:`, runErr);

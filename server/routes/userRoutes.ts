@@ -196,26 +196,65 @@ userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
 userRouter.put('/:id', requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const updates = req.body || {};
     const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
     const currentUserId = req.user?.userId || req.user?.id;
 
-    // Normal users can only edit their own profile, and cannot modify their role or wallet balance
+    let finalUpdates: Record<string, any>;
+
     if (!isAdmin) {
       if (id !== currentUserId) {
         return res.status(403).json({ success: false, message: 'Access denied: You can only edit your own profile.' });
       }
-      delete updates.role;
-      delete updates.walletBalance;
-      delete updates.membershipStatus;
-      delete updates.permissions;
+
+      // Explicit allowlist of profile fields a normal user is permitted to self-update.
+      // Strictly prevents modification of: role, walletBalance, membershipStatus, permissions,
+      // plan, verified, kycStatus, activationDate, expiryDate, and administrative fields.
+      const ALLOWED_NORMAL_USER_FIELDS = new Set([
+        'name',
+        'fullName',
+        'phone',
+        'phoneNumber',
+        'bio',
+        'location',
+        'city',
+        'country',
+        'address',
+        'avatarUrl',
+        'company',
+        'companyName',
+        'headline',
+        'title',
+        'skills',
+        'preferences',
+        'website',
+        'experience',
+        'education',
+        'cvUrl',
+        'resumeUrl',
+        'socialLinks',
+        'notificationsEnabled',
+        'whatsappAlertsEnabled'
+      ]);
+
+      finalUpdates = {};
+      for (const [key, value] of Object.entries(updates)) {
+        if (ALLOWED_NORMAL_USER_FIELDS.has(key)) {
+          finalUpdates[key] = value;
+        }
+      }
+    } else {
+      // Administrators retain full administrative user management capabilities
+      finalUpdates = { ...updates };
     }
 
-    // Do not allow updating passwordHash directly via this endpoint
-    delete updates.passwordHash;
-    delete updates.salt;
+    // Never allow updating passwordHash, salt, password, or primary ID directly via this endpoint
+    delete finalUpdates.passwordHash;
+    delete finalUpdates.salt;
+    delete finalUpdates.password;
+    delete finalUpdates.id;
 
-    const updated = await UserRepository.updateAsync(id, updates);
+    const updated = await UserRepository.updateAsync(id, finalUpdates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }

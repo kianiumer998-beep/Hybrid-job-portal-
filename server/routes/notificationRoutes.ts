@@ -8,10 +8,32 @@ export const notificationRouter = Router();
 notificationRouter.get('/', authenticateOptionalUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = req.query.userId as string || user?.id;
-    const role = req.query.role as string || user?.role;
-    const plan = req.query.plan as string || user?.plan;
-    const membershipStatus = req.query.membershipStatus as string || user?.membershipStatus;
+    const isAdmin = user && (user.role === 'Admin' || user.role === 'Super Admin');
+
+    let userId: string | undefined;
+    let role: string | undefined;
+    let plan: string | undefined;
+    let membershipStatus: string | undefined;
+
+    if (isAdmin) {
+      // Admins may retain legitimate administrative targeting simulation behavior
+      userId = (req.query.userId as string) || user.userId || user.id;
+      role = (req.query.role as string) || user.role;
+      plan = (req.query.plan as string) || user.plan;
+      membershipStatus = (req.query.membershipStatus as string) || user.membershipStatus;
+    } else if (user) {
+      // Normal authenticated user: ALWAYS derive strictly from authenticated session/JWT
+      userId = user.userId || user.id;
+      role = user.role;
+      plan = user.plan;
+      membershipStatus = user.membershipStatus;
+    } else {
+      // Unauthenticated visitor: Only receive public broadcasts, ignore all spoofed query parameters
+      userId = undefined;
+      role = undefined;
+      plan = undefined;
+      membershipStatus = undefined;
+    }
 
     const notifs = await NotificationRepository.getForUser({
       userId,
@@ -252,10 +274,24 @@ notificationRouter.post('/admin/:id/override-mandatory', requireAdmin, async (re
 });
 
 // 11. Check user restriction status
-notificationRouter.get('/user/:userId/restrictions', async (req, res) => {
+notificationRouter.get('/user/:userId/restrictions', authenticateUser, async (req, res) => {
   try {
+    const user = (req as any).user;
+    const targetUserId = req.params.userId;
+    const isAdmin = user && ['Super Admin', 'Admin'].includes(user.role);
+    const currentUserId = user?.userId || user?.id;
+
+    // Normal users can only inspect their own restriction status; admins may inspect any user
+    if (!isAdmin && currentUserId !== targetUserId) {
+      return res.status(403).json({
+        success: false,
+        restricted: false,
+        message: 'Access denied: You can only check your own restriction status.'
+      });
+    }
+
     const action = (req.query.action as string) || 'post_job';
-    const check = await NotificationRepository.checkUserRestricted(req.params.userId, action);
+    const check = await NotificationRepository.checkUserRestricted(targetUserId, action);
     res.json({
       success: true,
       ...check

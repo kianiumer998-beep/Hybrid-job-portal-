@@ -96,7 +96,8 @@ export function validateSafeScrapeUrl(urlStr: string): SafeUrlResult {
 }
 
 /**
- * Fetches a URL with SSRF protection, timeout, and automatic retry with exponential backoff.
+ * Fetches a URL with SSRF protection, timeout, automatic retry with exponential backoff,
+ * and safe manual redirect validation to prevent redirect-based SSRF bypass.
  */
 export async function safeFetchWithRetry(
   url: string,
@@ -104,10 +105,13 @@ export async function safeFetchWithRetry(
   timeoutMs: number = 10000,
   maxRetries: number = 1
 ): Promise<Response> {
-  const check = validateSafeScrapeUrl(url);
-  if (!check.safe) {
-    throw new Error(`SSRF Blocked: ${check.error}`);
+  const initialCheck = validateSafeScrapeUrl(url);
+  if (!initialCheck.safe) {
+    throw new Error(`SSRF Blocked: ${initialCheck.error}`);
   }
+
+  const MAX_REDIRECT_HOPS = 5;
+  const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
   let attempt = 0;
   let lastError: any = null;
@@ -125,6 +129,12 @@ export async function safeFetchWithRetry(
     }
 
     try {
+      let currentUrl = url;
+      let currentMethod = (options.method || 'GET').toUpperCase();
+      let currentBody = options.body;
+      let redirectHops = 0;
+      const visitedUrls = new Set<string>([currentUrl]);
+
       const mergedHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,application/pdf;q=0.8,*/*;q=0.7',
@@ -132,25 +142,86 @@ export async function safeFetchWithRetry(
         ...(options.headers || {})
       };
 
-      const res = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-        headers: mergedHeaders,
-        // @ts-ignore - dispatcher is supported by undici in Node.js
-        dispatcher: (options as any)?.dispatcher || scraperTlsDispatcher
-      });
+      while (true) {
+        // Enforce manual redirect handling to intercept and validate every redirect target
+        const res = await fetch(currentUrl, {
+          ...options,
+          method: currentMethod,
+          body: currentBody,
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: mergedHeaders,
+          // @ts-ignore - dispatcher is supported by undici in Node.js
+          dispatcher: (options as any)?.dispatcher || scraperTlsDispatcher
+        });
 
-      clearTimeout(timeoutId);
-      if (options.signal) {
-        options.signal.removeEventListener('abort', onParentAbort);
+        // Check if response is a redirect
+        if (REDIRECT_STATUSES.has(res.status)) {
+          const location = res.headers.get('location');
+          if (!location) {
+            // No location header provided with redirect status, return response as is
+            clearTimeout(timeoutId);
+            if (options.signal) {
+              options.signal.removeEventListener('abort', onParentAbort);
+            }
+            return res;
+          }
+
+          redirectHops++;
+          if (redirectHops > MAX_REDIRECT_HOPS) {
+            throw new Error(`SSRF Blocked: Maximum redirect hops (${MAX_REDIRECT_HOPS}) exceeded`);
+          }
+
+          let nextUrl: string;
+          try {
+            nextUrl = new URL(location, currentUrl).toString();
+          } catch {
+            throw new Error(`SSRF Blocked: Invalid redirect Location "${location}"`);
+          }
+
+          // Check for redirect loop
+          if (visitedUrls.has(nextUrl)) {
+            throw new Error(`SSRF Blocked: Redirect loop detected (${nextUrl})`);
+          }
+          visitedUrls.add(nextUrl);
+
+          // Validate redirect target against SSRF (private IPs, loopback, metadata, non-http/https)
+          const redirectCheck = validateSafeScrapeUrl(nextUrl);
+          if (!redirectCheck.safe) {
+            throw new Error(`SSRF Blocked on redirect: ${redirectCheck.error}`);
+          }
+
+          // Adjust method/body for standard HTTP redirect specifications:
+          // 303: always convert to GET with no body
+          // 301/302: if method was not GET/HEAD, convert to GET with no body
+          if (res.status === 303 || ((res.status === 301 || res.status === 302) && currentMethod !== 'GET' && currentMethod !== 'HEAD')) {
+            currentMethod = 'GET';
+            currentBody = undefined;
+          }
+
+          currentUrl = nextUrl;
+          continue;
+        }
+
+        // Not a redirect, return response
+        clearTimeout(timeoutId);
+        if (options.signal) {
+          options.signal.removeEventListener('abort', onParentAbort);
+        }
+        return res;
       }
-      return res;
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (options.signal) {
         options.signal.removeEventListener('abort', onParentAbort);
       }
       lastError = err;
+
+      // If error is an SSRF Blocked error, do NOT retry - throw immediately
+      if (err.message && err.message.startsWith('SSRF Blocked')) {
+        throw err;
+      }
+
       attempt++;
 
       if (options.signal?.aborted) {

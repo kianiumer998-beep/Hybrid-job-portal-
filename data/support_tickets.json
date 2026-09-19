@@ -1,0 +1,163 @@
+[
+  {
+    "id": "ticket-mu8gpzbs-3awg",
+    "ticketNumber": "TICK-MU8GPZBS-9C00",
+    "userId": "guest",
+    "userName": "Job Seeker",
+    "userEmail": "",
+    "subject": "Guest Inquiry",
+    "category": "General",
+    "status": "open",
+    "priority": "medium",
+    "messages": [
+      {
+        "id": "msg-1789826895640",
+        "senderId": "guest",
+        "senderName": "Job Seeker",
+        "senderRole": "Member",
+        "message": "Message from guest",
+        "timestamp": "2026-09-19T14:08:15.640Z"
+      }
+    ],
+    "createdAt": "2026-09-19T14:08:15.901Z",
+    "updatedAt": "2026-09-19T14:08:15.901Z"
+  },
+  {
+    "id": "ticket-mu8gpywr-pt17",
+    "ticketNumber": "TICK-MU8GPYWR-ONP1",
+    "userId": "user-mu8gpxvu-mwpg",
+    "userName": "User B",
+    "userEmail": "testuser_b_1789826893467@example.com",
+    "subject": "Private User B Issue",
+    "category": "General",
+    "status": "open",
+    "priority": "medium",
+    "messages": [
+      {
+        "id": "msg-1789826895099",
+        "senderId": "user-mu8gpxvu-mwpg",
+        "senderName": "User B",
+        "senderRole": "Job Seeker",
+        "message": "Confidential message from User B",
+        "timestamp": "2026-09-19T14:08:15.099Z"
+      }
+    ],
+    "createdAt": "2026-09-19T14:08:15.360Z",
+    "updatedAt": "2026-09-19T14:08:15.360Z"
+  },
+  {
+    "id": "ticket-mu8gp4o4-y71p",
+    "ticketNumber": "TICK-MU8GP4O4-N5WY",
+    "userId": "guest",
+    "userName": "Job Seeker",
+    "userEmail": "",
+    "subject": "Guest Inquiry",
+    "category": "General",
+    "status": "open",
+    "priority": "medium",
+    "messages": [
+      {
+        "id": "msg-1789826855908",
+        "senderId": "guest",
+        "senderName": "Job Seeker",
+        "senderRole": "Member",
+        "message": "Message from guest",
+        "timestamp": "2026-09-19T14:07:35.908Z"
+      }
+    ],
+    "createdAt": "2026-09-19T14:07:36.175Z",
+    "updatedAt": "2026-09-19T14:07:36.175Z"
+  },
+  {
+    "id": "ticket-mu8gp48z-o2j4",
+    "ticketNumber": "TICK-MU8GP48Z-8F49",
+    "userId": "user-mu8gp36o-l4m1",
+    "userName": "User B",
+    "userEmail": "testuser_b_1789826853676@example.com",
+    "subject": "Private User B Issue",
+    "category": "General",
+    "status": "open",
+    "priority": "medium",
+    "messages": [
+      {
+        "id": "msg-1789826855363",
+        "senderId": "user-mu8gp36o-l4m1",
+        "senderName": "User B",
+        "senderRole": "Job Seeker",
+        "message": "Confidential message from User B",
+        "timestamp": "2026-09-19T14:07:35.363Z"
+      }
+    ],
+    "createdAt": "2026-09-19T14:07:35.631Z",
+    "updatedAt": "2026-09-19T14:07:35.631Z"
+  },
+  {
+    "id": "ticket-mu8gosoo-prel",
+    "ticketNumber": "TICK-MU8GOSOO-7V6I",
+    "userId": "guest",
+    "userName": "Job Seeker",
+    "userEmail": "",
+    "subject": "Guest Inquiry",
+    "category": "General",
+    "status": "open",
+    "priority": "medium",
+    "messages": [
+      {
+        "id": "msg-1789826840376",
+        "senderId": "guest",
+        "senderName": "Job Seeker",
+        "senderRole": "Member",
+        "message": "Message from guest",
+        "timestamp": "2026-09-19T14:07:20.376Z"
+      }
+    ],
+    "createdAt": "2026-09-19T14:07:20.644Z",
+    "updatedAt": "2026-09-19T14:07:20.644Z"
+  },
+  {
+    "id": "ticket-mu8gos9c-25pq",
+    "ticketNumber": "TICK-MU8GOS9C-F2FB",
+    "userId": "user-mu8gor78-qfgv",
+    "userName": "User B",
+    "userEmail": "testuser_b_1789826838145@example.com",
+    "subject": "Private User B Issue",
+    "category": "General",
+    "status": "open",
+    "priority": "medium",
+    "messages": [
+      {
+        "id": "msg-1789826839823",
+        "senderId": "user-mu8gor78-qfgv",
+        "senderName": "User B",
+        "senderRole": "Job Seeker",
+        "message": "Confidential message from User B",
+        "timestamp": "2026-09-19T14:07:19.823Z"
+      }
+    ],
+    "createdAt": "2026-09-19T14:07:20.094Z",
+    "updatedAt": "2026-09-19T14:07:20.094Z"
+  },
+  {
+    "id": "ticket-demo-1",
+    "ticketNumber": "TICK-1001",
+    "userId": "user-demo-1",
+    "userName": "Ali Raza",
+    "userEmail": "ali.raza@example.com",
+    "subject": "Inquiry regarding payment verification status",
+    "category": "Billing",
+    "status": "open",
+    "priority": "medium",
+    "messages": [
+      {
+        "id": "msg-1",
+        "senderId": "user-demo-1",
+        "senderName": "Ali Raza",
+        "senderRole": "Job Seeker",
+        "message": "Hello, I submitted my Easypaisa deposit receipt for Pro subscription. When will it be activated?",
+        "timestamp": "2026-09-19T13:07:20.094Z"
+      }
+    ],
+    "createdAt": "2026-09-19T13:07:20.094Z",
+    "updatedAt": "2026-09-19T13:07:20.094Z"
+  }
+]

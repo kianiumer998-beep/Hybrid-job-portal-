@@ -110,40 +110,108 @@ export class DuplicateIndex {
   private batchJobs: any[] = [];
   private bySourceJobId = new Map<string, { job: any; isBatch: boolean }>();
   private bySourceUrl = new Map<string, { job: any; isBatch: boolean }>();
+  private tokenIndex = new Map<string, Array<{ job: any; isBatch: boolean }>>();
+  private companyIndex = new Map<string, Array<{ job: any; isBatch: boolean }>>();
 
   constructor(existingJobs: any[] = []) {
     this.existingJobs = existingJobs || [];
     for (let i = 0; i < this.existingJobs.length; i++) {
-      const job = this.existingJobs[i];
-      if (job.sourceJobId) {
-        const key = String(job.sourceJobId).trim().toLowerCase();
-        if (!this.bySourceJobId.has(key)) {
-          this.bySourceJobId.set(key, { job, isBatch: false });
-        }
-      }
-      if (job.sourceUrl) {
-        const key = String(job.sourceUrl).trim().toLowerCase();
-        if (!this.bySourceUrl.has(key)) {
-          this.bySourceUrl.set(key, { job, isBatch: false });
-        }
-      }
+      this.indexJob(this.existingJobs[i], false);
     }
   }
 
-  addBatchJob(job: any) {
-    this.batchJobs.push(job);
+  private indexJob(job: any, isBatch: boolean) {
+    if (!job) return;
+    const entry = { job, isBatch };
+
     if (job.sourceJobId) {
       const key = String(job.sourceJobId).trim().toLowerCase();
       if (!this.bySourceJobId.has(key)) {
-        this.bySourceJobId.set(key, { job, isBatch: true });
+        this.bySourceJobId.set(key, entry);
       }
     }
     if (job.sourceUrl) {
       const key = String(job.sourceUrl).trim().toLowerCase();
       if (!this.bySourceUrl.has(key)) {
-        this.bySourceUrl.set(key, { job, isBatch: true });
+        this.bySourceUrl.set(key, entry);
       }
     }
+
+    const titleTokens = getOrComputeTokens(job, 'title');
+    titleTokens.forEach(t => {
+      let list = this.tokenIndex.get(t);
+      if (!list) {
+        list = [];
+        this.tokenIndex.set(t, list);
+      }
+      list.push(entry);
+    });
+
+    if (job.company) {
+      const compKey = String(job.company).trim().toLowerCase();
+      let compList = this.companyIndex.get(compKey);
+      if (!compList) {
+        compList = [];
+        this.companyIndex.set(compKey, compList);
+      }
+      compList.push(entry);
+    }
+  }
+
+  addBatchJob(job: any) {
+    this.batchJobs.push(job);
+    this.indexJob(job, true);
+  }
+
+  getCandidatesForJob(candidateJob: any): Array<{ job: any; isBatch: boolean }> {
+    const candTitleTokens = getOrComputeTokens(candidateJob, 'title');
+    const seen = new Set<any>();
+    const candidates: Array<{ job: any; isBatch: boolean }> = [];
+
+    const addEntry = (entry: { job: any; isBatch: boolean }) => {
+      if (!seen.has(entry.job)) {
+        seen.add(entry.job);
+        candidates.push(entry);
+      }
+    };
+
+    if (candidateJob.sourceJobId) {
+      const key = String(candidateJob.sourceJobId).trim().toLowerCase();
+      const match = this.bySourceJobId.get(key);
+      if (match) addEntry(match);
+    }
+    if (candidateJob.sourceUrl) {
+      const key = String(candidateJob.sourceUrl).trim().toLowerCase();
+      const match = this.bySourceUrl.get(key);
+      if (match) addEntry(match);
+    }
+
+    candTitleTokens.forEach(t => {
+      const list = this.tokenIndex.get(t);
+      if (list) {
+        for (let j = 0; j < list.length; j++) {
+          addEntry(list[j]);
+        }
+      }
+    });
+
+    if (candidateJob.company) {
+      const compKey = String(candidateJob.company).trim().toLowerCase();
+      const compList = this.companyIndex.get(compKey);
+      if (compList) {
+        for (let j = 0; j < compList.length; j++) {
+          addEntry(compList[j]);
+        }
+      }
+    }
+
+    // If candidate has very short title or no tokens, and candidate pool is empty, fall back to testing all
+    if (candidates.length === 0 && (this.existingJobs.length + this.batchJobs.length) < 200) {
+      for (let i = 0; i < this.existingJobs.length; i++) addEntry({ job: this.existingJobs[i], isBatch: false });
+      for (let i = 0; i < this.batchJobs.length; i++) addEntry({ job: this.batchJobs[i], isBatch: true });
+    }
+
+    return candidates;
   }
 
   getExactMatch(candidateJob: any): { job: any; isBatch: boolean; matchType: 'sourceJobId' | 'sourceUrl' } | null {
@@ -430,14 +498,9 @@ export function detectJobDuplicate(
   };
 
   if (poolOfExistingJobs instanceof DuplicateIndex) {
-    const existingList = poolOfExistingJobs.getExistingJobs();
-    for (let i = 0; i < existingList.length; i++) {
-      if (evaluateJob(existingList[i], false)) return highestMatch;
-    }
-
-    const batchList = poolOfExistingJobs.getBatchJobs();
-    for (let i = 0; i < batchList.length; i++) {
-      if (evaluateJob(batchList[i], true)) return highestMatch;
+    const candidates = poolOfExistingJobs.getCandidatesForJob(candidateJob);
+    for (let i = 0; i < candidates.length; i++) {
+      if (evaluateJob(candidates[i].job, candidates[i].isBatch)) return highestMatch;
     }
   } else {
     const existingList = poolOfExistingJobs || [];

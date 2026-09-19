@@ -99,6 +99,7 @@ export interface ScrapeOptions {
   endPage?: number;
   sinceTimestamp?: string;
   runId?: string;
+  signal?: AbortSignal;
 }
 
 export interface ScrapeExecutionResult {
@@ -900,7 +901,7 @@ export async function scrapeTargetPortal(
     }
 
     // 6. Safe Fetch with SSRF protection, timeout, and retries
-    const response = await safeFetchWithRetry(targetUrl, {}, 10000, 1);
+    const response = await safeFetchWithRetry(targetUrl, { signal: options.signal }, 10000, 1);
     if (!response.ok) {
       console.log(`[Scraper Pipeline] Target ${config.name} (${targetUrl}) responded with HTTP ${response.status}.`);
       const httpErr: any = new Error(`HTTP ${response.status} ${response.statusText || 'Error'} fetching ${targetUrl}`);

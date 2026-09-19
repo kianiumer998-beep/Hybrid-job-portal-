@@ -113,8 +113,16 @@ export async function safeFetchWithRetry(
   let lastError: any = null;
 
   while (attempt <= maxRetries) {
+    if (options.signal?.aborted) {
+      throw new Error(`Execution aborted: ${options.signal.reason || 'Source execution timed out'}`);
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const onParentAbort = () => controller.abort();
+    if (options.signal) {
+      options.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
 
     try {
       const mergedHeaders = {
@@ -133,11 +141,21 @@ export async function safeFetchWithRetry(
       });
 
       clearTimeout(timeoutId);
+      if (options.signal) {
+        options.signal.removeEventListener('abort', onParentAbort);
+      }
       return res;
     } catch (err: any) {
       clearTimeout(timeoutId);
+      if (options.signal) {
+        options.signal.removeEventListener('abort', onParentAbort);
+      }
       lastError = err;
       attempt++;
+
+      if (options.signal?.aborted) {
+        break;
+      }
 
       if (attempt <= maxRetries) {
         const delay = Math.min(400 * Math.pow(2, attempt), 1500);

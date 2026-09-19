@@ -394,6 +394,12 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     let sourceFailed = false;
     let sourceError = '';
 
+    const sourceAbortController = new AbortController();
+    const SOURCE_TIMEOUT_MS = 45000;
+    const sourceTimeoutId = setTimeout(() => {
+      sourceAbortController.abort('Source execution timed out after 45 seconds');
+    }, SOURCE_TIMEOUT_MS);
+
     try {
       // 1. Determine cutoff date
       let sinceTimestamp = options.sinceTimestamp;
@@ -403,8 +409,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         sinceTimestamp = options.fromTimestamp;
       }
 
-      // 2. Dynamic next-page crawl loop (no hard-coded 25-page limit)
+      // 2. Dynamic next-page crawl loop with repeated-page & real-pagination protection
       const rawResults: ScrapedJobResult[] = [];
+      const seenPageUrls = new Set<string>();
+      const seenPageFingerprints = new Set<string>();
 
       let startPage = 1;
       let maxAllowedPage = 1;
@@ -414,7 +422,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         maxAllowedPage = options.endPage ? Math.max(startPage, options.endPage) : startPage;
       } else if (options.mode === 'complete') {
         startPage = 1;
-        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 1000;
+        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 50;
       }
 
       let currentPage = startPage;
@@ -422,6 +430,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
       while (currentPage <= maxAllowedPage && hasMorePages) {
         updateHeartbeat();
+        if (sourceAbortController.signal.aborted) {
+          throw new Error('Source execution timed out after 45 seconds');
+        }
+
         if (activeRunPauseRequested) {
           activeRunState.status = 'Paused';
           activeRunState.isPaused = true;
@@ -452,26 +464,51 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
             startPage,
             endPage: maxAllowedPage,
             sinceTimestamp,
-            runId
+            runId,
+            signal: sourceAbortController.signal
           });
 
           sourcePagesSuccessful++;
           totalPagesSuccessful++;
 
           if (pageResults && pageResults.length > 0) {
+            // Content fingerprint & repeated-page protection:
+            // Prevents infinite loops on portals (like SPSC) that ignore ?page=N and return the identical HTML
+            const fingerprint = pageResults
+              .slice(0, 15)
+              .map(j => (j.sourceJobId || j.title || j.sourceUrl || '').trim().toLowerCase())
+              .filter(Boolean)
+              .join('||');
+
+            if (fingerprint && seenPageFingerprints.has(fingerprint)) {
+              console.log(`[Scraper Engine] Repeated page content detected on ${target.name} at page ${currentPage}. Stopping pagination.`);
+              hasMorePages = false;
+              break;
+            }
+            if (fingerprint) {
+              seenPageFingerprints.add(fingerprint);
+            }
+
             rawResults.push(...pageResults);
 
-            const nextPageDetected = pageResults.some(j => !!j.nextPageUrl);
+            // Real Next Page Discovery:
+            // ONLY continue if a genuine explicit next-page destination was discovered on the page
+            const detectedNextUrl = pageResults.find(j => !!j.nextPageUrl)?.nextPageUrl;
+
             if (options.mode === 'complete') {
-              if (nextPageDetected && currentPage < maxAllowedPage) {
+              if (detectedNextUrl && detectedNextUrl !== target.url && !seenPageUrls.has(detectedNextUrl) && currentPage < maxAllowedPage) {
+                seenPageUrls.add(detectedNextUrl);
                 currentPage++;
-              } else if (pageResults.length >= 10 && currentPage < maxAllowedPage) {
+              } else {
+                // No explicit next page URL discovered -> Stop pagination immediately
+                hasMorePages = false;
+              }
+            } else if (options.mode === 'page_range') {
+              if (currentPage < maxAllowedPage) {
                 currentPage++;
               } else {
                 hasMorePages = false;
               }
-            } else if (options.mode === 'page_range') {
-              currentPage++;
             } else {
               hasMorePages = false;
             }
@@ -675,6 +712,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         }
       }
 
+      clearTimeout(sourceTimeoutId);
+
       // Update source stats
       const sourceCompletedAt = new Date().toISOString();
       const isJobsFound = sourceFound > 0;
@@ -686,7 +725,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         lastRunId: runId,
         scrapedCountIncrement: sourceFound,
         healthStatus: successHealth,
-        lastErrorMessage: isJobsFound ? undefined : '0 vacancies extracted from target source'
+        lastErrorMessage: isJobsFound ? undefined : 'Portal reachable, but 0 active job vacancies found today'
       });
 
       sourcesStats.push({
@@ -704,30 +743,46 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         lastSuccessfulScrapeAt: isJobsFound ? sourceCompletedAt : target.lastSuccessfulScrapeAt
       });
     } catch (err: any) {
+      clearTimeout(sourceTimeoutId);
       failedCount++;
       sourceFailed = true;
-      sourceError = err.message || 'Scraping target failed';
-      console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${err?.message || err}`);
 
-      const errLower = sourceError.toLowerCase();
+      const rawErrorMsg = err?.message || String(err);
+      console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${rawErrorMsg}`);
+
+      const errLower = rawErrorMsg.toLowerCase();
       let classifiedHealth: string = 'Fetch Error';
       let httpStatus: number | undefined = err.status || err.statusCode || err.httpStatus;
+      let humanReadableError = rawErrorMsg;
 
-      if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
+      const isTimeout = sourceAbortController.signal.aborted || /timeout|timed out|aborterror|etimedout/i.test(errLower);
+
+      if (isTimeout) {
+        classifiedHealth = 'Timeout';
+        humanReadableError = 'Source execution timed out after 45 seconds';
+      } else if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
         classifiedHealth = '404';
         if (!httpStatus) httpStatus = 404;
+        humanReadableError = 'Official Gazette PDF or vacancy page not found on remote server (HTTP 404)';
       } else if (httpStatus === 403 || errLower.includes('403') || errLower.includes('forbidden') || errLower.includes('access denied')) {
         classifiedHealth = '403';
         if (!httpStatus) httpStatus = 403;
-      } else if (errLower.includes('timeout') || errLower.includes('timed out') || errLower.includes('etimedout') || errLower.includes('aborterror')) {
-        classifiedHealth = 'Timeout';
+        humanReadableError = 'Remote server access forbidden (HTTP 403)';
+      } else if (/enotfound|eai_again|dns|offline|unreachable/i.test(errLower)) {
+        classifiedHealth = 'Fetch Error';
+        humanReadableError = 'Remote portal unavailable or DNS unreachable';
+      } else if (/ssl|tls|certificate|handshake/i.test(errLower)) {
+        classifiedHealth = 'Fetch Error';
+        humanReadableError = 'Remote portal SSL/TLS handshake failed';
       } else if (errLower.includes('invalid pdf') || errLower.includes('pdf error') || errLower.includes('corrupt pdf') || (errLower.includes('pdf') && errLower.includes('fail'))) {
         classifiedHealth = 'Invalid PDF';
+        humanReadableError = 'PDF document could not be parsed or is corrupted';
       } else if (errLower.includes('cheerio') || errLower.includes('html parse') || errLower.includes('invalid html') || errLower.includes('selector')) {
         classifiedHealth = 'HTML';
-      } else {
-        classifiedHealth = 'Fetch Error';
+        humanReadableError = 'Portal HTML layout changed or could not be parsed';
       }
+
+      sourceError = humanReadableError;
 
       const sourceCompletedAt = new Date().toISOString();
       await ScraperRepository.updateSourceStats(target.id, {

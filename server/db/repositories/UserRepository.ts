@@ -123,8 +123,9 @@ export class UserRepository {
           } catch {}
           return safe;
         }
+        return null;
       } catch (err) {
-        // Fallback to local database
+        // Fallback to local database only on genuine connection/query failure
       }
     }
 

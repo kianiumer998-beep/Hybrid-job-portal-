@@ -25,12 +25,27 @@ authRouter.post('/register', async (req, res) => {
     }
 
     const { hash, salt } = hashPassword(password);
+
+    const ADMIN_ROLES = [
+      'Super Admin',
+      'Admin',
+      'Job Moderator',
+      'Scraper Manager',
+      'Payment Manager',
+      'Finance Manager',
+      'SEO Manager',
+      'Advertisement Manager'
+    ];
+
+    const requestedRole = (role || '').toString().trim();
+    const safeRegistrationRole = ADMIN_ROLES.includes(requestedRole) ? 'Job Seeker' : (requestedRole || 'Job Seeker');
+
     const newUser = await UserRepository.createAsync({
       name,
       email: email.toLowerCase().trim(),
       passwordHash: hash,
       salt,
-      role: role || 'Job Seeker',
+      role: safeRegistrationRole,
       phone: phone || '',
       companyName: companyName || '',
       plan: 'Free',

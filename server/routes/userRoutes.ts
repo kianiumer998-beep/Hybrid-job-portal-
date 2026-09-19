@@ -5,6 +5,21 @@ import { requireAdmin, requireAuth } from '../auth/authManager';
 
 export const userRouter = Router();
 
+const ADMIN_ROLES = [
+  'Super Admin',
+  'Admin',
+  'Job Moderator',
+  'Scraper Manager',
+  'Payment Manager',
+  'Finance Manager',
+  'SEO Manager',
+  'Advertisement Manager'
+];
+
+function isUserAdmin(user: any): boolean {
+  return Boolean(user && ADMIN_ROLES.includes(user.role));
+}
+
 // 1. Get All Users (Admin Only)
 userRouter.get('/', requireAdmin, async (req, res) => {
   try {
@@ -23,7 +38,7 @@ userRouter.get('/', requireAdmin, async (req, res) => {
 userRouter.get('/:id', requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
 
     if (!isAdmin && id !== currentUserId) {
@@ -45,7 +60,7 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
 // 2. Get User Wallet Summary (Strictly authorization protected)
 userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
 
     if (!isAdmin && req.params.id !== currentUserId) {
@@ -62,7 +77,7 @@ userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
 // 3. User Saved Jobs
 userRouter.get('/saved-jobs', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -93,7 +108,7 @@ userRouter.post('/saved-jobs/toggle', requireAuth, (req: any, res) => {
 // 4. User Job Alerts
 userRouter.get('/job-alerts', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -127,7 +142,7 @@ userRouter.post('/job-alerts', requireAuth, (req: any, res) => {
 
 userRouter.delete('/job-alerts/:id', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -141,7 +156,7 @@ userRouter.delete('/job-alerts/:id', requireAuth, (req: any, res) => {
 // 5. User Documents (CVs & Portfolios)
 userRouter.get('/documents', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -178,7 +193,7 @@ userRouter.post('/documents', requireAuth, (req: any, res) => {
 
 userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -197,7 +212,7 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
     const updates = req.body || {};
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
 
     let finalUpdates: Record<string, any>;

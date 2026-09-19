@@ -1,4 +1,6 @@
-import { Job } from '../types/job';
+import { Job, JobSourceType } from '../types/job';
+
+export type { JobSourceType };
 
 /**
  * Determines if a job originated from automated scrapers, crawlers, or document parsers.
@@ -9,17 +11,56 @@ export function isScrapedJob(job: Partial<Job> | null | undefined): boolean {
   const j = job as any;
   if (j.isPdfScraped === true) return true;
   if (j.isScraped === true) return true;
+  if (j.sourceType === 'scraped') return true;
   if (Boolean(j.scraperSourceId && String(j.scraperSourceId).trim())) return true;
   if (Boolean(j.scraperSourceName && String(j.scraperSourceName).trim())) return true;
   if (Boolean(j.scrapedSourceDomain && String(j.scrapedSourceDomain).trim())) return true;
   if (Boolean(j.sourcePortal && String(j.sourcePortal).trim())) return true;
   if (Boolean(j.scrapeRunId && String(j.scrapeRunId).trim())) return true;
+  if (Boolean(j.scrapedAt && String(j.scrapedAt).trim())) return true;
   if (Boolean(j.extractionMethod && String(j.extractionMethod).trim())) return true;
   if (Boolean(j.sourceJobId && String(j.sourceJobId).trim())) return true;
+  if (Boolean(j.pdfSourceUrl && String(j.pdfSourceUrl).trim())) return true;
+  if (Boolean(j.pdfFileName && String(j.pdfFileName).trim())) return true;
   if (typeof j.id === 'string' && /^(scraped|gh|lever|sr|ashby|ld|html|doc|ocr|pdf|next)-/i.test(j.id)) {
     return true;
   }
   return false;
+}
+
+/**
+ * Authoritatively derives or validates the job's source classification.
+ * Prevents client spoofing: any job matching scraper origins is always 'scraped'.
+ */
+export function deriveJobSourceType(job: Partial<Job> | any): JobSourceType {
+  if (!job) return 'unknown';
+
+  // 1. Scraper origin check always takes precedence to protect notification safety
+  if (isScrapedJob(job)) {
+    return 'scraped';
+  }
+
+  // 2. If already explicitly assigned a valid sourceType and not scraped
+  if (job.sourceType && ['user_posted', 'admin_created', 'imported', 'unknown'].includes(job.sourceType)) {
+    return job.sourceType as JobSourceType;
+  }
+
+  // 3. User-posted check: submitted by an authenticated user/employer
+  if (job.submittedByUserId && String(job.submittedByUserId).trim()) {
+    return 'user_posted';
+  }
+
+  // 4. Admin-created check
+  if (job.createdByAdmin === true || job.postedByAdmin === true || job.adminAuthor === true) {
+    return 'admin_created';
+  }
+
+  // 5. Imported check
+  if (job.isImported === true || (typeof job.id === 'string' && job.id.startsWith('import-'))) {
+    return 'imported';
+  }
+
+  return 'unknown';
 }
 
 /**

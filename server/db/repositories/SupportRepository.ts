@@ -43,14 +43,12 @@ export class SupportRepository {
         if (userId) query.userId = userId;
 
         const docs = await coll.find(query).sort({ createdAt: -1 }).toArray();
-        if (docs && docs.length > 0) {
-          return docs.map(d => {
-            const { _id, ...rest } = d;
-            return rest as SupportTicket;
-          });
-        }
+        return (docs || []).map(d => {
+          const { _id, ...rest } = d;
+          return rest as SupportTicket;
+        });
       } catch (err) {
-        // Fallback to local database
+        // Fallback to local database only on genuine connection/query failure
       }
     }
     return this.getAll(userId);
@@ -70,8 +68,9 @@ export class SupportRepository {
           const { _id, ...rest } = doc;
           return rest as SupportTicket;
         }
+        return null;
       } catch (err) {
-        // Fallback to local database
+        // Fallback to local database only on genuine connection/query failure
       }
     }
     return this.getById(id);

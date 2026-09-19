@@ -11,14 +11,12 @@ export class UserRepository {
       try {
         const coll = await getUsersCollection();
         const users = await coll.find({}).sort({ createdAt: -1 }).toArray();
-        if (users && users.length > 0) {
-          return users.map(u => {
-            const { _id, ...safe } = u;
-            return safe;
-          });
-        }
+        return (users || []).map(u => {
+          const { _id, ...safe } = u;
+          return safe;
+        });
       } catch (err) {
-        // Fallback to local database
+        // Fallback to local database only on genuine connection/query failure
       }
     }
     return Database.getUsers();
@@ -37,8 +35,9 @@ export class UserRepository {
           const { _id, ...safe } = user;
           return safe;
         }
+        return null;
       } catch (err) {
-        // Fallback to local database
+        // Fallback to local database only on genuine connection/query failure
       }
     }
     return Database.getUserById(id);
@@ -58,8 +57,9 @@ export class UserRepository {
           const { _id, ...safe } = user;
           return safe;
         }
+        return null;
       } catch (err) {
-        // Fallback to local database
+        // Fallback to local database only on genuine connection/query failure
       }
     }
     return Database.getUserByEmail(email);

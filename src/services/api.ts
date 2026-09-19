@@ -844,14 +844,32 @@ export const api = {
         headers: getAuthHeader()
       });
     },
-    async recordClick(id: string) {
+    async recordClick(id: string, idempotencyKey?: string) {
       try {
-        await fetch(`${API_BASE}/ads/${id}/click`, { method: 'POST' });
+        const key = idempotencyKey || `click-${id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        await fetch(`${API_BASE}/ads/${id}/click`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeader(),
+            'x-idempotency-key': key
+          },
+          body: JSON.stringify({ idempotencyKey: key })
+        });
       } catch {}
     },
-    async recordImpression(id: string) {
+    async recordImpression(id: string, idempotencyKey?: string) {
       try {
-        await fetch(`${API_BASE}/ads/${id}/impression`, { method: 'POST' });
+        const key = idempotencyKey || `imp-${id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        await fetch(`${API_BASE}/ads/${id}/impression`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeader(),
+            'x-idempotency-key': key
+          },
+          body: JSON.stringify({ idempotencyKey: key })
+        });
       } catch {}
     }
   },

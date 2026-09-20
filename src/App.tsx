@@ -104,21 +104,12 @@ export default function App() {
   }, [landingConfig]);
 
   // Global SEO & Announcement State (Synchronized with Admin Suite)
-  const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_seo_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_SITE_SEO_CONFIG;
-  });
+  const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(INITIAL_SITE_SEO_CONFIG);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_seo_config', JSON.stringify(siteSeoConfig));
-      if (siteSeoConfig.siteTitle) {
-        document.title = siteSeoConfig.siteTitle;
-      }
-    } catch (e) {}
+    if (siteSeoConfig.siteTitle) {
+      document.title = siteSeoConfig.siteTitle;
+    }
   }, [siteSeoConfig]);
 
   // Advertisements State
@@ -844,7 +835,6 @@ export default function App() {
   const handleUpdateSeoConfig = async (newConfig: SiteSeoConfig) => {
     setSiteSeoConfig(newConfig);
     try {
-      localStorage.setItem('career_pak_seo_config', JSON.stringify(newConfig));
       await api.settings.updateSeo(newConfig);
     } catch (e) {
       console.error('[App] Failed to sync SEO config to MongoDB:', e);

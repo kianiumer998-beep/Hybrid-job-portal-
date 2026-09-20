@@ -318,14 +318,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [moduleSearchQuery, setModuleSearchQuery] = useState('');
   const [seoPreviewJob, setSeoPreviewJob] = useState<Job | null>(null);
 
-  // International Admin Suite States (Persisted in LocalStorage)
-  const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_seo_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_SITE_SEO_CONFIG;
-  });
+  // International Admin Suite States
+  const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(INITIAL_SITE_SEO_CONFIG);
 
   const [currencyConfig, setCurrencyConfig] = useState<CurrencyExchangeConfig>(() => {
     try {

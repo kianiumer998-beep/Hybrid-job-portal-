@@ -109,43 +109,43 @@ export const DEFAULT_WHATSAPP_CONFIG = {
 };
 
 export const DEFAULT_SEO_BRANDING_CONFIG = {
-  siteTitle: 'CareerPak & Global Work Portal — Verified Jobs & Overseas Careers',
-  websiteName: 'Hybrid Remote Jobs & ATS Portal',
-  tagline: 'Leading Job Recruitment Portal for Pakistan, Gulf & International Careers',
+  siteTitle: 'Hybrid Remote Jobs & CV Builder',
+  websiteName: 'Hybrid Remote Jobs & CV Builder',
+  tagline: 'Hybrid Remote Jobs Portal with Multi-Level Region Filtering & ATS CV Builder',
   logoUrl: '/logo.png',
   faviconUrl: '/favicon.ico',
-  contactEmail: 'support@jobportal.com',
-  contactPhone: '+92 300 1234567',
-  whatsappHelpline: '+92 300 1234567',
+  contactEmail: '',
+  contactPhone: '',
+  whatsappHelpline: '',
   socialLinks: {
-    facebook: 'https://facebook.com/CareerPakOfficial',
-    twitter: '@CareerPakOfficial',
-    linkedin: 'https://linkedin.com/company/careerpak',
-    instagram: 'https://instagram.com/careerpakofficial'
+    facebook: '',
+    twitter: '',
+    linkedin: '',
+    instagram: ''
   },
   primaryBrandColor: '#10B981',
   accentColor: '#F59E0B',
-  metaTitle: 'CareerPak & Global Work Portal — Verified Jobs & Overseas Careers',
-  metaDescription: 'Find verified jobs across Pakistan, Dubai/UAE, Saudi Arabia, UK, and Remote. Explore Federal FPSC, PPSC, WAPDA, Tech & Corporate Vacancies with instant application tools.',
-  metaKeywords: ['Jobs in Pakistan', 'Govt Jobs 2026', 'FPSC Consolidated', 'WAPDA Careers', 'Dubai Jobs', 'Remote Software Engineer', 'Daily Jang Classifieds', 'PPSC Gazette'],
-  canonicalUrl: 'https://careerpak.com',
-  ogTitle: 'CareerPak & Global Work Portal — Verified Jobs & Overseas Careers',
-  ogDescription: 'Find verified jobs across Pakistan, Dubai/UAE, Saudi Arabia, UK, and Remote. Explore Federal FPSC, PPSC, WAPDA, Tech & Corporate Vacancies.',
-  ogImageUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1200&auto=format&fit=crop&q=80',
-  twitterHandle: '@CareerPakOfficial',
-  googleSearchConsoleVerification: 'google-site-verification=cpak_verify_998432_prod',
-  bingWebmasterVerification: 'bing-verification=BING_AUTH_TOKEN_CP_2026',
-  googleAnalyticsId: 'G-CP98234871',
-  googleTagManagerId: 'GTM-CP8812K',
-  facebookPixelId: 'FB_PIXEL_99214710',
-  robotsTxtContent: `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: https://careerpak.com/sitemap.xml`,
+  metaTitle: 'Hybrid Remote Jobs & CV Builder',
+  metaDescription: 'Hybrid Remote Jobs Portal with multi-level region filtering, country selector, automated ATS CV builder, multi-channel advertisement campaign engine, and admin dashboard.',
+  metaKeywords: ['Hybrid Jobs', 'Remote Jobs', 'ATS CV Builder', 'Job Portal', 'Verified Careers'],
+  canonicalUrl: '',
+  ogTitle: 'Hybrid Remote Jobs & CV Builder',
+  ogDescription: 'Hybrid Remote Jobs Portal with multi-level region filtering, country selector, automated ATS CV builder, multi-channel advertisement campaign engine, and admin dashboard.',
+  ogImageUrl: '',
+  twitterHandle: '',
+  googleSearchConsoleVerification: '',
+  bingWebmasterVerification: '',
+  googleAnalyticsId: '',
+  googleTagManagerId: '',
+  facebookPixelId: '',
+  robotsTxtContent: `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/`,
   maintenanceMode: false,
-  maintenanceNotice: 'Scheduled platform optimization is underway. We will be back online in 15 minutes.',
+  maintenanceNotice: 'Scheduled platform optimization is underway. We will be back online shortly.',
   announcementBanner: {
     enabled: true,
-    text: '🚀 FPSC Consolidated Advertisement No. 08/2026 & WAPDA 2026 Recruitment are now LIVE with direct gazette breakdown!',
+    text: '🚀 Explore top verified hybrid & remote job openings with automated ATS CV building!',
     linkUrl: '#jobs',
-    linkText: 'View Govt Openings',
+    linkText: 'Explore Jobs',
     bannerType: 'info'
   }
 };
@@ -153,8 +153,8 @@ export const DEFAULT_SEO_BRANDING_CONFIG = {
 export const DEFAULT_COMMUNICATION_CONFIG = {
   smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
   smtpPort: Number(process.env.SMTP_PORT) || 587,
-  smtpUser: process.env.SMTP_USER || 'notifications@jobportal.com',
-  smtpSenderEmail: process.env.SMTP_SENDER_EMAIL || 'no-reply@jobportal.com',
+  smtpUser: process.env.SMTP_USER || '',
+  smtpSenderEmail: process.env.SMTP_SENDER_EMAIL || '',
   smtpPassword: process.env.SMTP_PASSWORD || '',
   sendgridApiKey: process.env.SENDGRID_API_KEY || '',
   resendApiKey: process.env.RESEND_API_KEY || '',
@@ -326,7 +326,7 @@ export class SettingsRepository {
         console.error('[SettingsRepo] Error reading Comm config from MongoDB:', err.message);
       }
     }
-    return safeReadJson('communication_config.json', DEFAULT_COMMUNICATION_CONFIG);
+    return DEFAULT_COMMUNICATION_CONFIG;
   }
 
   static async saveCommConfig(config: any): Promise<any> {
@@ -342,8 +342,6 @@ export class SettingsRepository {
     if (safeConfig.twilioAuthToken === mask || !safeConfig.twilioAuthToken) safeConfig.twilioAuthToken = existing.twilioAuthToken;
 
     const merged = { ...DEFAULT_COMMUNICATION_CONFIG, ...safeConfig, updatedAt: new Date().toISOString() };
-    
-    safeWriteJson('communication_config.json', merged);
 
     if (isMongoConfigured()) {
       try {

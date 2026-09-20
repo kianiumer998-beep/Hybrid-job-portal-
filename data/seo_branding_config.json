@@ -1,0 +1,47 @@
+{
+  "siteTitle": "Hybrid Remote Jobs & CV Builder",
+  "websiteName": "Hybrid Remote Jobs & CV Builder",
+  "tagline": "Hybrid Remote Jobs Portal with Multi-Level Region Filtering & ATS CV Builder",
+  "logoUrl": "/logo.png",
+  "faviconUrl": "/favicon.ico",
+  "contactEmail": "",
+  "contactPhone": "",
+  "whatsappHelpline": "",
+  "socialLinks": {
+    "facebook": "",
+    "twitter": "",
+    "linkedin": "",
+    "instagram": ""
+  },
+  "primaryBrandColor": "#10B981",
+  "accentColor": "#F59E0B",
+  "metaTitle": "Hybrid Remote Jobs & CV Builder",
+  "metaDescription": "Hybrid Remote Jobs Portal with multi-level region filtering, country selector, automated ATS CV builder, multi-channel advertisement campaign engine, and admin dashboard.",
+  "metaKeywords": [
+    "Hybrid Jobs",
+    "Remote Jobs",
+    "ATS CV Builder",
+    "Job Portal",
+    "Verified Careers"
+  ],
+  "canonicalUrl": "",
+  "ogTitle": "Hybrid Remote Jobs & CV Builder",
+  "ogDescription": "Hybrid Remote Jobs Portal with multi-level region filtering, country selector, automated ATS CV builder, multi-channel advertisement campaign engine, and admin dashboard.",
+  "ogImageUrl": "",
+  "twitterHandle": "",
+  "googleSearchConsoleVerification": "",
+  "bingWebmasterVerification": "",
+  "googleAnalyticsId": "",
+  "googleTagManagerId": "",
+  "facebookPixelId": "",
+  "robotsTxtContent": "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/",
+  "maintenanceMode": false,
+  "maintenanceNotice": "Scheduled platform optimization is underway. We will be back online shortly.",
+  "announcementBanner": {
+    "enabled": true,
+    "text": "🚀 Explore top verified hybrid & remote job openings with automated ATS CV building!",
+    linkUrl: "#jobs",
+    linkText: "Explore Jobs",
+    bannerType: "info"
+  }
+}

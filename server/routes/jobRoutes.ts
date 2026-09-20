@@ -4,6 +4,7 @@ import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine
 import { requireAdmin } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
 import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType } from '../services/jobValidation';
+import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
 
 export const jobRouter = Router();
 
@@ -57,10 +58,17 @@ jobRouter.get('/', async (req, res) => {
 // 2. Get Pending Jobs Queue (Admin Only)
 jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
   try {
-    const pending = await JobRepository.getPending();
+    const pending = await withMongoRetry(() => JobRepository.getPending());
     res.json({ success: true, pendingJobs: pending, jobs: pending });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);
+    if (isTransientMongoError(err)) {
+      return res.status(503).json({
+        success: false,
+        errorType: 'TransientDatabaseError',
+        message: 'The database is temporarily busy or undergoing a transient network timeout. Please refresh in a few moments.'
+      });
+    }
     res.status(500).json({ success: false, message: err.message || 'Error fetching pending jobs' });
   }
 });

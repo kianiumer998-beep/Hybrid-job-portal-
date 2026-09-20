@@ -73,6 +73,7 @@ export async function safeFetchJson<T = any>(url: string, init?: RequestInit): P
       cache: 'no-store',
       ...init,
       headers: {
+        'Accept': 'application/json',
         ...(init?.headers || {})
       }
     });

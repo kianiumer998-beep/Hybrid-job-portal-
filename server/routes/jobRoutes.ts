@@ -57,9 +57,10 @@ jobRouter.get('/', async (req, res) => {
 
 // 2. Get Pending Jobs Queue (Admin Only)
 jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
   try {
     const pending = await withMongoRetry(() => JobRepository.getPending());
-    res.json({ success: true, pendingJobs: pending, jobs: pending });
+    return res.status(200).json({ success: true, pendingJobs: pending, jobs: pending });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);
     if (isTransientMongoError(err)) {
@@ -69,7 +70,7 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
         message: 'The database is temporarily busy or undergoing a transient network timeout. Please refresh in a few moments.'
       });
     }
-    res.status(500).json({ success: false, message: err.message || 'Error fetching pending jobs' });
+    return res.status(500).json({ success: false, message: err.message || 'Error fetching pending jobs' });
   }
 });
 

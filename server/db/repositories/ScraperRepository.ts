@@ -151,73 +151,62 @@ export class ScraperRepository {
    */
   static async getConfigs(): Promise<any[]> {
     if (isMongoConfigured()) {
-      try {
-        const normalized = await withMongoRetry(async () => {
-          const coll = await getScraperSourcesCollection();
-          const docs = await coll.find({}, { projection: { _id: 0 } }).toArray();
-          if (docs && docs.length > 0) {
-            let hasMissingStatus = false;
-            const norm = docs.map((s: any) => {
-              const status = s.status || 'Active Scheduled';
-              const interval = s.interval || '24h';
-              if (!s.status || !s.interval) {
-                hasMissingStatus = true;
-              }
-              return {
-                ...s,
-                status,
-                interval,
-                url: s.url || s.portalUrl || s.pdfUrl || '',
-                portalUrl: s.portalUrl || s.url || '',
-                healthStatus: s.healthStatus || 'healthy'
-              };
-            });
-
-            if (hasMissingStatus) {
-              coll.updateMany(
-                { $or: [{ status: { $exists: false } }, { status: null }, { status: '' }, { interval: { $exists: false } }] },
-                { $set: { status: 'Active Scheduled', interval: '24h' } }
-              ).catch(e => console.warn('[ScraperRepository] Notice updating missing statuses:', e.message));
+      const normalized = await withMongoRetry(async () => {
+        const coll = await getScraperSourcesCollection();
+        const docs = await coll.find({}, { projection: { _id: 0 } }).toArray();
+        if (docs && docs.length > 0) {
+          let hasMissingStatus = false;
+          const norm = docs.map((s: any) => {
+            const status = s.status || 'Active Scheduled';
+            const interval = s.interval || '24h';
+            if (!s.status || !s.interval) {
+              hasMissingStatus = true;
             }
-            return norm;
+            return {
+              ...s,
+              status,
+              interval,
+              url: s.url || s.portalUrl || s.pdfUrl || '',
+              portalUrl: s.portalUrl || s.url || '',
+              healthStatus: s.healthStatus || 'healthy'
+            };
+          });
+
+          if (hasMissingStatus) {
+            coll.updateMany(
+              { $or: [{ status: { $exists: false } }, { status: null }, { status: '' }, { interval: { $exists: false } }] },
+              { $set: { status: 'Active Scheduled', interval: '24h' } }
+            ).catch(e => console.warn('[ScraperRepository] Notice updating missing statuses:', e.message));
           }
-          return null;
+          return norm;
+        }
+        return null;
+      });
+
+      if (normalized) {
+        this.cachedSources = normalized;
+        return normalized;
+      }
+
+      // Auto-seed initial sources into MongoDB scraper_sources collection if empty
+      const defaults = getDefaultSources();
+      if (defaults.length > 0) {
+        const cleanDocs = defaults.map(s => {
+          const { _id, ...clean } = s as any;
+          return {
+            ...clean,
+            status: clean.status || 'Active Scheduled',
+            interval: clean.interval || '24h',
+            healthStatus: clean.healthStatus || 'healthy'
+          };
         });
-
-        if (normalized) {
-          this.cachedSources = normalized;
-          return normalized;
-        }
-
-        // Auto-seed initial sources into MongoDB scraper_sources collection if empty
-        const defaults = getDefaultSources();
-        if (defaults.length > 0) {
-          try {
-            const cleanDocs = defaults.map(s => {
-              const { _id, ...clean } = s as any;
-              return {
-                ...clean,
-                status: clean.status || 'Active Scheduled',
-                interval: clean.interval || '24h',
-                healthStatus: clean.healthStatus || 'healthy'
-              };
-            });
-            await withMongoRetry(async () => {
-              const coll = await getScraperSourcesCollection();
-              await coll.insertMany(cleanDocs);
-            });
-            console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
-            this.cachedSources = cleanDocs;
-            return cleanDocs;
-          } catch (seedErr: any) {
-            console.warn('[ScraperRepository] Notice seeding sources into MongoDB:', seedErr.message);
-          }
-        }
-      } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_sources:', err.message);
-        if (!isTransientMongoError(err)) {
-          throw err;
-        }
+        await withMongoRetry(async () => {
+          const coll = await getScraperSourcesCollection();
+          await coll.insertMany(cleanDocs);
+        });
+        console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
+        this.cachedSources = cleanDocs;
+        return cleanDocs;
       }
     }
 
@@ -229,25 +218,19 @@ export class ScraperRepository {
    */
   static async saveConfigs(configs: any[]): Promise<void> {
     if (!Array.isArray(configs)) return;
-    this.cachedSources = configs;
 
     if (isMongoConfigured()) {
-      try {
-        await withMongoRetry(async () => {
-          const coll = await getScraperSourcesCollection();
-          for (const cfg of configs) {
-            if (!cfg || !cfg.id) continue;
-            const { _id, ...clean } = cfg;
-            await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
-          }
-        });
-      } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error saving scraper_sources:', err.message);
-        if (!isTransientMongoError(err)) {
-          throw err;
+      await withMongoRetry(async () => {
+        const coll = await getScraperSourcesCollection();
+        for (const cfg of configs) {
+          if (!cfg || !cfg.id) continue;
+          const { _id, ...clean } = cfg;
+          await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
         }
-      }
+      });
     }
+
+    this.cachedSources = configs;
   }
 
   /**
@@ -255,25 +238,19 @@ export class ScraperRepository {
    */
   static async getRuns(): Promise<any[]> {
     if (isMongoConfigured()) {
-      try {
-        const runs = await withMongoRetry(async () => {
-          const coll = await getScraperRunsCollection();
-          return await coll.find({}, { projection: { _id: 0 } })
-            .sort({ startedAt: -1, timestamp: -1 })
-            .limit(100)
-            .toArray();
-        });
+      const runs = await withMongoRetry(async () => {
+        const coll = await getScraperRunsCollection();
+        return await coll.find({}, { projection: { _id: 0 } })
+          .sort({ startedAt: -1, timestamp: -1 })
+          .limit(100)
+          .toArray();
+      });
 
-        if (runs && runs.length > 0) {
-          this.cachedRuns = runs;
-          return runs;
-        }
-      } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_runs:', err.message);
-        if (!isTransientMongoError(err)) {
-          throw err;
-        }
+      if (runs) {
+        this.cachedRuns = runs;
+        return runs;
       }
+      return [];
     }
 
     return this.cachedRuns;
@@ -291,17 +268,10 @@ export class ScraperRepository {
     const { _id, ...clean } = newRun;
 
     if (isMongoConfigured()) {
-      try {
-        await withMongoRetry(async () => {
-          const coll = await getScraperRunsCollection();
-          await coll.insertOne(clean);
-        });
-      } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error adding to scraper_runs:', err.message);
-        if (!isTransientMongoError(err)) {
-          throw err;
-        }
-      }
+      await withMongoRetry(async () => {
+        const coll = await getScraperRunsCollection();
+        await coll.insertOne(clean);
+      });
     }
 
     this.cachedRuns.unshift(clean);
@@ -326,32 +296,25 @@ export class ScraperRepository {
     lastHttpStatus?: number;
   }): Promise<void> {
     if (isMongoConfigured()) {
-      try {
-        await withMongoRetry(async () => {
-          const coll = await getScraperSourcesCollection();
-          const $set: any = {};
-          if (stats.lastStartedAt) $set.lastStartedAt = stats.lastStartedAt;
-          if (stats.lastSuccessfulScrapeAt) $set.lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
-          if (stats.lastCompletedAt) $set.lastCompletedAt = stats.lastCompletedAt;
-          if (stats.lastRunId) $set.lastRunId = stats.lastRunId;
-          if (stats.healthStatus) $set.healthStatus = stats.healthStatus;
-          if (stats.lastErrorMessage !== undefined) $set.lastErrorMessage = stats.lastErrorMessage;
-          if (stats.lastHttpStatus !== undefined) $set.lastHttpStatus = stats.lastHttpStatus;
+      await withMongoRetry(async () => {
+        const coll = await getScraperSourcesCollection();
+        const $set: any = {};
+        if (stats.lastStartedAt) $set.lastStartedAt = stats.lastStartedAt;
+        if (stats.lastSuccessfulScrapeAt) $set.lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
+        if (stats.lastCompletedAt) $set.lastCompletedAt = stats.lastCompletedAt;
+        if (stats.lastRunId) $set.lastRunId = stats.lastRunId;
+        if (stats.healthStatus) $set.healthStatus = stats.healthStatus;
+        if (stats.lastErrorMessage !== undefined) $set.lastErrorMessage = stats.lastErrorMessage;
+        if (stats.lastHttpStatus !== undefined) $set.lastHttpStatus = stats.lastHttpStatus;
 
-          const updateOps: any = {};
-          if (Object.keys($set).length > 0) updateOps.$set = $set;
-          if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
+        const updateOps: any = {};
+        if (Object.keys($set).length > 0) updateOps.$set = $set;
+        if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
 
-          if (Object.keys(updateOps).length > 0) {
-            await coll.updateOne({ id: sourceId }, updateOps);
-          }
-        });
-      } catch (err: any) {
-        console.error(`[ScraperRepository] MongoDB error updating source stats for "${sourceId}":`, err.message);
-        if (!isTransientMongoError(err)) {
-          throw err;
+        if (Object.keys(updateOps).length > 0) {
+          await coll.updateOne({ id: sourceId }, updateOps);
         }
-      }
+      });
     }
 
     // Update in-memory cached representation
@@ -379,7 +342,7 @@ export class ScraperRepository {
    */
   static async getGroups(): Promise<ScraperSourceGroup[]> {
     if (isMongoConfigured()) {
-      try {
+      return await withMongoRetry(async () => {
         const coll = await getScraperGroupsCollection();
         const docs = await coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray();
         if (docs && docs.length > 0) {
@@ -395,9 +358,8 @@ export class ScraperRepository {
           this.cachedGroups = defaults;
           return defaults;
         }
-      } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_groups:', err.message);
-      }
+        return [];
+      });
     }
     return this.cachedGroups;
   }
@@ -418,12 +380,10 @@ export class ScraperRepository {
     };
 
     if (isMongoConfigured()) {
-      try {
+      await withMongoRetry(async () => {
         const coll = await getScraperGroupsCollection();
         await coll.insertOne(newGroup);
-      } catch (err: any) {
-        console.error('[ScraperRepository] Error inserting group:', err.message);
-      }
+      });
     }
 
     this.cachedGroups.push(newGroup);
@@ -441,7 +401,7 @@ export class ScraperRepository {
     if (Array.isArray(updates.sourceIds)) $set.sourceIds = updates.sourceIds;
 
     if (isMongoConfigured()) {
-      try {
+      return await withMongoRetry(async () => {
         const coll = await getScraperGroupsCollection();
         const updated = await coll.findOneAndUpdate(
           { id },
@@ -453,9 +413,8 @@ export class ScraperRepository {
           if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
           return updated as ScraperSourceGroup;
         }
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error updating group "${id}":`, err.message);
-      }
+        return null;
+      });
     }
 
     const idx = this.cachedGroups.findIndex(g => g.id === id);
@@ -471,14 +430,12 @@ export class ScraperRepository {
    */
   static async deleteGroup(id: string): Promise<boolean> {
     if (isMongoConfigured()) {
-      try {
+      return await withMongoRetry(async () => {
         const coll = await getScraperGroupsCollection();
         const res = await coll.deleteOne({ id });
         this.cachedGroups = this.cachedGroups.filter(g => g.id !== id);
         return (res.deletedCount || 0) > 0;
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error deleting group "${id}":`, err.message);
-      }
+      });
     }
     const initialLen = this.cachedGroups.length;
     this.cachedGroups = this.cachedGroups.filter(g => g.id !== id);
@@ -495,7 +452,7 @@ export class ScraperRepository {
     const now = new Date().toISOString();
 
     if (isMongoConfigured()) {
-      try {
+      return await withMongoRetry(async () => {
         const coll = await getScraperGroupsCollection();
         const updated = await coll.findOneAndUpdate(
           { id },
@@ -510,9 +467,8 @@ export class ScraperRepository {
           if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
           return updated as ScraperSourceGroup;
         }
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error adding sources to group "${id}":`, err.message);
-      }
+        return null;
+      });
     }
 
     const idx = this.cachedGroups.findIndex(g => g.id === id);
@@ -535,7 +491,7 @@ export class ScraperRepository {
     const now = new Date().toISOString();
 
     if (isMongoConfigured()) {
-      try {
+      return await withMongoRetry(async () => {
         const coll = await getScraperGroupsCollection();
         const updated = await coll.findOneAndUpdate(
           { id },
@@ -550,9 +506,8 @@ export class ScraperRepository {
           if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
           return updated as ScraperSourceGroup;
         }
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error removing sources from group "${id}":`, err.message);
-      }
+        return null;
+      });
     }
 
     const idx = this.cachedGroups.findIndex(g => g.id === id);
@@ -571,14 +526,12 @@ export class ScraperRepository {
    */
   static async getExpirySettings(): Promise<{ offsetDays: number }> {
     if (isMongoConfigured()) {
-      try {
+      const doc = await withMongoRetry(async () => {
         const db = await (await import('../mongodb')).getMongoDb();
-        const doc = await db.collection('scraper_settings').findOne({ id: 'portal_expiry_config' });
-        if (doc && typeof doc.offsetDays === 'number') {
-          this.cachedExpiryOffsetDays = Math.max(0, Math.min(2, doc.offsetDays));
-        }
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading expiry settings:', err.message);
+        return await db.collection('scraper_settings').findOne({ id: 'portal_expiry_config' });
+      });
+      if (doc && typeof doc.offsetDays === 'number') {
+        this.cachedExpiryOffsetDays = Math.max(0, Math.min(2, doc.offsetDays));
       }
     }
     return { offsetDays: this.cachedExpiryOffsetDays };
@@ -589,10 +542,9 @@ export class ScraperRepository {
    */
   static async updateExpirySettings(settings: { offsetDays: number }): Promise<{ offsetDays: number }> {
     const safeOffset = Math.max(0, Math.min(2, Number(settings.offsetDays) || 0));
-    this.cachedExpiryOffsetDays = safeOffset;
 
     if (isMongoConfigured()) {
-      try {
+      await withMongoRetry(async () => {
         const db = await (await import('../mongodb')).getMongoDb();
         await db.collection('scraper_settings').updateOne(
           { id: 'portal_expiry_config' },
@@ -605,11 +557,10 @@ export class ScraperRepository {
           },
           { upsert: true }
         );
-      } catch (err: any) {
-        console.error('[ScraperRepository] Error saving expiry settings:', err.message);
-      }
+      });
     }
 
+    this.cachedExpiryOffsetDays = safeOffset;
     return { offsetDays: safeOffset };
   }
 

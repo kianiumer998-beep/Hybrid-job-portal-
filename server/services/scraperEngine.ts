@@ -41,6 +41,8 @@ export interface ActiveScraperRunState {
 
 export interface ScraperRunSummary {
   runId: string;
+  status?: string;
+  isPaused?: boolean;
   startTime: string;
   endTime: string;
   totalFound: number;
@@ -881,47 +883,63 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
   const endTime = new Date();
   const duration = endTime.getTime() - startTime.getTime();
+  const isPausedDueToMongo = activeRunState.status === 'Paused';
 
-  if (activeRunState.status !== 'Paused' && activeRunState.status !== 'Stopped') {
-    activeRunState.status = 'Completed';
-  }
-  activeRunState.lastUpdatedTime = endTime.toISOString();
-
-  // Save audit log
-  await ScraperRepository.addRun({
-    id: runId,
-    batchId: runId,
-    startedAt: startTime.toISOString(),
-    completedAt: endTime.toISOString(),
-    mode: options.mode,
-    targetsScraped: sourcesStats.length,
-    totalFound: totalDiscoveredJobs,
-    newPublished: publishedJobs.length,
-    newPending: pendingJobs.length,
-    duplicatesFlagged: duplicateJobs.length,
-    failedSources: failedCount,
-    executionTimeMs: duration,
-    sourcesStats
-  });
-
-  AuditRepository.add({
-    user: 'Administrator',
-    role: 'Scraper Hub',
-    action: 'Scraper Run Completed',
-    target: `${sourcesStats.length} Source Portals (${totalDiscoveredJobs} Jobs Harvested)`,
-    status: failedCount > 0 ? 'Warning' : 'Success',
-    metadata: {
-      mode: options.mode,
-      totalFound: totalDiscoveredJobs,
-      published: publishedJobs.length,
-      pending: pendingJobs.length,
-      duplicates: duplicateJobs.length,
-      failedSources: failedCount
+  if (!isPausedDueToMongo) {
+    if (activeRunState.status !== 'Stopped') {
+      activeRunState.status = 'Completed';
     }
-  });
+    activeRunState.lastUpdatedTime = endTime.toISOString();
+
+    // Save audit log & run history safely
+    try {
+      await ScraperRepository.addRun({
+        id: runId,
+        batchId: runId,
+        startedAt: startTime.toISOString(),
+        completedAt: endTime.toISOString(),
+        mode: options.mode,
+        targetsScraped: sourcesStats.length,
+        totalFound: totalDiscoveredJobs,
+        newPublished: publishedJobs.length,
+        newPending: pendingJobs.length,
+        duplicatesFlagged: duplicateJobs.length,
+        failedSources: failedCount,
+        executionTimeMs: duration,
+        sourcesStats
+      });
+    } catch (runSaveErr: any) {
+      console.warn(`[Scraper Engine] Notice saving run history for ${runId}:`, runSaveErr?.message || runSaveErr);
+    }
+
+    try {
+      AuditRepository.add({
+        user: 'Administrator',
+        role: 'Scraper Hub',
+        action: 'Scraper Run Completed',
+        target: `${sourcesStats.length} Source Portals (${totalDiscoveredJobs} Jobs Harvested)`,
+        status: failedCount > 0 ? 'Warning' : 'Success',
+        metadata: {
+          mode: options.mode,
+          totalFound: totalDiscoveredJobs,
+          published: publishedJobs.length,
+          pending: pendingJobs.length,
+          duplicates: duplicateJobs.length,
+          failedSources: failedCount
+        }
+      });
+    } catch (auditErr: any) {
+      console.warn(`[Scraper Engine] Notice adding audit log for ${runId}:`, auditErr?.message || auditErr);
+    }
+  } else {
+    console.warn(`[Scraper Engine] Run ${runId} paused due to MongoDB outage. Skipping run history and audit writes to prevent fatal failure.`);
+    activeRunState.lastUpdatedTime = endTime.toISOString();
+  }
 
   return {
     runId,
+    status: activeRunState.status,
+    isPaused: isPausedDueToMongo,
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
     totalFound: totalDiscoveredJobs,
@@ -937,12 +955,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     duplicateJobs,
     sourcesStats,
     executionDurationMs: duration,
-    message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${totalDiscoveredJobs} verified vacancies.`
+    message: isPausedDueToMongo
+      ? `Scrape run paused due to temporary MongoDB outage. ${activeRunState.remainingSourcesCount} source(s) preserved for resumption.`
+      : `Scrape run completed across ${sourcesStats.length} sources. Extracted ${totalDiscoveredJobs} verified vacancies.`
   };
 } catch (runErr: any) {
   console.error(`[Scraper Engine] Fatal run error in ${runId}:`, runErr);
   if (activeRunState.status !== 'Paused' && activeRunState.status !== 'Stopped') {
-    activeRunState.status = 'Completed';
+    activeRunState.status = 'Stopped';
     activeRunState.isStopped = true;
   }
   activeRunState.currentError = runErr?.message || String(runErr);

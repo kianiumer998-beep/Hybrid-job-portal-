@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { ScraperRepository } from '../db/repositories/ScraperRepository';
+import { ScraperRepository, isTransientMongoError } from '../db/repositories/ScraperRepository';
 import { JobRepository } from '../db/repositories/JobRepository';
 import { executeScraperWithWizard, getActiveRunStatus, stopActiveRun } from './scraperEngine';
 import { featureFlags } from '../config/featureFlags';
@@ -187,7 +187,16 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       }
     }
 
-    const sources = await ScraperRepository.getConfigs();
+    let sources: any[];
+    try {
+      sources = await ScraperRepository.getConfigs();
+    } catch (cfgErr: any) {
+      if (isTransientMongoError(cfgErr)) {
+        console.warn(`[Scheduler Engine] Scheduler tick deferred: MongoDB temporarily unavailable while reading source configurations (${cfgErr.message}).`);
+        return { triggeredSources: [], summary: 'Scheduler tick deferred: MongoDB temporarily unavailable.' };
+      }
+      throw cfgErr;
+    }
     const now = Date.now();
     const dueSources: typeof sources = [];
     const updatedSources = [...sources];
@@ -260,8 +269,14 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
     console.log(`[Scheduler Engine] Starting batch ${batchRunId} with ${dueSources.length} due sources.`);
 
-    const configsToUpdate = await ScraperRepository.getConfigs();
+    let configsToUpdate = [...updatedSources];
+    try {
+      configsToUpdate = await ScraperRepository.getConfigs();
+    } catch {
+      configsToUpdate = [...updatedSources];
+    }
     let hasBatchConfigUpdates = false;
+    let isPausedForMongo = false;
 
     try {
       for (let i = 0; i < dueSources.length; i++) {
@@ -312,17 +327,40 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
             isSchedulerRun: true
           });
 
-          sourceCompleted = true;
-          console.log(`[Scheduler Engine] Batch ${batchRunId} source "${src.name}" completed. Found: ${runResult.totalFound}`);
+          if (
+            runResult?.status === 'Paused' ||
+            runResult?.isPaused ||
+            (runResult?.message && runResult.message.toLowerCase().includes('paused'))
+          ) {
+            isPausedForMongo = true;
+            console.warn(`[Scheduler Engine] Batch ${batchRunId} source "${src.name}" paused because MongoDB is unavailable. Halting batch safely.`);
+          } else {
+            sourceCompleted = true;
+            console.log(`[Scheduler Engine] Batch ${batchRunId} source "${src.name}" completed. Found: ${runResult.totalFound}`);
+          }
         } catch (srcErr: any) {
           const errMsg = String(srcErr?.message || srcErr || '');
-          if (errMsg.includes('already in progress') || errMsg.includes('currently in progress') || errMsg.includes('currently executing')) {
+          if (isTransientMongoError(srcErr) || errMsg.includes('MongoDB unavailable') || errMsg.includes('transient')) {
+            isPausedForMongo = true;
+            console.warn(`[Scheduler Engine] Batch ${batchRunId} source "${src.name}" halted on MongoDB error: ${errMsg}`);
+          } else if (errMsg.includes('already in progress') || errMsg.includes('currently in progress') || errMsg.includes('currently executing')) {
             wasBusy = true;
             console.log(`[Scheduler Engine] Source "${src.name}" tick deferred: Scraper run in progress.`);
           } else {
             const detail = errMsg.replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
             console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${detail}`);
           }
+        }
+
+        if (isPausedForMongo) {
+          console.warn(`[Scheduler Engine] Deferring scheduler tick for source "${src.name}" and remaining batch sources due to MongoDB outage.`);
+          if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
+            batchState.batchStatus = 'Idle';
+            batchState.batchCurrentSourceId = null;
+            batchState.batchCurrentSourceName = null;
+            batchState.batchLastUpdatedAt = new Date().toISOString();
+          }
+          break;
         }
 
         // Check cancellation immediately after source completes
@@ -367,31 +405,37 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           break; // Stop evaluating further sources in this batch if engine busy
         }
 
-        // Schedule next run for successfully completed source
-        if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
-          batchState.batchCompleted++;
-          batchState.batchLastUpdatedAt = new Date().toISOString();
-        }
-        const completedNow = new Date();
-        const intervalMs = parseIntervalToMs(src.interval);
-        const cfgIdx = configsToUpdate.findIndex(c => c.id === src.id);
-        if (cfgIdx !== -1) {
-          configsToUpdate[cfgIdx] = {
-            ...configsToUpdate[cfgIdx],
-            lastRunAt: completedNow.toISOString(),
-            lastCompletedAt: completedNow.toISOString(),
-            nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
-          };
-          hasBatchConfigUpdates = true;
+        // Schedule next run ONLY for successfully completed source
+        if (sourceCompleted) {
+          if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
+            batchState.batchCompleted++;
+            batchState.batchLastUpdatedAt = new Date().toISOString();
+          }
+          const completedNow = new Date();
+          const intervalMs = parseIntervalToMs(src.interval);
+          const cfgIdx = configsToUpdate.findIndex(c => c.id === src.id);
+          if (cfgIdx !== -1) {
+            configsToUpdate[cfgIdx] = {
+              ...configsToUpdate[cfgIdx],
+              lastRunAt: completedNow.toISOString(),
+              lastCompletedAt: completedNow.toISOString(),
+              nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
+            };
+            hasBatchConfigUpdates = true;
+          }
         }
       }
 
       if (hasBatchConfigUpdates) {
-        await ScraperRepository.saveConfigs(configsToUpdate);
+        try {
+          await ScraperRepository.saveConfigs(configsToUpdate);
+        } catch (saveErr: any) {
+          console.warn('[Scheduler Engine] Notice saving batch configs:', saveErr?.message || saveErr);
+        }
       }
 
       if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen && batchState.batchStatus === 'Running') {
-        batchState.batchStatus = 'Completed';
+        batchState.batchStatus = isPausedForMongo ? 'Idle' : 'Completed';
         batchState.batchCurrentSourceId = null;
         batchState.batchCurrentSourceName = null;
         batchState.batchLastUpdatedAt = new Date().toISOString();
@@ -399,7 +443,9 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
       return {
         triggeredSources: dueSources.map(s => s.id),
-        summary: `Scheduler batch completed ${batchState.batchCompleted}/${dueSources.length} sources.`
+        summary: isPausedForMongo
+          ? `Scheduler batch paused due to temporary MongoDB outage after ${batchState.batchCompleted}/${dueSources.length} sources.`
+          : `Scheduler batch completed ${batchState.batchCompleted}/${dueSources.length} sources.`
       };
     } finally {
       // Always release distributed lock when batch finishes, stops, or errors out
@@ -414,7 +460,12 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
  * Returns the current runtime status of the scheduler, batch progress, and all configured sources.
  */
 export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
-  const sources = await ScraperRepository.getConfigs();
+  let sources: any[] = [];
+  try {
+    sources = await ScraperRepository.getConfigs();
+  } catch (err: any) {
+    console.warn('[Scheduler Engine] Notice fetching configs for scheduler status:', err?.message || err);
+  }
   const now = Date.now();
 
   const sourceStatuses: SchedulerSourceStatus[] = sources.map(src => {

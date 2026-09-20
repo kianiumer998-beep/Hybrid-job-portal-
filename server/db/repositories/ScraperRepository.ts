@@ -3,55 +3,12 @@ import {
   getScraperRunsCollection,
   getScraperGroupsCollection,
   getMongoDb,
-  isMongoConfigured
+  isMongoConfigured,
+  recoverMongoClient,
+  isTransientMongoError
 } from '../mongodb';
 
-export function isTransientMongoError(err: any): boolean {
-  if (!err) return false;
-  const errMsg = String(err.message || err || '').toLowerCase();
-  const errName = String(err.name || '').toLowerCase();
-  const errCode = String(err.code || err.codeName || '').toLowerCase();
-  const causeMsg = err.cause ? String(err.cause.message || err.cause.name || err.cause || '').toLowerCase() : '';
-
-  return (
-    errName.includes('mongonetworktimeouterror') ||
-    errName.includes('mongoserverselectionerror') ||
-    errName.includes('mongonetworkerror') ||
-    errName.includes('mongotimeouterror') ||
-    errName.includes('mongopoolclearederror') ||
-    errName.includes('mongopoolclosederror') ||
-    errName.includes('mongowaitqueuetimeouterror') ||
-    errName.includes('mongonotconnectederror') ||
-    errName.includes('mongotopologyclosederror') ||
-    errName.includes('poolclearedonnetworkerror') ||
-    errCode.includes('poolclearedonnetworkerror') ||
-    errCode.includes('econnreset') ||
-    errCode.includes('econnrefused') ||
-    errCode.includes('etimedout') ||
-    errCode.includes('epipe') ||
-    errMsg.includes('poolclearedonnetworkerror') ||
-    errMsg.includes('pool cleared') ||
-    errMsg.includes('connection pool') ||
-    errMsg.includes('pool is closed') ||
-    errMsg.includes('timeout') ||
-    errMsg.includes('timed out') ||
-    errMsg.includes('connection timed out') ||
-    errMsg.includes('sockettimeout') ||
-    errMsg.includes('serverselectiontimeout') ||
-    errMsg.includes('econnreset') ||
-    errMsg.includes('econnrefused') ||
-    errMsg.includes('etimedout') ||
-    errMsg.includes('epipe') ||
-    errMsg.includes('network error') ||
-    errMsg.includes('connection closed') ||
-    errMsg.includes('topology was destroyed') ||
-    errMsg.includes('client must be connected') ||
-    causeMsg.includes('poolclearedonnetworkerror') ||
-    causeMsg.includes('pool cleared') ||
-    causeMsg.includes('mongonetworktimeouterror') ||
-    causeMsg.includes('timeout')
-  );
-}
+export { isTransientMongoError };
 
 export async function withMongoRetry<T>(
   fn: () => Promise<T>,
@@ -67,7 +24,14 @@ export async function withMongoRetry<T>(
       attempt++;
       if (attempt <= retries && isTransientMongoError(err)) {
         const delay = Math.min(maxDelayMs, initialDelayMs * Math.pow(2, attempt - 1));
-        console.warn(`[Mongo Retry] Transient error encountered (attempt ${attempt}/${retries}): ${err.message}. Retrying in ${delay}ms...`);
+        console.warn(`[Mongo Retry] Transient database error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Recovering MongoClient connection and retrying in ${delay}ms...`);
+        
+        try {
+          await recoverMongoClient(err);
+        } catch (recoverErr: any) {
+          console.warn(`[Mongo Retry] MongoClient recovery attempt failed: ${recoverErr?.message || recoverErr}`);
+        }
+
         await new Promise(r => setTimeout(r, delay));
         continue;
       }

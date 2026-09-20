@@ -3,6 +3,62 @@ import { MongoClient, Db, Collection } from 'mongodb';
 let cachedClient: MongoClient | null = null;
 let cachedDb: Db | null = null;
 let clientPromise: Promise<MongoClient> | null = null;
+let reconnectPromise: Promise<MongoClient> | null = null;
+let lastReconnectTimestamp = 0;
+const RECONNECT_THROTTLE_MS = 2000;
+
+export function isTransientMongoError(err: any): boolean {
+  if (!err) return false;
+  const errMsg = String(err.message || err || '').toLowerCase();
+  const errName = String(err.name || '').toLowerCase();
+  const errCode = String(err.code || err.codeName || '').toLowerCase();
+  const causeMsg = err.cause ? String(err.cause.message || err.cause.name || err.cause || '').toLowerCase() : '';
+
+  return (
+    errName.includes('mongonetworktimeouterror') ||
+    errName.includes('mongoserverselectionerror') ||
+    errName.includes('mongonetworkerror') ||
+    errName.includes('mongotimeouterror') ||
+    errName.includes('mongopoolclearederror') ||
+    errName.includes('mongopoolclosederror') ||
+    errName.includes('mongowaitqueuetimeouterror') ||
+    errName.includes('mongonotconnectederror') ||
+    errName.includes('mongotopologyclosederror') ||
+    errName.includes('poolclearedonnetworkerror') ||
+    errCode.includes('poolclearedonnetworkerror') ||
+    errCode.includes('econnreset') ||
+    errCode.includes('econnrefused') ||
+    errCode.includes('etimedout') ||
+    errCode.includes('epipe') ||
+    errMsg.includes('poolclearedonnetworkerror') ||
+    errMsg.includes('pool cleared') ||
+    errMsg.includes('connection pool') ||
+    errMsg.includes('pool is closed') ||
+    errMsg.includes('timeout') ||
+    errMsg.includes('timed out') ||
+    errMsg.includes('connection timed out') ||
+    errMsg.includes('sockettimeout') ||
+    errMsg.includes('serverselectiontimeout') ||
+    errMsg.includes('monitor timeout') ||
+    errMsg.includes('heartbeat timeout') ||
+    errMsg.includes('econnreset') ||
+    errMsg.includes('econnrefused') ||
+    errMsg.includes('etimedout') ||
+    errMsg.includes('epipe') ||
+    errMsg.includes('network error') ||
+    errMsg.includes('connection closed') ||
+    errMsg.includes('connection reset') ||
+    errMsg.includes('topology was destroyed') ||
+    errMsg.includes('topology is closed') ||
+    errMsg.includes('client must be connected') ||
+    causeMsg.includes('poolclearedonnetworkerror') ||
+    causeMsg.includes('pool cleared') ||
+    causeMsg.includes('mongonetworktimeouterror') ||
+    causeMsg.includes('mongonetworkerror') ||
+    causeMsg.includes('mongoserverselectionerror') ||
+    causeMsg.includes('timeout')
+  );
+}
 
 export function getMongoUri(): string {
   const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
@@ -19,28 +75,35 @@ export function isMongoConfigured(): boolean {
   return Boolean(uri && uri.trim());
 }
 
+async function createFreshMongoClient(): Promise<MongoClient> {
+  const uri = getMongoUri();
+  const client = new MongoClient(uri, {
+    maxPoolSize: 20,
+    minPoolSize: 2,
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+  });
+
+  const connectedClient = await client.connect();
+  cachedClient = connectedClient;
+  cachedDb = connectedClient.db();
+  console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
+  await initMongoIndexes(cachedDb);
+  return connectedClient;
+}
+
 export async function getMongoClient(): Promise<MongoClient> {
+  if (reconnectPromise) {
+    return reconnectPromise;
+  }
+
   if (cachedClient) {
     return cachedClient;
   }
 
   if (!clientPromise) {
-    const uri = getMongoUri();
-    const client = new MongoClient(uri, {
-      maxPoolSize: 20,
-      minPoolSize: 2,
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
-    });
-
-    clientPromise = client.connect().then(async (connectedClient) => {
-      cachedClient = connectedClient;
-      cachedDb = connectedClient.db();
-      console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
-      await initMongoIndexes(cachedDb);
-      return connectedClient;
-    }).catch((err) => {
+    clientPromise = createFreshMongoClient().catch((err) => {
       clientPromise = null;
       cachedClient = null;
       cachedDb = null;
@@ -52,8 +115,66 @@ export async function getMongoClient(): Promise<MongoClient> {
   return clientPromise;
 }
 
+/**
+ * Safe, centralized recovery mechanism for MongoClient on genuine network/pool failures.
+ * Invalidates broken cached client/promise, closes previous connection, and reconnects cleanly.
+ * Deduplicates concurrent recovery calls to prevent multiple simultaneous MongoClient instances.
+ */
+export async function recoverMongoClient(reason?: any): Promise<MongoClient> {
+  if (reconnectPromise) {
+    return reconnectPromise;
+  }
+
+  const now = Date.now();
+  if (cachedClient && (now - lastReconnectTimestamp < RECONNECT_THROTTLE_MS)) {
+    return cachedClient;
+  }
+
+  const reasonMsg = reason?.message || String(reason || 'transient network/pool failure');
+  console.warn(`[MongoDB] Centralized MongoClient recovery initiated. Reason: ${reasonMsg}`);
+
+  const oldClient = cachedClient;
+  cachedClient = null;
+  cachedDb = null;
+  clientPromise = null;
+
+  if (oldClient) {
+    try {
+      oldClient.close(true).catch((closeErr: any) => {
+        console.warn('[MongoDB] Notice closing previous client during recovery:', closeErr?.message || closeErr);
+      });
+    } catch {
+      // Ignore synchronous close errors
+    }
+  }
+
+  reconnectPromise = (async () => {
+    try {
+      const connectedClient = await createFreshMongoClient();
+      clientPromise = Promise.resolve(connectedClient);
+      lastReconnectTimestamp = Date.now();
+      console.log(`[MongoDB] Centralized MongoClient recovery succeeded. Database: "${cachedDb?.databaseName || 'default'}"`);
+      return connectedClient;
+    } catch (err: any) {
+      cachedClient = null;
+      cachedDb = null;
+      clientPromise = null;
+      console.error('[MongoDB] Centralized MongoClient recovery failed:', err?.message || err);
+      throw err;
+    } finally {
+      reconnectPromise = null;
+    }
+  })();
+
+  return reconnectPromise;
+}
+
+export async function resetMongoClient(reason?: any): Promise<MongoClient> {
+  return recoverMongoClient(reason);
+}
+
 export async function getMongoDb(): Promise<Db> {
-  if (cachedDb) {
+  if (cachedDb && cachedClient && !reconnectPromise) {
     return cachedDb;
   }
   const client = await getMongoClient();

@@ -412,34 +412,29 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     target.url = effectiveUrl;
 
     let sourceError = '';
-    let dbSuccess = false;
-    let dbAttempts = 0;
-    const maxDbAttempts = 3;
 
-    while (!dbSuccess && dbAttempts < maxDbAttempts) {
-      dbAttempts++;
+    try {
+      const sourceRunStart = new Date().toISOString();
+      await withMongoRetry(() => ScraperRepository.updateSourceStats(target.id, {
+        lastStartedAt: sourceRunStart,
+        lastRunId: runId
+      }));
+
+      let sourceFound = 0;
+      let sourceNew = 0;
+      let sourceDup = 0;
+      let sourcePagesAttempted = 0;
+      let sourcePagesSuccessful = 0;
+      let sourceFailed = false;
+      sourceError = '';
+
+      const sourceAbortController = new AbortController();
+      const SOURCE_TIMEOUT_MS = 45000;
+      const sourceTimeoutId = setTimeout(() => {
+        sourceAbortController.abort('Source execution timed out after 45 seconds');
+      }, SOURCE_TIMEOUT_MS);
+
       try {
-        const sourceRunStart = new Date().toISOString();
-        await withMongoRetry(() => ScraperRepository.updateSourceStats(target.id, {
-          lastStartedAt: sourceRunStart,
-          lastRunId: runId
-        }));
-
-        let sourceFound = 0;
-        let sourceNew = 0;
-        let sourceDup = 0;
-        let sourcePagesAttempted = 0;
-        let sourcePagesSuccessful = 0;
-        let sourceFailed = false;
-        sourceError = '';
-
-        const sourceAbortController = new AbortController();
-        const SOURCE_TIMEOUT_MS = 45000;
-        const sourceTimeoutId = setTimeout(() => {
-          sourceAbortController.abort('Source execution timed out after 45 seconds');
-        }, SOURCE_TIMEOUT_MS);
-
-        try {
       // 1. Determine cutoff date
       let sinceTimestamp = options.sinceTimestamp;
       if (options.mode === 'since_last') {
@@ -856,28 +851,18 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         lastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt
       });
     }
-        dbSuccess = true;
-      } catch (err: any) {
-        if (isTransientMongoError(err)) {
-          console.error(`[Scraper Engine] Transient MongoDB error detected during run for ${target.name} (attempt ${dbAttempts}/${maxDbAttempts}):`, err.message);
-          if (dbAttempts < maxDbAttempts) {
-            const delay = 5000 * dbAttempts;
-            console.log(`[Scraper Engine] Pausing scraper run for ${delay}ms to allow MongoDB to recover, then retrying source ${target.name}...`);
-            await new Promise(r => setTimeout(r, delay));
-            continue;
-          } else {
-            console.error(`[Scraper Engine] Permanent MongoDB failure. Safely pausing/stopping the run.`);
-            activeRunState.status = 'Paused';
-            activeRunState.isPaused = true;
-            activeRunState.remainingTargets = targets.slice(tIdx);
-            activeRunState.remainingSourcesCount = targets.length - tIdx;
-            activeRunState.lastUpdatedTime = new Date().toISOString();
-            activeRunState.currentError = `MongoDB unavailable: ${err.message}`;
-            throw new Error(`MongoDB connection permanently failed during scraper run: ${err.message}`);
-          }
-        } else {
-          throw err;
-        }
+    } catch (err: any) {
+      if (isTransientMongoError(err)) {
+        console.error(`[Scraper Engine] MongoDB transient error persisted after retry limits for source ${target.name}. Safely pausing the run.`);
+        activeRunState.status = 'Paused';
+        activeRunState.isPaused = true;
+        activeRunState.remainingTargets = targets.slice(tIdx);
+        activeRunState.remainingSourcesCount = targets.length - tIdx;
+        activeRunState.lastUpdatedTime = new Date().toISOString();
+        activeRunState.currentError = `MongoDB unavailable: ${err.message}`;
+        break; // Stop running further sources, exit the targets for-loop
+      } else {
+        throw err;
       }
     }
 

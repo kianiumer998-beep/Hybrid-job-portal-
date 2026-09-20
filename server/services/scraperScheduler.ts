@@ -280,7 +280,17 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         }
 
         // Refresh/extend distributed lock before executing each source
-        await ScraperRepository.acquireDistributedLock(LOCK_KEY, batchRunId, LOCK_TTL_MS);
+        const lockHeld = await ScraperRepository.acquireDistributedLock(LOCK_KEY, batchRunId, LOCK_TTL_MS);
+        if (!lockHeld) {
+          console.warn(`[Scheduler Engine] Batch ${batchRunId} lost distributed lock ownership before source "${src.name}". Halting batch.`);
+          if (batchState.batchRunId === batchRunId) {
+            batchState.batchStatus = 'Stopped';
+            batchState.batchCurrentSourceId = null;
+            batchState.batchCurrentSourceName = null;
+            batchState.batchLastUpdatedAt = new Date().toISOString();
+          }
+          break;
+        }
 
         if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
           batchState.batchCurrentIndex = i + 1;

@@ -565,14 +565,6 @@ export class ScraperRepository {
         const db = await getMongoDb();
         const coll = db.collection('scraper_locks');
 
-        const existing = await coll.findOne({ id: lockKey });
-        if (existing) {
-          const existingExpiresAt = new Date(existing.expiresAt || 0).getTime();
-          if (existing.ownerId !== ownerId && existingExpiresAt > now.getTime()) {
-            return false;
-          }
-        }
-
         const res = await coll.updateOne(
           {
             id: lockKey,
@@ -593,7 +585,7 @@ export class ScraperRepository {
           { upsert: true }
         );
 
-        return res.modifiedCount > 0 || res.upsertedCount > 0;
+        return res.matchedCount > 0 || res.upsertedCount > 0;
       } catch (err: any) {
         if (err.code === 11000) {
           return false;

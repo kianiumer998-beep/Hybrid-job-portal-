@@ -337,13 +337,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return INITIAL_BROADCAST_CAMPAIGNS;
   });
 
-  const [commConfig, setCommConfig] = useState<CommunicationProviderConfig>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_comm_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_COMM_CONFIG;
-  });
+  const [commConfig, setCommConfig] = useState<CommunicationProviderConfig>(INITIAL_COMM_CONFIG);
 
   const [kycRequests, setKycRequests] = useState<EmployerKycRequest[]>(() => {
     try {
@@ -392,12 +386,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     try {
-      localStorage.setItem('career_pak_comm_config', JSON.stringify(commConfig));
-    } catch (e) {}
-  }, [commConfig]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem('career_pak_kyc_requests', JSON.stringify(kycRequests));
     } catch (e) {}
   }, [kycRequests]);
@@ -405,10 +393,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // WhatsApp Support Configuration State
   const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
     if (whatsAppSupportConfig) return { ...DEFAULT_WHATSAPP_CONFIG, ...whatsAppSupportConfig };
-    try {
-      const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return { ...DEFAULT_WHATSAPP_CONFIG, ...JSON.parse(saved) };
-    } catch (e) {}
     return DEFAULT_WHATSAPP_CONFIG;
   });
 
@@ -440,9 +424,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (onUpdateWhatsAppConfig) {
       onUpdateWhatsAppConfig(newCfg);
     }
-    try {
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(newCfg));
-    } catch (e) {}
   };
 
   const handleApproveTx = (txId: string, note?: string) => {

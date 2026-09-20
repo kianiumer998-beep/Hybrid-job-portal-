@@ -92,10 +92,10 @@ export const DEFAULT_CAMPAIGN_CONFIG = {
 
 export const DEFAULT_WHATSAPP_CONFIG = {
   enabled: true,
-  phoneNumber: '923001234567',
-  defaultMessage: 'Hello! I need assistance regarding job applications and career alerts on HybridJobs.pk.',
-  agentName: 'Ayesha (Career Advisor)',
-  supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
+  phoneNumber: '',
+  defaultMessage: 'Hello! I need assistance regarding job applications and career alerts.',
+  agentName: 'Support Team',
+  supportHoursText: 'Online • 9:00 AM - 9:00 PM',
   position: 'bottom-right',
   ctaText: 'Start WhatsApp Chat',
   bubblePromptText: 'Need help applying for remote jobs, hiring candidates, or setting WhatsApp alerts? Chat directly with our team!',
@@ -175,8 +175,10 @@ export class SettingsRepository {
         if (doc && doc.value) {
           return { ...DEFAULT_LANDING_CONFIG, ...doc.value };
         }
+        return DEFAULT_LANDING_CONFIG;
       } catch (err: any) {
         console.error('[SettingsRepo] Error reading landing config from MongoDB:', err.message);
+        return DEFAULT_LANDING_CONFIG;
       }
     }
     return safeReadJson('landing_config.json', DEFAULT_LANDING_CONFIG);
@@ -185,9 +187,6 @@ export class SettingsRepository {
   static async saveLandingConfig(config: any): Promise<any> {
     const merged = { ...DEFAULT_LANDING_CONFIG, ...config, updatedAt: new Date().toISOString() };
     
-    // Save to disk JSON fallback
-    safeWriteJson('landing_config.json', merged);
-
     if (isMongoConfigured()) {
       try {
         const coll = await getSettingsCollection();
@@ -199,6 +198,8 @@ export class SettingsRepository {
       } catch (err: any) {
         console.error('[SettingsRepo] Error saving landing config to MongoDB:', err.message);
       }
+    } else {
+      safeWriteJson('landing_config.json', merged);
     }
     return merged;
   }
@@ -212,8 +213,10 @@ export class SettingsRepository {
         if (doc && doc.value) {
           return { ...DEFAULT_CAMPAIGN_CONFIG, ...doc.value };
         }
+        return DEFAULT_CAMPAIGN_CONFIG;
       } catch (err: any) {
         console.error('[SettingsRepo] Error reading campaign config from MongoDB:', err.message);
+        return DEFAULT_CAMPAIGN_CONFIG;
       }
     }
     return safeReadJson('campaign_config.json', DEFAULT_CAMPAIGN_CONFIG);
@@ -222,9 +225,6 @@ export class SettingsRepository {
   static async saveCampaignConfig(config: any): Promise<any> {
     const merged = { ...DEFAULT_CAMPAIGN_CONFIG, ...config, updatedAt: new Date().toISOString() };
     
-    // Save to disk JSON fallback
-    safeWriteJson('campaign_config.json', merged);
-
     if (isMongoConfigured()) {
       try {
         const coll = await getSettingsCollection();
@@ -236,6 +236,8 @@ export class SettingsRepository {
       } catch (err: any) {
         console.error('[SettingsRepo] Error saving campaign config to MongoDB:', err.message);
       }
+    } else {
+      safeWriteJson('campaign_config.json', merged);
     }
     return merged;
   }
@@ -249,8 +251,10 @@ export class SettingsRepository {
         if (doc && doc.value) {
           return { ...DEFAULT_WHATSAPP_CONFIG, ...doc.value };
         }
+        return DEFAULT_WHATSAPP_CONFIG;
       } catch (err: any) {
         console.error('[SettingsRepo] Error reading WhatsApp config from MongoDB:', err.message);
+        return DEFAULT_WHATSAPP_CONFIG;
       }
     }
     return safeReadJson('whatsapp_config.json', DEFAULT_WHATSAPP_CONFIG);
@@ -259,9 +263,6 @@ export class SettingsRepository {
   static async saveWhatsAppConfig(config: any): Promise<any> {
     const merged = { ...DEFAULT_WHATSAPP_CONFIG, ...config, updatedAt: new Date().toISOString() };
     
-    // Save to disk JSON fallback
-    safeWriteJson('whatsapp_config.json', merged);
-
     if (isMongoConfigured()) {
       try {
         const coll = await getSettingsCollection();
@@ -273,6 +274,8 @@ export class SettingsRepository {
       } catch (err: any) {
         console.error('[SettingsRepo] Error saving WhatsApp config to MongoDB:', err.message);
       }
+    } else {
+      safeWriteJson('whatsapp_config.json', merged);
     }
     return merged;
   }
@@ -286,8 +289,10 @@ export class SettingsRepository {
         if (doc && doc.value) {
           return { ...DEFAULT_SEO_BRANDING_CONFIG, ...doc.value };
         }
+        return DEFAULT_SEO_BRANDING_CONFIG;
       } catch (err: any) {
         console.error('[SettingsRepo] Error reading SEO config from MongoDB:', err.message);
+        return DEFAULT_SEO_BRANDING_CONFIG;
       }
     }
     return safeReadJson('seo_branding_config.json', DEFAULT_SEO_BRANDING_CONFIG);
@@ -296,8 +301,6 @@ export class SettingsRepository {
   static async saveSeoConfig(config: any): Promise<any> {
     const merged = { ...DEFAULT_SEO_BRANDING_CONFIG, ...config, updatedAt: new Date().toISOString() };
     
-    safeWriteJson('seo_branding_config.json', merged);
-
     if (isMongoConfigured()) {
       try {
         const coll = await getSettingsCollection();
@@ -309,6 +312,8 @@ export class SettingsRepository {
       } catch (err: any) {
         console.error('[SettingsRepo] Error saving SEO config to MongoDB:', err.message);
       }
+    } else {
+      safeWriteJson('seo_branding_config.json', merged);
     }
     return merged;
   }

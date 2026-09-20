@@ -89,19 +89,7 @@ export default function App() {
   });
 
   // Dynamic Landing Page Builder Configuration State
-  const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(() => {
-    try {
-      const saved = localStorage.getItem('hybrid_landing_page_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return DEFAULT_LANDING_PAGE_CONFIG;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('hybrid_landing_page_config', JSON.stringify(landingConfig));
-    } catch (e) {}
-  }, [landingConfig]);
+  const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(DEFAULT_LANDING_PAGE_CONFIG);
 
   // Global SEO & Announcement State (Synchronized with Admin Suite)
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(INITIAL_SITE_SEO_CONFIG);
@@ -133,61 +121,7 @@ export default function App() {
   }, [pricingConfig]);
 
   // Campaign Customization & Portal Page Scheduling State
-  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(() => {
-    const saved = localStorage.getItem('hybrid_campaign_customization_config');
-    if (!saved) return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
-    try {
-      const parsed = JSON.parse(saved);
-      return {
-        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
-        ...parsed,
-        placementOptions: Array.isArray(parsed.placementOptions) && parsed.placementOptions.length > 0
-          ? parsed.placementOptions
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
-        portalPages: Array.isArray(parsed.portalPages) && parsed.portalPages.length > 0
-          ? parsed.portalPages
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
-        durationPresets: Array.isArray(parsed.durationPresets) && parsed.durationPresets.length > 0
-          ? parsed.durationPresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
-        badgePresets: Array.isArray(parsed.badgePresets) && parsed.badgePresets.length > 0
-          ? parsed.badgePresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.badgePresets,
-        ctaPresets: Array.isArray(parsed.ctaPresets) && parsed.ctaPresets.length > 0
-          ? parsed.ctaPresets
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.ctaPresets,
-        promoBanners: Array.isArray(parsed.promoBanners) && parsed.promoBanners.length > 0
-          ? parsed.promoBanners
-          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
-        popupSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
-          ...(parsed.popupSettings || {})
-        },
-        feedInlineSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
-          ...(parsed.feedInlineSettings || {})
-        },
-        formRules: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.formRules,
-          ...(parsed.formRules || {})
-        },
-        jobPostingFeeSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings,
-          ...(parsed.jobPostingFeeSettings || {})
-        },
-        jobFeedSettings: {
-          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobFeedSettings,
-          ...(parsed.jobFeedSettings || {})
-        }
-      };
-    } catch {
-      return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(campaignConfig));
-  }, [campaignConfig]);
+  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
@@ -441,19 +375,7 @@ export default function App() {
   });
 
   // Persistent WhatsApp Support Configuration State
-  const [whatsAppSupportConfig, setWhatsAppSupportConfig] = useState<WhatsAppSupportConfig>(() => {
-    try {
-      const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return { ...DEFAULT_WHATSAPP_CONFIG, ...JSON.parse(saved) };
-    } catch (e) {}
-    return DEFAULT_WHATSAPP_CONFIG;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(whatsAppSupportConfig));
-    } catch (e) {}
-  }, [whatsAppSupportConfig]);
+  const [whatsAppSupportConfig, setWhatsAppSupportConfig] = useState<WhatsAppSupportConfig>(DEFAULT_WHATSAPP_CONFIG);
 
   // Payment Verification Transactions State
   const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransaction[]>(() => {
@@ -790,11 +712,10 @@ export default function App() {
     }
   };
 
-  // MongoDB-backed Settings Updaters with localStorage fallback
+  // MongoDB-backed Settings Updaters
   const handleUpdateLandingConfig = async (newConfig: LandingPageConfig) => {
     setLandingConfig(newConfig);
     try {
-      localStorage.setItem('hybrid_landing_page_config', JSON.stringify(newConfig));
       await api.settings.updateLanding(newConfig);
     } catch (e) {
       console.error('[App] Failed to sync landing config to MongoDB:', e);
@@ -815,7 +736,6 @@ export default function App() {
       }
     }
     try {
-      localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(newConfig));
       await api.settings.updateCampaigns(newConfig);
     } catch (e) {
       console.error('[App] Failed to sync campaign config to MongoDB:', e);
@@ -825,7 +745,6 @@ export default function App() {
   const handleUpdateWhatsAppConfig = async (newConfig: WhatsAppSupportConfig) => {
     setWhatsAppSupportConfig(newConfig);
     try {
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(newConfig));
       await api.settings.updateWhatsApp(newConfig);
     } catch (e) {
       console.error('[App] Failed to sync WhatsApp config to MongoDB:', e);

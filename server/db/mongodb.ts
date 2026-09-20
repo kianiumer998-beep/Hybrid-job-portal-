@@ -5,7 +5,6 @@ let cachedDb: Db | null = null;
 let clientPromise: Promise<MongoClient> | null = null;
 let reconnectPromise: Promise<MongoClient> | null = null;
 let lastReconnectTimestamp = 0;
-const RECONNECT_THROTTLE_MS = 2000;
 
 export function isTransientMongoError(err: any): boolean {
   if (!err) return false;
@@ -15,6 +14,7 @@ export function isTransientMongoError(err: any): boolean {
   const causeMsg = err.cause ? String(err.cause.message || err.cause.name || err.cause || '').toLowerCase() : '';
 
   return (
+    errName.includes('mongoclientclosederror') ||
     errName.includes('mongonetworktimeouterror') ||
     errName.includes('mongoserverselectionerror') ||
     errName.includes('mongonetworkerror') ||
@@ -30,6 +30,9 @@ export function isTransientMongoError(err: any): boolean {
     errCode.includes('econnrefused') ||
     errCode.includes('etimedout') ||
     errCode.includes('epipe') ||
+    errMsg.includes('mongoclientclosederror') ||
+    errMsg.includes('operation interrupted because client was closed') ||
+    errMsg.includes('client was closed') ||
     errMsg.includes('poolclearedonnetworkerror') ||
     errMsg.includes('pool cleared') ||
     errMsg.includes('connection pool') ||
@@ -51,6 +54,8 @@ export function isTransientMongoError(err: any): boolean {
     errMsg.includes('topology was destroyed') ||
     errMsg.includes('topology is closed') ||
     errMsg.includes('client must be connected') ||
+    causeMsg.includes('mongoclientclosederror') ||
+    causeMsg.includes('client was closed') ||
     causeMsg.includes('poolclearedonnetworkerror') ||
     causeMsg.includes('pool cleared') ||
     causeMsg.includes('mongonetworktimeouterror') ||
@@ -86,10 +91,13 @@ async function createFreshMongoClient(): Promise<MongoClient> {
   });
 
   const connectedClient = await client.connect();
+  const db = connectedClient.db();
+  await db.command({ ping: 1 });
+  await initMongoIndexes(db);
+
   cachedClient = connectedClient;
-  cachedDb = connectedClient.db();
+  cachedDb = db;
   console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
-  await initMongoIndexes(cachedDb);
   return connectedClient;
 }
 
@@ -117,34 +125,38 @@ export async function getMongoClient(): Promise<MongoClient> {
 
 /**
  * Safe, centralized recovery mechanism for MongoClient on genuine network/pool failures.
- * Invalidates broken cached client/promise, closes previous connection, and reconnects cleanly.
- * Deduplicates concurrent recovery calls to prevent multiple simultaneous MongoClient instances.
+ * Atomically detaches broken cached client/db and establishes a fresh connection.
+ * Concurrent recovery calls share ONE in-flight recovery promise.
+ * NEVER force-closes old client with close(true) so active checked-out connections are not interrupted.
  */
 export async function recoverMongoClient(reason?: any): Promise<MongoClient> {
   if (reconnectPromise) {
     return reconnectPromise;
   }
 
-  const now = Date.now();
-  if (cachedClient && (now - lastReconnectTimestamp < RECONNECT_THROTTLE_MS)) {
-    return cachedClient;
-  }
-
   const reasonMsg = reason?.message || String(reason || 'transient network/pool failure');
   console.warn(`[MongoDB] Centralized MongoClient recovery initiated. Reason: ${reasonMsg}`);
 
+  // Atomically detach broken client, cached db, and connection promise
   const oldClient = cachedClient;
   cachedClient = null;
   cachedDb = null;
   clientPromise = null;
 
+  // Safe deferred cleanup: NEVER force-close with close(true) which interrupts active operations.
+  // Allow checked-out connections to complete naturally, then close gracefully.
   if (oldClient) {
-    try {
-      oldClient.close(true).catch((closeErr: any) => {
-        console.warn('[MongoDB] Notice closing previous client during recovery:', closeErr?.message || closeErr);
-      });
-    } catch {
-      // Ignore synchronous close errors
+    const timer = setTimeout(() => {
+      try {
+        oldClient.close(false).catch((closeErr: any) => {
+          console.warn('[MongoDB] Notice closing previous client during deferred cleanup:', closeErr?.message || closeErr);
+        });
+      } catch {
+        // Ignore synchronous close errors
+      }
+    }, 15000);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
     }
   }
 

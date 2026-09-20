@@ -18,6 +18,7 @@ export async function withMongoRetry<T>(
 ): Promise<T> {
   let attempt = 0;
   while (true) {
+    const opStartedAt = Date.now();
     try {
       return await fn();
     } catch (err: any) {
@@ -27,7 +28,7 @@ export async function withMongoRetry<T>(
         console.warn(`[Mongo Retry] Transient database error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Recovering MongoClient connection and retrying in ${delay}ms...`);
         
         try {
-          await recoverMongoClient(err);
+          await recoverMongoClient(err, opStartedAt);
         } catch (recoverErr: any) {
           console.warn(`[Mongo Retry] MongoClient recovery attempt failed: ${recoverErr?.message || recoverErr}`);
         }

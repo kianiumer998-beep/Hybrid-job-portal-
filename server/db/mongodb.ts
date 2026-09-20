@@ -4,7 +4,9 @@ let cachedClient: MongoClient | null = null;
 let cachedDb: Db | null = null;
 let clientPromise: Promise<MongoClient> | null = null;
 let reconnectPromise: Promise<MongoClient> | null = null;
-let lastReconnectTimestamp = 0;
+let lastRecoveryCompletedAt = 0;
+let recoveryGeneration = 0;
+const RECOVERY_COOLDOWN_MS = 2500;
 
 export function isTransientMongoError(err: any): boolean {
   if (!err) return false;
@@ -127,51 +129,60 @@ export async function getMongoClient(): Promise<MongoClient> {
  * Safe, centralized recovery mechanism for MongoClient on genuine network/pool failures.
  * Atomically detaches broken cached client/db and establishes a fresh connection.
  * Concurrent recovery calls share ONE in-flight recovery promise.
- * NEVER force-closes old client with close(true) so active checked-out connections are not interrupted.
+ *
+ * CRITICAL FIXES:
+ * 1. ZERO close() calls on retired clients: Active checked-out connections finish/fail naturally;
+ *    no setTimeout close timer exists to prevent MongoClientClosedError.
+ * 2. Recovery storm coordination: Concurrent callers from the same failure wave reuse the newly
+ *    verified client rather than triggering duplicate consecutive recovery cycles.
  */
-export async function recoverMongoClient(reason?: any): Promise<MongoClient> {
+export async function recoverMongoClient(reason?: any, opStartedAt?: number): Promise<MongoClient> {
+  // 1. If recovery is already in progress, every caller MUST await the same recovery promise
   if (reconnectPromise) {
     return reconnectPromise;
   }
 
-  const reasonMsg = reason?.message || String(reason || 'transient network/pool failure');
-  console.warn(`[MongoDB] Centralized MongoClient recovery initiated. Reason: ${reasonMsg}`);
+  // 2. Prevent recovery storm: If a fresh recovery recently established a verified client,
+  // callers from the same failure wave reuse that verified client instead of restarting recovery.
+  const now = Date.now();
+  const isFromPreviousWave = typeof opStartedAt === 'number' && opStartedAt <= lastRecoveryCompletedAt;
+  const isWithinCooldown = (now - lastRecoveryCompletedAt) < RECOVERY_COOLDOWN_MS;
 
-  // Atomically detach broken client, cached db, and connection promise
-  const oldClient = cachedClient;
+  if (cachedClient && cachedDb && (isFromPreviousWave || isWithinCooldown)) {
+    console.log(
+      `[MongoDB] Reusing verified MongoClient (gen ${recoveryGeneration}, verified ${now - lastRecoveryCompletedAt}ms ago) for concurrent failure wave.`
+    );
+    return cachedClient;
+  }
+
+  const reasonMsg = reason?.message || String(reason || 'transient network/pool failure');
+  const targetGen = recoveryGeneration + 1;
+  console.warn(`[MongoDB] Centralized MongoClient recovery initiated (generation ${targetGen}). Reason: ${reasonMsg}`);
+
+  // Step 1: Atomically detach broken client, cached db, and connection promise
   cachedClient = null;
   cachedDb = null;
   clientPromise = null;
 
-  // Safe deferred cleanup: NEVER force-close with close(true) which interrupts active operations.
-  // Allow checked-out connections to complete naturally, then close gracefully.
-  if (oldClient) {
-    const timer = setTimeout(() => {
-      try {
-        oldClient.close(false).catch((closeErr: any) => {
-          console.warn('[MongoDB] Notice closing previous client during deferred cleanup:', closeErr?.message || closeErr);
-        });
-      } catch {
-        // Ignore synchronous close errors
-      }
-    }, 15000);
-    if (typeof timer.unref === 'function') {
-      timer.unref();
-    }
-  }
+  // Step 4: Retired client is left untouched to finish/fail in-flight queries naturally.
+  // NO close(true), NO close(false), NO delayed timer.
 
   reconnectPromise = (async () => {
     try {
+      // Step 2: Create and fully verify the new MongoClient (connect, ping, init indexes)
       const connectedClient = await createFreshMongoClient();
+
+      // Step 3: Publish the new verified client/db as active
       clientPromise = Promise.resolve(connectedClient);
-      lastReconnectTimestamp = Date.now();
-      console.log(`[MongoDB] Centralized MongoClient recovery succeeded. Database: "${cachedDb?.databaseName || 'default'}"`);
+      lastRecoveryCompletedAt = Date.now();
+      recoveryGeneration = targetGen;
+      console.log(`[MongoDB] Centralized MongoClient recovery succeeded (generation ${recoveryGeneration}). Database: "${cachedDb?.databaseName || 'default'}"`);
       return connectedClient;
     } catch (err: any) {
       cachedClient = null;
       cachedDb = null;
       clientPromise = null;
-      console.error('[MongoDB] Centralized MongoClient recovery failed:', err?.message || err);
+      console.error(`[MongoDB] Centralized MongoClient recovery failed (generation ${targetGen}):`, err?.message || err);
       throw err;
     } finally {
       reconnectPromise = null;

@@ -334,8 +334,44 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   }
 
   try {
-    const existingLiveJobs = (await withMongoRetry(() => JobRepository.getAll({ limit: 2000 }))).jobs;
-    const existingPendingJobs = await withMongoRetry(() => JobRepository.getPending());
+    let existingLiveJobs: any[] = [];
+    let existingPendingJobs: any[] = [];
+    try {
+      existingLiveJobs = (await withMongoRetry(() => JobRepository.getAll({ limit: 2000 }))).jobs;
+      existingPendingJobs = await withMongoRetry(() => JobRepository.getPending());
+    } catch (initMongoErr: any) {
+      if (isTransientMongoError(initMongoErr)) {
+        console.error(`[Scraper Engine] MongoDB transient error persisted during initial job load for run ${runId}. Safely pausing the run.`);
+        activeRunState.status = 'Paused';
+        activeRunState.isPaused = true;
+        activeRunState.remainingTargets = [...targets];
+        activeRunState.remainingSourcesCount = targets.length;
+        activeRunState.currentError = `MongoDB unavailable: ${initMongoErr.message || initMongoErr}`;
+        activeRunState.lastUpdatedTime = new Date().toISOString();
+        return {
+          runId,
+          status: 'Paused',
+          isPaused: true,
+          startTime: startTime.toISOString(),
+          endTime: new Date().toISOString(),
+          totalFound: 0,
+          totalNew: 0,
+          totalDuplicates: 0,
+          totalFailedSources: 0,
+          pagesAttempted: 0,
+          pagesSuccessful: 0,
+          jobsAccepted: 0,
+          jobsRejected: 0,
+          publishedJobs: [],
+          pendingJobs: [],
+          duplicateJobs: [],
+          sourcesStats: [],
+          executionDurationMs: Date.now() - startTime.getTime(),
+          message: `Scrape run paused due to temporary MongoDB outage. ${targets.length} source(s) preserved for resumption.`
+        };
+      }
+      throw initMongoErr;
+    }
     const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
     const duplicateIndex = new DuplicateIndex(combinedExisting);
 
@@ -960,8 +996,40 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       : `Scrape run completed across ${sourcesStats.length} sources. Extracted ${totalDiscoveredJobs} verified vacancies.`
   };
 } catch (runErr: any) {
+  if (isTransientMongoError(runErr) || activeRunState.status === 'Paused') {
+    console.warn(`[Scraper Engine] MongoDB transient outage reached run boundary for ${runId}. Safely maintaining Paused status.`);
+    activeRunState.status = 'Paused';
+    activeRunState.isPaused = true;
+    if (!activeRunState.remainingTargets || activeRunState.remainingTargets.length === 0) {
+      activeRunState.remainingTargets = [...targets];
+      activeRunState.remainingSourcesCount = targets.length;
+    }
+    activeRunState.currentError = `MongoDB unavailable: ${runErr?.message || runErr}`;
+    activeRunState.lastUpdatedTime = new Date().toISOString();
+    return {
+      runId,
+      status: 'Paused',
+      isPaused: true,
+      startTime: startTime.toISOString(),
+      endTime: new Date().toISOString(),
+      totalFound: 0,
+      totalNew: 0,
+      totalDuplicates: 0,
+      totalFailedSources: 0,
+      pagesAttempted: 0,
+      pagesSuccessful: 0,
+      jobsAccepted: 0,
+      jobsRejected: 0,
+      publishedJobs: [],
+      pendingJobs: [],
+      duplicateJobs: [],
+      sourcesStats: [],
+      executionDurationMs: Date.now() - startTime.getTime(),
+      message: `Scrape run paused due to temporary MongoDB outage. ${activeRunState.remainingSourcesCount || targets.length} source(s) preserved for resumption.`
+    };
+  }
   console.error(`[Scraper Engine] Fatal run error in ${runId}:`, runErr);
-  if (activeRunState.status !== 'Paused' && activeRunState.status !== 'Stopped') {
+  if (activeRunState.status !== 'Stopped') {
     activeRunState.status = 'Stopped';
     activeRunState.isStopped = true;
   }

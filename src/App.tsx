@@ -20,6 +20,7 @@ import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
 
 import { TopBannerAd } from './components/ads/TopBannerAd';
+import { TopPageNotificationBanner } from './components/notifications/TopPageNotificationBanner';
 import { PopupAdModal } from './components/ads/PopupAdModal';
 import { ToastNotificationAd } from './components/ads/ToastNotificationAd';
 import { AdNotificationDrawer } from './components/ads/AdNotificationDrawer';
@@ -631,6 +632,15 @@ export default function App() {
         }));
       }
     }).catch(() => {});
+
+    api.settings.getSeo().then(res => {
+      if (res?.success && res.config) {
+        setSiteSeoConfig(prev => ({
+          ...prev,
+          ...res.config
+        }));
+      }
+    }).catch(() => {});
   }, [loadBackendJobs]);
 
   // Validate existing admin authentication / session on app startup & restore admin view if valid
@@ -828,6 +838,16 @@ export default function App() {
       await api.settings.updateWhatsApp(newConfig);
     } catch (e) {
       console.error('[App] Failed to sync WhatsApp config to MongoDB:', e);
+    }
+  };
+
+  const handleUpdateSeoConfig = async (newConfig: SiteSeoConfig) => {
+    setSiteSeoConfig(newConfig);
+    try {
+      localStorage.setItem('career_pak_seo_config', JSON.stringify(newConfig));
+      await api.settings.updateSeo(newConfig);
+    } catch (e) {
+      console.error('[App] Failed to sync SEO config to MongoDB:', e);
     }
   };
 
@@ -1988,6 +2008,13 @@ export default function App() {
         </div>
       )}
 
+      {/* Top Header Page Notification Banner (when channels.pageBanner === true) */}
+      <TopPageNotificationBanner
+        notifications={userNotifications}
+        onDismiss={handleMarkNotificationRead}
+        onNavigateTab={setActiveTab}
+      />
+
       {/* Top Header Sticky Announcement / Banner Ad */}
       <TopBannerAd
         ads={advertisements}
@@ -2096,6 +2123,8 @@ export default function App() {
             onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
             onUpdateWhatsAppConfig={handleUpdateWhatsAppConfig}
+            siteSeoConfig={siteSeoConfig}
+            onUpdateSeoConfig={handleUpdateSeoConfig}
             campaignConfig={campaignConfig}
             onUpdateCampaignConfig={handleUpdateCampaignConfig}
             paymentTransactions={paymentTransactions}

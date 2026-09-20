@@ -928,6 +928,28 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(config)
       });
+    },
+    async getSeo() {
+      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/seo`);
+    },
+    async updateSeo(config: any) {
+      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/seo`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(config)
+      });
+    },
+    async getCommunication() {
+      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/communication`, {
+        headers: getAuthHeader()
+      });
+    },
+    async updateCommunication(config: any) {
+      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/communication`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(config)
+      });
     }
   },
 

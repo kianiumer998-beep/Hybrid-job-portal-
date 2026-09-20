@@ -200,6 +200,8 @@ interface AdminDashboardProps {
   onUpdateLandingConfig?: (config: LandingPageConfig) => void;
   whatsAppSupportConfig?: WhatsAppSupportConfig;
   onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => void;
+  siteSeoConfig?: SiteSeoConfig;
+  onUpdateSeoConfig?: (config: SiteSeoConfig) => void;
   paymentTransactions?: PaymentTransaction[];
   onApprovePaymentTransaction?: (transactionId: string, note?: string) => void;
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => void;
@@ -269,6 +271,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateLandingConfig,
   whatsAppSupportConfig,
   onUpdateWhatsAppConfig,
+  siteSeoConfig: propSiteSeoConfig,
+  onUpdateSeoConfig,
   paymentTransactions,
   onApprovePaymentTransaction,
   onRejectPaymentTransaction
@@ -355,11 +359,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return INITIAL_KYC_REQUESTS;
   });
 
+  const effectiveSeoConfig = propSiteSeoConfig || siteSeoConfig;
+
+  const handleUpdateSeoConfig = (newCfg: SiteSeoConfig) => {
+    setSiteSeoConfig(newCfg);
+    if (onUpdateSeoConfig) {
+      onUpdateSeoConfig(newCfg);
+    } else {
+      api.settings.updateSeo(newCfg).catch(err => console.error('[AdminDashboard] Failed to save SEO config:', err));
+    }
+  };
+
+  // Load backend Communication provider credentials on mount
   useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_seo_config', JSON.stringify(siteSeoConfig));
-    } catch (e) {}
-  }, [siteSeoConfig]);
+    api.settings.getCommunication().then(res => {
+      if (res?.success && res.config) {
+        setCommConfig(prev => ({ ...prev, ...res.config }));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleUpdateCommConfig = (newCfg: CommunicationProviderConfig) => {
+    setCommConfig(newCfg);
+    api.settings.updateCommunication(newCfg).catch(err => console.error('[AdminDashboard] Failed to save Comm config:', err));
+  };
 
   useEffect(() => {
     try {
@@ -2530,8 +2553,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: GLOBAL SEO, METADATA & ANNOUNCEMENT ENGINE */}
       {adminTab === 'seo-config' && (
         <AdminSeoSettings
-          seoConfig={siteSeoConfig}
-          onUpdateSeoConfig={setSiteSeoConfig}
+          seoConfig={effectiveSeoConfig}
+          onUpdateSeoConfig={handleUpdateSeoConfig}
         />
       )}
 
@@ -2551,7 +2574,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           subscribers={subscribers}
           commConfig={commConfig}
           onSendCampaign={(newCamp) => setBroadcastCampaigns(prev => [newCamp, ...prev])}
-          onUpdateCommConfig={setCommConfig}
+          onUpdateCommConfig={handleUpdateCommConfig}
         />
       )}
 

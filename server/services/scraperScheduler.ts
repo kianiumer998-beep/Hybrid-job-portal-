@@ -165,6 +165,8 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
     return { triggeredSources: [], summary: 'Scheduler tick deferred (batch run in progress)' };
   }
 
+  let isResumingFromPause = false;
+
   if (batchState.batchStatus === 'Paused') {
     const cooldownRemainingMs = mongoPauseBackoffUntil - Date.now();
     if (cooldownRemainingMs > 0) {
@@ -187,9 +189,13 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
     }
 
     console.log('[Scheduler Engine] MongoDB connection restored. Resuming scheduler batch processing.');
-    batchState.batchStatus = 'Idle';
-    batchState.batchPauseReason = null;
-    batchState.batchLastUpdatedAt = new Date().toISOString();
+    if (batchState.batchRemainingSources && batchState.batchRemainingSources.length > 0 && batchState.batchRunId) {
+      isResumingFromPause = true;
+    } else {
+      batchState.batchStatus = 'Idle';
+      batchState.batchPauseReason = null;
+      batchState.batchLastUpdatedAt = new Date().toISOString();
+    }
   }
 
   isTickExecuting = true;
@@ -233,62 +239,105 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       }
       throw cfgErr;
     }
-    const now = Date.now();
-    const dueSources: typeof sources = [];
-    const updatedSources = [...sources];
-    let initialConfigUpdates = false;
 
-    for (let i = 0; i < updatedSources.length; i++) {
-      const src = updatedSources[i];
-      const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
-      if (!isActive) continue;
-
-      const intervalMs = parseIntervalToMs(src.interval);
-      let nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
-
-      // Initialize nextRunAt if not set
-      if (!nextRunMs || isNaN(nextRunMs)) {
-        nextRunMs = now + intervalMs;
-        updatedSources[i] = {
-          ...src,
-          nextRunAt: new Date(nextRunMs).toISOString()
-        };
-        initialConfigUpdates = true;
-        continue;
-      }
-
-      // Check if source is due
-      if (now >= nextRunMs) {
-        dueSources.push(src);
-      }
-    }
-
-    if (initialConfigUpdates) {
-      await ScraperRepository.saveConfigs(updatedSources);
-    }
-
-    if (dueSources.length === 0) {
-      return {
-        triggeredSources: [],
-        summary: 'Tick completed. No due sources found.'
-      };
-    }
-
-    // Create ONE Scheduler Batch for all due sources!
-    batchState.generationId++;
-    const currentGen = batchState.generationId;
-    const batchRunId = `SCHED-BATCH-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const LOCK_KEY = 'AUTO_SCRAPER_BATCH_LOCK';
     const LOCK_TTL_MS = 5 * 60 * 1000; // 5 minute TTL for batch execution
 
-    // 3. Acquire distributed lock across instances to prevent duplicate concurrent scheduler batches
-    const lockAcquired = await ScraperRepository.acquireDistributedLock(LOCK_KEY, batchRunId, LOCK_TTL_MS);
-    if (!lockAcquired) {
-      console.log(`[Scheduler Engine] Distributed scraper lock is currently held by another server instance. Skipping tick.`);
-      return { triggeredSources: [], summary: 'Scheduler tick deferred (distributed lock held by another instance)' };
-    }
+    let batchRunId: string;
+    let currentGen: number;
+    let sourcesToProcess: typeof sources;
+    const updatedSources = [...sources];
 
-    try {
+    if (isResumingFromPause) {
+      // RESUME FROM PRESERVED REMAINING SOURCES:
+      // Preserve existing batchRunId, batchTotal, completed count, and remaining source order.
+      const sourcesMap = new Map(sources.map(s => [s.id, s]));
+      sourcesToProcess = batchState.batchRemainingSources
+        .map(id => sourcesMap.get(id))
+        .filter((s): s is NonNullable<typeof s> => Boolean(s));
+
+      if (sourcesToProcess.length === 0) {
+        batchState.batchStatus = 'Completed';
+        batchState.batchPauseReason = null;
+        batchState.batchRemainingSources = [];
+        batchState.batchCurrentSourceId = null;
+        batchState.batchCurrentSourceName = null;
+        batchState.batchLastUpdatedAt = new Date().toISOString();
+        return {
+          triggeredSources: [],
+          summary: 'Paused scheduler batch had no remaining valid sources. Marked as completed.'
+        };
+      }
+
+      batchRunId = batchState.batchRunId!;
+      currentGen = batchState.generationId;
+
+      // Re-acquire/extend distributed lock across instances
+      const lockAcquired = await ScraperRepository.acquireDistributedLock(LOCK_KEY, batchRunId, LOCK_TTL_MS);
+      if (!lockAcquired) {
+        console.log(`[Scheduler Engine] Distributed scraper lock is currently held by another server instance. Skipping tick.`);
+        return { triggeredSources: [], summary: 'Scheduler tick deferred (distributed lock held by another instance)' };
+      }
+
+      batchState.batchStatus = 'Running';
+      batchState.batchPauseReason = null;
+      batchState.batchLastUpdatedAt = new Date().toISOString();
+
+      console.log(`[Scheduler Engine] Resuming batch ${batchRunId} with ${sourcesToProcess.length} remaining sources (Total: ${batchState.batchTotal}, Completed: ${batchState.batchCompleted}).`);
+    } else {
+      // START A NEW SCHEDULER BATCH:
+      const now = Date.now();
+      const dueSources: typeof sources = [];
+      let initialConfigUpdates = false;
+
+      for (let i = 0; i < updatedSources.length; i++) {
+        const src = updatedSources[i];
+        const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
+        if (!isActive) continue;
+
+        const intervalMs = parseIntervalToMs(src.interval);
+        let nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
+
+        // Initialize nextRunAt if not set
+        if (!nextRunMs || isNaN(nextRunMs)) {
+          nextRunMs = now + intervalMs;
+          updatedSources[i] = {
+            ...src,
+            nextRunAt: new Date(nextRunMs).toISOString()
+          };
+          initialConfigUpdates = true;
+          continue;
+        }
+
+        // Check if source is due
+        if (now >= nextRunMs) {
+          dueSources.push(src);
+        }
+      }
+
+      if (initialConfigUpdates) {
+        await ScraperRepository.saveConfigs(updatedSources);
+      }
+
+      if (dueSources.length === 0) {
+        return {
+          triggeredSources: [],
+          summary: 'Tick completed. No due sources found.'
+        };
+      }
+
+      // Create ONE Scheduler Batch for all due sources!
+      batchState.generationId++;
+      currentGen = batchState.generationId;
+      batchRunId = `SCHED-BATCH-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+      // Acquire distributed lock across instances to prevent duplicate concurrent scheduler batches
+      const lockAcquired = await ScraperRepository.acquireDistributedLock(LOCK_KEY, batchRunId, LOCK_TTL_MS);
+      if (!lockAcquired) {
+        console.log(`[Scheduler Engine] Distributed scraper lock is currently held by another server instance. Skipping tick.`);
+        return { triggeredSources: [], summary: 'Scheduler tick deferred (distributed lock held by another instance)' };
+      }
+
       batchState = {
         batchRunId,
         batchStatus: 'Running',
@@ -306,18 +355,21 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         generationId: currentGen
       };
 
+      sourcesToProcess = dueSources;
       console.log(`[Scheduler Engine] Starting batch ${batchRunId} with ${dueSources.length} due sources.`);
+    }
 
+    try {
       const configsToUpdate = [...updatedSources];
       let hasBatchConfigUpdates = false;
       let isPausedForMongo = false;
 
-      for (let i = 0; i < dueSources.length; i++) {
-        const src = dueSources[i];
+      for (let i = 0; i < sourcesToProcess.length; i++) {
+        const src = sourcesToProcess[i];
 
         // CRITICAL: Check cancellation / stop / generation token before starting every next source!
         if (!isSchedulerEnabled || batchState.cancelRequested || batchState.generationId !== currentGen || batchState.batchRunId !== batchRunId) {
-          console.log(`[Scheduler Engine] Batch ${batchRunId} cancelled/stopped before source ${i + 1}/${dueSources.length} ("${src.name}"). Halting batch.`);
+          console.log(`[Scheduler Engine] Batch ${batchRunId} cancelled/stopped before source ${i + 1}/${sourcesToProcess.length} ("${src.name}"). Halting batch.`);
           if ((!isSchedulerEnabled || batchState.cancelRequested) && batchState.batchRunId === batchRunId) {
             batchState.batchStatus = 'Stopped';
             batchState.batchCurrentSourceId = null;
@@ -340,14 +392,16 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           break;
         }
 
+        const overallIndex = (batchState.batchTotal - sourcesToProcess.length) + i + 1;
         if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
-          batchState.batchCurrentIndex = i + 1;
+          batchState.batchCurrentIndex = overallIndex;
           batchState.batchCurrentSourceId = src.id;
           batchState.batchCurrentSourceName = src.name;
+          batchState.batchRemainingSources = sourcesToProcess.slice(i).map(s => s.id);
           batchState.batchLastUpdatedAt = new Date().toISOString();
         }
 
-        console.log(`[Scheduler Engine] Batch ${batchRunId} [${i + 1}/${dueSources.length}] Executing source "${src.name}" (${src.id})`);
+        console.log(`[Scheduler Engine] Batch ${batchRunId} [${overallIndex}/${batchState.batchTotal}] Executing source "${src.name}" (${src.id})`);
 
         let sourceCompleted = false;
         let wasBusy = false;
@@ -390,11 +444,10 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
             batchState.batchStatus = 'Paused';
             batchState.batchPauseReason = 'MongoDB unavailable';
-            batchState.batchCurrentIndex = i + 1;
+            batchState.batchCurrentIndex = overallIndex;
             batchState.batchCurrentSourceId = src.id;
             batchState.batchCurrentSourceName = src.name;
-            batchState.batchTotal = dueSources.length;
-            batchState.batchRemainingSources = dueSources.slice(i).map(s => s.id);
+            batchState.batchRemainingSources = sourcesToProcess.slice(i).map(s => s.id);
             batchState.batchLastUpdatedAt = new Date().toISOString();
           }
           mongoPauseBackoffUntil = Date.now() + 5 * 60 * 1000;
@@ -406,6 +459,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           if (sourceCompleted) {
             if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
               batchState.batchCompleted++;
+              batchState.batchRemainingSources = sourcesToProcess.slice(i + 1).map(s => s.id);
             }
             const completedNow = new Date();
             const intervalMs = parseIntervalToMs(src.interval);
@@ -420,7 +474,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
               hasBatchConfigUpdates = true;
             }
           }
-          console.log(`[Scheduler Engine] Batch ${batchRunId} stopped after source ${i + 1}/${dueSources.length} ("${src.name}").`);
+          console.log(`[Scheduler Engine] Batch ${batchRunId} stopped after source ${i + 1}/${sourcesToProcess.length} ("${src.name}").`);
           if ((!isSchedulerEnabled || batchState.cancelRequested) && batchState.batchRunId === batchRunId) {
             batchState.batchStatus = 'Stopped';
             batchState.batchCurrentSourceId = null;
@@ -447,6 +501,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         if (sourceCompleted) {
           if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
             batchState.batchCompleted++;
+            batchState.batchRemainingSources = sourcesToProcess.slice(i + 1).map(s => s.id);
             batchState.batchLastUpdatedAt = new Date().toISOString();
           }
           const completedNow = new Date();
@@ -475,16 +530,17 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen && batchState.batchStatus === 'Running') {
         batchState.batchStatus = 'Completed';
         batchState.batchPauseReason = null;
+        batchState.batchRemainingSources = [];
         batchState.batchCurrentSourceId = null;
         batchState.batchCurrentSourceName = null;
         batchState.batchLastUpdatedAt = new Date().toISOString();
       }
 
       return {
-        triggeredSources: dueSources.map(s => s.id),
+        triggeredSources: sourcesToProcess.map(s => s.id),
         summary: isPausedForMongo
-          ? `Scheduler batch paused due to temporary MongoDB outage after ${batchState.batchCompleted}/${dueSources.length} sources.`
-          : `Scheduler batch completed ${batchState.batchCompleted}/${dueSources.length} sources.`
+          ? `Scheduler batch paused due to temporary MongoDB outage after ${batchState.batchCompleted}/${batchState.batchTotal} sources.`
+          : `Scheduler batch completed ${batchState.batchCompleted}/${batchState.batchTotal} sources.`
       };
     } finally {
       // Always release distributed lock when batch finishes, stops, or errors out

@@ -2635,7 +2635,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       <span>Progress: {schedulerStatus.batchCurrentIndex || 0} / {schedulerStatus.batchTotal || 0}</span>
                       <span className="text-slate-500">•</span>
                       <span className="text-indigo-300">
-                        Current Source: {schedulerStatus.batchCurrentSourceName || 'Federal Public Service Commission (FPSC)'}
+                        Current Source: {schedulerStatus.batchCurrentSourceName || 'Waiting for source...'}
                       </span>
                     </div>
                   </div>
@@ -3734,8 +3734,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               : (activeRunState?.isPaused ? 'PAUSED' : 'RUNNING');
             
             const currentSource = isSchedBatch
-              ? (schedulerStatus?.batchCurrentSourceName || 'Federal Public Service Commission (FPSC)')
-              : (activeRunState?.currentSourceName || 'Initializing...');
+              ? (schedulerStatus?.batchCurrentSourceName || 'Waiting for source...')
+              : (activeRunState?.currentSourceName || 'Waiting for source...');
             
             const currentIndex = isSchedBatch
               ? (schedulerStatus?.batchCurrentIndex || 0)

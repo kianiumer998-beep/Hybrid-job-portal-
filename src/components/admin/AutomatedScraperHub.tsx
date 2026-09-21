@@ -40,7 +40,23 @@ import {
 } from 'lucide-react';
 import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
-import { calculateJobMissingFields, isScrapedJob, formatMissingFieldsNotice } from '../../utils/jobValidation';
+import {
+  calculateJobMissingFields,
+  isScrapedJob,
+  formatMissingFieldsNotice,
+  hasMissingDescription,
+  hasMissingLocation,
+  hasMissingCompany,
+  hasMissingSalary,
+  hasMissingDeadline,
+  hasMissingExperience,
+  hasMissingJobType,
+  isPdfDocumentJob,
+  isOcrRequired,
+  isOcrFailed,
+  isNonJobRecord,
+  isNeedsReviewRecord
+} from '../../utils/jobValidation';
 import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
 
 export interface SourceGroup {
@@ -316,7 +332,25 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [regionFilter, setRegionFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
-  const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'expired'>('all');
+  const [reviewTypeFilter, setReviewTypeFilter] = useState<
+    | 'all'
+    | 'jobs'
+    | 'non_jobs'
+    | 'needs_review'
+    | 'missing_description'
+    | 'missing_location'
+    | 'missing_company'
+    | 'missing_salary'
+    | 'missing_deadline'
+    | 'missing_experience'
+    | 'missing_job_type'
+    | 'pdf_document'
+    | 'ocr_required'
+    | 'ocr_failed'
+    | 'pending'
+    | 'duplicate'
+    | 'expired'
+  >('all');
 
   // Step 1: Sources Table Pagination
   const [sourcesPage, setSourcesPage] = useState(1);
@@ -426,6 +460,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
   // Quick Edit Modal State for Review Queue
   const [quickEditingJob, setQuickEditingJob] = useState<Job | null>(null);
+  const [bulkEditingJobs, setBulkEditingJobs] = useState<Job[]>([]);
   const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
 
   // Global Settings State
@@ -873,6 +908,36 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     return expiredJobsList.length;
   }, [expiredJobsList]);
 
+  const nonJobsCount = useMemo(() => {
+    return effectivePendingList.filter(j => isNonJobRecord(j)).length;
+  }, [effectivePendingList]);
+
+  const needsReviewCount = useMemo(() => {
+    return effectivePendingList.filter(j => isNeedsReviewRecord(j)).length;
+  }, [effectivePendingList]);
+
+  const reviewCounts = useMemo(() => {
+    const list = effectivePendingList;
+    return {
+      all: list.length,
+      jobs: list.filter(j => !isNonJobRecord(j) && !isNeedsReviewRecord(j)).length,
+      non_jobs: list.filter(j => isNonJobRecord(j)).length,
+      needs_review: list.filter(j => isNeedsReviewRecord(j)).length,
+      missing_description: list.filter(j => hasMissingDescription(j)).length,
+      missing_location: list.filter(j => hasMissingLocation(j)).length,
+      missing_company: list.filter(j => hasMissingCompany(j)).length,
+      missing_salary: list.filter(j => hasMissingSalary(j)).length,
+      missing_deadline: list.filter(j => hasMissingDeadline(j)).length,
+      missing_experience: list.filter(j => hasMissingExperience(j)).length,
+      missing_job_type: list.filter(j => hasMissingJobType(j)).length,
+      pdf_document: list.filter(j => isPdfDocumentJob(j)).length,
+      ocr_required: list.filter(j => isOcrRequired(j)).length,
+      ocr_failed: list.filter(j => isOcrFailed(j)).length,
+      duplicate: duplicateCount,
+      expired: expiredCount
+    };
+  }, [effectivePendingList, duplicateCount, expiredCount]);
+
   const selectedDuplicateCount = useMemo(() => {
     return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && ((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
   }, [effectivePendingList, selectedReviewIds]);
@@ -880,6 +945,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const selectedExpiredCount = useMemo(() => {
     return expiredJobsList.filter(j => selectedReviewIds.includes(j.id)).length;
   }, [expiredJobsList, selectedReviewIds]);
+
+  const selectedNonJobsCount = useMemo(() => {
+    return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && isNonJobRecord(j)).length;
+  }, [effectivePendingList, selectedReviewIds]);
 
   const reviewItems = useMemo(() => {
     if (reviewTypeFilter === 'expired') {
@@ -904,8 +973,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         job.description?.toLowerCase().includes('duplicate') ||
         ((job as any).confidenceScore && (job as any).confidenceScore < 60);
 
+      // Filter tabs routing
       if (reviewTypeFilter === 'pending' && isDuplicate) return false;
       if (reviewTypeFilter === 'duplicate' && !isDuplicate) return false;
+      if (reviewTypeFilter === 'jobs' && (isNonJobRecord(job) || isNeedsReviewRecord(job))) return false;
+      if (reviewTypeFilter === 'non_jobs' && !isNonJobRecord(job)) return false;
+      if (reviewTypeFilter === 'needs_review' && !isNeedsReviewRecord(job)) return false;
+      if (reviewTypeFilter === 'missing_description' && !hasMissingDescription(job)) return false;
+      if (reviewTypeFilter === 'missing_location' && !hasMissingLocation(job)) return false;
+      if (reviewTypeFilter === 'missing_company' && !hasMissingCompany(job)) return false;
+      if (reviewTypeFilter === 'missing_salary' && !hasMissingSalary(job)) return false;
+      if (reviewTypeFilter === 'missing_deadline' && !hasMissingDeadline(job)) return false;
+      if (reviewTypeFilter === 'missing_experience' && !hasMissingExperience(job)) return false;
+      if (reviewTypeFilter === 'missing_job_type' && !hasMissingJobType(job)) return false;
+      if (reviewTypeFilter === 'pdf_document' && !isPdfDocumentJob(job)) return false;
+      if (reviewTypeFilter === 'ocr_required' && !isOcrRequired(job)) return false;
+      if (reviewTypeFilter === 'ocr_failed' && !isOcrFailed(job)) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -2128,6 +2211,78 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } finally {
       setIsRefreshingReview(false);
     }
+  };
+
+  const handleBulkMarkNonJob = async (singleId?: string) => {
+    const targetIds = singleId ? [singleId] : selectedReviewIds;
+    if (targetIds.length === 0) return;
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.bulkMarkNonJob(targetIds, 'Classified as Non-Job by administrator');
+      if (res?.success) {
+        setStatusMessage({
+          text: `Marked ${res.successCount || targetIds.length} record(s) as Non-Job. Retained in queue.`,
+          type: 'info'
+        });
+        if (!singleId) setSelectedReviewIds([]);
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to mark records as Non-Job.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Non-Job classification error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
+  const handleConvertToJob = async (id: string) => {
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.convertToJob(id);
+      if (res?.success) {
+        setStatusMessage({
+          text: 'Record re-classified as standard Job successfully. Ready for review & publishing.',
+          type: 'success'
+        });
+        await fetchPendingQueue();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to convert record to job.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Conversion error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
+  const handleBulkSaveJobs = async (updatedJobs: Job[]) => {
+    setIsProcessingReview(true);
+    try {
+      const res = await api.jobs.bulkUpdate(updatedJobs);
+      if (res?.success) {
+        setStatusMessage({
+          text: `Successfully bulk updated ${res.updatedCount || updatedJobs.length} job(s)!`,
+          type: 'success'
+        });
+        await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
+      } else {
+        setStatusMessage({ text: res?.message || 'Failed to bulk update jobs.', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: `Bulk save error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
+  const handleOpenBulkQuickEdit = () => {
+    const selectedJobsList = effectivePendingList.filter(j => selectedReviewIds.includes(j.id));
+    if (selectedJobsList.length === 0) return;
+    setBulkEditingJobs(selectedJobsList);
+    setQuickEditingJob(selectedJobsList[0]);
+    setIsQuickEditOpen(true);
   };
 
   // -------------------------------------------------------------
@@ -4304,6 +4459,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>Select All Duplicates ({duplicateCount})</span>
                 </button>
+                {nonJobsCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReviewIds(effectivePendingList.filter(j => isNonJobRecord(j)).map(j => j.id))}
+                    className="px-3 py-1.5 bg-slate-500/10 hover:bg-slate-500/20 text-slate-300 border border-slate-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Select Non-Jobs ({nonJobsCount})</span>
+                  </button>
+                )}
                 {expiredCount > 0 && (
                   <button
                     type="button"
@@ -4356,6 +4521,62 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               <button
                 type="button"
                 disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                onClick={handleOpenBulkQuickEdit}
+                className="px-3.5 py-2 bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5 shadow-sm"
+                title="Open Bulk Quick Edit to edit missing fields across selected records"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Bulk Quick Edit ({selectedReviewIds.length})</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0}
+                onClick={() => {
+                  setTargetLocationJobIds(selectedReviewIds);
+                  setIsLocationModalOpen(true);
+                }}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                title="Bulk set province, city, and district for selected jobs"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Set Location ({selectedReviewIds.length})</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0 || isProcessingReview}
+                onClick={() => handleBulkMarkNonJob()}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                title="Retain selected records in queue marked as Non-Job (e.g. notices, syllabus, circulars)"
+              >
+                <FileText className="w-3.5 h-3.5 text-slate-400" />
+                <span>Keep as Non-Job ({selectedReviewIds.length})</span>
+              </button>
+
+              {selectedNonJobsCount > 0 && (
+                <button
+                  type="button"
+                  disabled={isProcessingReview}
+                  onClick={async () => {
+                    for (const id of selectedReviewIds) {
+                      const item = effectivePendingList.find(j => j.id === id);
+                      if (item && isNonJobRecord(item)) {
+                        await handleConvertToJob(id);
+                      }
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-200 border border-emerald-700/50 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                  title="Convert selected Non-Job records back to standard Jobs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Convert to Job ({selectedNonJobsCount})</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={selectedReviewIds.length === 0 || isProcessingReview}
                 onClick={handleRejectSelected}
                 className="px-3.5 py-2 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5 border border-slate-700"
                 title="Reject selected jobs in MongoDB"
@@ -4390,63 +4611,53 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 </>
               )}
 
-              <button
-                type="button"
-                disabled={selectedReviewIds.length === 0}
-                onClick={() => {
-                  setTargetLocationJobIds(selectedReviewIds);
-                  setIsLocationModalOpen(true);
-                }}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
-                title="Bulk set province, city, and district for selected jobs"
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                <span>Set Location ({selectedReviewIds.length})</span>
-              </button>
+              {selectedDuplicateCount > 0 && (
+                <>
+                  <button
+                    type="button"
+                    disabled={isProcessingReview}
+                    onClick={handleDeleteSelectedDuplicates}
+                    className="px-3.5 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                    title="Delete selected duplicate jobs permanently from MongoDB pending collection"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Duplicates ({selectedDuplicateCount})</span>
+                  </button>
 
-              <button
-                type="button"
-                disabled={selectedDuplicateCount === 0 || isProcessingReview}
-                onClick={handleDeleteSelectedDuplicates}
-                className="px-3.5 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
-                title="Delete selected duplicate jobs permanently from MongoDB pending collection"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Selected Duplicates ({selectedDuplicateCount})</span>
-              </button>
+                  <button
+                    type="button"
+                    disabled={isProcessingReview}
+                    onClick={() => handleKeepOriginalDeleteDuplicates()}
+                    className="px-3.5 py-2 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                    title="Keep original active listing untouched, and remove selected duplicate from pending collection"
+                  >
+                    <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Keep Original + Delete Duplicates</span>
+                  </button>
 
-              <button
-                type="button"
-                disabled={selectedDuplicateCount === 0 || isProcessingReview}
-                onClick={() => handleKeepOriginalDeleteDuplicates()}
-                className="px-3.5 py-2 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
-                title="Keep original active listing untouched, and remove selected duplicate from pending collection"
-              >
-                <Shield className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Keep Original + Delete Duplicates</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={selectedDuplicateCount === 0 || isProcessingReview}
-                onClick={() => handleOverwriteOriginalWithDuplicates()}
-                className="px-3.5 py-2 bg-amber-950/40 hover:bg-amber-900/60 text-amber-200 border border-amber-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1.5"
-                title="Overwrite original active jobs with this duplicate's data"
-              >
-                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                <span>Overwrite Original ({selectedDuplicateCount})</span>
-              </button>
+                  <button
+                    type="button"
+                    disabled={isProcessingReview}
+                    onClick={() => handleOverwriteOriginalWithDuplicates()}
+                    className="px-3.5 py-2 bg-amber-950/40 hover:bg-amber-900/60 text-amber-200 border border-amber-800/50 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                    title="Overwrite original active jobs with this duplicate's data"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Overwrite Original ({selectedDuplicateCount})</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Queue Filters */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center space-x-2 flex-1 min-w-[240px]">
+          {/* Queue Filters & Tabs */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center space-x-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search jobs by title or company..."
+                  placeholder="Search jobs by title, company, or portal..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none"
@@ -4454,25 +4665,41 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 flex-wrap gap-1.5">
-              {(['all', 'pending', 'duplicate', 'expired'] as const).map(type => (
+            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1.5">
+              {[
+                { id: 'all', label: 'All Records', count: reviewCounts.all },
+                { id: 'jobs', label: 'Jobs', count: reviewCounts.jobs },
+                { id: 'non_jobs', label: 'Non-Jobs', count: reviewCounts.non_jobs },
+                { id: 'needs_review', label: 'Needs Review', count: reviewCounts.needs_review },
+                { id: 'missing_description', label: 'Missing Desc', count: reviewCounts.missing_description },
+                { id: 'missing_location', label: 'Missing Location', count: reviewCounts.missing_location },
+                { id: 'missing_company', label: 'Missing Org', count: reviewCounts.missing_company },
+                { id: 'missing_salary', label: 'Missing Salary', count: reviewCounts.missing_salary },
+                { id: 'missing_deadline', label: 'Missing Deadline', count: reviewCounts.missing_deadline },
+                { id: 'missing_experience', label: 'Missing Exp', count: reviewCounts.missing_experience },
+                { id: 'missing_job_type', label: 'Missing Job Type', count: reviewCounts.missing_job_type },
+                { id: 'pdf_document', label: 'PDF Docs', count: reviewCounts.pdf_document },
+                { id: 'ocr_required', label: 'OCR Required', count: reviewCounts.ocr_required },
+                { id: 'ocr_failed', label: 'OCR Failed', count: reviewCounts.ocr_failed },
+                { id: 'duplicate', label: 'Duplicates', count: reviewCounts.duplicate },
+                { id: 'expired', label: 'Expired', count: reviewCounts.expired },
+              ].map(tab => (
                 <button
-                  key={type}
+                  key={tab.id}
                   type="button"
-                  onClick={() => setReviewTypeFilter(type)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    reviewTypeFilter === type
+                  onClick={() => setReviewTypeFilter(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                    reviewTypeFilter === tab.id
                       ? 'bg-indigo-600 text-white shadow'
                       : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
                   }`}
                 >
-                  {type === 'all'
-                    ? `All (${effectivePendingList.length})`
-                    : type === 'pending'
-                    ? `Pending (${pendingOnlyCount})`
-                    : type === 'duplicate'
-                    ? `Duplicates (${duplicateCount})`
-                    : `Expired (${expiredCount})`}
+                  <span>{tab.label}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                    reviewTypeFilter === tab.id ? 'bg-indigo-900/80 text-white' : 'bg-slate-800 text-slate-300'
+                  }`}>
+                    {tab.count}
+                  </span>
                 </button>
               ))}
             </div>
@@ -4485,7 +4712,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
                 <h4 className="text-sm font-bold text-white">No items in this view</h4>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  No jobs match your current review criteria.
+                  No records match your selected criteria in this review filter.
                 </p>
               </div>
             ) : (
@@ -4508,7 +4735,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
                     />
                     <span className="font-semibold text-slate-300">
-                      Select All Filtered ({reviewItems.length} jobs across all pages)
+                      Select All Filtered ({reviewItems.length} records across all pages)
                     </span>
                   </label>
                   <div className="text-[11px] text-slate-500">
@@ -4519,6 +4746,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 {paginatedReviewItems.map(job => {
                   const isExpired = job.status === 'Expired';
                   const isDup = (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate');
+                  const isNonJob = isNonJobRecord(job);
+                  const isNeedsReview = isNeedsReviewRecord(job);
+                  const isOcrReq = isOcrRequired(job);
+                  const isOcrFail = isOcrFailed(job);
+                  const isPdf = isPdfDocumentJob(job);
                   const isSelected = selectedReviewIds.includes(job.id);
                   const missingFields = calculateJobMissingFields(job);
                   const hasMissingFields = isScrapedJob(job) && missingFields.length > 0;
@@ -4531,12 +4763,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           ? 'border-rose-800/40 bg-rose-950/10'
                           : isDup
                           ? 'border-purple-800/60 bg-purple-950/10'
+                          : isNonJob
+                          ? 'border-slate-700/60 bg-slate-950/40'
+                          : isNeedsReview
+                          ? 'border-amber-700/50 bg-amber-950/10'
                           : hasMissingFields
                           ? 'border-amber-700/50 bg-amber-950/10'
                           : 'border-slate-800'
                       }`}
                     >
-                      <div className="flex items-start space-x-3.5">
+                      <div className="flex items-start space-x-3.5 flex-1 min-w-0">
                         <input
                           type="checkbox"
                           aria-label={`Select job ${job.title}`}
@@ -4551,9 +4787,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           className="mt-1 rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
                         />
 
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2 flex-wrap">
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                             <h4 className="text-sm font-black text-white">{job.title}</h4>
+                            
                             {isExpired ? (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
                                 <Clock className="w-3 h-3" />
@@ -4564,14 +4801,49 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                 <AlertTriangle className="w-3 h-3" />
                                 <span>Duplicate Alert</span>
                               </span>
-                            ) : hasMissingFields ? (
+                            ) : isNonJob ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-700/40 text-slate-300 border border-slate-600/40 flex items-center space-x-1">
+                                <FileText className="w-3 h-3 text-slate-400" />
+                                <span>Non-Job ({job.nonJobClassificationReason || (job as any).nonJobReason || 'Notice/Document'})</span>
+                              </span>
+                            ) : isNeedsReview ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
+                                <AlertCircle className="w-3 h-3 text-amber-400" />
+                                <span>Needs Review</span>
+                              </span>
+                            ) : null}
+
+                            {isOcrReq && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-500/20 text-orange-300 border border-orange-500/30 flex items-center space-x-1">
+                                <FileText className="w-3 h-3 text-orange-400" />
+                                <span>OCR Required</span>
+                              </span>
+                            )}
+
+                            {isOcrFail && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1" title={(job as any).documentProcessingError || 'OCR extraction failed'}>
+                                <AlertCircle className="w-3 h-3 text-rose-400" />
+                                <span>OCR Failed</span>
+                              </span>
+                            )}
+
+                            {isPdf && !isOcrReq && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center space-x-1">
+                                <FileText className="w-3 h-3 text-cyan-400" />
+                                <span>PDF Doc</span>
+                              </span>
+                            )}
+
+                            {hasMissingFields && !isExpired && (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1" title={`Missing: ${missingFields.join(', ')}`}>
                                 <AlertCircle className="w-3 h-3 text-rose-400" />
                                 <span>Missing: {missingFields.join(', ')}</span>
                               </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                Pending Review
+                            )}
+
+                            {!isExpired && !isDup && !isNonJob && !isNeedsReview && !hasMissingFields && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                Ready for Approval
                               </span>
                             )}
                           </div>
@@ -4583,12 +4855,35 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                 • Official Deadline: <span className="text-amber-300/90 font-mono">{job.deadlineDate}</span>
                               </span>
                             )}
+                            {(job.documentUrl || job.originalPostingUrl) && (
+                              <a
+                                href={job.documentUrl || job.originalPostingUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="ml-2 text-indigo-400 hover:text-indigo-300 inline-flex items-center space-x-0.5 font-medium underline"
+                              >
+                                <span>View Source</span>
+                                <ExternalLink className="w-3 h-3 ml-0.5" />
+                              </a>
+                            )}
                           </p>
 
                           {hasMissingFields && !isExpired && (
                             <p className="text-[11px] text-amber-300/90 pt-0.5 flex items-center space-x-1 font-medium">
                               <AlertCircle className="w-3 h-3 flex-shrink-0 text-amber-400" />
-                              <span>Missing required factual data: <strong className="text-rose-300">{missingFields.join(', ')}</strong>. Please use Quick Edit to complete before approving.</span>
+                              <span>Missing required factual data: <strong className="text-rose-300">{missingFields.join(', ')}</strong>. Complete via Quick Edit before publishing.</span>
+                            </p>
+                          )}
+
+                          {isNonJob && (
+                            <p className="text-[11px] text-slate-400 pt-0.5">
+                              Retained as Non-Job: {job.nonJobClassificationReason || (job as any).nonJobReason || 'Scraped document was classified as an informational notice, syllabus, or general advertisement rather than a direct vacancy.'}
+                            </p>
+                          )}
+
+                          {(job as any).documentProcessingError && (
+                            <p className="text-[11px] text-rose-300/90 pt-0.5 font-mono">
+                              Document notice: {(job as any).documentProcessingError}
                             </p>
                           )}
 
@@ -4611,6 +4906,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           <button
                             type="button"
                             onClick={() => {
+                              setBulkEditingJobs([]);
                               setQuickEditingJob(job);
                               setIsQuickEditOpen(true);
                             }}
@@ -4621,151 +4917,200 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                             <span>Quick Edit</span>
                           </button>
                         )}
-                      {isExpired ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={isProcessingReview}
-                            onClick={() => handleRestoreExpiredJob(job.id)}
-                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>Restore to Live</span>
-                          </button>
 
-                          <button
-                            type="button"
-                            disabled={isProcessingReview}
-                            onClick={() => handlePermanentDeleteJob(job.id)}
-                            className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Delete</span>
-                          </button>
-                        </>
-                      ) : isDup ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={isProcessingReview}
-                            onClick={() => handleKeepOriginalDeleteDuplicates(job.id)}
-                            className="px-3 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-200 border border-indigo-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
-                            title="Keep original active job and delete duplicate"
-                          >
-                            <Shield className="w-3 h-3 text-indigo-400" />
-                            <span>Keep Original</span>
-                          </button>
+                        {isExpired ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handleRestoreExpiredJob(job.id)}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Restore to Live</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            disabled={isProcessingReview}
-                            onClick={() => handleOverwriteOriginalWithDuplicates(job.id)}
-                            className="px-3 py-1.5 bg-amber-950/60 hover:bg-amber-900/80 text-amber-200 border border-amber-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
-                            title="Overwrite original active job with this duplicate's data"
-                          >
-                            <Edit3 className="w-3 h-3 text-amber-400" />
-                            <span>Overwrite Original</span>
-                          </button>
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handlePermanentDeleteJob(job.id)}
+                              className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </button>
+                          </>
+                        ) : isDup ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handleKeepOriginalDeleteDuplicates(job.id)}
+                              className="px-3 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-200 border border-indigo-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                              title="Keep original active job and delete duplicate"
+                            >
+                              <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>Keep Original</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            disabled={isProcessingReview}
-                            onClick={async () => {
-                              setIsProcessingReview(true);
-                              try {
-                                const res = await api.jobs.bulkDeleteDuplicates([job.id]);
-                                if (res?.success) {
-                                  setStatusMessage({ text: 'Duplicate job removed from MongoDB.', type: 'success' });
-                                  await fetchPendingQueue();
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handleOverwriteOriginalWithDuplicates(job.id)}
+                              className="px-3 py-1.5 bg-amber-950/60 hover:bg-amber-900/80 text-amber-200 border border-amber-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                              title="Overwrite original active job with this duplicate's data"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Overwrite Original</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={async () => {
+                                setIsProcessingReview(true);
+                                try {
+                                  const res = await api.jobs.bulkDeleteDuplicates([job.id]);
+                                  if (res?.success) {
+                                    setStatusMessage({ text: 'Duplicate job removed from MongoDB.', type: 'success' });
+                                    await fetchPendingQueue();
+                                  }
+                                } catch (err: any) {
+                                  setStatusMessage({ text: `Delete error: ${err.message}`, type: 'error' });
+                                } finally {
+                                  setIsProcessingReview(false);
                                 }
-                              } catch (err: any) {
-                                setStatusMessage({ text: `Delete error: ${err.message}`, type: 'error' });
-                              } finally {
-                                setIsProcessingReview(false);
-                              }
-                            }}
-                            className="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                            title="Delete this duplicate"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isProcessingReview}
-                          onClick={async () => {
-                            if (hasMissingFields) {
-                              setStatusMessage({
-                                text: `Cannot approve "${job.title}": Missing required factual fields (${missingFields.join(', ')}). Please complete them via Quick Edit before publishing.`,
-                                type: 'error'
-                              });
-                              setQuickEditingJob(job);
-                              setIsQuickEditOpen(true);
-                              return;
-                            }
-                            setIsProcessingReview(true);
-                            try {
-                              const res = await api.jobs.bulkApprove([job.id]);
-                              if (res?.success) {
-                                if (res.skippedMissingFieldsCount > 0) {
+                              }}
+                              className="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                              title="Delete this duplicate"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : isNonJob ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handleConvertToJob(job.id)}
+                              className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+                              title="Convert this record back to a standard Job"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Convert to Job</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={async () => {
+                                setIsProcessingReview(true);
+                                try {
+                                  const res = await api.jobs.bulkReject([job.id], 'Deleted non-job record');
+                                  if (res?.success) {
+                                    setStatusMessage({ text: 'Non-job record deleted.', type: 'info' });
+                                    await fetchPendingQueue();
+                                  }
+                                } catch (err: any) {
+                                  setStatusMessage({ text: `Delete error: ${err.message}`, type: 'error' });
+                                } finally {
+                                  setIsProcessingReview(false);
+                                }
+                              }}
+                              className="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                              title="Delete non-job record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={async () => {
+                                if (hasMissingFields) {
                                   setStatusMessage({
-                                    text: `Cannot approve "${job.title}": Missing required fields (${missingFields.join(', ')}).`,
+                                    text: `Cannot approve "${job.title}": Missing required factual fields (${missingFields.join(', ')}). Please complete them via Quick Edit before publishing.`,
                                     type: 'error'
                                   });
-                                } else {
-                                  setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
-                                  await fetchPendingQueue();
-                                  if (onReloadJobs) await onReloadJobs();
+                                  setBulkEditingJobs([]);
+                                  setQuickEditingJob(job);
+                                  setIsQuickEditOpen(true);
+                                  return;
                                 }
-                              } else {
-                                setStatusMessage({ text: res?.message || 'Failed to approve job.', type: 'error' });
-                              }
-                            } catch (err: any) {
-                              setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
-                            } finally {
-                              setIsProcessingReview(false);
-                            }
-                          }}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 ${
-                            hasMissingFields
-                              ? 'bg-amber-600/70 hover:bg-amber-600 text-amber-100 border border-amber-500/40'
-                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                          }`}
-                          title={hasMissingFields ? `Missing: ${missingFields.join(', ')} - Click to Quick Edit` : 'Approve job to live listings'}
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>{hasMissingFields ? 'Complete & Approve' : 'Approve to Live'}</span>
-                        </button>
-                      )}
+                                setIsProcessingReview(true);
+                                try {
+                                  const res = await api.jobs.bulkApprove([job.id]);
+                                  if (res?.success) {
+                                    if (res.skippedMissingFieldsCount > 0) {
+                                      setStatusMessage({
+                                        text: `Cannot approve "${job.title}": Missing required fields (${missingFields.join(', ')}).`,
+                                        type: 'error'
+                                      });
+                                    } else {
+                                      setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
+                                      await fetchPendingQueue();
+                                      if (onReloadJobs) await onReloadJobs();
+                                    }
+                                  } else {
+                                    setStatusMessage({ text: res?.message || 'Failed to approve job.', type: 'error' });
+                                  }
+                                } catch (err: any) {
+                                  setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
+                                } finally {
+                                  setIsProcessingReview(false);
+                                }
+                              }}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 ${
+                                hasMissingFields
+                                  ? 'bg-amber-600/70 hover:bg-amber-600 text-amber-100 border border-amber-500/40'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                              }`}
+                              title={hasMissingFields ? `Missing: ${missingFields.join(', ')} - Click to Quick Edit` : 'Approve job to live listings'}
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>{hasMissingFields ? 'Complete & Approve' : 'Approve to Live'}</span>
+                            </button>
 
-                      {!isExpired && (
-                        <button
-                          type="button"
-                          disabled={isProcessingReview}
-                          onClick={async () => {
-                            setIsProcessingReview(true);
-                            try {
-                              const res = await api.jobs.bulkReject([job.id], 'Rejected from Duplicates & Review');
-                              if (res?.success) {
-                                setStatusMessage({ text: `Rejected "${job.title}".`, type: 'info' });
-                                await fetchPendingQueue();
-                              }
-                            } catch (err: any) {
-                              setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
-                            } finally {
-                              setIsProcessingReview(false);
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                      )}
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handleBulkMarkNonJob(job.id)}
+                              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                              title="Keep as Non-Job (tender, notice, circular)"
+                            >
+                              <FileText className="w-3 h-3 text-slate-400" />
+                              <span>Non-Job</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={async () => {
+                                setIsProcessingReview(true);
+                                try {
+                                  const res = await api.jobs.bulkReject([job.id], 'Rejected from Duplicates & Review');
+                                  if (res?.success) {
+                                    setStatusMessage({ text: `Rejected "${job.title}".`, type: 'info' });
+                                    await fetchPendingQueue();
+                                  }
+                                } catch (err: any) {
+                                  setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
+                                } finally {
+                                  setIsProcessingReview(false);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                 <PaginationControls
                   currentPage={reviewPage}
@@ -6034,16 +6379,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         </div>
       )}
 
-      {/* Quick Edit Job Modal */}
+      {/* Quick Edit Job Modal (Single & Bulk) */}
       {isQuickEditOpen && (
         <AdminQuickEditJobModal
           job={quickEditingJob}
+          jobs={bulkEditingJobs.length > 0 ? bulkEditingJobs : undefined}
           isOpen={isQuickEditOpen}
           onClose={() => {
             setIsQuickEditOpen(false);
             setQuickEditingJob(null);
+            setBulkEditingJobs([]);
           }}
           onSaveJob={handleSaveQuickEditJob}
+          onSaveJobs={handleBulkSaveJobs}
           onSaveAndApproveJob={handleSaveAndApproveJob}
         />
       )}

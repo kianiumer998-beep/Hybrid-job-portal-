@@ -7,23 +7,29 @@ import { calculateJobMissingFields, isScrapedJob } from '../../utils/jobValidati
 interface AdminQuickEditJobModalProps {
   job: Job | null;
   selectedJobs?: Job[]; // For bulk edit mode
+  jobs?: Job[]; // Alias for bulk edit mode
   isOpen: boolean;
   onClose: () => void;
   onSaveJob: (updatedJob: Job) => void;
   onBulkSaveJobs?: (updatedJobs: Job[]) => void;
+  onSaveJobs?: (updatedJobs: Job[]) => void;
   onSaveAndApproveJob?: (updatedJob: Job) => void;
 }
 
 export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   job,
-  selectedJobs = [],
+  selectedJobs: propSelectedJobs,
+  jobs: propJobs,
   isOpen,
   onClose,
   onSaveJob,
   onBulkSaveJobs,
+  onSaveJobs,
   onSaveAndApproveJob
 }) => {
-  const isBulkMode = selectedJobs.length > 1;
+  const activeBulkJobs = propSelectedJobs || propJobs || [];
+  const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
+  const selectedJobs = activeBulkJobs;
 
   // Single job state
   const [formData, setFormData] = useState<Job>(() => {
@@ -133,7 +139,8 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
 
   const handleBulkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onBulkSaveJobs) {
+    const saveFn = onBulkSaveJobs || onSaveJobs;
+    if (!saveFn) {
       onClose();
       return;
     }
@@ -160,7 +167,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return updatedJob;
     });
 
-    onBulkSaveJobs(updated);
+    saveFn(updated);
     onClose();
   };
 

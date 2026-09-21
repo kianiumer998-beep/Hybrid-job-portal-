@@ -29,8 +29,9 @@ export interface DuplicateMatchResult {
 
 // Tokenize & normalize string for comparison
 export function tokenize(str: string): Set<string> {
+  const safeStr = typeof str === 'string' ? str : (str ? String(str) : '');
   return new Set(
-    (str || '')
+    safeStr
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
@@ -40,15 +41,23 @@ export function tokenize(str: string): Set<string> {
 
 // Helper to get or memoize token set on job object for high-volume deduplication
 function getOrComputeTokens(job: any, field: 'title' | 'company'): Set<string> {
-  if (!job) return new Set();
+  if (!job || typeof job !== 'object') return new Set<string>();
   if (field === 'title') {
-    if (!job._titleTokens) {
-      job._titleTokens = tokenize(job.title);
+    if (!(job._titleTokens instanceof Set)) {
+      if (Array.isArray(job._titleTokens)) {
+        job._titleTokens = new Set(job._titleTokens.filter((t: any) => typeof t === 'string' && t.length > 2));
+      } else {
+        job._titleTokens = tokenize(job.title);
+      }
     }
     return job._titleTokens;
   } else {
-    if (!job._companyTokens) {
-      job._companyTokens = tokenize(job.company);
+    if (!(job._companyTokens instanceof Set)) {
+      if (Array.isArray(job._companyTokens)) {
+        job._companyTokens = new Set(job._companyTokens.filter((t: any) => typeof t === 'string' && t.length > 2));
+      } else {
+        job._companyTokens = tokenize(job.company);
+      }
     }
     return job._companyTokens;
   }
@@ -62,31 +71,38 @@ function calculateTokenSimilarityFast(
   tokens2: Set<string>
 ): number {
   if (!str1 || !str2) return 0;
-  const s1 = (str1 || '').trim().toLowerCase();
-  const s2 = (str2 || '').trim().toLowerCase();
+  const s1 = (typeof str1 === 'string' ? str1 : String(str1)).trim().toLowerCase();
+  const s2 = (typeof str2 === 'string' ? str2 : String(str2)).trim().toLowerCase();
   if (s1 === s2) return 1.0;
 
-  if (tokens1.size === 0 || tokens2.size === 0) return 0;
+  const set1 = (tokens1 instanceof Set)
+    ? tokens1
+    : (Array.isArray(tokens1) ? new Set<string>(tokens1) : tokenize(s1));
+  const set2 = (tokens2 instanceof Set)
+    ? tokens2
+    : (Array.isArray(tokens2) ? new Set<string>(tokens2) : tokenize(s2));
+
+  if (set1.size === 0 || set2.size === 0) return 0;
 
   let intersection = 0;
-  if (tokens1.size <= tokens2.size) {
-    tokens1.forEach(t => {
-      if (tokens2.has(t)) intersection++;
+  if (set1.size <= set2.size) {
+    set1.forEach(t => {
+      if (set2.has(t)) intersection++;
     });
   } else {
-    tokens2.forEach(t => {
-      if (tokens1.has(t)) intersection++;
+    set2.forEach(t => {
+      if (set1.has(t)) intersection++;
     });
   }
 
-  return (2 * intersection) / (tokens1.size + tokens2.size);
+  return (2 * intersection) / (set1.size + set2.size);
 }
 
 // Dice-Sorensen token similarity
 export function calculateTokenSimilarity(str1: string, str2: string): number {
   if (!str1 || !str2) return 0;
-  const s1 = (str1 || '').trim().toLowerCase();
-  const s2 = (str2 || '').trim().toLowerCase();
+  const s1 = (typeof str1 === 'string' ? str1 : String(str1)).trim().toLowerCase();
+  const s2 = (typeof str2 === 'string' ? str2 : String(str2)).trim().toLowerCase();
   if (s1 === s2) return 1.0;
 
   const tokens1 = tokenize(s1);
@@ -121,40 +137,48 @@ export class DuplicateIndex {
   }
 
   private indexJob(job: any, isBatch: boolean) {
-    if (!job) return;
+    if (!job || typeof job !== 'object') return;
     const entry = { job, isBatch };
 
-    if (job.sourceJobId) {
-      const key = String(job.sourceJobId).trim().toLowerCase();
-      if (!this.bySourceJobId.has(key)) {
-        this.bySourceJobId.set(key, entry);
+    try {
+      if (job.sourceJobId) {
+        const key = String(job.sourceJobId).trim().toLowerCase();
+        if (!this.bySourceJobId.has(key)) {
+          this.bySourceJobId.set(key, entry);
+        }
       }
-    }
-    if (job.sourceUrl) {
-      const key = String(job.sourceUrl).trim().toLowerCase();
-      if (!this.bySourceUrl.has(key)) {
-        this.bySourceUrl.set(key, entry);
+      if (job.sourceUrl) {
+        const key = String(job.sourceUrl).trim().toLowerCase();
+        if (!this.bySourceUrl.has(key)) {
+          this.bySourceUrl.set(key, entry);
+        }
       }
-    }
 
-    const titleTokens = getOrComputeTokens(job, 'title');
-    titleTokens.forEach(t => {
-      let list = this.tokenIndex.get(t);
-      if (!list) {
-        list = [];
-        this.tokenIndex.set(t, list);
+      const titleTokens = getOrComputeTokens(job, 'title');
+      if (titleTokens && typeof titleTokens.forEach === 'function') {
+        titleTokens.forEach(t => {
+          if (typeof t === 'string' && t) {
+            let list = this.tokenIndex.get(t);
+            if (!list) {
+              list = [];
+              this.tokenIndex.set(t, list);
+            }
+            list.push(entry);
+          }
+        });
       }
-      list.push(entry);
-    });
 
-    if (job.company) {
-      const compKey = String(job.company).trim().toLowerCase();
-      let compList = this.companyIndex.get(compKey);
-      if (!compList) {
-        compList = [];
-        this.companyIndex.set(compKey, compList);
+      if (job.company) {
+        const compKey = String(job.company).trim().toLowerCase();
+        let compList = this.companyIndex.get(compKey);
+        if (!compList) {
+          compList = [];
+          this.companyIndex.set(compKey, compList);
+        }
+        compList.push(entry);
       }
-      compList.push(entry);
+    } catch (err) {
+      // Safely ignore index error on individual malformed record
     }
   }
 
@@ -169,7 +193,7 @@ export class DuplicateIndex {
     const candidates: Array<{ job: any; isBatch: boolean }> = [];
 
     const addEntry = (entry: { job: any; isBatch: boolean }) => {
-      if (!seen.has(entry.job)) {
+      if (entry && entry.job && !seen.has(entry.job)) {
         seen.add(entry.job);
         candidates.push(entry);
       }
@@ -186,14 +210,18 @@ export class DuplicateIndex {
       if (match) addEntry(match);
     }
 
-    candTitleTokens.forEach(t => {
-      const list = this.tokenIndex.get(t);
-      if (list) {
-        for (let j = 0; j < list.length; j++) {
-          addEntry(list[j]);
+    if (candTitleTokens && typeof candTitleTokens.forEach === 'function') {
+      candTitleTokens.forEach(t => {
+        if (typeof t === 'string' && t) {
+          const list = this.tokenIndex.get(t);
+          if (list) {
+            for (let j = 0; j < list.length; j++) {
+              addEntry(list[j]);
+            }
+          }
         }
-      }
-    });
+      });
+    }
 
     if (candidateJob.company) {
       const compKey = String(candidateJob.company).trim().toLowerCase();

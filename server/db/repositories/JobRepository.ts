@@ -5,7 +5,6 @@ import {
   isMongoConfigured
 } from '../mongodb';
 import { generateJobSlug } from '../../utils/slugify';
-import { deriveJobSourceType, isScrapedJob } from '../../services/jobValidation';
 
 export interface JobFilterOptions {
   search?: string;
@@ -259,13 +258,11 @@ export class JobRepository {
     const id = jobData.id || generateJobId();
     const slug = jobData.slug || generateJobSlug(jobData.title, jobData.city, id);
     const now = new Date().toISOString();
-    const sourceType = deriveJobSourceType(jobData);
 
     const newJob: any = {
       ...jobData,
       id,
       slug,
-      sourceType,
       status: jobData.status || 'Approved',
       createdAt: jobData.createdAt || now,
       updatedAt: now,
@@ -350,12 +347,10 @@ export class JobRepository {
       .map((j) => {
         const id = j.id || generateJobId();
         const slug = j.slug || generateJobSlug(j.title, j.city, id);
-        const sourceType = deriveJobSourceType(j);
         const doc = normalizeMongoJob({
           ...j,
           id,
           slug,
-          sourceType,
           status: autoApprove ? 'Approved' : 'Pending',
           createdAt: j.createdAt || now,
           updatedAt: now
@@ -404,75 +399,11 @@ export class JobRepository {
   }
 
   /**
-   * Fetches multiple jobs by IDs across both live jobs and pending_jobs collections.
+   * Bulk delete jobs by ID array directly from MongoDB.
    */
-  static async getJobsByIds(ids: string[]): Promise<any[]> {
+  static async bulkDelete(ids: string[]): Promise<number> {
     assertMongoAvailable();
-    if (!Array.isArray(ids) || ids.length === 0) return [];
-    const jobsColl = await getJobsCollection();
-    const pendingColl = await getPendingJobsCollection();
-
-    const [liveDocs, pendingDocs] = await Promise.all([
-      jobsColl.find({ id: { $in: ids } }).toArray(),
-      pendingColl.find({ id: { $in: ids } }).toArray()
-    ]);
-
-    const seen = new Set<string>();
-    const result: any[] = [];
-    for (const doc of [...liveDocs, ...pendingDocs]) {
-      if (doc && doc.id && !seen.has(doc.id)) {
-        seen.add(doc.id);
-        result.push(normalizeMongoJob(doc));
-      }
-    }
-    return result;
-  }
-
-  /**
-   * Bulk deletes jobs with full source classification to protect user notifications.
-   * Scraped jobs and user-posted jobs are explicitly classified.
-   */
-  static async bulkDeleteWithClassification(ids: string[]): Promise<{
-    deletedCount: number;
-    scrapedCount: number;
-    userPostedCount: number;
-    adminCreatedCount: number;
-    unknownCount: number;
-    userPostedJobs: any[];
-    scrapedJobs: any[];
-  }> {
-    assertMongoAvailable();
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return {
-        deletedCount: 0,
-        scrapedCount: 0,
-        userPostedCount: 0,
-        adminCreatedCount: 0,
-        unknownCount: 0,
-        userPostedJobs: [],
-        scrapedJobs: []
-      };
-    }
-
-    const existingJobs = await this.getJobsByIds(ids);
-    const userPostedJobs: any[] = [];
-    const scrapedJobs: any[] = [];
-    let adminCreatedCount = 0;
-    let unknownCount = 0;
-
-    for (const job of existingJobs) {
-      const isScraped = isScrapedJob(job);
-      const st = isScraped ? 'scraped' : deriveJobSourceType(job);
-      if (isScraped || st === 'scraped') {
-        scrapedJobs.push(job);
-      } else if (st === 'user_posted' && job.submittedByUserId) {
-        userPostedJobs.push(job);
-      } else if (st === 'admin_created') {
-        adminCreatedCount++;
-      } else {
-        unknownCount++;
-      }
-    }
+    if (!Array.isArray(ids) || ids.length === 0) return 0;
 
     const jobsColl = await getJobsCollection();
     const pendingColl = await getPendingJobsCollection();
@@ -482,25 +413,7 @@ export class JobRepository {
       pendingColl.deleteMany({ id: { $in: ids } })
     ]);
 
-    const deletedCount = (resLive.deletedCount || 0) + (resPending.deletedCount || 0);
-
-    return {
-      deletedCount,
-      scrapedCount: scrapedJobs.length,
-      userPostedCount: userPostedJobs.length,
-      adminCreatedCount,
-      unknownCount,
-      userPostedJobs,
-      scrapedJobs
-    };
-  }
-
-  /**
-   * Bulk delete jobs by ID array directly from MongoDB.
-   */
-  static async bulkDelete(ids: string[]): Promise<number> {
-    const result = await this.bulkDeleteWithClassification(ids);
-    return result.deletedCount;
+    return (resLive.deletedCount || 0) + (resPending.deletedCount || 0);
   }
 
   // --- PENDING QUEUE OPERATIONS (Direct MongoDB pending_jobs collection) ---
@@ -529,13 +442,11 @@ export class JobRepository {
     const id = jobData.id || generateJobId();
     const slug = jobData.slug || generateJobSlug(jobData.title, jobData.city, id);
     const now = new Date().toISOString();
-    const sourceType = deriveJobSourceType(jobData);
 
     const newPending = normalizeMongoJob({
       ...jobData,
       id,
       slug,
-      sourceType,
       status: 'Pending',
       createdAt: jobData.createdAt || now,
       updatedAt: now,
@@ -652,42 +563,12 @@ export class JobRepository {
    * Sets status to 'Rejected' with timestamp and optional reason.
    * Returns exact success/failure counts and per-ID errors.
    */
-  static async bulkRejectPendingWithClassification(ids: string[], reason?: string): Promise<{
+  static async bulkRejectPending(ids: string[], reason?: string): Promise<{
     successCount: number;
     failureCount: number;
     errors: { id: string; error: string }[];
-    scrapedCount: number;
-    userPostedCount: number;
-    userPostedJobs: any[];
-    scrapedJobs: any[];
   }> {
     assertMongoAvailable();
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return {
-        successCount: 0,
-        failureCount: 0,
-        errors: [],
-        scrapedCount: 0,
-        userPostedCount: 0,
-        userPostedJobs: [],
-        scrapedJobs: []
-      };
-    }
-
-    const existingJobs = await this.getJobsByIds(ids);
-    const userPostedJobs: any[] = [];
-    const scrapedJobs: any[] = [];
-
-    for (const job of existingJobs) {
-      const isScraped = isScrapedJob(job);
-      const st = isScraped ? 'scraped' : deriveJobSourceType(job);
-      if (isScraped || st === 'scraped') {
-        scrapedJobs.push(job);
-      } else if (st === 'user_posted' && job.submittedByUserId) {
-        userPostedJobs.push(job);
-      }
-    }
-
     let successCount = 0;
     const errors: { id: string; error: string }[] = [];
 
@@ -707,25 +588,8 @@ export class JobRepository {
     return {
       successCount,
       failureCount: errors.length,
-      errors,
-      scrapedCount: scrapedJobs.length,
-      userPostedCount: userPostedJobs.length,
-      userPostedJobs,
-      scrapedJobs
+      errors
     };
-  }
-
-  /**
-   * Bulk rejects pending jobs:
-   * Sets status to 'Rejected' with timestamp and optional reason.
-   * Returns exact success/failure counts and per-ID errors.
-   */
-  static async bulkRejectPending(ids: string[], reason?: string): Promise<{
-    successCount: number;
-    failureCount: number;
-    errors: { id: string; error: string }[];
-  }> {
-    return this.bulkRejectPendingWithClassification(ids, reason);
   }
 
   /**
@@ -1102,66 +966,5 @@ export class JobRepository {
       successCount: totalModified,
       errors: []
     };
-  }
-
-  /**
-   * Bulk marks pending jobs as Non-Job records with classification reason.
-   */
-  static async bulkMarkNonJob(
-    ids: string[],
-    reason: string = 'Classified as Non-Job by administrator'
-  ): Promise<{ successCount: number; errors: any[] }> {
-    assertMongoAvailable();
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return { successCount: 0, errors: [] };
-    }
-
-    const pendingColl = await getPendingJobsCollection();
-    const now = new Date().toISOString();
-
-    const res = await pendingColl.updateMany(
-      { id: { $in: ids } },
-      {
-        $set: {
-          isNonJob: true,
-          classificationState: 'NON_JOB',
-          reviewStatus: 'NON_JOB',
-          nonJobReason: reason,
-          classifiedAt: now,
-          updatedAt: now
-        }
-      }
-    );
-
-    return {
-      successCount: res.modifiedCount || 0,
-      errors: []
-    };
-  }
-
-  /**
-   * Converts a Non-Job or Needs-Review record back to a standard Job classification.
-   */
-  static async convertToJob(id: string): Promise<boolean> {
-    assertMongoAvailable();
-    const pendingColl = await getPendingJobsCollection();
-    const now = new Date().toISOString();
-
-    const res = await pendingColl.updateOne(
-      { id },
-      {
-        $set: {
-          isNonJob: false,
-          classificationState: 'JOB',
-          reviewStatus: 'PENDING',
-          updatedAt: now
-        },
-        $unset: {
-          nonJobReason: ''
-        }
-      }
-    );
-
-    return res.modifiedCount > 0;
   }
 }

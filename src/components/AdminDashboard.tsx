@@ -2713,15 +2713,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const handleBulkDelete = () => {
           if (selectedPendingIds.length === 0) return;
           if (confirm(`Permanently delete ${selectedPendingIds.length} selected pending postings from queue?`)) {
-            if (onBulkDeleteJobs) {
-              onBulkDeleteJobs(selectedPendingIds);
-            } else if (onBulkRejectPendingJobs) {
-              onBulkRejectPendingJobs(selectedPendingIds, 'Admin deleted from queue');
-            } else {
-              selectedPendingIds.forEach(id => {
-                if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
-              });
-            }
+            selectedPendingIds.forEach(id => {
+              if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
+            });
             setSelectedPendingIds([]);
           }
         };

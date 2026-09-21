@@ -1,7 +1,6 @@
 export type JobType = 'Remote' | 'Hybrid' | 'On-site';
 export type Region = 'Global' | 'US' | 'UK' | 'Pakistan' | 'UAE' | 'Saudi Arabia' | 'Canada' | 'Europe' | 'Australia';
 export type Currency = 'USD' | 'PKR' | 'GBP' | 'EUR' | 'CAD' | 'AUD' | 'AED' | 'SAR';
-export type JobSourceType = 'user_posted' | 'scraped' | 'admin_created' | 'imported' | 'unknown';
 
 export interface AdminFeatureFlags {
   enableWebScraper: boolean;
@@ -154,7 +153,6 @@ export interface Job {
   suspensionReason?: string;
   isSuspended?: boolean;
   submittedByUserId?: string;
-  sourceType?: JobSourceType;
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue' | 'Exempt';
   jobCategory?: 'Private Corporate' | 'Government Sector' | 'Newspaper Classified' | 'International Remote' | string;
   sourceUrl?: string;
@@ -216,21 +214,6 @@ export interface Job {
   externalApplyUrl?: string;
   mediaUrl?: string;
   extractedText?: string;
-
-  // Non-Job & OCR Review Attributes
-  isNonJob?: boolean;
-  nonJobClassificationReason?: string;
-  nonJobReason?: string;
-  isNeedsReview?: boolean;
-  needsReviewReason?: string;
-  documentUrl?: string;
-  originalPostingUrl?: string;
-  isPdfDocument?: boolean;
-  ocrRequired?: boolean;
-  ocrCompleted?: boolean;
-  ocrFailed?: boolean;
-  documentProcessingError?: string;
-  ocrExtractedText?: string;
 }
 
 export interface ChatMessage {

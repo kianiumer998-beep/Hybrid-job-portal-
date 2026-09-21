@@ -59,7 +59,6 @@ import { NotificationCenterModal } from './components/notifications/Notification
 import { NotificationPopupModal } from './components/notifications/NotificationPopupModal';
 import { MandatoryActionModal } from './components/notifications/MandatoryActionModal';
 import { NotificationItem } from './types/notification';
-import { isScrapedJob, deriveJobSourceType } from './utils/jobValidation';
 
 export default function App() {
   // Navigation & View State
@@ -1498,11 +1497,8 @@ export default function App() {
       await api.jobs.rejectPending(jobId, reason);
       await loadBackendJobs();
 
-      // Push notification message into user's chat thread ONLY for genuine user_posted listings
-      const isScraped = rejectedJob ? isScrapedJob(rejectedJob) : false;
-      const sourceType = rejectedJob ? deriveJobSourceType(rejectedJob) : 'unknown';
-
-      if (rejectedJob && !isScraped && sourceType === 'user_posted' && rejectedJob.submittedByUserId) {
+      // Push notification message into user's chat thread
+      if (rejectedJob && rejectedJob.submittedByUserId) {
         const chatMsg: ChatMessage = {
           id: 'msg-' + Date.now(),
           userId: rejectedJob.submittedByUserId,
@@ -1512,8 +1508,9 @@ export default function App() {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
         setChatMessages(prev => [...prev, chatMsg]);
-        alert(`Job rejected. Reason notification sent to user chat.`);
       }
+
+      alert(`Job rejected. Reason notification sent to user chat.`);
     } catch (err) {
       console.error('Error rejecting job on backend:', err);
       await loadBackendJobs();

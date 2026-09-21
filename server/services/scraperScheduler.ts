@@ -252,33 +252,28 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       return { triggeredSources: [], summary: 'Scheduler tick deferred (distributed lock held by another instance)' };
     }
 
-    batchState = {
-      batchRunId,
-      batchStatus: 'Running',
-      batchTotal: dueSources.length,
-      batchCompleted: 0,
-      batchCurrentIndex: 0,
-      batchCurrentSourceId: null,
-      batchCurrentSourceName: null,
-      batchTriggeredSources: dueSources.map(s => s.id),
-      batchStartedAt: new Date().toISOString(),
-      batchLastUpdatedAt: new Date().toISOString(),
-      cancelRequested: false,
-      generationId: currentGen
-    };
-
-    console.log(`[Scheduler Engine] Starting batch ${batchRunId} with ${dueSources.length} due sources.`);
-
-    let configsToUpdate = [...updatedSources];
     try {
-      configsToUpdate = await ScraperRepository.getConfigs();
-    } catch {
-      configsToUpdate = [...updatedSources];
-    }
-    let hasBatchConfigUpdates = false;
-    let isPausedForMongo = false;
+      batchState = {
+        batchRunId,
+        batchStatus: 'Running',
+        batchTotal: dueSources.length,
+        batchCompleted: 0,
+        batchCurrentIndex: 0,
+        batchCurrentSourceId: null,
+        batchCurrentSourceName: null,
+        batchTriggeredSources: dueSources.map(s => s.id),
+        batchStartedAt: new Date().toISOString(),
+        batchLastUpdatedAt: new Date().toISOString(),
+        cancelRequested: false,
+        generationId: currentGen
+      };
 
-    try {
+      console.log(`[Scheduler Engine] Starting batch ${batchRunId} with ${dueSources.length} due sources.`);
+
+      const configsToUpdate = [...updatedSources];
+      let hasBatchConfigUpdates = false;
+      let isPausedForMongo = false;
+
       for (let i = 0; i < dueSources.length; i++) {
         const src = dueSources[i];
 

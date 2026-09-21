@@ -651,10 +651,12 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       }
 
       sourceFound = filteredResults.length;
-      totalDiscoveredJobs += sourceFound;
 
       const sourcePendingJobs: any[] = [];
       const sourceApprovedJobs: any[] = [];
+      const sourceHarvestedJobs: any[] = [];
+      const sourceDuplicateJobs: any[] = [];
+      const sourceUniqueJobs: any[] = [];
 
       for (let rIdx = 0; rIdx < filteredResults.length; rIdx++) {
         const raw = filteredResults[rIdx];
@@ -743,24 +745,20 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         standardizedJob.duplicateOfJobId = dupCheck.matchedExistingJob?.id;
         standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
 
-        harvestedJobs.push(standardizedJob);
-        duplicateIndex.addBatchJob(standardizedJob);
-        combinedExisting.push(standardizedJob);
+        sourceHarvestedJobs.push(standardizedJob);
 
         if (dupCheck.isDuplicate) {
           sourceDup++;
-          duplicateJobs.push(standardizedJob);
+          sourceDuplicateJobs.push(standardizedJob);
           sourcePendingJobs.push(standardizedJob);
         } else {
           sourceNew++;
-          uniqueJobs.push(standardizedJob);
+          sourceUniqueJobs.push(standardizedJob);
 
           if (standardizedJob.status === 'Approved') {
             sourceApprovedJobs.push(standardizedJob);
-            publishedJobs.push(standardizedJob);
           } else {
             sourcePendingJobs.push(standardizedJob);
-            pendingJobs.push(standardizedJob);
           }
         }
       }
@@ -799,6 +797,20 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         healthStatus: successHealth,
         lastErrorMessage: isJobsFound ? undefined : 'Portal reachable, but 0 active job vacancies found today'
       }));
+
+      // Commit verified persisted jobs to deduplication index and run-level collections
+      for (const j of sourceHarvestedJobs) {
+        duplicateIndex.addBatchJob(j);
+        combinedExisting.push(j);
+      }
+      harvestedJobs.push(...sourceHarvestedJobs);
+      duplicateJobs.push(...sourceDuplicateJobs);
+      uniqueJobs.push(...sourceUniqueJobs);
+      publishedJobs.push(...sourceApprovedJobs);
+      pendingJobs.push(...sourcePendingJobs);
+      totalDiscoveredJobs += sourceFound;
+      totalPagesAttempted += sourcePagesAttempted;
+      totalPagesSuccessful += sourcePagesSuccessful;
 
       sourcesStats.push({
         sourceId: target.id,

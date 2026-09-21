@@ -5,10 +5,11 @@ import {
   getMongoDb,
   isMongoConfigured,
   recoverMongoClient,
-  isTransientMongoError
+  isTransientMongoError,
+  isBrokenClientError
 } from '../mongodb';
 
-export { isTransientMongoError };
+export { isTransientMongoError, isBrokenClientError };
 
 export async function withMongoRetry<T>(
   fn: () => Promise<T>,
@@ -18,19 +19,25 @@ export async function withMongoRetry<T>(
 ): Promise<T> {
   let attempt = 0;
   while (true) {
-    const opStartedAt = Date.now();
     try {
       return await fn();
     } catch (err: any) {
       attempt++;
       if (attempt <= retries && isTransientMongoError(err)) {
         const delay = Math.min(maxDelayMs, initialDelayMs * Math.pow(2, attempt - 1));
-        console.warn(`[Mongo Retry] Transient database error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Recovering MongoClient connection and retrying in ${delay}ms...`);
-        
-        try {
-          await recoverMongoClient(err, opStartedAt);
-        } catch (recoverErr: any) {
-          console.warn(`[Mongo Retry] MongoClient recovery attempt failed: ${recoverErr?.message || recoverErr}`);
+
+        if (isBrokenClientError(err)) {
+          console.warn(`[Mongo Retry] Broken MongoClient or topology error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Initiating centralized recovery and retrying in ${delay}ms...`);
+          try {
+            await recoverMongoClient(err);
+          } catch (recoverErr: any) {
+            console.warn(`[Mongo Retry] Centralized MongoClient recovery attempt failed: ${recoverErr?.message || recoverErr}`);
+          }
+        } else {
+          // Normal transient network / server-selection / query timeout error:
+          // Official MongoDB driver connection pool and SDAM automatically handle reconnecting sockets.
+          // Do NOT destroy and recreate the MongoClient!
+          console.warn(`[Mongo Retry] Transient database error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Retrying via driver pool in ${delay}ms...`);
         }
 
         await new Promise(r => setTimeout(r, delay));

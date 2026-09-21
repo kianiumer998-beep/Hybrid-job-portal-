@@ -4,9 +4,6 @@ let cachedClient: MongoClient | null = null;
 let cachedDb: Db | null = null;
 let clientPromise: Promise<MongoClient> | null = null;
 let reconnectPromise: Promise<MongoClient> | null = null;
-let lastRecoveryCompletedAt = 0;
-let recoveryGeneration = 0;
-const RECOVERY_COOLDOWN_MS = 2500;
 
 export function isTransientMongoError(err: any): boolean {
   if (!err) return false;
@@ -56,6 +53,13 @@ export function isTransientMongoError(err: any): boolean {
     errMsg.includes('topology was destroyed') ||
     errMsg.includes('topology is closed') ||
     errMsg.includes('client must be connected') ||
+    errMsg.includes('ssl') ||
+    errMsg.includes('tls') ||
+    errMsg.includes('tlsv1_alert') ||
+    errMsg.includes('replicasetnoprimary') ||
+    errMsg.includes('systemoverloaded') ||
+    errMsg.includes('retryableerror') ||
+    errMsg.includes('resetpool') ||
     causeMsg.includes('mongoclientclosederror') ||
     causeMsg.includes('client was closed') ||
     causeMsg.includes('poolclearedonnetworkerror') ||
@@ -63,7 +67,32 @@ export function isTransientMongoError(err: any): boolean {
     causeMsg.includes('mongonetworktimeouterror') ||
     causeMsg.includes('mongonetworkerror') ||
     causeMsg.includes('mongoserverselectionerror') ||
-    causeMsg.includes('timeout')
+    causeMsg.includes('timeout') ||
+    causeMsg.includes('ssl') ||
+    causeMsg.includes('tls')
+  );
+}
+
+/**
+ * Distinguishes genuinely broken client / topology / pool closed errors that require
+ * centralized client replacement, from normal transient query timeouts or network hiccups
+ * that should be retried across the driver's own connection pool and topology monitoring.
+ */
+export function isBrokenClientError(err: any): boolean {
+  if (!err) return false;
+  const errMsg = String(err.message || err || '').toLowerCase();
+  const errName = String(err.name || '').toLowerCase();
+
+  return (
+    errName.includes('mongoclientclosederror') ||
+    errName.includes('mongotopologyclosederror') ||
+    errName.includes('mongopoolclosederror') ||
+    errMsg.includes('mongoclientclosederror') ||
+    errMsg.includes('client was closed') ||
+    errMsg.includes('operation interrupted because client was closed') ||
+    errMsg.includes('client must be connected') ||
+    errMsg.includes('topology was destroyed') ||
+    errMsg.includes('topology is closed')
   );
 }
 
@@ -92,15 +121,24 @@ async function createFreshMongoClient(): Promise<MongoClient> {
     socketTimeoutMS: 45000,
   });
 
-  const connectedClient = await client.connect();
-  const db = connectedClient.db();
-  await db.command({ ping: 1 });
-  await initMongoIndexes(db);
+  try {
+    const connectedClient = await client.connect();
+    const db = connectedClient.db();
+    await db.command({ ping: 1 });
+    await initMongoIndexes(db);
 
-  cachedClient = connectedClient;
-  cachedDb = db;
-  console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
-  return connectedClient;
+    cachedClient = connectedClient;
+    cachedDb = db;
+    console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
+    return connectedClient;
+  } catch (err: any) {
+    try {
+      await client.close(true);
+    } catch {
+      // Safe cleanup of unverified client
+    }
+    throw err;
+  }
 }
 
 export async function getMongoClient(): Promise<MongoClient> {
@@ -126,63 +164,69 @@ export async function getMongoClient(): Promise<MongoClient> {
 }
 
 /**
- * Safe, centralized recovery mechanism for MongoClient on genuine network/pool failures.
- * Atomically detaches broken cached client/db and establishes a fresh connection.
- * Concurrent recovery calls share ONE in-flight recovery promise.
- *
- * CRITICAL FIXES:
- * 1. ZERO close() calls on retired clients: Active checked-out connections finish/fail naturally;
- *    no setTimeout close timer exists to prevent MongoClientClosedError.
- * 2. Recovery storm coordination: Concurrent callers from the same failure wave reuse the newly
- *    verified client rather than triggering duplicate consecutive recovery cycles.
+ * Safe, centralized recovery mechanism for MongoClient on genuinely broken client or topology states.
+ * Replaces the client atomically and shares a single in-flight recovery promise across concurrent callers.
+ * Retired client is closed gracefully only AFTER the replacement client is fully verified.
  */
-export async function recoverMongoClient(reason?: any, opStartedAt?: number): Promise<MongoClient> {
-  // 1. If recovery is already in progress, every caller MUST await the same recovery promise
+export async function recoverMongoClient(reason?: any): Promise<MongoClient> {
+  // If recovery is already in progress, all callers share the same single recovery promise
   if (reconnectPromise) {
     return reconnectPromise;
   }
 
-  // 2. Prevent recovery storm: If a fresh recovery recently established a verified client,
-  // callers from the same failure wave reuse that verified client instead of restarting recovery.
-  const now = Date.now();
-  const isFromPreviousWave = typeof opStartedAt === 'number' && opStartedAt <= lastRecoveryCompletedAt;
-  const isWithinCooldown = (now - lastRecoveryCompletedAt) < RECOVERY_COOLDOWN_MS;
+  const reasonMsg = reason?.message || String(reason || 'broken client or topology');
+  console.warn(`[MongoDB] Centralized MongoClient recovery initiated. Reason: ${reasonMsg}`);
 
-  if (cachedClient && cachedDb && (isFromPreviousWave || isWithinCooldown)) {
-    console.log(
-      `[MongoDB] Reusing verified MongoClient (gen ${recoveryGeneration}, verified ${now - lastRecoveryCompletedAt}ms ago) for concurrent failure wave.`
-    );
-    return cachedClient;
-  }
-
-  const reasonMsg = reason?.message || String(reason || 'transient network/pool failure');
-  const targetGen = recoveryGeneration + 1;
-  console.warn(`[MongoDB] Centralized MongoClient recovery initiated (generation ${targetGen}). Reason: ${reasonMsg}`);
-
-  // Step 1: Atomically detach broken client, cached db, and connection promise
+  // Atomically detach broken client from active cache
+  const oldClient = cachedClient;
   cachedClient = null;
   cachedDb = null;
   clientPromise = null;
 
-  // Step 4: Retired client is left untouched to finish/fail in-flight queries naturally.
-  // NO close(true), NO close(false), NO delayed timer.
-
   reconnectPromise = (async () => {
+    let newClient: MongoClient | null = null;
     try {
-      // Step 2: Create and fully verify the new MongoClient (connect, ping, init indexes)
-      const connectedClient = await createFreshMongoClient();
+      const uri = getMongoUri();
+      newClient = new MongoClient(uri, {
+        maxPoolSize: 20,
+        minPoolSize: 2,
+        serverSelectionTimeoutMS: 10000,
+        connectTimeoutMS: 10000,
+        socketTimeoutMS: 45000,
+      });
 
-      // Step 3: Publish the new verified client/db as active
+      const connectedClient = await newClient.connect();
+      const db = connectedClient.db();
+      await db.command({ ping: 1 });
+      await initMongoIndexes(db);
+
+      // Successfully verified replacement
+      cachedClient = connectedClient;
+      cachedDb = db;
       clientPromise = Promise.resolve(connectedClient);
-      lastRecoveryCompletedAt = Date.now();
-      recoveryGeneration = targetGen;
-      console.log(`[MongoDB] Centralized MongoClient recovery succeeded (generation ${recoveryGeneration}). Database: "${cachedDb?.databaseName || 'default'}"`);
+      console.log(`[MongoDB] Centralized MongoClient recovery succeeded. Database: "${db.databaseName}"`);
+
+      // Gracefully close retired client now that replacement is fully verified
+      if (oldClient) {
+        oldClient.close(false).catch((closeErr: any) => {
+          console.warn('[MongoDB] Notice gracefully closing retired client:', closeErr?.message || closeErr);
+        });
+      }
+
       return connectedClient;
     } catch (err: any) {
+      // Clean up failed new client to avoid socket leaks
+      if (newClient) {
+        try {
+          await newClient.close(true);
+        } catch {
+          // Ignore cleanup error on failed attempt
+        }
+      }
       cachedClient = null;
       cachedDb = null;
       clientPromise = null;
-      console.error(`[MongoDB] Centralized MongoClient recovery failed (generation ${targetGen}):`, err?.message || err);
+      console.error('[MongoDB] Centralized MongoClient recovery failed:', err?.message || err);
       throw err;
     } finally {
       reconnectPromise = null;

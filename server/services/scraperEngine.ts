@@ -14,6 +14,8 @@ export interface ScraperRunOptions {
   fromTimestamp?: string;
   toTimestamp?: string;
   autoPublishTrusted?: boolean;
+  isSchedulerRun?: boolean;
+  force?: boolean;
 }
 
 export interface ActiveScraperRunState {
@@ -36,6 +38,7 @@ export interface ActiveScraperRunState {
   lastUpdatedTime: string;
   options?: ScraperRunOptions;
   remainingTargets?: ScraperTargetConfig[];
+  isSchedulerRun?: boolean;
 }
 
 export interface ScraperRunSummary {
@@ -110,11 +113,21 @@ export function getActiveRunStatus(): any {
   const isStopped = activeRunState.status === 'Stopped' || activeRunCancelRequested;
   const isActive = activeRunState.status === 'Running' || isPaused;
 
+  const currentSourceIndex = activeRunState.currentSourceIndex || (activeRunState.completedSourcesCount > 0 ? activeRunState.completedSourcesCount : 1);
+  const totalSources = activeRunState.totalSources || 0;
+  const currentSourceName = activeRunState.currentSourceName || (activeRunState.status === 'Running' ? 'Initializing source...' : '');
+  const progressFormatted = totalSources > 0 ? `${currentSourceIndex}/${totalSources} - ${currentSourceName}` : '';
+
   return {
     ...activeRunState,
     isActive,
     isPaused,
     isStopped,
+    isSchedulerRun: Boolean(activeRunState.isSchedulerRun),
+    currentSourceIndex,
+    totalSources,
+    currentSourceName,
+    progressFormatted,
     completedSources: activeRunState.completedSourcesCount,
     remainingSources: activeRunState.remainingSourcesCount,
     totalFound: activeRunState.jobsFound,
@@ -166,6 +179,7 @@ export function resetActiveRun(): boolean {
     pendingCount: 0,
     publishedCount: 0,
     failedSourcesCount: 0,
+    isSchedulerRun: false,
     startTime: '',
     lastUpdatedTime: new Date().toISOString()
   };
@@ -226,18 +240,24 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
-  // Prevent concurrent scraper runs (with automatic watchdog recovery for stale runs)
-  if (activeRunState.status === 'Running') {
+  // Prevent concurrent scraper runs with intelligent preemption for manual admin actions
+  if (activeRunState.status === 'Running' || activeRunState.status === 'Paused') {
     const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
-    const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-    if (isStale) {
-      console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
-      activeRunState.status = 'Completed';
-      activeRunState.isStopped = true;
-      activeRunCancelRequested = false;
-      activeRunPauseRequested = false;
+    const isStale = (Date.now() - lastActiveMs) > 2 * 60 * 1000;
+
+    if (options.force) {
+      console.warn('[Scraper Engine] Force flag set. Aborting active run to begin requested manual run.');
+      stopActiveRun();
+      resetActiveRun();
+    } else if (activeRunState.isSchedulerRun && !options.isSchedulerRun) {
+      console.warn('[Scraper Engine] Manual admin run requested while background scheduler task was executing. Auto-aborting background task to prioritize manual admin run.');
+      stopActiveRun();
+      resetActiveRun();
+    } else if (isStale) {
+      console.warn(`[Scraper Engine] Previous run ${activeRunState.runId || 'unknown'} appears stale (>2m without updates). Auto-clearing state to unblock scraper.`);
+      resetActiveRun();
     } else {
-      throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
+      throw new Error('A scraper run is already in progress. Please wait for it to complete or click Stop/Reset to interrupt it.');
     }
   }
 
@@ -281,20 +301,23 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
   }
 
-  // Initialize live tracking state
+  // Initialize live tracking state with exact index and name for foreground visibility
   activeRunState = {
     runId,
     status: 'Running',
     totalSources: targets.length,
     completedSourcesCount: 0,
     remainingSourcesCount: targets.length,
-    currentSourceIndex: 0,
+    currentSourceIndex: 1,
+    currentSourceId: targets[0]?.id,
+    currentSourceName: targets[0]?.name || 'Initializing...',
     jobsFound: 0,
     newJobsCount: 0,
     duplicatesCount: 0,
     pendingCount: 0,
     publishedCount: 0,
     failedSourcesCount: 0,
+    isSchedulerRun: Boolean(options.isSchedulerRun),
     startTime: startTime.toISOString(),
     lastUpdatedTime: new Date().toISOString(),
     options,

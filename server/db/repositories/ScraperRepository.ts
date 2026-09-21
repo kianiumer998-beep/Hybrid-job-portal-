@@ -27,17 +27,22 @@ export async function withMongoRetry<T>(
         const delay = Math.min(maxDelayMs, initialDelayMs * Math.pow(2, attempt - 1));
 
         if (isBrokenClientError(err)) {
-          console.warn(`[Mongo Retry] Broken MongoClient or topology error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Initiating centralized recovery and retrying in ${delay}ms...`);
+          console.log(`[Mongo Retry] Broken MongoClient or topology error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Initiating centralized recovery and retrying in ${delay}ms...`);
           try {
             await recoverMongoClient(err);
           } catch (recoverErr: any) {
-            console.warn(`[Mongo Retry] Centralized MongoClient recovery attempt failed: ${recoverErr?.message || recoverErr}`);
+            console.log(`[Mongo Retry] Centralized MongoClient recovery attempt failed: ${recoverErr?.message || recoverErr}`);
           }
         } else {
-          // Normal transient network / server-selection / query timeout error:
-          // Official MongoDB driver connection pool and SDAM automatically handle reconnecting sockets.
-          // Do NOT destroy and recreate the MongoClient!
-          console.warn(`[Mongo Retry] Transient database error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Retrying via driver pool in ${delay}ms...`);
+          // If transient errors persist beyond attempt 1, proactively trigger recovery to renew connection pool
+          if (attempt >= 2) {
+            try {
+              await recoverMongoClient(err);
+            } catch {
+              // Ignore recovery errors, will retry via driver
+            }
+          }
+          console.log(`[Mongo Retry] Transient database error encountered (attempt ${attempt}/${retries}): ${err?.message || err}. Retrying via driver pool in ${delay}ms...`);
         }
 
         await new Promise(r => setTimeout(r, delay));
@@ -223,22 +228,58 @@ export class ScraperRepository {
 
   /**
    * Persists all scraper source configurations directly to MongoDB scraper_sources collection.
+   * Uses batched bulkWrite to avoid serial roundtrip network timeouts.
    */
   static async saveConfigs(configs: any[]): Promise<void> {
-    if (!Array.isArray(configs)) return;
+    if (!Array.isArray(configs) || configs.length === 0) return;
 
     if (isMongoConfigured()) {
       await withMongoRetry(async () => {
         const coll = await getScraperSourcesCollection();
-        for (const cfg of configs) {
-          if (!cfg || !cfg.id) continue;
-          const { _id, ...clean } = cfg;
-          await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
+        const bulkOps = configs
+          .filter(cfg => cfg && cfg.id)
+          .map(cfg => {
+            const { _id, ...clean } = cfg;
+            return {
+              replaceOne: {
+                filter: { id: clean.id },
+                replacement: clean,
+                upsert: true
+              }
+            };
+          });
+
+        if (bulkOps.length > 0) {
+          const CHUNK_SIZE = 100;
+          for (let i = 0; i < bulkOps.length; i += CHUNK_SIZE) {
+            const chunk = bulkOps.slice(i, i + CHUNK_SIZE);
+            await coll.bulkWrite(chunk, { ordered: false });
+          }
         }
       });
     }
 
     this.cachedSources = configs;
+  }
+
+  /**
+   * Saves a single scraper source configuration to MongoDB.
+   */
+  static async saveConfig(cfg: any): Promise<void> {
+    if (!cfg || !cfg.id) return;
+    if (isMongoConfigured()) {
+      await withMongoRetry(async () => {
+        const coll = await getScraperSourcesCollection();
+        const { _id, ...clean } = cfg;
+        await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
+      });
+    }
+    const idx = this.cachedSources.findIndex(s => s.id === cfg.id);
+    if (idx !== -1) {
+      this.cachedSources[idx] = cfg;
+    } else {
+      this.cachedSources.push(cfg);
+    }
   }
 
   /**

@@ -114,11 +114,14 @@ export function isMongoConfigured(): boolean {
 async function createFreshMongoClient(): Promise<MongoClient> {
   const uri = getMongoUri();
   const client = new MongoClient(uri, {
-    maxPoolSize: 20,
+    maxPoolSize: 25,
     minPoolSize: 2,
-    serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 10000,
+    serverSelectionTimeoutMS: 15000,
+    connectTimeoutMS: 15000,
     socketTimeoutMS: 45000,
+    maxIdleTimeMS: 45000,
+    retryWrites: true,
+    retryReads: true,
   });
 
   try {
@@ -188,11 +191,14 @@ export async function recoverMongoClient(reason?: any): Promise<MongoClient> {
     try {
       const uri = getMongoUri();
       newClient = new MongoClient(uri, {
-        maxPoolSize: 20,
+        maxPoolSize: 25,
         minPoolSize: 2,
-        serverSelectionTimeoutMS: 10000,
-        connectTimeoutMS: 10000,
+        serverSelectionTimeoutMS: 15000,
+        connectTimeoutMS: 15000,
         socketTimeoutMS: 45000,
+        maxIdleTimeMS: 45000,
+        retryWrites: true,
+        retryReads: true,
       });
 
       const connectedClient = await newClient.connect();

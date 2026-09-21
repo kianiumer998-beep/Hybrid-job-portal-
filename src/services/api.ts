@@ -301,20 +301,6 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify({ jobIds, locationData })
       });
-    },
-    async bulkMarkNonJob(ids: string[], reason?: string) {
-      return safeFetchJson(`${API_BASE}/jobs/bulk-mark-non-job`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ ids, reason })
-      });
-    },
-    async convertToJob(id: string) {
-      return safeFetchJson(`${API_BASE}/jobs/convert-to-job`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ id })
-      });
     }
   },
 
@@ -505,18 +491,6 @@ export const api = {
     },
     async triggerSchedulerTick() {
       return safeFetchJson(`${API_BASE}/scraper/scheduler-tick`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async startScheduler() {
-      return safeFetchJson(`${API_BASE}/scraper/scheduler-start`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async stopScheduler() {
-      return safeFetchJson(`${API_BASE}/scraper/scheduler-stop`, {
         method: 'POST',
         headers: getAuthHeader()
       });
@@ -844,32 +818,14 @@ export const api = {
         headers: getAuthHeader()
       });
     },
-    async recordClick(id: string, idempotencyKey?: string) {
+    async recordClick(id: string) {
       try {
-        const key = idempotencyKey || `click-${id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        await fetch(`${API_BASE}/ads/${id}/click`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeader(),
-            'x-idempotency-key': key
-          },
-          body: JSON.stringify({ idempotencyKey: key })
-        });
+        await fetch(`${API_BASE}/ads/${id}/click`, { method: 'POST' });
       } catch {}
     },
-    async recordImpression(id: string, idempotencyKey?: string) {
+    async recordImpression(id: string) {
       try {
-        const key = idempotencyKey || `imp-${id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        await fetch(`${API_BASE}/ads/${id}/impression`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeader(),
-            'x-idempotency-key': key
-          },
-          body: JSON.stringify({ idempotencyKey: key })
-        });
+        await fetch(`${API_BASE}/ads/${id}/impression`, { method: 'POST' });
       } catch {}
     }
   },
@@ -924,28 +880,6 @@ export const api = {
     },
     async updateWhatsApp(config: any) {
       return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/whatsapp`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    },
-    async getSeo() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/seo`);
-    },
-    async updateSeo(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/seo`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    },
-    async getCommunication() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/communication`, {
-        headers: getAuthHeader()
-      });
-    },
-    async updateCommunication(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/communication`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(config)

@@ -271,17 +271,9 @@ export class NotificationRepository {
   /**
    * Marks all notifications as Read for a user.
    */
-  static async markAllRead(
-    userId: string,
-    userDetails?: { role?: string; plan?: string; membershipStatus?: string }
-  ): Promise<boolean> {
+  static async markAllRead(userId: string): Promise<boolean> {
     assertMongoAvailable();
-    const notifs = await this.getForUser({
-      userId,
-      role: userDetails?.role,
-      plan: userDetails?.plan,
-      membershipStatus: userDetails?.membershipStatus
-    });
+    const notifs = await this.getForUser({ userId });
     for (const notif of notifs) {
       await this.markRead(userId, notif.id);
     }

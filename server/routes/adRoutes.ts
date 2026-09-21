@@ -74,13 +74,10 @@ adRouter.delete('/:id', requireAdmin, async (req, res) => {
 });
 
 // 5. Track Click (Server-authoritative CPC billing against advertiser wallet)
-adRouter.post('/:id/click', authMiddleware, async (req: any, res) => {
+adRouter.post('/:id/click', async (req, res) => {
   try {
     const idempotencyKey = req.body?.idempotencyKey || (req.headers['x-idempotency-key'] as string);
-    const updated = await AdRepository.trackClickAsync(req.params.id, {
-      idempotencyKey,
-      authUser: req.user
-    });
+    const updated = await AdRepository.trackClickAsync(req.params.id, { idempotencyKey });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Ad campaign not found' });
     }
@@ -91,13 +88,10 @@ adRouter.post('/:id/click', authMiddleware, async (req: any, res) => {
 });
 
 // 6. Track Impression (Server-authoritative CPM billing against advertiser wallet)
-adRouter.post('/:id/impression', authMiddleware, async (req: any, res) => {
+adRouter.post('/:id/impression', async (req, res) => {
   try {
     const idempotencyKey = req.body?.idempotencyKey || (req.headers['x-idempotency-key'] as string);
-    const updated = await AdRepository.trackImpressionAsync(req.params.id, {
-      idempotencyKey,
-      authUser: req.user
-    });
+    const updated = await AdRepository.trackImpressionAsync(req.params.id, { idempotencyKey });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Ad campaign not found' });
     }

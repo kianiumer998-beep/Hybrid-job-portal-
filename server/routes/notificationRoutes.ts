@@ -4,51 +4,14 @@ import { NotificationRepository, AuditRepository } from '../db/repositories';
 
 export const notificationRouter = Router();
 
-const ADMIN_ROLES = [
-  'Super Admin',
-  'Admin',
-  'Job Moderator',
-  'Scraper Manager',
-  'Payment Manager',
-  'Finance Manager',
-  'SEO Manager',
-  'Advertisement Manager'
-];
-
-function isUserAdmin(user: any): boolean {
-  return Boolean(user && ADMIN_ROLES.includes(user.role));
-}
-
 // 1. Get active notifications for current user or visitor
 notificationRouter.get('/', authenticateOptionalUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const isAdmin = isUserAdmin(user);
-
-    let userId: string | undefined;
-    let role: string | undefined;
-    let plan: string | undefined;
-    let membershipStatus: string | undefined;
-
-    if (isAdmin) {
-      // Admins may retain administrative targeting simulation capability
-      userId = (req.query.userId as string) || user.userId || user.id;
-      role = (req.query.role as string) || user.role;
-      plan = (req.query.plan as string) || user.plan;
-      membershipStatus = (req.query.membershipStatus as string) || user.membershipStatus;
-    } else if (user) {
-      // Normal authenticated user: ALWAYS derive strictly from authenticated session/JWT
-      userId = user.userId || user.id;
-      role = user.role;
-      plan = user.plan;
-      membershipStatus = user.membershipStatus;
-    } else {
-      // Unauthenticated visitor: Only receive public broadcasts, ignore all spoofed query parameters
-      userId = undefined;
-      role = undefined;
-      plan = undefined;
-      membershipStatus = undefined;
-    }
+    const userId = req.query.userId as string || user?.id;
+    const role = req.query.role as string || user?.role;
+    const plan = req.query.plan as string || user?.plan;
+    const membershipStatus = req.query.membershipStatus as string || user?.membershipStatus;
 
     const notifs = await NotificationRepository.getForUser({
       userId,
@@ -170,22 +133,9 @@ notificationRouter.delete('/admin/:id', requireAdmin, async (req, res) => {
 notificationRouter.post('/:id/read', authenticateUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = user?.userId || user?.id;
+    const userId = user?.id || user?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required to mark read.' });
-    }
-
-    // Verify notification existence and ownership/targeting
-    const notif = await NotificationRepository.getById(req.params.id);
-    if (!notif) {
-      return res.status(404).json({ success: false, message: 'Notification not found.' });
-    }
-
-    const isAdmin = isUserAdmin(user);
-    if (!isAdmin && notif.targetAudience === 'specific_users') {
-      if (!Array.isArray(notif.targetUserIds) || !notif.targetUserIds.includes(userId)) {
-        return res.status(403).json({ success: false, message: 'Access denied: You are not authorized for this notification.' });
-      }
     }
 
     await NotificationRepository.markRead(userId, req.params.id);
@@ -200,16 +150,12 @@ notificationRouter.post('/:id/read', authenticateUser, async (req, res) => {
 notificationRouter.post('/read-all', authenticateUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = user?.userId || user?.id;
+    const userId = user?.id || user?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required to mark all read.' });
     }
 
-    await NotificationRepository.markAllRead(userId, {
-      role: user.role,
-      plan: user.plan,
-      membershipStatus: user.membershipStatus
-    });
+    await NotificationRepository.markAllRead(userId);
     res.json({ success: true, message: 'All notifications marked as read.' });
   } catch (err: any) {
     console.error('Error in POST /api/notifications/read-all:', err);
@@ -221,22 +167,9 @@ notificationRouter.post('/read-all', authenticateUser, async (req, res) => {
 notificationRouter.post('/:id/dismiss', authenticateUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = user?.userId || user?.id;
+    const userId = user?.id || user?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required to dismiss.' });
-    }
-
-    // Verify notification existence and ownership/targeting
-    const notif = await NotificationRepository.getById(req.params.id);
-    if (!notif) {
-      return res.status(404).json({ success: false, message: 'Notification not found.' });
-    }
-
-    const isAdmin = isUserAdmin(user);
-    if (!isAdmin && notif.targetAudience === 'specific_users') {
-      if (!Array.isArray(notif.targetUserIds) || !notif.targetUserIds.includes(userId)) {
-        return res.status(403).json({ success: false, message: 'Access denied: You are not authorized for this notification.' });
-      }
     }
 
     const result = await NotificationRepository.dismiss(userId, req.params.id);
@@ -254,28 +187,15 @@ notificationRouter.post('/:id/dismiss', authenticateUser, async (req, res) => {
 notificationRouter.post('/:id/complete-mandatory', authenticateUser, async (req, res) => {
   try {
     const user = (req as any).user;
-    const userId = user?.userId || user?.id;
+    const userId = user?.id || user?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required to complete mandatory actions.' });
-    }
-
-    // Verify notification existence and ownership/targeting
-    const notif = await NotificationRepository.getById(req.params.id);
-    if (!notif) {
-      return res.status(404).json({ success: false, message: 'Notification not found.' });
-    }
-
-    const isAdmin = isUserAdmin(user);
-    if (!isAdmin && notif.targetAudience === 'specific_users') {
-      if (!Array.isArray(notif.targetUserIds) || !notif.targetUserIds.includes(userId)) {
-        return res.status(403).json({ success: false, message: 'Access denied: You are not authorized for this notification.' });
-      }
     }
 
     const result = await NotificationRepository.completeMandatoryAction(
       userId,
       req.params.id,
-      req.body?.metadata
+      req.body.metadata
     );
 
     AuditRepository.add({
@@ -332,25 +252,10 @@ notificationRouter.post('/admin/:id/override-mandatory', requireAdmin, async (re
 });
 
 // 11. Check user restriction status
-notificationRouter.get('/user/:userId/restrictions', authenticateUser, async (req, res) => {
+notificationRouter.get('/user/:userId/restrictions', async (req, res) => {
   try {
-    const user = (req as any).user;
-    const targetUserId = req.params.userId;
-    const isAdmin = isUserAdmin(user);
-    const currentUserId = user?.userId || user?.id;
-
-    // Normal users can only inspect their own restriction status; admins may inspect any user
-    if (!isAdmin && currentUserId !== targetUserId) {
-      return res.status(403).json({
-        success: false,
-        restricted: false,
-        message: 'Access denied: You can only check your own restriction status.'
-      });
-    }
-
-    const effectiveUserId = isAdmin ? targetUserId : currentUserId;
     const action = (req.query.action as string) || 'post_job';
-    const check = await NotificationRepository.checkUserRestricted(effectiveUserId, action);
+    const check = await NotificationRepository.checkUserRestricted(req.params.userId, action);
     res.json({
       success: true,
       ...check
@@ -360,4 +265,3 @@ notificationRouter.get('/user/:userId/restrictions', authenticateUser, async (re
     res.status(500).json({ success: false, message: err.message || 'Error checking restrictions' });
   }
 });
-

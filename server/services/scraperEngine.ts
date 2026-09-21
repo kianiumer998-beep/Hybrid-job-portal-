@@ -14,7 +14,6 @@ export interface ScraperRunOptions {
   fromTimestamp?: string;
   toTimestamp?: string;
   autoPublishTrusted?: boolean;
-  isSchedulerRun?: boolean;
 }
 
 export interface ActiveScraperRunState {
@@ -105,7 +104,6 @@ let activeRunState: ActiveScraperRunState & {
 
 let activeRunCancelRequested = false;
 let activeRunPauseRequested = false;
-let isSchedulerSourceActive = false;
 
 export function getActiveRunStatus(): any {
   const isPaused = activeRunState.status === 'Paused' || activeRunPauseRequested;
@@ -228,42 +226,18 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
-  // Concurrency guard: Prevent overlapping manual & scheduler scraper executions
-  if (options.isSchedulerRun) {
-    if (activeRunState.status === 'Running' || activeRunState.status === 'Paused') {
-      const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
-      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-      if (isStale) {
-        console.warn(`[Scraper Engine] Previous manual run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state.`);
-        activeRunState.status = 'Completed';
-        activeRunState.isStopped = true;
-        activeRunCancelRequested = false;
-        activeRunPauseRequested = false;
-      } else {
-        throw new Error('A manual scraper run is currently in progress. Deferring scheduled source execution.');
-      }
-    }
-    if (isSchedulerSourceActive) {
-      throw new Error('A scheduled scraper source is already executing.');
-    }
-    isSchedulerSourceActive = true;
-  } else {
-    if (isSchedulerSourceActive) {
-      throw new Error('A background scheduled scraper source is currently executing. Please try again in a few seconds.');
-    }
-    // Prevent concurrent manual scraper runs (with automatic watchdog recovery for stale runs)
-    if (activeRunState.status === 'Running') {
-      const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
-      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-      if (isStale) {
-        console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
-        activeRunState.status = 'Completed';
-        activeRunState.isStopped = true;
-        activeRunCancelRequested = false;
-        activeRunPauseRequested = false;
-      } else {
-        throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
-      }
+  // Prevent concurrent scraper runs (with automatic watchdog recovery for stale runs)
+  if (activeRunState.status === 'Running') {
+    const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
+    const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
+    if (isStale) {
+      console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
+      activeRunState.status = 'Completed';
+      activeRunState.isStopped = true;
+      activeRunCancelRequested = false;
+      activeRunPauseRequested = false;
+    } else {
+      throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
     }
   }
 
@@ -271,10 +245,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const timestampStr = startTime.toISOString().replace('T', ' ').substring(0, 19);
   const runId = `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-  if (!options.isSchedulerRun) {
-    activeRunCancelRequested = false;
-    activeRunPauseRequested = false;
-  }
+  activeRunCancelRequested = false;
+  activeRunPauseRequested = false;
 
   const allSources = await ScraperRepository.getConfigs();
   let targets: ScraperTargetConfig[] = [];
@@ -309,27 +281,25 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
   }
 
-  // Initialize live tracking state for manual/wizard runs
-  if (!options.isSchedulerRun) {
-    activeRunState = {
-      runId,
-      status: 'Running',
-      totalSources: targets.length,
-      completedSourcesCount: 0,
-      remainingSourcesCount: targets.length,
-      currentSourceIndex: 0,
-      jobsFound: 0,
-      newJobsCount: 0,
-      duplicatesCount: 0,
-      pendingCount: 0,
-      publishedCount: 0,
-      failedSourcesCount: 0,
-      startTime: startTime.toISOString(),
-      lastUpdatedTime: new Date().toISOString(),
-      options,
-      remainingTargets: [...targets]
-    };
-  }
+  // Initialize live tracking state
+  activeRunState = {
+    runId,
+    status: 'Running',
+    totalSources: targets.length,
+    completedSourcesCount: 0,
+    remainingSourcesCount: targets.length,
+    currentSourceIndex: 0,
+    jobsFound: 0,
+    newJobsCount: 0,
+    duplicatesCount: 0,
+    pendingCount: 0,
+    publishedCount: 0,
+    failedSourcesCount: 0,
+    startTime: startTime.toISOString(),
+    lastUpdatedTime: new Date().toISOString(),
+    options,
+    remainingTargets: [...targets]
+  };
 
   try {
     const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
@@ -790,12 +760,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       if (isTimeout) {
         classifiedHealth = 'Timeout';
         humanReadableError = 'Source execution timed out after 45 seconds';
-      } else if (httpStatus === 429 || errLower.includes('429') || errLower.includes('too many requests') || errLower.includes('rate limit')) {
-        classifiedHealth = 'Rate Limited';
-        if (!httpStatus) httpStatus = 429;
-        humanReadableError = err?.retryAfter
-          ? `Target portal rate limited requests (HTTP 429, Retry-After: ${err.retryAfter})`
-          : 'Target portal rate limited requests (HTTP 429)';
       } else if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
         classifiedHealth = '404';
         if (!httpStatus) httpStatus = 404;
@@ -928,12 +892,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   activeRunState.lastUpdatedTime = new Date().toISOString();
   throw runErr;
 } finally {
-  if (options.isSchedulerRun) {
-    isSchedulerSourceActive = false;
-  } else {
-    if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
-      activeRunState.status = 'Completed';
-    }
+  if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
+    activeRunState.status = 'Completed';
   }
   activeRunState.lastUpdatedTime = new Date().toISOString();
 }

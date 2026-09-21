@@ -20,7 +20,6 @@ import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
 
 import { TopBannerAd } from './components/ads/TopBannerAd';
-import { TopPageNotificationBanner } from './components/notifications/TopPageNotificationBanner';
 import { PopupAdModal } from './components/ads/PopupAdModal';
 import { ToastNotificationAd } from './components/ads/ToastNotificationAd';
 import { AdNotificationDrawer } from './components/ads/AdNotificationDrawer';
@@ -60,7 +59,6 @@ import { NotificationCenterModal } from './components/notifications/Notification
 import { NotificationPopupModal } from './components/notifications/NotificationPopupModal';
 import { MandatoryActionModal } from './components/notifications/MandatoryActionModal';
 import { NotificationItem } from './types/notification';
-import { isScrapedJob, deriveJobSourceType } from './utils/jobValidation';
 
 export default function App() {
   // Navigation & View State
@@ -632,15 +630,6 @@ export default function App() {
         }));
       }
     }).catch(() => {});
-
-    api.settings.getSeo().then(res => {
-      if (res?.success && res.config) {
-        setSiteSeoConfig(prev => ({
-          ...prev,
-          ...res.config
-        }));
-      }
-    }).catch(() => {});
   }, [loadBackendJobs]);
 
   // Validate existing admin authentication / session on app startup & restore admin view if valid
@@ -838,16 +827,6 @@ export default function App() {
       await api.settings.updateWhatsApp(newConfig);
     } catch (e) {
       console.error('[App] Failed to sync WhatsApp config to MongoDB:', e);
-    }
-  };
-
-  const handleUpdateSeoConfig = async (newConfig: SiteSeoConfig) => {
-    setSiteSeoConfig(newConfig);
-    try {
-      localStorage.setItem('career_pak_seo_config', JSON.stringify(newConfig));
-      await api.settings.updateSeo(newConfig);
-    } catch (e) {
-      console.error('[App] Failed to sync SEO config to MongoDB:', e);
     }
   };
 
@@ -1518,11 +1497,8 @@ export default function App() {
       await api.jobs.rejectPending(jobId, reason);
       await loadBackendJobs();
 
-      // Push notification message into user's chat thread ONLY for genuine user_posted listings
-      const isScraped = rejectedJob ? isScrapedJob(rejectedJob) : false;
-      const sourceType = rejectedJob ? deriveJobSourceType(rejectedJob) : 'unknown';
-
-      if (rejectedJob && !isScraped && sourceType === 'user_posted' && rejectedJob.submittedByUserId) {
+      // Push notification message into user's chat thread
+      if (rejectedJob && rejectedJob.submittedByUserId) {
         const chatMsg: ChatMessage = {
           id: 'msg-' + Date.now(),
           userId: rejectedJob.submittedByUserId,
@@ -1532,8 +1508,9 @@ export default function App() {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
         setChatMessages(prev => [...prev, chatMsg]);
-        alert(`Job rejected. Reason notification sent to user chat.`);
       }
+
+      alert(`Job rejected. Reason notification sent to user chat.`);
     } catch (err) {
       console.error('Error rejecting job on backend:', err);
       await loadBackendJobs();
@@ -2008,13 +1985,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Top Header Page Notification Banner (when channels.pageBanner === true) */}
-      <TopPageNotificationBanner
-        notifications={userNotifications}
-        onDismiss={handleMarkNotificationRead}
-        onNavigateTab={setActiveTab}
-      />
-
       {/* Top Header Sticky Announcement / Banner Ad */}
       <TopBannerAd
         ads={advertisements}
@@ -2123,8 +2093,6 @@ export default function App() {
             onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
             onUpdateWhatsAppConfig={handleUpdateWhatsAppConfig}
-            siteSeoConfig={siteSeoConfig}
-            onUpdateSeoConfig={handleUpdateSeoConfig}
             campaignConfig={campaignConfig}
             onUpdateCampaignConfig={handleUpdateCampaignConfig}
             paymentTransactions={paymentTransactions}

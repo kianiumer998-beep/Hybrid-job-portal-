@@ -14,7 +14,7 @@ import { ScraperRepository, AuditRepository, JobRepository } from '../db/reposit
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
 import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
-import { getSchedulerStatus, runSchedulerTick, startScraperScheduler, stopScraperScheduler } from '../services/scraperScheduler';
+import { getSchedulerStatus, runSchedulerTick } from '../services/scraperScheduler';
 import { Job } from '../../src/types/job';
 
 export const scraperRouter = Router();
@@ -63,48 +63,6 @@ scraperRouter.post('/scheduler-tick', requireAdmin, async (req, res) => {
     res.json({ success: true, ...tickResult });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Error executing scheduler tick' });
-  }
-});
-
-// 4b. Start Scheduler (Admin Only)
-scraperRouter.post('/scheduler-start', requireAdmin, async (req, res) => {
-  try {
-    startScraperScheduler();
-    const status = await getSchedulerStatus();
-    res.json({ success: true, message: 'Scraper scheduler started successfully.', status });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || 'Error starting scheduler' });
-  }
-});
-
-scraperRouter.post('/scheduler/start', requireAdmin, async (req, res) => {
-  try {
-    startScraperScheduler();
-    const status = await getSchedulerStatus();
-    res.json({ success: true, message: 'Scraper scheduler started successfully.', status });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || 'Error starting scheduler' });
-  }
-});
-
-// 4c. Stop Scheduler (Admin Only)
-scraperRouter.post('/scheduler-stop', requireAdmin, async (req, res) => {
-  try {
-    stopScraperScheduler();
-    const status = await getSchedulerStatus();
-    res.json({ success: true, message: 'Scraper scheduler stopped successfully.', status });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || 'Error stopping scheduler' });
-  }
-});
-
-scraperRouter.post('/scheduler/stop', requireAdmin, async (req, res) => {
-  try {
-    stopScraperScheduler();
-    const status = await getSchedulerStatus();
-    res.json({ success: true, message: 'Scraper scheduler stopped successfully.', status });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || 'Error stopping scheduler' });
   }
 });
 

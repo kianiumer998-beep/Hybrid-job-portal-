@@ -200,8 +200,6 @@ interface AdminDashboardProps {
   onUpdateLandingConfig?: (config: LandingPageConfig) => void;
   whatsAppSupportConfig?: WhatsAppSupportConfig;
   onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => void;
-  siteSeoConfig?: SiteSeoConfig;
-  onUpdateSeoConfig?: (config: SiteSeoConfig) => void;
   paymentTransactions?: PaymentTransaction[];
   onApprovePaymentTransaction?: (transactionId: string, note?: string) => void;
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => void;
@@ -271,8 +269,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateLandingConfig,
   whatsAppSupportConfig,
   onUpdateWhatsAppConfig,
-  siteSeoConfig: propSiteSeoConfig,
-  onUpdateSeoConfig,
   paymentTransactions,
   onApprovePaymentTransaction,
   onRejectPaymentTransaction
@@ -359,30 +355,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return INITIAL_KYC_REQUESTS;
   });
 
-  const effectiveSeoConfig = propSiteSeoConfig || siteSeoConfig;
-
-  const handleUpdateSeoConfig = (newCfg: SiteSeoConfig) => {
-    setSiteSeoConfig(newCfg);
-    if (onUpdateSeoConfig) {
-      onUpdateSeoConfig(newCfg);
-    } else {
-      api.settings.updateSeo(newCfg).catch(err => console.error('[AdminDashboard] Failed to save SEO config:', err));
-    }
-  };
-
-  // Load backend Communication provider credentials on mount
   useEffect(() => {
-    api.settings.getCommunication().then(res => {
-      if (res?.success && res.config) {
-        setCommConfig(prev => ({ ...prev, ...res.config }));
-      }
-    }).catch(() => {});
-  }, []);
-
-  const handleUpdateCommConfig = (newCfg: CommunicationProviderConfig) => {
-    setCommConfig(newCfg);
-    api.settings.updateCommunication(newCfg).catch(err => console.error('[AdminDashboard] Failed to save Comm config:', err));
-  };
+    try {
+      localStorage.setItem('career_pak_seo_config', JSON.stringify(siteSeoConfig));
+    } catch (e) {}
+  }, [siteSeoConfig]);
 
   useEffect(() => {
     try {
@@ -2553,8 +2530,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: GLOBAL SEO, METADATA & ANNOUNCEMENT ENGINE */}
       {adminTab === 'seo-config' && (
         <AdminSeoSettings
-          seoConfig={effectiveSeoConfig}
-          onUpdateSeoConfig={handleUpdateSeoConfig}
+          seoConfig={siteSeoConfig}
+          onUpdateSeoConfig={setSiteSeoConfig}
         />
       )}
 
@@ -2574,7 +2551,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           subscribers={subscribers}
           commConfig={commConfig}
           onSendCampaign={(newCamp) => setBroadcastCampaigns(prev => [newCamp, ...prev])}
-          onUpdateCommConfig={handleUpdateCommConfig}
+          onUpdateCommConfig={setCommConfig}
         />
       )}
 
@@ -2736,15 +2713,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const handleBulkDelete = () => {
           if (selectedPendingIds.length === 0) return;
           if (confirm(`Permanently delete ${selectedPendingIds.length} selected pending postings from queue?`)) {
-            if (onBulkDeleteJobs) {
-              onBulkDeleteJobs(selectedPendingIds);
-            } else if (onBulkRejectPendingJobs) {
-              onBulkRejectPendingJobs(selectedPendingIds, 'Admin deleted from queue');
-            } else {
-              selectedPendingIds.forEach(id => {
-                if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
-              });
-            }
+            selectedPendingIds.forEach(id => {
+              if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
+            });
             setSelectedPendingIds([]);
           }
         };

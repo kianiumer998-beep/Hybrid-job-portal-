@@ -658,5 +658,19 @@ export class ScraperRepository {
     }
     return false;
   }
+
+  /**
+   * Pings the database to verify if MongoDB connectivity is healthy.
+   */
+  static async isHealthy(): Promise<boolean> {
+    if (!isMongoConfigured()) return false;
+    try {
+      const db = await getMongoDb();
+      await db.command({ ping: 1 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 

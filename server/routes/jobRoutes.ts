@@ -5,6 +5,7 @@ import { requireAdmin } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
 import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType } from '../services/jobValidation';
 import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
+import { isMongoConfigured } from '../db/mongodb';
 
 export const jobRouter = Router();
 
@@ -59,18 +60,27 @@ jobRouter.get('/', async (req, res) => {
 jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
+    if (!isMongoConfigured()) {
+      return res.status(503).json({
+        success: false,
+        errorType: 'DatabaseUnavailable',
+        message: 'MongoDB is unavailable or not configured. Cannot obtain pending queue data.'
+      });
+    }
+
     const pending = await withMongoRetry(() => JobRepository.getPending());
     return res.status(200).json({ success: true, pendingJobs: pending, jobs: pending });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);
-    if (isTransientMongoError(err)) {
-      return res.status(503).json({
-        success: false,
-        errorType: 'TransientDatabaseError',
-        message: 'The database is temporarily busy or undergoing a transient network timeout. Please refresh in a few moments.'
-      });
-    }
-    return res.status(500).json({ success: false, message: err.message || 'Error fetching pending jobs' });
+    const isTransient = isTransientMongoError(err) ||
+      String(err?.message || '').toLowerCase().includes('mongo') ||
+      String(err?.name || '').toLowerCase().includes('mongo');
+    const statusCode = isTransient ? 503 : 500;
+    return res.status(statusCode).json({
+      success: false,
+      errorType: isTransient ? 'TransientDatabaseError' : 'DatabaseError',
+      message: err?.message || 'Error fetching pending jobs from database'
+    });
   }
 });
 

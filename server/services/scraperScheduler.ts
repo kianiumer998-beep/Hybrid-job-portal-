@@ -4,7 +4,7 @@ import { JobRepository } from '../db/repositories/JobRepository';
 import { executeScraperWithWizard, getActiveRunStatus, stopActiveRun } from './scraperEngine';
 import { featureFlags } from '../config/featureFlags';
 
-export type SchedulerBatchStatus = 'Idle' | 'Running' | 'Stopping' | 'Stopped' | 'Completed';
+export type SchedulerBatchStatus = 'Idle' | 'Running' | 'Stopping' | 'Stopped' | 'Completed' | 'Paused';
 
 export interface SchedulerSourceStatus {
   sourceId: string;
@@ -28,6 +28,7 @@ export interface SchedulerStatusResponse {
 
   // Batch status fields
   batchStatus: SchedulerBatchStatus;
+  batchPauseReason?: string | null;
   batchRunId: string | null;
   batchTotal: number;
   batchCompleted: number;
@@ -35,6 +36,7 @@ export interface SchedulerStatusResponse {
   batchCurrentSourceId: string | null;
   batchCurrentSourceName: string | null;
   batchTriggeredSources: string[];
+  batchRemainingSources?: string[];
   batchStartedAt: string | null;
   batchLastUpdatedAt: string | null;
 
@@ -54,16 +56,19 @@ let scheduledTask: ReturnType<typeof cron.schedule> | null = null;
 let isSchedulerEnabled = true;
 let isTickExecuting = false;
 let lastTickTime: string = 'Never';
+let mongoPauseBackoffUntil: number = 0;
 
 interface SchedulerBatchState {
   batchRunId: string | null;
   batchStatus: SchedulerBatchStatus;
+  batchPauseReason: string | null;
   batchTotal: number;
   batchCompleted: number;
   batchCurrentIndex: number;
   batchCurrentSourceId: string | null;
   batchCurrentSourceName: string | null;
   batchTriggeredSources: string[];
+  batchRemainingSources: string[];
   batchStartedAt: string | null;
   batchLastUpdatedAt: string | null;
   cancelRequested: boolean;
@@ -73,12 +78,14 @@ interface SchedulerBatchState {
 let batchState: SchedulerBatchState = {
   batchRunId: null,
   batchStatus: 'Idle',
+  batchPauseReason: null,
   batchTotal: 0,
   batchCompleted: 0,
   batchCurrentIndex: 0,
   batchCurrentSourceId: null,
   batchCurrentSourceName: null,
   batchTriggeredSources: [],
+  batchRemainingSources: [],
   batchStartedAt: null,
   batchLastUpdatedAt: null,
   cancelRequested: false,
@@ -94,9 +101,11 @@ export function startScraperScheduler(): void {
   isSchedulerEnabled = true;
   batchState.cancelRequested = false;
   batchState.generationId++;
+  mongoPauseBackoffUntil = 0;
 
   if (batchState.batchStatus === 'Stopped' || batchState.batchStatus === 'Stopping') {
     batchState.batchStatus = 'Idle';
+    batchState.batchPauseReason = null;
     batchState.batchCurrentSourceId = null;
     batchState.batchCurrentSourceName = null;
   }
@@ -154,6 +163,33 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
   if (isTickExecuting || batchState.batchStatus === 'Running' || batchState.batchStatus === 'Stopping') {
     console.log('[Scheduler Engine] Scheduler batch currently running or tick executing. Skipping tick.');
     return { triggeredSources: [], summary: 'Scheduler tick deferred (batch run in progress)' };
+  }
+
+  if (batchState.batchStatus === 'Paused') {
+    const cooldownRemainingMs = mongoPauseBackoffUntil - Date.now();
+    if (cooldownRemainingMs > 0) {
+      console.log(`[Scheduler Engine] Scheduler batch is PAUSED (MongoDB unavailable). Cooldown active (${Math.ceil(cooldownRemainingMs / 1000)}s remaining). Deferring tick.`);
+      return { triggeredSources: [], summary: 'Scheduler batch paused: MongoDB unavailable. Deferring tick.' };
+    }
+
+    // Check if MongoDB has recovered before resuming
+    let isDbHealthy = false;
+    try {
+      isDbHealthy = await ScraperRepository.isHealthy();
+    } catch {
+      isDbHealthy = false;
+    }
+
+    if (!isDbHealthy) {
+      mongoPauseBackoffUntil = Date.now() + 5 * 60 * 1000;
+      console.warn('[Scheduler Engine] MongoDB remains unavailable. Extending pause deferral by 5 minutes.');
+      return { triggeredSources: [], summary: 'Scheduler batch remains paused: MongoDB unavailable.' };
+    }
+
+    console.log('[Scheduler Engine] MongoDB connection restored. Resuming scheduler batch processing.');
+    batchState.batchStatus = 'Idle';
+    batchState.batchPauseReason = null;
+    batchState.batchLastUpdatedAt = new Date().toISOString();
   }
 
   isTickExecuting = true;
@@ -256,12 +292,14 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       batchState = {
         batchRunId,
         batchStatus: 'Running',
+        batchPauseReason: null,
         batchTotal: dueSources.length,
         batchCompleted: 0,
         batchCurrentIndex: 0,
         batchCurrentSourceId: null,
         batchCurrentSourceName: null,
         batchTriggeredSources: dueSources.map(s => s.id),
+        batchRemainingSources: dueSources.map(s => s.id),
         batchStartedAt: new Date().toISOString(),
         batchLastUpdatedAt: new Date().toISOString(),
         cancelRequested: false,
@@ -350,11 +388,16 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         if (isPausedForMongo) {
           console.warn(`[Scheduler Engine] Deferring scheduler tick for source "${src.name}" and remaining batch sources due to MongoDB outage.`);
           if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
-            batchState.batchStatus = 'Idle';
-            batchState.batchCurrentSourceId = null;
-            batchState.batchCurrentSourceName = null;
+            batchState.batchStatus = 'Paused';
+            batchState.batchPauseReason = 'MongoDB unavailable';
+            batchState.batchCurrentIndex = i + 1;
+            batchState.batchCurrentSourceId = src.id;
+            batchState.batchCurrentSourceName = src.name;
+            batchState.batchTotal = dueSources.length;
+            batchState.batchRemainingSources = dueSources.slice(i).map(s => s.id);
             batchState.batchLastUpdatedAt = new Date().toISOString();
           }
+          mongoPauseBackoffUntil = Date.now() + 5 * 60 * 1000;
           break;
         }
 
@@ -430,7 +473,8 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       }
 
       if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen && batchState.batchStatus === 'Running') {
-        batchState.batchStatus = isPausedForMongo ? 'Idle' : 'Completed';
+        batchState.batchStatus = 'Completed';
+        batchState.batchPauseReason = null;
         batchState.batchCurrentSourceId = null;
         batchState.batchCurrentSourceName = null;
         batchState.batchLastUpdatedAt = new Date().toISOString();
@@ -491,6 +535,7 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
     lastTickTimestamp: lastTickTime,
 
     batchStatus: batchState.batchStatus,
+    batchPauseReason: batchState.batchPauseReason,
     batchRunId: batchState.batchRunId,
     batchTotal: batchState.batchTotal,
     batchCompleted: batchState.batchCompleted,
@@ -498,6 +543,7 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
     batchCurrentSourceId: batchState.batchCurrentSourceId,
     batchCurrentSourceName: batchState.batchCurrentSourceName,
     batchTriggeredSources: batchState.batchTriggeredSources,
+    batchRemainingSources: batchState.batchRemainingSources,
     batchStartedAt: batchState.batchStartedAt,
     batchLastUpdatedAt: batchState.batchLastUpdatedAt,
 

@@ -31,6 +31,8 @@ export function isTransientMongoError(err: any): boolean {
     errCode.includes('epipe') ||
     errMsg.includes('mongoclientclosederror') ||
     errMsg.includes('operation interrupted because client was closed') ||
+    errMsg.includes('operation interrupted') ||
+    errMsg.includes('interrupted') ||
     errMsg.includes('client was closed') ||
     errMsg.includes('poolclearedonnetworkerror') ||
     errMsg.includes('pool cleared') ||
@@ -42,6 +44,7 @@ export function isTransientMongoError(err: any): boolean {
     errMsg.includes('sockettimeout') ||
     errMsg.includes('serverselectiontimeout') ||
     errMsg.includes('monitor timeout') ||
+    errMsg.includes('server monitor timeout') ||
     errMsg.includes('heartbeat timeout') ||
     errMsg.includes('econnreset') ||
     errMsg.includes('econnrefused') ||

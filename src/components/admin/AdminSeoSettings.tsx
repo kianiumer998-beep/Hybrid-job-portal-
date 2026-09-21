@@ -231,7 +231,7 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
                   type="text"
                   value={config.twitterHandle}
                   onChange={(e) => setConfig({ ...config, twitterHandle: e.target.value })}
-                  placeholder="@OfficialTwitterHandle"
+                  placeholder="@CareerPakOfficial"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white"
                 />
               </div>

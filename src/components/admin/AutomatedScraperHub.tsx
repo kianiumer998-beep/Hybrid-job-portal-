@@ -618,10 +618,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     let timer: any = null;
     const pollActiveStatus = async () => {
       try {
-        const [res, schedRes] = await Promise.all([
-          api.scraper.getActiveStatus(),
-          api.scraper.getSchedulerStatus()
-        ]);
+        const res = await api.scraper.getActiveStatus();
         if (res?.success && res.status) {
           setActiveRunState(res.status);
           if (res.status.isActive) {
@@ -632,9 +629,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               fetchLiveScraperData();
             }
           }
-        }
-        if (schedRes?.success && schedRes.status) {
-          setSchedulerStatus(schedRes.status);
         }
       } catch (err) {}
     };
@@ -2420,36 +2414,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
           {/* Quick Real-Time Scheduler Status Badge */}
           <div className="flex items-center space-x-2">
-            <div className={`px-3.5 py-2 bg-slate-950 border rounded-xl text-xs flex items-center space-x-2.5 ${
-              schedulerStatus?.batchStatus === 'Paused'
-                ? 'border-amber-500/40 bg-amber-950/20'
-                : schedulerStatus?.batchStatus === 'Running'
-                ? 'border-indigo-500/40'
-                : 'border-slate-800'
-            }`}>
-              <span className={`w-2.5 h-2.5 rounded-full ${
-                schedulerStatus?.batchStatus === 'Paused'
-                  ? 'bg-amber-400'
-                  : schedulerStatus?.batchStatus === 'Running'
-                  ? 'bg-emerald-400 animate-pulse'
-                  : schedulerStatus?.isRunning
-                  ? 'bg-emerald-500'
-                  : 'bg-slate-500'
-              }`} />
+            <div className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs flex items-center space-x-2.5">
+              <span className={`w-2.5 h-2.5 rounded-full ${schedulerStatus?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500'}`} />
               <div>
-                <span className={`text-[10px] uppercase font-bold block leading-none ${
-                  schedulerStatus?.batchStatus === 'Paused' ? 'text-amber-400' : 'text-slate-400'
-                }`}>
-                  {schedulerStatus?.batchStatus === 'Paused'
-                    ? 'Status: PAUSED — MongoDB unavailable'
-                    : schedulerStatus?.batchStatus === 'Running'
-                    ? 'Background Scheduler: Running'
-                    : 'Background Scheduler'}
-                </span>
+                <span className="text-slate-400 text-[10px] uppercase font-bold block leading-none">Background Scheduler</span>
                 <span className="text-white font-bold text-xs mt-0.5 block">
-                  {schedulerStatus?.batchStatus === 'Running' || schedulerStatus?.batchStatus === 'Paused'
-                    ? `Progress: ${schedulerStatus?.batchCurrentIndex || 0} / ${schedulerStatus?.batchTotal || 0}${schedulerStatus?.batchCurrentSourceName ? ` • ${schedulerStatus.batchCurrentSourceName}` : ''}`
-                    : (schedulerStatus?.isRunning ? 'Active & Running' : 'Scheduled (Cron)')}
+                  {schedulerStatus?.isRunning ? 'Active & Running' : 'Scheduled (Cron)'}
                 </span>
               </div>
             </div>
@@ -2595,89 +2565,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
           </div>
-
-          {/* Active Background Scheduler Batch Progress Card */}
-          {(schedulerStatus?.batchStatus === 'Running' || schedulerStatus?.batchStatus === 'Paused') && (
-            <div className={`border rounded-2xl p-5 shadow-xl relative overflow-hidden ${
-              schedulerStatus.batchStatus === 'Paused'
-                ? 'bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border-amber-500/40'
-                : 'bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border-indigo-500/30'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-                <div className="flex items-center space-x-3">
-                  <div className={`p-2.5 rounded-xl border ${
-                    schedulerStatus.batchStatus === 'Paused'
-                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse'
-                  }`}>
-                    {schedulerStatus.batchStatus === 'Paused' ? (
-                      <Pause className="w-5 h-5" />
-                    ) : (
-                      <Activity className="w-5 h-5" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-2.5">
-                      <span className="text-xs uppercase font-black tracking-wider text-slate-400">
-                        Background Scheduler Pipeline
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                        schedulerStatus.batchStatus === 'Paused'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse'
-                      }`}>
-                        {schedulerStatus.batchStatus === 'Paused'
-                          ? 'Status: PAUSED — MongoDB unavailable'
-                          : 'Background Scheduler: Running'}
-                      </span>
-                    </div>
-                    <div className="text-white font-bold text-sm mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span>Progress: {schedulerStatus.batchCurrentIndex || 0} / {schedulerStatus.batchTotal || 0}</span>
-                      <span className="text-slate-500">•</span>
-                      <span className="text-indigo-300">
-                        Current Source: {schedulerStatus.batchCurrentSourceName || 'Waiting for source...'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {schedulerStatus.batchRunId && (
-                  <div className="px-3 py-1.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono text-slate-400 flex items-center space-x-1.5 self-start sm:self-auto">
-                    <span className="text-slate-500 uppercase text-[10px] font-bold">Batch ID:</span>
-                    <span className="text-slate-200 font-semibold">{schedulerStatus.batchRunId}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Progress Bar */}
-              <div className="space-y-1.5 mt-3">
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>Batch Source Execution</span>
-                  <span className="font-mono text-white font-bold">
-                    {schedulerStatus.batchTotal > 0
-                      ? Math.round(((schedulerStatus.batchCurrentIndex || 0) / schedulerStatus.batchTotal) * 100)
-                      : 0}%
-                  </span>
-                </div>
-                <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      schedulerStatus.batchStatus === 'Paused'
-                        ? 'bg-gradient-to-r from-amber-500 to-amber-300'
-                        : 'bg-gradient-to-r from-indigo-500 via-emerald-500 to-teal-400'
-                    }`}
-                    style={{
-                      width: `${
-                        schedulerStatus.batchTotal > 0
-                          ? ((schedulerStatus.batchCurrentIndex || 0) / schedulerStatus.batchTotal) * 100
-                          : 0
-                      }%`
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* 6 Core Metric Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -3720,73 +3607,35 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           </div>
 
           {/* Real-time Active Run Monitor & Control Bar */}
-          {((activeRunState && (activeRunState.isActive || activeRunState.status === 'Running' || activeRunState.status === 'Paused')) ||
-            schedulerStatus?.batchStatus === 'Running' || schedulerStatus?.batchStatus === 'Paused') && (() => {
-            const isSchedBatch = (schedulerStatus?.batchStatus === 'Running' || schedulerStatus?.batchStatus === 'Paused') &&
-              (!activeRunState || !activeRunState.isActive || (activeRunState.totalSources || 0) === 0);
-            
-            const isPaused = isSchedBatch
-              ? schedulerStatus?.batchStatus === 'Paused'
-              : activeRunState?.isPaused;
-            
-            const statusLabel = isSchedBatch
-              ? (schedulerStatus?.batchStatus === 'Paused' ? 'Status: PAUSED — MongoDB unavailable' : 'Background Scheduler: Running')
-              : (activeRunState?.isPaused ? 'PAUSED' : 'RUNNING');
-            
-            const currentSource = isSchedBatch
-              ? (schedulerStatus?.batchCurrentSourceName || 'Waiting for source...')
-              : (activeRunState?.currentSourceName || 'Waiting for source...');
-            
-            const currentIndex = isSchedBatch
-              ? (schedulerStatus?.batchCurrentIndex || 0)
-              : (activeRunState?.completedSources || 0);
-            
-            const totalCount = isSchedBatch
-              ? (schedulerStatus?.batchTotal || 0)
-              : (activeRunState?.totalSources || 0);
-            
-            const percent = totalCount > 0 ? Math.round((currentIndex / totalCount) * 100) : 0;
-            const batchId = isSchedBatch ? schedulerStatus?.batchRunId : (activeRunState?.runId || null);
-
-            return (
-            <div className={`border rounded-2xl p-5 space-y-4 shadow-xl ${
-              isPaused
-                ? 'bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border-amber-500/30'
-                : 'bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border-indigo-500/30'
-            }`}>
+          {activeRunState && (activeRunState.isActive || activeRunState.status === 'Running' || activeRunState.status === 'Paused') && (
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 space-y-4 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
                 <div className="flex items-center space-x-3">
                   <div className={`p-2 rounded-xl border ${
-                    isPaused
+                    activeRunState.isPaused
                       ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                       : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse'
                   }`}>
-                    {isPaused ? <Pause className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
+                    <Activity className="w-5 h-5" />
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-white flex items-center space-x-2">
-                      <span>{isSchedBatch ? 'Background Scheduler Activity' : 'Real-Time Scraper Engine Activity'}</span>
+                      <span>Real-Time Scraper Engine Activity</span>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        isPaused
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        activeRunState.isPaused
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-emerald-500/20 text-emerald-300'
                       }`}>
-                        {statusLabel}
+                        {activeRunState.isPaused ? 'PAUSED' : 'RUNNING'}
                       </span>
                     </h4>
                     <p className="text-xs text-slate-400">
-                      Processing source: <span className="text-indigo-300 font-semibold">{currentSource}</span> (Progress: {currentIndex} / {totalCount})
+                      Processing source: <span className="text-indigo-300 font-semibold">{activeRunState.currentSourceName || 'Initializing...'}</span> ({activeRunState.completedSources || 0} / {activeRunState.totalSources || 0} completed)
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center space-x-2">
-                  {batchId && (
-                    <div className="px-3 py-1.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono text-slate-400 flex items-center space-x-1.5 mr-2">
-                      <span className="text-slate-500 uppercase text-[10px] font-bold">Batch ID:</span>
-                      <span className="text-slate-200 font-semibold">{batchId}</span>
-                    </div>
-                  )}
                   {activeRunState.isPaused ? (
                     <button
                       type="button"
@@ -3836,18 +3685,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <div className="flex justify-between text-xs text-slate-400">
                   <span>Batch Source Progress</span>
                   <span className="font-mono text-white">
-                    Progress: {currentIndex} / {totalCount} ({percent}%)
+                    {activeRunState.totalSources > 0 ? Math.round((activeRunState.completedSources / activeRunState.totalSources) * 100) : 0}%
                   </span>
                 </div>
                 <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
                   <div
-                    className={`h-full transition-all duration-300 ${
-                      isPaused
-                        ? 'bg-gradient-to-r from-amber-500 to-amber-300'
-                        : 'bg-gradient-to-r from-indigo-500 via-emerald-500 to-teal-400'
-                    }`}
+                    className="h-full bg-gradient-to-r from-indigo-500 via-emerald-500 to-teal-400 transition-all duration-300"
                     style={{
-                      width: `${totalCount > 0 ? (currentIndex / totalCount) * 100 : 0}%`
+                      width: `${activeRunState.totalSources > 0 ? (activeRunState.completedSources / activeRunState.totalSources) * 100 : 0}%`
                     }}
                   />
                 </div>
@@ -3857,35 +3702,34 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
                 <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
                   <div className="text-[10px] text-slate-400 font-semibold uppercase">Total Found</div>
-                  <div className="text-base font-black text-indigo-400 mt-0.5">{activeRunState?.totalFound || 0}</div>
+                  <div className="text-base font-black text-indigo-400 mt-0.5">{activeRunState.totalFound || 0}</div>
                 </div>
                 <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
                   <div className="text-[10px] text-slate-400 font-semibold uppercase">New Harvested</div>
-                  <div className="text-base font-black text-emerald-400 mt-0.5">{activeRunState?.newJobs || 0}</div>
+                  <div className="text-base font-black text-emerald-400 mt-0.5">{activeRunState.newJobs || 0}</div>
                 </div>
                 <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
                   <div className="text-[10px] text-slate-400 font-semibold uppercase">Duplicates Filtered</div>
-                  <div className="text-base font-black text-purple-400 mt-0.5">{activeRunState?.duplicates || 0}</div>
+                  <div className="text-base font-black text-purple-400 mt-0.5">{activeRunState.duplicates || 0}</div>
                 </div>
                 <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
                   <div className="text-[10px] text-slate-400 font-semibold uppercase">Pending Review</div>
-                  <div className="text-base font-black text-amber-400 mt-0.5">{activeRunState?.pending || 0}</div>
+                  <div className="text-base font-black text-amber-400 mt-0.5">{activeRunState.pending || 0}</div>
                 </div>
                 <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-center">
                   <div className="text-[10px] text-slate-400 font-semibold uppercase">Failed Sources</div>
-                  <div className="text-base font-black text-rose-400 mt-0.5">{activeRunState?.failedSources || 0}</div>
+                  <div className="text-base font-black text-rose-400 mt-0.5">{activeRunState.failedSources || 0}</div>
                 </div>
               </div>
 
-              {activeRunState?.currentError && (
+              {activeRunState.currentError && (
                 <div className="p-2.5 bg-rose-950/40 border border-rose-800/40 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   <span>Notice: {activeRunState.currentError}</span>
                 </div>
               )}
             </div>
-            );
-          })()}
+          )}
 
           {/* Quick Action Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">

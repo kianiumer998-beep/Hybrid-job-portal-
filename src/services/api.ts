@@ -41,10 +41,17 @@ export function getResolvedApiBase(): string {
     return '/api';
   }
 
-  // 3. Authoritative Render backend URL for the current production deployment
-  // Strict Priority: explicit VITE_API_BASE_URL / configured backend env -> existing local dev -> authoritative Render backend URL.
-  // Stale localStorage overrides are excluded to prevent hijacking production API resolution.
-  return 'https://hybrid-job-portal.onrender.com/api';
+  // 3. Separate production frontend (Vercel, custom domain, etc.) -> authoritative Render backend
+  if (isBrowser) {
+    const runtimeUrl = localStorage.getItem('hybrid_backend_api_url') || '';
+    if (runtimeUrl.trim()) {
+      const stripped = runtimeUrl.trim().replace(/\/+$/, '').replace(/\/api\/?$/, '');
+      return `${stripped}/api`;
+    }
+    return 'https://hybrid-job-portal.onrender.com/api';
+  }
+
+  return '/api';
 }
 
 export const API_BASE = getResolvedApiBase();
@@ -66,7 +73,6 @@ export async function safeFetchJson<T = any>(url: string, init?: RequestInit): P
       cache: 'no-store',
       ...init,
       headers: {
-        'Accept': 'application/json',
         ...(init?.headers || {})
       }
     });

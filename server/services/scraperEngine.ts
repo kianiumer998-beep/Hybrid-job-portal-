@@ -1,4 +1,4 @@
-import { ScraperRepository, isTransientMongoError, withMongoRetry } from '../db/repositories/ScraperRepository';
+import { ScraperRepository } from '../db/repositories/ScraperRepository';
 import { JobRepository } from '../db/repositories/JobRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { scrapeTargetPortal, ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
@@ -41,8 +41,6 @@ export interface ActiveScraperRunState {
 
 export interface ScraperRunSummary {
   runId: string;
-  status?: string;
-  isPaused?: boolean;
   startTime: string;
   endTime: string;
   totalFound: number;
@@ -334,44 +332,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   }
 
   try {
-    let existingLiveJobs: any[] = [];
-    let existingPendingJobs: any[] = [];
-    try {
-      existingLiveJobs = (await withMongoRetry(() => JobRepository.getAll({ limit: 2000 }))).jobs;
-      existingPendingJobs = await withMongoRetry(() => JobRepository.getPending());
-    } catch (initMongoErr: any) {
-      if (isTransientMongoError(initMongoErr)) {
-        console.error(`[Scraper Engine] MongoDB transient error persisted during initial job load for run ${runId}. Safely pausing the run.`);
-        activeRunState.status = 'Paused';
-        activeRunState.isPaused = true;
-        activeRunState.remainingTargets = [...targets];
-        activeRunState.remainingSourcesCount = targets.length;
-        activeRunState.currentError = `MongoDB unavailable: ${initMongoErr.message || initMongoErr}`;
-        activeRunState.lastUpdatedTime = new Date().toISOString();
-        return {
-          runId,
-          status: 'Paused',
-          isPaused: true,
-          startTime: startTime.toISOString(),
-          endTime: new Date().toISOString(),
-          totalFound: 0,
-          totalNew: 0,
-          totalDuplicates: 0,
-          totalFailedSources: 0,
-          pagesAttempted: 0,
-          pagesSuccessful: 0,
-          jobsAccepted: 0,
-          jobsRejected: 0,
-          publishedJobs: [],
-          pendingJobs: [],
-          duplicateJobs: [],
-          sourcesStats: [],
-          executionDurationMs: Date.now() - startTime.getTime(),
-          message: `Scrape run paused due to temporary MongoDB outage. ${targets.length} source(s) preserved for resumption.`
-        };
-      }
-      throw initMongoErr;
-    }
+    const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
+    const existingPendingJobs = await JobRepository.getPending();
     const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
     const duplicateIndex = new DuplicateIndex(combinedExisting);
 
@@ -448,31 +410,27 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
     const effectiveUrl = target.url || (target as any).portalUrl || (target as any).pdfUrl || '';
     target.url = effectiveUrl;
+    const sourceRunStart = new Date().toISOString();
+    await ScraperRepository.updateSourceStats(target.id, {
+      lastStartedAt: sourceRunStart,
+      lastRunId: runId
+    });
 
+    let sourceFound = 0;
+    let sourceNew = 0;
+    let sourceDup = 0;
+    let sourcePagesAttempted = 0;
+    let sourcePagesSuccessful = 0;
+    let sourceFailed = false;
     let sourceError = '';
 
+    const sourceAbortController = new AbortController();
+    const SOURCE_TIMEOUT_MS = 45000;
+    const sourceTimeoutId = setTimeout(() => {
+      sourceAbortController.abort('Source execution timed out after 45 seconds');
+    }, SOURCE_TIMEOUT_MS);
+
     try {
-      const sourceRunStart = new Date().toISOString();
-      await withMongoRetry(() => ScraperRepository.updateSourceStats(target.id, {
-        lastStartedAt: sourceRunStart,
-        lastRunId: runId
-      }));
-
-      let sourceFound = 0;
-      let sourceNew = 0;
-      let sourceDup = 0;
-      let sourcePagesAttempted = 0;
-      let sourcePagesSuccessful = 0;
-      let sourceFailed = false;
-      sourceError = '';
-
-      const sourceAbortController = new AbortController();
-      const SOURCE_TIMEOUT_MS = 45000;
-      const sourceTimeoutId = setTimeout(() => {
-        sourceAbortController.abort('Source execution timed out after 45 seconds');
-      }, SOURCE_TIMEOUT_MS);
-
-      try {
       // 1. Determine cutoff date
       let sinceTimestamp = options.sinceTimestamp;
       if (options.mode === 'since_last') {
@@ -651,12 +609,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       }
 
       sourceFound = filteredResults.length;
+      totalDiscoveredJobs += sourceFound;
 
       const sourcePendingJobs: any[] = [];
       const sourceApprovedJobs: any[] = [];
-      const sourceHarvestedJobs: any[] = [];
-      const sourceDuplicateJobs: any[] = [];
-      const sourceUniqueJobs: any[] = [];
 
       for (let rIdx = 0; rIdx < filteredResults.length; rIdx++) {
         const raw = filteredResults[rIdx];
@@ -745,20 +701,24 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         standardizedJob.duplicateOfJobId = dupCheck.matchedExistingJob?.id;
         standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
 
-        sourceHarvestedJobs.push(standardizedJob);
+        harvestedJobs.push(standardizedJob);
+        duplicateIndex.addBatchJob(standardizedJob);
+        combinedExisting.push(standardizedJob);
 
         if (dupCheck.isDuplicate) {
           sourceDup++;
-          sourceDuplicateJobs.push(standardizedJob);
+          duplicateJobs.push(standardizedJob);
           sourcePendingJobs.push(standardizedJob);
         } else {
           sourceNew++;
-          sourceUniqueJobs.push(standardizedJob);
+          uniqueJobs.push(standardizedJob);
 
           if (standardizedJob.status === 'Approved') {
             sourceApprovedJobs.push(standardizedJob);
+            publishedJobs.push(standardizedJob);
           } else {
             sourcePendingJobs.push(standardizedJob);
+            pendingJobs.push(standardizedJob);
           }
         }
       }
@@ -770,7 +730,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         for (let c = 0; c < sourcePendingJobs.length; c += BATCH_CHUNK_SIZE) {
           updateHeartbeat();
           const chunk = sourcePendingJobs.slice(c, c + BATCH_CHUNK_SIZE);
-          await withMongoRetry(() => JobRepository.addPendingBatch(chunk));
+          await JobRepository.addPendingBatch(chunk);
         }
       }
 
@@ -778,7 +738,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         for (let c = 0; c < sourceApprovedJobs.length; c += BATCH_CHUNK_SIZE) {
           updateHeartbeat();
           const chunk = sourceApprovedJobs.slice(c, c + BATCH_CHUNK_SIZE);
-          await withMongoRetry(() => JobRepository.createBatch(chunk, true));
+          await JobRepository.createBatch(chunk, true);
         }
       }
 
@@ -789,28 +749,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       const isJobsFound = sourceFound > 0;
       const successHealth = isJobsFound ? 'Jobs Found' : 'No Jobs';
 
-      await withMongoRetry(() => ScraperRepository.updateSourceStats(target.id, {
+      await ScraperRepository.updateSourceStats(target.id, {
         lastCompletedAt: sourceCompletedAt,
         lastSuccessfulScrapeAt: isJobsFound ? sourceCompletedAt : target.lastSuccessfulScrapeAt,
         lastRunId: runId,
         scrapedCountIncrement: sourceFound,
         healthStatus: successHealth,
         lastErrorMessage: isJobsFound ? undefined : 'Portal reachable, but 0 active job vacancies found today'
-      }));
-
-      // Commit verified persisted jobs to deduplication index and run-level collections
-      for (const j of sourceHarvestedJobs) {
-        duplicateIndex.addBatchJob(j);
-        combinedExisting.push(j);
-      }
-      harvestedJobs.push(...sourceHarvestedJobs);
-      duplicateJobs.push(...sourceDuplicateJobs);
-      uniqueJobs.push(...sourceUniqueJobs);
-      publishedJobs.push(...sourceApprovedJobs);
-      pendingJobs.push(...sourcePendingJobs);
-      totalDiscoveredJobs += sourceFound;
-      totalPagesAttempted += sourcePagesAttempted;
-      totalPagesSuccessful += sourcePagesSuccessful;
+      });
 
       sourcesStats.push({
         sourceId: target.id,
@@ -828,9 +774,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       });
     } catch (err: any) {
       clearTimeout(sourceTimeoutId);
-      if (isTransientMongoError(err)) {
-        throw err;
-      }
       failedCount++;
       sourceFailed = true;
 
@@ -878,12 +821,12 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       sourceError = humanReadableError;
 
       const sourceCompletedAt = new Date().toISOString();
-      await withMongoRetry(() => ScraperRepository.updateSourceStats(target.id, {
+      await ScraperRepository.updateSourceStats(target.id, {
         lastCompletedAt: sourceCompletedAt,
         healthStatus: classifiedHealth,
         lastErrorMessage: sourceError,
         lastHttpStatus: httpStatus
-      }));
+      });
 
       sourcesStats.push({
         sourceId: target.id,
@@ -901,20 +844,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         lastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt
       });
     }
-    } catch (err: any) {
-      if (isTransientMongoError(err)) {
-        console.error(`[Scraper Engine] MongoDB transient error persisted after retry limits for source ${target.name}. Safely pausing the run.`);
-        activeRunState.status = 'Paused';
-        activeRunState.isPaused = true;
-        activeRunState.remainingTargets = targets.slice(tIdx);
-        activeRunState.remainingSourcesCount = targets.length - tIdx;
-        activeRunState.lastUpdatedTime = new Date().toISOString();
-        activeRunState.currentError = `MongoDB unavailable: ${err.message}`;
-        break; // Stop running further sources, exit the targets for-loop
-      } else {
-        throw err;
-      }
-    }
 
     // Update live state counts after each source
     activeRunState.completedSourcesCount = tIdx + 1;
@@ -931,63 +860,47 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
   const endTime = new Date();
   const duration = endTime.getTime() - startTime.getTime();
-  const isPausedDueToMongo = activeRunState.status === 'Paused';
 
-  if (!isPausedDueToMongo) {
-    if (activeRunState.status !== 'Stopped') {
-      activeRunState.status = 'Completed';
-    }
-    activeRunState.lastUpdatedTime = endTime.toISOString();
-
-    // Save audit log & run history safely
-    try {
-      await ScraperRepository.addRun({
-        id: runId,
-        batchId: runId,
-        startedAt: startTime.toISOString(),
-        completedAt: endTime.toISOString(),
-        mode: options.mode,
-        targetsScraped: sourcesStats.length,
-        totalFound: totalDiscoveredJobs,
-        newPublished: publishedJobs.length,
-        newPending: pendingJobs.length,
-        duplicatesFlagged: duplicateJobs.length,
-        failedSources: failedCount,
-        executionTimeMs: duration,
-        sourcesStats
-      });
-    } catch (runSaveErr: any) {
-      console.warn(`[Scraper Engine] Notice saving run history for ${runId}:`, runSaveErr?.message || runSaveErr);
-    }
-
-    try {
-      AuditRepository.add({
-        user: 'Administrator',
-        role: 'Scraper Hub',
-        action: 'Scraper Run Completed',
-        target: `${sourcesStats.length} Source Portals (${totalDiscoveredJobs} Jobs Harvested)`,
-        status: failedCount > 0 ? 'Warning' : 'Success',
-        metadata: {
-          mode: options.mode,
-          totalFound: totalDiscoveredJobs,
-          published: publishedJobs.length,
-          pending: pendingJobs.length,
-          duplicates: duplicateJobs.length,
-          failedSources: failedCount
-        }
-      });
-    } catch (auditErr: any) {
-      console.warn(`[Scraper Engine] Notice adding audit log for ${runId}:`, auditErr?.message || auditErr);
-    }
-  } else {
-    console.warn(`[Scraper Engine] Run ${runId} paused due to MongoDB outage. Skipping run history and audit writes to prevent fatal failure.`);
-    activeRunState.lastUpdatedTime = endTime.toISOString();
+  if (activeRunState.status !== 'Paused' && activeRunState.status !== 'Stopped') {
+    activeRunState.status = 'Completed';
   }
+  activeRunState.lastUpdatedTime = endTime.toISOString();
+
+  // Save audit log
+  await ScraperRepository.addRun({
+    id: runId,
+    batchId: runId,
+    startedAt: startTime.toISOString(),
+    completedAt: endTime.toISOString(),
+    mode: options.mode,
+    targetsScraped: sourcesStats.length,
+    totalFound: totalDiscoveredJobs,
+    newPublished: publishedJobs.length,
+    newPending: pendingJobs.length,
+    duplicatesFlagged: duplicateJobs.length,
+    failedSources: failedCount,
+    executionTimeMs: duration,
+    sourcesStats
+  });
+
+  AuditRepository.add({
+    user: 'Administrator',
+    role: 'Scraper Hub',
+    action: 'Scraper Run Completed',
+    target: `${sourcesStats.length} Source Portals (${totalDiscoveredJobs} Jobs Harvested)`,
+    status: failedCount > 0 ? 'Warning' : 'Success',
+    metadata: {
+      mode: options.mode,
+      totalFound: totalDiscoveredJobs,
+      published: publishedJobs.length,
+      pending: pendingJobs.length,
+      duplicates: duplicateJobs.length,
+      failedSources: failedCount
+    }
+  });
 
   return {
     runId,
-    status: activeRunState.status,
-    isPaused: isPausedDueToMongo,
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
     totalFound: totalDiscoveredJobs,
@@ -1003,46 +916,12 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     duplicateJobs,
     sourcesStats,
     executionDurationMs: duration,
-    message: isPausedDueToMongo
-      ? `Scrape run paused due to temporary MongoDB outage. ${activeRunState.remainingSourcesCount} source(s) preserved for resumption.`
-      : `Scrape run completed across ${sourcesStats.length} sources. Extracted ${totalDiscoveredJobs} verified vacancies.`
+    message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${totalDiscoveredJobs} verified vacancies.`
   };
 } catch (runErr: any) {
-  if (isTransientMongoError(runErr) || activeRunState.status === 'Paused') {
-    console.warn(`[Scraper Engine] MongoDB transient outage reached run boundary for ${runId}. Safely maintaining Paused status.`);
-    activeRunState.status = 'Paused';
-    activeRunState.isPaused = true;
-    if (!activeRunState.remainingTargets || activeRunState.remainingTargets.length === 0) {
-      activeRunState.remainingTargets = [...targets];
-      activeRunState.remainingSourcesCount = targets.length;
-    }
-    activeRunState.currentError = `MongoDB unavailable: ${runErr?.message || runErr}`;
-    activeRunState.lastUpdatedTime = new Date().toISOString();
-    return {
-      runId,
-      status: 'Paused',
-      isPaused: true,
-      startTime: startTime.toISOString(),
-      endTime: new Date().toISOString(),
-      totalFound: 0,
-      totalNew: 0,
-      totalDuplicates: 0,
-      totalFailedSources: 0,
-      pagesAttempted: 0,
-      pagesSuccessful: 0,
-      jobsAccepted: 0,
-      jobsRejected: 0,
-      publishedJobs: [],
-      pendingJobs: [],
-      duplicateJobs: [],
-      sourcesStats: [],
-      executionDurationMs: Date.now() - startTime.getTime(),
-      message: `Scrape run paused due to temporary MongoDB outage. ${activeRunState.remainingSourcesCount || targets.length} source(s) preserved for resumption.`
-    };
-  }
   console.error(`[Scraper Engine] Fatal run error in ${runId}:`, runErr);
-  if (activeRunState.status !== 'Stopped') {
-    activeRunState.status = 'Stopped';
+  if (activeRunState.status !== 'Paused' && activeRunState.status !== 'Stopped') {
+    activeRunState.status = 'Completed';
     activeRunState.isStopped = true;
   }
   activeRunState.currentError = runErr?.message || String(runErr);

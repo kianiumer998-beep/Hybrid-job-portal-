@@ -9,26 +9,30 @@ import {
 } from '../types/adminSuite';
 
 export const INITIAL_SITE_SEO_CONFIG: SiteSeoConfig = {
-  siteTitle: 'Hybrid Remote Jobs & CV Builder',
-  tagline: 'Hybrid Remote Jobs Portal with Multi-Level Region Filtering & ATS CV Builder',
-  metaDescription: 'Hybrid Remote Jobs Portal with multi-level region filtering, country selector, automated ATS CV builder, multi-channel advertisement campaign engine, and admin dashboard.',
-  metaKeywords: ['Hybrid Jobs', 'Remote Jobs', 'ATS CV Builder', 'Job Portal', 'Verified Careers'],
-  canonicalUrl: '',
-  ogImageUrl: '',
-  twitterHandle: '',
-  googleSearchConsoleVerification: '',
-  bingWebmasterVerification: '',
-  googleAnalyticsId: '',
-  googleTagManagerId: '',
-  facebookPixelId: '',
-  robotsTxtContent: `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/`,
+  siteTitle: 'CareerPak & Global Work Portal — Verified Jobs & Overseas Careers',
+  tagline: 'Leading Job Recruitment Portal for Pakistan, Gulf & International Careers',
+  metaDescription: 'Find verified jobs across Pakistan, Dubai/UAE, Saudi Arabia, UK, and Remote. Explore Federal FPSC, PPSC, WAPDA, Tech & Corporate Vacancies with instant application tools.',
+  metaKeywords: ['Jobs in Pakistan', 'Govt Jobs 2026', 'FPSC Consolidated', 'WAPDA Careers', 'Dubai Jobs', 'Remote Software Engineer', 'Daily Jang Classifieds', 'PPSC Gazette'],
+  canonicalUrl: 'https://careerpak.com',
+  ogImageUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1200&auto=format&fit=crop&q=80',
+  twitterHandle: '@CareerPakOfficial',
+  googleSearchConsoleVerification: 'google-site-verification=cpak_verify_998432_prod',
+  bingWebmasterVerification: 'bing-verification=BING_AUTH_TOKEN_CP_2026',
+  googleAnalyticsId: 'G-CP98234871',
+  googleTagManagerId: 'GTM-CP8812K',
+  facebookPixelId: 'FB_PIXEL_99214710',
+  robotsTxtContent: `User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+Sitemap: https://careerpak.com/sitemap.xml`,
   maintenanceMode: false,
-  maintenanceNotice: 'Scheduled platform optimization is underway. We will be back online shortly.',
+  maintenanceNotice: 'Scheduled platform optimization is underway. We will be back online in 15 minutes.',
   announcementBanner: {
     enabled: true,
-    text: '🚀 Explore top verified hybrid & remote job openings with automated ATS CV building!',
+    text: '🚀 FPSC Consolidated Advertisement No. 08/2026 & WAPDA 2026 Recruitment are now LIVE with direct gazette breakdown!',
     linkUrl: '#jobs',
-    linkText: 'Explore Jobs',
+    linkText: 'View Govt Openings',
     bannerType: 'info'
   }
 };

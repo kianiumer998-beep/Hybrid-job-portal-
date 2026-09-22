@@ -2,7 +2,9 @@ import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
   getScraperGroupsCollection,
-  isMongoConfigured
+  isMongoConfigured,
+  withMongoTimeout,
+  resetMongoClient
 } from '../mongodb';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
 
@@ -110,7 +112,11 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperSourcesCollection();
-        const docs = await coll.find({}, { projection: { _id: 0 } }).toArray();
+        const docs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } }).toArray(),
+          15000,
+          'getConfigs'
+        );
         if (docs && docs.length > 0) {
           let hasMissingStatus = false;
           const normalized = docs.map((s: any) => {
@@ -153,7 +159,7 @@ export class ScraperRepository {
                 healthStatus: clean.healthStatus || 'healthy'
               };
             });
-            await coll.insertMany(cleanDocs);
+            await withMongoTimeout(coll.insertMany(cleanDocs), 15000, 'seedConfigs');
             console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
             this.cachedSources = cleanDocs;
             return cleanDocs;
@@ -162,7 +168,7 @@ export class ScraperRepository {
           }
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_sources:', err.message);
+        console.warn('[ScraperRepository] Notice reading scraper_sources from MongoDB, serving cached sources:', err?.message || err);
       }
     }
 
@@ -182,10 +188,10 @@ export class ScraperRepository {
         for (const cfg of configs) {
           if (!cfg || !cfg.id) continue;
           const { _id, ...clean } = cfg;
-          await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
+          await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error saving scraper_sources:', err.message);
+        console.warn('[ScraperRepository] Notice saving scraper_sources to MongoDB:', err?.message || err);
       }
     }
   }
@@ -197,17 +203,21 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperRunsCollection();
-        const runs = await coll.find({}, { projection: { _id: 0 } })
-          .sort({ startedAt: -1, timestamp: -1 })
-          .limit(100)
-          .toArray();
+        const runs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } })
+            .sort({ startedAt: -1, timestamp: -1 })
+            .limit(100)
+            .toArray(),
+          15000,
+          'getRuns'
+        );
 
         if (runs && runs.length > 0) {
           this.cachedRuns = runs;
           return runs;
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_runs:', err.message);
+        console.warn('[ScraperRepository] Notice reading scraper_runs from MongoDB, serving cached runs:', err?.message || err);
       }
     }
 
@@ -228,9 +238,9 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperRunsCollection();
-        await coll.insertOne(clean);
+        await withMongoTimeout(coll.insertOne(clean), 10000, 'addRun');
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error adding to scraper_runs:', err.message);
+        console.warn('[ScraperRepository] Notice adding to scraper_runs in MongoDB:', err?.message || err);
       }
     }
 
@@ -272,10 +282,10 @@ export class ScraperRepository {
         if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
 
         if (Object.keys(updateOps).length > 0) {
-          await coll.updateOne({ id: sourceId }, updateOps);
+          await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
         }
       } catch (err: any) {
-        console.error(`[ScraperRepository] MongoDB error updating source stats for "${sourceId}":`, err.message);
+        console.warn(`[ScraperRepository] Notice updating source stats for "${sourceId}" in MongoDB:`, err?.message || err);
       }
     }
 
@@ -306,7 +316,11 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperGroupsCollection();
-        const docs = await coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray();
+        const docs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray(),
+          15000,
+          'getGroups'
+        );
         if (docs && docs.length > 0) {
           this.cachedGroups = docs as ScraperSourceGroup[];
           return docs as ScraperSourceGroup[];
@@ -315,13 +329,13 @@ export class ScraperRepository {
         // Auto-seed default groups if empty
         const defaults = getDefaultGroups();
         if (defaults.length > 0) {
-          await coll.insertMany(defaults);
+          await withMongoTimeout(coll.insertMany(defaults), 15000, 'seedGroups');
           console.log(`[ScraperRepository] Seeded ${defaults.length} default source groups into MongoDB.`);
           this.cachedGroups = defaults;
           return defaults;
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_groups:', err.message);
+        console.warn('[ScraperRepository] Notice reading scraper_groups from MongoDB, serving cached groups:', err?.message || err);
       }
     }
     return this.cachedGroups;
@@ -488,150 +502,47 @@ export class ScraperRepository {
     }
     return null;
   }
+}
 
-  private static cachedExpiryOffsetDays: number = 1;
+/**
+ * Checks whether an error from MongoDB is transient and safe to retry.
+ */
+export function isTransientMongoError(err: any): boolean {
+  if (!err) return false;
+  const msg = (err.message || '').toLowerCase();
+  const name = (err.name || '').toLowerCase();
+  return (
+    name.includes('network') ||
+    name.includes('timeout') ||
+    msg.includes('connection') ||
+    msg.includes('topology') ||
+    msg.includes('econnrefused') ||
+    msg.includes('timed out') ||
+    Boolean(err.hasErrorLabel?.('TransientTransactionError')) ||
+    Boolean(err.hasErrorLabel?.('RetryableWriteError'))
+  );
+}
 
-  /**
-   * Retrieves the configured portal expiry offset in days (0, 1, or 2, default: 1).
-   */
-  static async getExpirySettings(): Promise<{ offsetDays: number }> {
-    if (isMongoConfigured()) {
-      try {
-        const db = await (await import('../mongodb')).getMongoDb();
-        const doc = await db.collection('scraper_settings').findOne({ id: 'portal_expiry_config' });
-        if (doc && typeof doc.offsetDays === 'number') {
-          this.cachedExpiryOffsetDays = Math.max(0, Math.min(2, doc.offsetDays));
-        }
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading expiry settings:', err.message);
+/**
+ * Executes an async database operation with exponential backoff retry for transient network issues.
+ */
+export async function withMongoRetry<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  delayMs = 500
+): Promise<T> {
+  let lastErr: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      if (!isTransientMongoError(err) || i === retries - 1) {
+        throw err;
       }
+      await new Promise(res => setTimeout(res, delayMs * Math.pow(2, i)));
     }
-    return { offsetDays: this.cachedExpiryOffsetDays };
   }
-
-  /**
-   * Updates the portal expiry offset (0, 1, or 2 days).
-   */
-  static async updateExpirySettings(settings: { offsetDays: number }): Promise<{ offsetDays: number }> {
-    const safeOffset = Math.max(0, Math.min(2, Number(settings.offsetDays) || 0));
-    this.cachedExpiryOffsetDays = safeOffset;
-
-    if (isMongoConfigured()) {
-      try {
-        const db = await (await import('../mongodb')).getMongoDb();
-        await db.collection('scraper_settings').updateOne(
-          { id: 'portal_expiry_config' },
-          {
-            $set: {
-              id: 'portal_expiry_config',
-              offsetDays: safeOffset,
-              updatedAt: new Date().toISOString()
-            }
-          },
-          { upsert: true }
-        );
-      } catch (err: any) {
-        console.error('[ScraperRepository] Error saving expiry settings:', err.message);
-      }
-    }
-
-    return { offsetDays: safeOffset };
-  }
-
-  private static cachedSchedulerEnabled: boolean = true;
-
-  /**
-   * Retrieves the global scheduler enabled/disabled configuration.
-   */
-  static async getSchedulerConfig(): Promise<{ enabled: boolean }> {
-    if (isMongoConfigured()) {
-      try {
-        const db = await (await import('../mongodb')).getMongoDb();
-        const doc = await db.collection('scraper_settings').findOne({ id: 'scheduler_config' });
-        if (doc && typeof doc.enabled === 'boolean') {
-          this.cachedSchedulerEnabled = doc.enabled;
-        }
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading scheduler config:', err.message);
-      }
-    }
-    return { enabled: this.cachedSchedulerEnabled };
-  }
-
-  /**
-   * Updates the global scheduler enabled/disabled setting.
-   */
-  static async updateSchedulerConfig(config: { enabled: boolean }): Promise<{ enabled: boolean }> {
-    const isEnabled = Boolean(config.enabled);
-    this.cachedSchedulerEnabled = isEnabled;
-
-    if (isMongoConfigured()) {
-      try {
-        const db = await (await import('../mongodb')).getMongoDb();
-        await db.collection('scraper_settings').updateOne(
-          { id: 'scheduler_config' },
-          {
-            $set: {
-              id: 'scheduler_config',
-              enabled: isEnabled,
-              updatedAt: new Date().toISOString()
-            }
-          },
-          { upsert: true }
-        );
-      } catch (err: any) {
-        console.error('[ScraperRepository] Error saving scheduler config:', err.message);
-      }
-    }
-
-    return { enabled: isEnabled };
-  }
-
-  /**
-   * Resets all past, expired, or overdue schedules across all sources to future intervals.
-   * Clears any stale error messages and ensures nextRunAt is strictly in the future.
-   */
-  static async resetStaleSchedules(): Promise<{ updatedCount: number; resetSources: string[] }> {
-    const sources = await this.getConfigs();
-    const now = Date.now();
-    const INTERVAL_MS: Record<string, number> = {
-      '15m': 15 * 60 * 1000,
-      '30m': 30 * 60 * 1000,
-      '1h': 60 * 60 * 1000,
-      '6h': 6 * 60 * 60 * 1000,
-      '24h': 24 * 60 * 60 * 1000,
-      '7d': 7 * 24 * 60 * 60 * 1000
-    };
-
-    let updatedCount = 0;
-    const resetSources: string[] = [];
-    const updated = sources.map((s, idx) => {
-      const nextRunMs = s.nextRunAt ? new Date(s.nextRunAt).getTime() : 0;
-      const isPastOrMissing = !nextRunMs || isNaN(nextRunMs) || nextRunMs <= now;
-
-      if (isPastOrMissing) {
-        updatedCount++;
-        resetSources.push(s.name || s.id);
-        const intervalMs = INTERVAL_MS[s.interval] || INTERVAL_MS['24h'];
-        // Stagger next runs slightly (spread across next 5-60 minutes) to prevent burst hammering
-        const jitterMs = (idx % 20) * 60 * 1000;
-        const newNextRun = new Date(now + intervalMs + jitterMs).toISOString();
-
-        return {
-          ...s,
-          nextRunAt: newNextRun,
-          lastErrorMessage: s.lastErrorMessage?.includes('already in progress') ? undefined : s.lastErrorMessage
-        };
-      }
-      return s;
-    });
-
-    if (updatedCount > 0) {
-      await this.saveConfigs(updated);
-      console.log(`[ScraperRepository] Successfully reset ${updatedCount} stale/past schedules to future times.`);
-    }
-
-    return { updatedCount, resetSources };
-  }
+  throw lastErr;
 }
 

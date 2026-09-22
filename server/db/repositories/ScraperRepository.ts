@@ -522,6 +522,50 @@ export class ScraperRepository {
     }
     return null;
   }
+
+  /**
+   * Saves or updates an individual scraper configuration.
+   */
+  static async saveConfig(cfg: any): Promise<void> {
+    if (!cfg || !cfg.id) return;
+    const current = await this.getConfigs();
+    const idx = current.findIndex(c => c.id === cfg.id);
+    if (idx !== -1) {
+      current[idx] = { ...current[idx], ...cfg };
+    } else {
+      current.push(cfg);
+    }
+    await this.saveConfigs(current);
+  }
+
+  /**
+   * Resets any stale in-progress or executing schedules upon server boot.
+   */
+  static async resetStaleSchedules(): Promise<{ resetCount: number }> {
+    try {
+      const configs = await this.getConfigs();
+      let resetCount = 0;
+      const now = new Date().toISOString();
+
+      for (const cfg of configs) {
+        if (cfg.status === 'Running' || cfg.status === 'Processing') {
+          cfg.status = 'Idle';
+          cfg.updatedAt = now;
+          resetCount++;
+        }
+      }
+
+      if (resetCount > 0) {
+        await this.saveConfigs(configs);
+      }
+
+      console.log(`[ScraperRepository] resetStaleSchedules completed. Reset ${resetCount} active/stale schedules.`);
+      return { resetCount };
+    } catch (err: any) {
+      console.warn(`[ScraperRepository] resetStaleSchedules notice: ${err?.message || err}`);
+      return { resetCount: 0 };
+    }
+  }
 }
 
 /**

@@ -3,10 +3,30 @@ import {
   getScraperRunsCollection,
   getScraperGroupsCollection,
   isMongoConfigured,
-  withMongoTimeout,
   resetMongoClient
 } from '../mongodb';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
+
+/**
+ * Safely executes a promise with an enforced timeout to prevent network stalls.
+ */
+export async function withMongoTimeout<T>(promise: Promise<T>, timeoutMs = 15000, label = 'Operation'): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const timeoutErr = new Error(`MongoDB ${label} timed out after ${timeoutMs}ms`);
+      timeoutErr.name = 'MongoNetworkTimeoutError';
+      reject(timeoutErr);
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    return result;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export interface ScraperSourceGroup {
   id: string;

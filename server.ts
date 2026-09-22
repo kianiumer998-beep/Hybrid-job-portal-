@@ -5,7 +5,8 @@ import { featureFlags, updateFeatureFlags } from './server/config/featureFlags';
 import { createServer as createViteServer } from 'vite';
 
 import { Database } from './server/db/database';
-import { authMiddleware } from './server/auth/authManager';
+import { UserRepository } from './server/db/repositories/UserRepository';
+import { authMiddleware, requireAdmin } from './server/auth/authManager';
 import { authRouter } from './server/routes/authRoutes';
 import { jobRouter } from './server/routes/jobRoutes';
 import { applicationRouter } from './server/routes/applicationRoutes';
@@ -26,7 +27,7 @@ import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   // Basic security headers
   app.use((req, res, next) => {
@@ -106,11 +107,11 @@ async function startServer() {
     res.json(featureFlags);
   });
 
-  app.post('/api/admin/feature-flags', (req, res) => {
+  app.post('/api/admin/feature-flags', requireAdmin, (req, res) => {
     const updated = updateFeatureFlags(req.body);
     Database.addAuditLog({
-      user: 'Administrator',
-      role: 'Admin',
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'Admin',
       action: 'Feature Flags Updated',
       target: 'System Configuration',
       status: 'Success'
@@ -143,6 +144,9 @@ async function startServer() {
   app.use('/api/cases', caseRouter);
   app.use('/api/support', supportRouter);
 
+
+  // Synchronize demo admin credentials in MongoDB if configured
+  await UserRepository.syncDemoAdminAsync();
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

@@ -40,8 +40,6 @@ import {
 } from 'lucide-react';
 import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
-import { calculateJobMissingFields, isScrapedJob, formatMissingFieldsNotice } from '../../utils/jobValidation';
-import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
 
 export interface SourceGroup {
   id: string;
@@ -424,18 +422,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Inspect Run Modal State
   const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
 
-  // Quick Edit Modal State for Review Queue
-  const [quickEditingJob, setQuickEditingJob] = useState<Job | null>(null);
-  const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
-
   // Global Settings State
   const [globalInterval, setGlobalInterval] = useState('24h');
   const [globalDepth, setGlobalDepth] = useState('Standard (25 Jobs)');
   const [globalKeywords, setGlobalKeywords] = useState('jobs, careers, recruitment, vacancies, officers, lecturer');
   const [globalAutoApprove, setGlobalAutoApprove] = useState(false);
   const [globalSchedulerEnabled, setGlobalSchedulerEnabled] = useState(true);
-  const [isTogglingScheduler, setIsTogglingScheduler] = useState(false);
-  const [isResettingSchedules, setIsResettingSchedules] = useState(false);
 
   // Source Groups State
   const [sourceGroups, setSourceGroups] = useState<SourceGroup[]>([]);
@@ -536,9 +528,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const statusRes = await api.scraper.getSchedulerStatus();
       if (statusRes?.success && statusRes.status) {
         setSchedulerStatus(statusRes.status);
-        if (typeof statusRes.status.isSchedulerEnabled === 'boolean') {
-          setGlobalSchedulerEnabled(statusRes.status.isSchedulerEnabled);
-        }
       }
 
       // 4. Fetch Source Groups
@@ -716,37 +705,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     return 'Not run yet';
   }, [liveRuns, schedulerStatus]);
 
-  const hasStalePastSchedules = useMemo(() => {
-    const now = Date.now();
-    return (schedulerStatus?.sources || []).some((s: any) => {
-      if (s.status !== 'Active Scheduled' && s.status !== 'Active') return false;
-      const ms = s.nextRunAt ? new Date(s.nextRunAt).getTime() : 0;
-      return ms > 0 && ms < now;
-    });
-  }, [schedulerStatus]);
-
   const nextRunDisplay = useMemo(() => {
-    const isEnabled = schedulerStatus?.isSchedulerEnabled !== false && schedulerStatus?.isRunning;
-    if (!isEnabled) {
-      return 'Scheduler disabled by Administrator';
-    }
-
-    const now = Date.now();
-    // STRICTLY FUTURE TIMESTAMPS ONLY! Never show past or stale dates
     const activeFuture = (schedulerStatus?.sources || [])
-      .filter((s: any) => (s.status === 'Active Scheduled' || s.status === 'Active') && s.nextRunAt)
-      .map((s: any) => new Date(s.nextRunAt).getTime())
-      .filter((ts: number) => !isNaN(ts) && ts > now)
-      .sort((a: number, b: number) => a - b);
-
+      .filter((s: any) => s.status === 'Active Scheduled' && s.nextRunAt)
+      .map((s: any) => s.nextRunAt)
+      .sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime());
     if (activeFuture.length > 0) {
       try {
         return new Date(activeFuture[0]).toLocaleString();
       } catch {
-        return new Date(activeFuture[0]).toISOString();
+        return activeFuture[0];
       }
     }
-    return 'Next cron tick (every 2m)';
+    return schedulerStatus?.isRunning ? 'Dynamic (checks every 2m)' : 'Scheduler paused';
   }, [schedulerStatus]);
 
   // -------------------------------------------------------------
@@ -1929,64 +1900,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     setSelectedReviewIds([]);
   };
 
-  const handleSaveQuickEditJob = async (updatedJob: Job) => {
-    try {
-      const res = await api.jobs.update(updatedJob.id, updatedJob);
-      if (res?.success) {
-        setStatusMessage({ text: `Updated job "${updatedJob.title}" successfully.`, type: 'success' });
-        await fetchPendingQueue();
-        if (onReloadJobs) await onReloadJobs();
-      } else {
-        setStatusMessage({ text: res?.message || 'Failed to update job.', type: 'error' });
-      }
-    } catch (err: any) {
-      setStatusMessage({ text: `Update error: ${err.message}`, type: 'error' });
-    }
-  };
-
-  const handleSaveAndApproveJob = async (updatedJob: Job) => {
-    try {
-      await api.jobs.update(updatedJob.id, updatedJob);
-      const approveRes = await api.jobs.bulkApprove([updatedJob.id]);
-      if (approveRes?.success) {
-        if (approveRes.skippedMissingFieldsCount > 0) {
-          const missing = calculateJobMissingFields(updatedJob);
-          setStatusMessage({ text: `Cannot approve "${updatedJob.title}": Missing required fields (${missing.join(', ')}).`, type: 'error' });
-        } else {
-          setStatusMessage({ text: `Saved and published "${updatedJob.title}" directly to Live!`, type: 'success' });
-          await fetchPendingQueue();
-          if (onReloadJobs) await onReloadJobs();
-        }
-      } else {
-        setStatusMessage({ text: approveRes?.message || 'Failed to approve job.', type: 'error' });
-      }
-    } catch (err: any) {
-      setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
-    }
-  };
-
   const handleApproveSelected = async () => {
     if (selectedReviewIds.length === 0) return;
-
-    const selectedJobsData = reviewItems.filter(j => selectedReviewIds.includes(j.id));
-    const jobsWithMissing = selectedJobsData.filter(j => isScrapedJob(j) && calculateJobMissingFields(j).length > 0);
-    if (jobsWithMissing.length > 0) {
-      const summaryList = jobsWithMissing.map(j => `• "${j.title}" (Missing: ${calculateJobMissingFields(j).join(', ')})`).slice(0, 5).join('\n');
-      const proceed = confirm(
-        `Data Integrity Notice:\n${jobsWithMissing.length} of ${selectedReviewIds.length} selected scraped jobs have missing required factual fields:\n\n${summaryList}${jobsWithMissing.length > 5 ? `\n...and ${jobsWithMissing.length - 5} more` : ''}\n\nIncomplete scraped jobs will be safely skipped from live publishing until completed via Quick Edit.\n\nDo you want to proceed approving the valid jobs?`
-      );
-      if (!proceed) {
-        return;
-      }
-    }
-
     setIsProcessingReview(true);
     try {
       const res = await api.jobs.bulkApprove(selectedReviewIds);
       if (res?.success) {
-        const skippedMissing = res.skippedMissingFieldsCount || 0;
-        const skippedDups = res.skippedDuplicatesCount || 0;
-
         if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
           const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
           setStatusMessage({
@@ -1994,21 +1913,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             type: 'error'
           });
         } else {
-          let msg = `Successfully approved ${res.successCount || 0} jobs to live listings!`;
-          if (skippedMissing > 0) {
-            msg += ` (${skippedMissing} skipped with missing required fields)`;
-          }
-          if (skippedDups > 0) {
-            msg += ` (${skippedDups} duplicates skipped)`;
-          }
           setStatusMessage({
-            text: msg,
-            type: skippedMissing > 0 ? 'info' : 'success'
+            text: `Successfully approved ${res.successCount || selectedReviewIds.length} jobs to live listings!`,
+            type: 'success'
           });
         }
         setSelectedReviewIds([]);
         await fetchPendingQueue();
-        if (onReloadJobs) await onReloadJobs();
       } else {
         setStatusMessage({ text: res?.message || 'Failed to approve selected jobs.', type: 'error' });
       }
@@ -2186,62 +2097,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   };
 
   // -------------------------------------------------------------
-  // Settings Handlers (Step 6) & Scheduler Admin Controls
+  // Settings Handlers (Step 6)
   // -------------------------------------------------------------
-  const handleToggleScheduler = async (newVal?: boolean) => {
-    const targetState = typeof newVal === 'boolean' ? newVal : !globalSchedulerEnabled;
-    setIsTogglingScheduler(true);
-    try {
-      setGlobalSchedulerEnabled(targetState);
-      const res = await api.scraper.toggleScheduler(targetState);
-      if (res?.success) {
-        setStatusMessage({
-          text: targetState
-            ? 'Automatic Background Scheduler is now ENABLED. Scraper will process sources on schedule.'
-            : 'Automatic Background Scheduler is now DISABLED. All scheduled background runs are stopped.',
-          type: targetState ? 'success' : 'info'
-        });
-        if (res.status) {
-          setSchedulerStatus(res.status);
-        } else {
-          await fetchLiveScraperData();
-        }
-      } else {
-        setStatusMessage({ text: res?.message || 'Failed to update scheduler state.', type: 'error' });
-        setGlobalSchedulerEnabled(!targetState);
-      }
-    } catch (err: any) {
-      setStatusMessage({ text: `Failed to toggle scheduler: ${err.message}`, type: 'error' });
-      setGlobalSchedulerEnabled(!targetState);
-    } finally {
-      setIsTogglingScheduler(false);
-    }
-  };
-
-  const handleResetStaleSchedules = async () => {
-    setIsResettingSchedules(true);
-    try {
-      setStatusMessage({ text: 'Clearing past schedules and recalculating future intervals...', type: 'info' });
-      const res = await api.scraper.resetStaleSchedules();
-      if (res?.success) {
-        setStatusMessage({
-          text: res.message || `Cleared past schedules! ${res.updatedCount} sources rescheduled to future times.`,
-          type: 'success'
-        });
-        if (res.status) {
-          setSchedulerStatus(res.status);
-        }
-        await fetchLiveScraperData();
-      } else {
-        setStatusMessage({ text: res?.message || 'Failed to reset stale schedules.', type: 'error' });
-      }
-    } catch (err: any) {
-      setStatusMessage({ text: `Failed to reset stale schedules: ${err.message}`, type: 'error' });
-    } finally {
-      setIsResettingSchedules(false);
-    }
-  };
-
   const handleSaveSettings = async () => {
     try {
       setStatusMessage({ text: 'Saving scraper settings...', type: 'info' });
@@ -2253,14 +2110,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         autoApprove: globalAutoApprove
       }));
 
-      await Promise.all([
-        api.scraper.saveConfigs(updated),
-        api.scraper.toggleScheduler(globalSchedulerEnabled)
-      ]);
+      await api.scraper.saveConfigs(updated);
       setLiveSources(updated);
       if (propsSetSources) propsSetSources(updated);
-      setStatusMessage({ text: 'Settings and scheduler configuration saved successfully!', type: 'success' });
-      await fetchLiveScraperData();
+      setStatusMessage({ text: 'Settings saved successfully to MongoDB!', type: 'success' });
     } catch (err: any) {
       setStatusMessage({ text: `Failed to save settings: ${err.message}`, type: 'error' });
     }
@@ -2300,53 +2153,17 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
           </div>
 
-          {/* Real-Time Scheduler Controls & Quick Actions */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Interactive Scheduler Toggle Switch */}
-            <div className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs flex items-center space-x-3">
-              <div className="flex items-center space-x-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${
-                  globalSchedulerEnabled && schedulerStatus?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                }`} />
-                <div>
-                  <span className="text-slate-400 text-[10px] uppercase font-bold block leading-none">Background Scheduler</span>
-                  <span className={`font-bold text-xs mt-0.5 block ${
-                    globalSchedulerEnabled && schedulerStatus?.isRunning ? 'text-emerald-400' : 'text-slate-400'
-                  }`}>
-                    {globalSchedulerEnabled ? (schedulerStatus?.isRunning ? 'Enabled & Active' : 'Enabled (Idle)') : 'Disabled (Off)'}
-                  </span>
-                </div>
+          {/* Quick Real-Time Scheduler Status Badge */}
+          <div className="flex items-center space-x-2">
+            <div className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs flex items-center space-x-2.5">
+              <span className={`w-2.5 h-2.5 rounded-full ${schedulerStatus?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500'}`} />
+              <div>
+                <span className="text-slate-400 text-[10px] uppercase font-bold block leading-none">Background Scheduler</span>
+                <span className="text-white font-bold text-xs mt-0.5 block">
+                  {schedulerStatus?.isRunning ? 'Active & Running' : 'Scheduled (Cron)'}
+                </span>
               </div>
-              <button
-                type="button"
-                onClick={() => handleToggleScheduler(!globalSchedulerEnabled)}
-                disabled={isTogglingScheduler}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase transition-all cursor-pointer border ${
-                  globalSchedulerEnabled
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
-                    : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
-                }`}
-                title={globalSchedulerEnabled ? 'Click to disable background scheduler' : 'Click to enable background scheduler'}
-              >
-                {isTogglingScheduler ? '...' : globalSchedulerEnabled ? 'Active (ON)' : 'Stopped (OFF)'}
-              </button>
             </div>
-
-            {/* Clear Past / Stale Schedules Button */}
-            <button
-              type="button"
-              onClick={handleResetStaleSchedules}
-              disabled={isResettingSchedules}
-              className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center space-x-1.5 ${
-                hasStalePastSchedules
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 animate-pulse'
-                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800'
-              }`}
-              title="Clear any outdated past dates from previous days and recalculate future schedule timestamps"
-            >
-              <RotateCcw className={`w-3.5 h-3.5 ${isResettingSchedules ? 'animate-spin' : ''}`} />
-              <span>{isResettingSchedules ? 'Rescheduling...' : hasStalePastSchedules ? 'Fix Stale Schedules' : 'Clean Past Dates'}</span>
-            </button>
 
             <button
               type="button"
@@ -2391,154 +2208,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           </div>
         )}
       </div>
-
-      {/* FOREGROUND ACTIVE SCRAPER RUN BANNER (Always visible in foreground when scraper is running) */}
-      {activeRunState && (activeRunState.isActive || activeRunState.status === 'Running' || activeRunState.status === 'Paused') && (
-        <div className="bg-slate-900 border-2 border-indigo-500/60 rounded-2xl p-5 space-y-4 shadow-2xl relative overflow-hidden bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950/40">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-3">
-            <div className="flex items-start sm:items-center space-x-3">
-              <div className={`p-2.5 rounded-xl border flex-shrink-0 ${
-                activeRunState.isPaused
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 animate-pulse'
-              }`}>
-                <Activity className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    Foreground Active Scraper
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                    activeRunState.isPaused
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                  }`}>
-                    {activeRunState.isPaused ? 'PAUSED' : 'RUNNING'}
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                    {activeRunState.isSchedulerRun ? 'Automatic Scheduled Run' : 'Manual Admin Run'}
-                  </span>
-                </div>
-
-                {/* Counter & Website Name display: e.g. 1/448 - Federal Public Service Commission */}
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white font-mono font-black text-sm shadow-sm">
-                    {activeRunState.currentSourceIndex || 1}/{activeRunState.totalSources || sourcesList.length || 1}
-                  </span>
-                  <span className="text-slate-400 font-bold">-</span>
-                  <span className="text-white font-extrabold text-base sm:text-lg tracking-tight">
-                    {activeRunState.currentSourceName || 'Scanning target portal...'}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Scanning website <span className="text-indigo-300 font-semibold">{activeRunState.currentSourceIndex || 1}</span> of <span className="text-indigo-300 font-semibold">{activeRunState.totalSources || sourcesList.length || 1}</span> ({activeRunState.completedSources || 0} completed so far)
-                </p>
-              </div>
-            </div>
-
-            {/* Foreground Controls */}
-            <div className="flex items-center space-x-2 flex-shrink-0">
-              {activeRunState.isPaused ? (
-                <button
-                  type="button"
-                  disabled={isResuming}
-                  onClick={handleResumeActiveRun}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
-                >
-                  <Play className="w-3.5 h-3.5" />
-                  <span>Resume</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isPausing}
-                  onClick={handlePauseActiveRun}
-                  className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
-                >
-                  <Pause className="w-3.5 h-3.5" />
-                  <span>Pause</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                disabled={isStopping}
-                onClick={handleStopActiveRun}
-                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
-              >
-                <Square className="w-3.5 h-3.5" />
-                <span>Stop Run</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResetActiveRun}
-                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all border border-slate-700 cursor-pointer flex items-center space-x-1"
-                title="Force reset scraper state to Idle"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset</span>
-              </button>
-
-              {activeStep !== 'run' && (
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('run')}
-                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
-                >
-                  <span>Live Logs →</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Progress Bar with Counter Percentage */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs font-bold">
-              <span className="text-slate-300">
-                Source Progress: <span className="text-indigo-400 font-black">{activeRunState.currentSourceIndex || 1}</span> of <span className="text-white">{activeRunState.totalSources || sourcesList.length || 1}</span> sources
-              </span>
-              <span className="text-indigo-300 font-mono font-black">
-                {Math.min(100, Math.round(((activeRunState.currentSourceIndex || 1) / (activeRunState.totalSources || sourcesList.length || 1)) * 100))}%
-              </span>
-            </div>
-            <div className="h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
-              <div
-                className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(100, Math.round(((activeRunState.currentSourceIndex || 1) / (activeRunState.totalSources || sourcesList.length || 1)) * 100))}%`
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Real-Time Live Discovery Counters */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-center">
-              <span className="text-[10px] font-bold text-slate-400 uppercase block">Found</span>
-              <span className="text-base font-black text-white">{activeRunState.totalFound || 0}</span>
-            </div>
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-center">
-              <span className="text-[10px] font-bold text-emerald-400 uppercase block">New Jobs</span>
-              <span className="text-base font-black text-emerald-400">{activeRunState.newJobs || 0}</span>
-            </div>
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-center">
-              <span className="text-[10px] font-bold text-purple-400 uppercase block">Duplicates</span>
-              <span className="text-base font-black text-purple-400">{activeRunState.duplicates || 0}</span>
-            </div>
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-center">
-              <span className="text-[10px] font-bold text-amber-400 uppercase block">Pending</span>
-              <span className="text-base font-black text-amber-400">{activeRunState.pending || 0}</span>
-            </div>
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-center">
-              <span className="text-[10px] font-bold text-rose-400 uppercase block">Failed / Err</span>
-              <span className="text-base font-black text-rose-400">{activeRunState.failedSources || 0}</span>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* STEP NAVIGATION TABS (Simple English, Step 1 through Step 6) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 shadow-lg">
@@ -2602,11 +2271,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <span className={`w-3 h-3 rounded-full ${schedulerStatus?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
                   <span className="text-xs uppercase font-black tracking-wider text-slate-400">Automated Pipeline Status</span>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                    globalSchedulerEnabled && schedulerStatus?.isRunning
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    schedulerStatus?.isRunning ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                   }`}>
-                    {globalSchedulerEnabled ? (schedulerStatus?.isRunning ? 'Scheduler Active (Tick: */2 * * * *)' : 'Scheduler Enabled (Idle)') : 'Scheduler Disabled by Admin'}
+                    {schedulerStatus?.isRunning ? 'Scheduler Active (Tick: */2 * * * *)' : 'Scheduler Paused'}
                   </span>
                 </div>
                 <h3 className="text-lg font-black text-white">Universal Job Scraper & Ingestion Center</h3>
@@ -2615,7 +2282,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 </p>
               </div>
 
-              {/* Timing details & Actions */}
+              {/* Timing details & Action */}
               <div className="flex flex-wrap items-center gap-3">
                 <div className="px-4 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs space-y-0.5">
                   <span className="text-slate-500 text-[10px] uppercase font-bold block">Last Run</span>
@@ -2627,38 +2294,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <span className="text-indigo-300 font-bold block">{nextRunDisplay}</span>
                 </div>
 
-                {/* Scheduler Toggle Button */}
-                <button
-                  type="button"
-                  onClick={() => handleToggleScheduler(!globalSchedulerEnabled)}
-                  disabled={isTogglingScheduler}
-                  className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center space-x-2 cursor-pointer disabled:opacity-50 ${
-                    globalSchedulerEnabled
-                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
-                      : 'bg-rose-500/10 text-rose-300 border-rose-500/30 hover:bg-rose-500/20'
-                  }`}
-                  title={globalSchedulerEnabled ? 'Click to stop automated background runs' : 'Click to enable automated background runs'}
-                >
-                  <span className={`w-2 h-2 rounded-full ${globalSchedulerEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
-                  <span>{isTogglingScheduler ? 'Saving...' : globalSchedulerEnabled ? 'Scheduler ON' : 'Scheduler OFF'}</span>
-                </button>
-
-                {/* Clear Stale / Past Schedules Button */}
-                <button
-                  type="button"
-                  onClick={handleResetStaleSchedules}
-                  disabled={isResettingSchedules}
-                  className={`px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer disabled:opacity-50 flex items-center space-x-1.5 ${
-                    hasStalePastSchedules
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 animate-pulse'
-                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                  }`}
-                  title="Clear any past or expired schedule timestamps and reschedule all sources to clean future times"
-                >
-                  <RotateCcw className={`w-3.5 h-3.5 ${isResettingSchedules ? 'animate-spin' : ''}`} />
-                  <span>{isResettingSchedules ? 'Fixing...' : hasStalePastSchedules ? 'Fix Past Dates' : 'Clear Past Schedules'}</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={handleTriggerTick}
@@ -2666,7 +2301,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-600/30 flex items-center space-x-2 cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${isTriggeringTick ? 'animate-spin' : ''}`} />
-                  <span>{isTriggeringTick ? 'Triggering...' : 'Trigger Now'}</span>
+                  <span>{isTriggeringTick ? 'Triggering...' : 'Trigger Scheduler Now'}</span>
                 </button>
               </div>
             </div>
@@ -3725,7 +3360,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     <Activity className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white flex flex-wrap items-center gap-2">
+                    <h4 className="text-sm font-bold text-white flex items-center space-x-2">
                       <span>Real-Time Scraper Engine Activity</span>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         activeRunState.isPaused
@@ -3734,22 +3369,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       }`}>
                         {activeRunState.isPaused ? 'PAUSED' : 'RUNNING'}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                        {activeRunState.isSchedulerRun ? 'Automatic Scheduler Run' : 'Manual Admin Run'}
-                      </span>
                     </h4>
-                    {/* Position and Target Name: e.g. 1/448 - Federal Public Service Commission */}
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded bg-indigo-600 text-white font-mono font-black text-xs">
-                        {activeRunState.currentSourceIndex || 1}/{activeRunState.totalSources || sourcesList.length || 1}
-                      </span>
-                      <span className="text-slate-400 font-bold">-</span>
-                      <span className="text-white font-bold text-sm">
-                        {activeRunState.currentSourceName || 'Initializing...'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Currently processing website {activeRunState.currentSourceIndex || 1} of {activeRunState.totalSources || sourcesList.length || 1} • {activeRunState.completedSources || 0} completed
+                    <p className="text-xs text-slate-400">
+                      Processing source: <span className="text-indigo-300 font-semibold">{activeRunState.currentSourceName || 'Initializing...'}</span> ({activeRunState.completedSources || 0} / {activeRunState.totalSources || 0} completed)
                     </p>
                   </div>
                 </div>
@@ -4830,109 +4452,79 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
                 {paginatedReviewItems.map(job => {
                   const isExpired = job.status === 'Expired';
-                  const isDup = (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate');
-                  const isSelected = selectedReviewIds.includes(job.id);
-                  const missingFields = calculateJobMissingFields(job);
-                  const hasMissingFields = isScrapedJob(job) && missingFields.length > 0;
+                const isDup = (job as any).isDuplicate || (job as any).duplicateWarning || job.description?.toLowerCase().includes('duplicate');
+                const isSelected = selectedReviewIds.includes(job.id);
 
-                  return (
-                    <div
-                      key={job.id}
-                      className={`bg-slate-900 border rounded-2xl p-5 transition-all shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                        isExpired
-                          ? 'border-rose-800/40 bg-rose-950/10'
-                          : isDup
-                          ? 'border-purple-800/60 bg-purple-950/10'
-                          : hasMissingFields
-                          ? 'border-amber-700/50 bg-amber-950/10'
-                          : 'border-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-start space-x-3.5">
-                        <input
-                          type="checkbox"
-                          aria-label={`Select job ${job.title}`}
-                          checked={isSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedReviewIds(prev => [...prev, job.id]);
-                            } else {
-                              setSelectedReviewIds(prev => prev.filter(id => id !== job.id));
-                            }
-                          }}
-                          className="mt-1 rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
-                        />
+                return (
+                  <div
+                    key={job.id}
+                    className={`bg-slate-900 border rounded-2xl p-5 transition-all shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                      isExpired
+                        ? 'border-rose-800/40 bg-rose-950/10'
+                        : isDup
+                        ? 'border-purple-800/60 bg-purple-950/10'
+                        : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-start space-x-3.5">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select job ${job.title}`}
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedReviewIds(prev => [...prev, job.id]);
+                          } else {
+                            setSelectedReviewIds(prev => prev.filter(id => id !== job.id));
+                          }
+                        }}
+                        className="mt-1 rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
+                      />
 
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2 flex-wrap">
-                            <h4 className="text-sm font-black text-white">{job.title}</h4>
-                            {isExpired ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
-                                <Clock className="w-3 h-3" />
-                                <span>Expired (Deadline: {job.deadlineDate || 'Passed'})</span>
-                              </span>
-                            ) : isDup ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center space-x-1">
-                                <AlertTriangle className="w-3 h-3" />
-                                <span>Duplicate Alert</span>
-                              </span>
-                            ) : hasMissingFields ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1" title={`Missing: ${missingFields.join(', ')}`}>
-                                <AlertCircle className="w-3 h-3 text-rose-400" />
-                                <span>Missing: {missingFields.join(', ')}</span>
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                Pending Review
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="text-xs text-slate-400">
-                            {job.company} • {job.region} • Source: <span className="text-indigo-400 font-semibold">{(job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'External'}</span>
-                            {job.deadlineDate && (
-                              <span className="ml-2 text-slate-500">
-                                • Official Deadline: <span className="text-amber-300/90 font-mono">{job.deadlineDate}</span>
-                              </span>
-                            )}
-                          </p>
-
-                          {hasMissingFields && !isExpired && (
-                            <p className="text-[11px] text-amber-300/90 pt-0.5 flex items-center space-x-1 font-medium">
-                              <AlertCircle className="w-3 h-3 flex-shrink-0 text-amber-400" />
-                              <span>Missing required factual data: <strong className="text-rose-300">{missingFields.join(', ')}</strong>. Please use Quick Edit to complete before approving.</span>
-                            </p>
-                          )}
-
-                          {isExpired && (
-                            <p className="text-[11px] text-rose-300/80 pt-0.5">
-                              Notice: This job passed its application deadline and was transitioned to Expired by the portal scheduler.
-                            </p>
-                          )}
-
-                          {isDup && !isExpired && (
-                            <p className="text-[11px] text-purple-300/80 pt-0.5">
-                              Notice: A job with a very similar title and employer already exists in active listings.
-                            </p>
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2 flex-wrap">
+                          <h4 className="text-sm font-black text-white">{job.title}</h4>
+                          {isExpired ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
+                              <Clock className="w-3 h-3" />
+                              <span>Expired (Deadline: {job.deadlineDate || 'Passed'})</span>
+                            </span>
+                          ) : isDup ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center space-x-1">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>Duplicate Alert</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              Pending Review
+                            </span>
                           )}
                         </div>
-                      </div>
 
-                      <div className="flex items-center space-x-2 flex-wrap gap-2">
-                        {!isExpired && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setQuickEditingJob(job);
-                              setIsQuickEditOpen(true);
-                            }}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer"
-                            title="Edit job and complete missing fields"
-                          >
-                            <Edit3 className="w-3 h-3 text-amber-400" />
-                            <span>Quick Edit</span>
-                          </button>
+                        <p className="text-xs text-slate-400">
+                          {job.company} • {job.region} • Source: <span className="text-indigo-400 font-semibold">{(job as any).sourcePortal || job.scraperSourceName || job.scrapedSourceDomain || 'External'}</span>
+                          {job.deadlineDate && (
+                            <span className="ml-2 text-slate-500">
+                              • Official Deadline: <span className="text-amber-300/90 font-mono">{job.deadlineDate}</span>
+                            </span>
+                          )}
+                        </p>
+
+                        {isExpired && (
+                          <p className="text-[11px] text-rose-300/80 pt-0.5">
+                            Notice: This job passed its application deadline and was transitioned to Expired by the portal scheduler.
+                          </p>
                         )}
+
+                        {isDup && !isExpired && (
+                          <p className="text-[11px] text-purple-300/80 pt-0.5">
+                            Notice: A job with a very similar title and employer already exists in active listings.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2 flex-wrap gap-2">
                       {isExpired ? (
                         <>
                           <button
@@ -5007,31 +4599,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           type="button"
                           disabled={isProcessingReview}
                           onClick={async () => {
-                            if (hasMissingFields) {
-                              setStatusMessage({
-                                text: `Cannot approve "${job.title}": Missing required factual fields (${missingFields.join(', ')}). Please complete them via Quick Edit before publishing.`,
-                                type: 'error'
-                              });
-                              setQuickEditingJob(job);
-                              setIsQuickEditOpen(true);
-                              return;
-                            }
                             setIsProcessingReview(true);
                             try {
                               const res = await api.jobs.bulkApprove([job.id]);
                               if (res?.success) {
-                                if (res.skippedMissingFieldsCount > 0) {
-                                  setStatusMessage({
-                                    text: `Cannot approve "${job.title}": Missing required fields (${missingFields.join(', ')}).`,
-                                    type: 'error'
-                                  });
-                                } else {
-                                  setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
-                                  await fetchPendingQueue();
-                                  if (onReloadJobs) await onReloadJobs();
-                                }
-                              } else {
-                                setStatusMessage({ text: res?.message || 'Failed to approve job.', type: 'error' });
+                                setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
+                                await fetchPendingQueue();
                               }
                             } catch (err: any) {
                               setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
@@ -5039,15 +4612,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                               setIsProcessingReview(false);
                             }
                           }}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 ${
-                            hasMissingFields
-                              ? 'bg-amber-600/70 hover:bg-amber-600 text-amber-100 border border-amber-500/40'
-                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                          }`}
-                          title={hasMissingFields ? `Missing: ${missingFields.join(', ')} - Click to Quick Edit` : 'Approve job to live listings'}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          <span>{hasMissingFields ? 'Complete & Approve' : 'Approve to Live'}</span>
+                          <span>Approve to Live</span>
                         </button>
                       )}
 
@@ -5409,53 +4977,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </p>
 
               <div className="space-y-4 pt-2">
-                <div className="flex items-center justify-between p-3.5 bg-slate-950 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800">
                   <div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`w-2.5 h-2.5 rounded-full ${globalSchedulerEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
-                      <span className="text-xs font-bold text-white block">Background Scheduler</span>
-                    </div>
-                    <span className="text-[11px] text-slate-400 mt-0.5 block">
-                      {globalSchedulerEnabled ? 'Automatic background scans are active' : 'Scheduler is stopped and will not run in background'}
-                    </span>
+                    <span className="text-xs font-bold text-white block">Scheduler Status</span>
+                    <span className="text-[11px] text-slate-400">Enable automatic periodic scans</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleScheduler(!globalSchedulerEnabled)}
-                    disabled={isTogglingScheduler}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer border ${
-                      globalSchedulerEnabled
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
-                        : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
-                    }`}
-                  >
-                    {isTogglingScheduler ? 'Saving...' : globalSchedulerEnabled ? 'Active (ON)' : 'Disabled (OFF)'}
-                  </button>
-                </div>
-
-                {/* Stale Schedules Cleaner in Settings */}
-                <div className="flex items-center justify-between p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-                  <div>
-                    <span className="text-xs font-bold text-white block">Schedule Timestamps Health</span>
-                    <span className="text-[11px] text-slate-400 mt-0.5 block">
-                      {hasStalePastSchedules
-                        ? '⚠️ Stale schedules detected from previous dates. Click to reschedule to future intervals.'
-                        : 'All sources have clean, future schedule intervals.'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleResetStaleSchedules}
-                    disabled={isResettingSchedules}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border flex items-center space-x-1.5 ${
-                      hasStalePastSchedules
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 animate-pulse'
-                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                    }`}
-                  >
-                    <RotateCcw className={`w-3 h-3 ${isResettingSchedules ? 'animate-spin' : ''}`} />
-                    <span>{isResettingSchedules ? 'Resetting...' : 'Reset Past Dates'}</span>
-                  </button>
+                  <input
+                    type="checkbox"
+                    aria-label="Scheduler Status"
+                    checked={globalSchedulerEnabled}
+                    onChange={(e) => setGlobalSchedulerEnabled(e.target.checked)}
+                    className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
+                  />
                 </div>
 
                 <div>
@@ -6379,20 +5912,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* Quick Edit Job Modal */}
-      {isQuickEditOpen && (
-        <AdminQuickEditJobModal
-          job={quickEditingJob}
-          isOpen={isQuickEditOpen}
-          onClose={() => {
-            setIsQuickEditOpen(false);
-            setQuickEditingJob(null);
-          }}
-          onSaveJob={handleSaveQuickEditJob}
-          onSaveAndApproveJob={handleSaveAndApproveJob}
-        />
       )}
     </div>
   );

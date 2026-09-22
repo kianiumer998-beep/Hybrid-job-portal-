@@ -137,9 +137,9 @@ export function extractJobsFromPdfText(
         jobType: 'On-site',
         region: 'Pakistan',
         province,
-        salary: undefined,
+        salary: scale.includes('BPS') ? `Government Pay Scale (${scale})` : 'Salary not disclosed',
         currency: 'PKR',
-        experienceLevel: undefined,
+        experienceLevel: scale.includes('17') || scale.includes('18') || scale.includes('19') ? 'Mid' : 'Entry',
         department: org,
         tags: [scale, org, 'Original Gazette Document'].filter(Boolean),
         description: `Official vacancy extracted from document:\n\n${trimmedChunk.substring(0, 1500)}`,
@@ -224,7 +224,7 @@ STRICT FACTUAL INTEGRITY MANDATE:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -273,9 +273,9 @@ STRICT FACTUAL INTEGRITY MANDATE:
           region: 'Pakistan' as Region,
           province: resolvedProvince,
           city: rj.location || undefined,
-          salary: rj.salary || undefined,
+          salary: rj.salary || (scale.includes('BPS') ? `Government Pay Scale (${scale})` : 'Salary not disclosed'),
           currency: 'PKR' as const,
-          experienceLevel: undefined,
+          experienceLevel: scale.includes('17') || scale.includes('18') || scale.includes('19') ? 'Mid' : 'Entry',
           department: rj.company || org,
           tags: [scale, org, 'OCR Scanned Document'].filter(Boolean),
           description: rj.description || `Official vacancy extracted via high-accuracy OCR from document:\n\n${transcribedText.substring(0, 1500)}`,

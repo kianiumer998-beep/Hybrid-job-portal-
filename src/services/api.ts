@@ -26,6 +26,8 @@ export function getResolvedApiBase(): string {
 
   const isBrowser = typeof window !== 'undefined';
   const hostname = isBrowser ? window.location.hostname : '';
+  const isVercel = Boolean(isBrowser && (hostname.endsWith('.vercel.app') || hostname.includes('vercel.app')));
+  const isRender = Boolean(isBrowser && (hostname.endsWith('.onrender.com') || hostname.includes('onrender.com')));
   const isLocal = Boolean(
     isBrowser &&
     (hostname === 'localhost' ||
@@ -36,21 +38,23 @@ export function getResolvedApiBase(): string {
      hostname.includes('localhost'))
   );
 
-  // 2. Local dev / container preview where Express serves the API on the same host
-  if (isLocal) {
-    return '/api';
-  }
-
-  // 3. Separate production frontend (Vercel, custom domain, etc.) -> authoritative Render backend
-  if (isBrowser) {
-    const runtimeUrl = localStorage.getItem('hybrid_backend_api_url') || '';
+  // 2. Production Vercel or Render deployment where frontend is hosted separately
+  if (isVercel || isRender) {
+    const runtimeUrl = isBrowser ? (localStorage.getItem('hybrid_backend_api_url') || '') : '';
     if (runtimeUrl.trim()) {
       const stripped = runtimeUrl.trim().replace(/\/+$/, '').replace(/\/api\/?$/, '');
       return `${stripped}/api`;
     }
+    // Production Render backend
     return 'https://hybrid-job-portal.onrender.com/api';
   }
 
+  // 3. Custom domain / standalone production deployment outside local dev
+  if (isBrowser && !isLocal && (hostname.includes('.com') || hostname.includes('.org') || hostname.includes('.io') || hostname.includes('.app'))) {
+    return 'https://hybrid-job-portal.onrender.com/api';
+  }
+
+  // 4. Local dev / container preview where Express serves the API on /api
   return '/api';
 }
 
@@ -482,19 +486,6 @@ export const api = {
     },
     async getSchedulerStatus() {
       return safeFetchJson(`${API_BASE}/scraper/scheduler-status`, { headers: getAuthHeader() });
-    },
-    async toggleScheduler(enabled: boolean) {
-      return safeFetchJson<{ success: boolean; enabled: boolean; message: string; status?: any }>(`${API_BASE}/scraper/scheduler/toggle`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ enabled })
-      });
-    },
-    async resetStaleSchedules() {
-      return safeFetchJson<{ success: boolean; updatedCount: number; resetSources: string[]; message: string; status?: any }>(`${API_BASE}/scraper/scheduler/reset-stale`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
     },
     async schedulerTick() {
       return safeFetchJson(`${API_BASE}/scraper/scheduler-tick`, {

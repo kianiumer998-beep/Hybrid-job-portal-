@@ -8,10 +8,6 @@
       "destination": "/assets/$1"
     },
     {
-      "source": "/api/(.*)",
-      "destination": "https://hybrid-job-portal.onrender.com/api/$1"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

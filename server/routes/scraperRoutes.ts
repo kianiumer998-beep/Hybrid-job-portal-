@@ -14,7 +14,7 @@ import { ScraperRepository, AuditRepository, JobRepository } from '../db/reposit
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
 import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
-import { getSchedulerStatus, runSchedulerTick, setGlobalSchedulerState } from '../services/scraperScheduler';
+import { getSchedulerStatus, runSchedulerTick } from '../services/scraperScheduler';
 import { Job } from '../../src/types/job';
 
 export const scraperRouter = Router();
@@ -47,65 +47,12 @@ scraperRouter.put('/configs', requireAdmin, async (req, res) => {
 });
 
 // 3. Scheduler Status & Diagnostics (Admin Only)
-scraperRouter.get(['/scheduler-status', '/scheduler/status'], requireAdmin, async (req, res) => {
+scraperRouter.get('/scheduler-status', requireAdmin, async (req, res) => {
   try {
     const status = await getSchedulerStatus();
     res.json({ success: true, status });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Error getting scheduler status' });
-  }
-});
-
-// 3b. Enable / Disable Background Scheduler (Admin Only)
-scraperRouter.post('/scheduler/toggle', requireAdmin, async (req, res) => {
-  try {
-    const { enabled } = req.body;
-    const isEnabled = Boolean(enabled);
-    await setGlobalSchedulerState(isEnabled);
-
-    AuditRepository.add({
-      user: 'Administrator',
-      role: 'Scraper Manager',
-      action: isEnabled ? 'Background Scheduler Enabled' : 'Background Scheduler Disabled',
-      target: 'Scraper Cron Scheduler',
-      status: 'Success'
-    });
-
-    const status = await getSchedulerStatus();
-    res.json({
-      success: true,
-      enabled: isEnabled,
-      message: isEnabled ? 'Background scheduler enabled successfully.' : 'Background scheduler disabled. Background runs stopped.',
-      status
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || 'Error toggling scheduler' });
-  }
-});
-
-// 3c. Reset All Past / Stale Schedules (Admin Only)
-scraperRouter.post('/scheduler/reset-stale', requireAdmin, async (req, res) => {
-  try {
-    const result = await ScraperRepository.resetStaleSchedules();
-    const status = await getSchedulerStatus();
-
-    AuditRepository.add({
-      user: 'Administrator',
-      role: 'Scraper Manager',
-      action: 'Reset Stale Scraper Schedules',
-      target: `${result.updatedCount} sources rescheduled to future`,
-      status: 'Success'
-    });
-
-    res.json({
-      success: true,
-      updatedCount: result.updatedCount,
-      resetSources: result.resetSources,
-      message: `Successfully rescheduled ${result.updatedCount} sources to future intervals. All past schedule timestamps cleared.`,
-      status
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || 'Error resetting stale schedules' });
   }
 });
 

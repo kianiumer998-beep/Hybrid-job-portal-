@@ -18,11 +18,9 @@ export interface SchedulerSourceStatus {
 
 export interface SchedulerStatusResponse {
   isRunning: boolean;
-  isSchedulerEnabled: boolean;
   tickCronPattern: string;
   activeSourcesCount: number;
   dueSourcesCount: number;
-  overdueSourcesCount: number;
   lastTickTimestamp: string;
   sources: SchedulerSourceStatus[];
 }
@@ -46,30 +44,9 @@ function parseIntervalToMs(intervalStr?: string): number {
 }
 
 /**
- * Sets the global scheduler enabled/disabled flag.
- */
-export async function setGlobalSchedulerState(enabled: boolean): Promise<boolean> {
-  await ScraperRepository.updateSchedulerConfig({ enabled });
-  if (!enabled) {
-    const currentRun = getActiveRunStatus();
-    if (currentRun.isActive && currentRun.isSchedulerRun) {
-      console.log('[Scheduler Engine] Disabling scheduler while background run active. Terminating background run...');
-      stopActiveRun();
-    }
-  }
-  return enabled;
-}
-
-/**
  * Executes a scheduler tick: checks individual source intervals and triggers scraping for due sources.
  */
 export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; summary: any }> {
-  // Check admin config toggle first
-  const config = await ScraperRepository.getSchedulerConfig();
-  if (!config.enabled) {
-    return { triggeredSources: [], summary: 'Automatic scheduler disabled by Administrator' };
-  }
-
   if (isTickExecuting) {
     console.log('[Scheduler Engine] Previous tick still executing. Skipping tick.');
     return { triggeredSources: [], summary: 'Concurrent tick avoided' };
@@ -97,12 +74,12 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
     const currentRun = getActiveRunStatus();
     if (currentRun.isActive) {
       const lastActiveMs = new Date(currentRun.lastUpdatedTime || currentRun.startTime || 0).getTime();
-      const isStale = (Date.now() - lastActiveMs) > 2 * 60 * 1000;
+      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
       if (isStale) {
-        console.warn(`[Scheduler Engine] Active scraper run (${currentRun.runId || 'unknown'}) is stale (>2m inactive). Auto-stopping to unblock scheduler.`);
+        console.warn(`[Scheduler Engine] Active scraper run (${currentRun.runId || 'unknown'}) is stale (>5m inactive). Auto-stopping to unblock scheduler.`);
         stopActiveRun();
       } else {
-        console.log(`[Scheduler Engine] Scraper engine currently active (${currentRun.runId || 'in-progress'}, ${currentRun.status}). Deferring scheduled tick.`);
+        console.log(`[Scheduler Engine] Scraper engine currently active (${currentRun.runId || 'in-progress'}, ${currentRun.status}). Deferring scheduled source runs to next tick.`);
         return { triggeredSources: [], summary: `Scraper engine busy with run ${currentRun.runId || 'in-progress'}` };
       }
     }
@@ -112,7 +89,6 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
     const updatedSources = [...sources];
     let hasUpdates = false;
 
-    // Filter active sources
     for (let i = 0; i < updatedSources.length; i++) {
       const src = updatedSources[i];
       const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
@@ -121,31 +97,12 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       const intervalMs = parseIntervalToMs(src.interval);
       let nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
 
-      // Initialize nextRunAt if missing or invalid
+      // Initialize nextRunAt if not set
       if (!nextRunMs || isNaN(nextRunMs)) {
-        nextRunMs = now + intervalMs;
-        updatedSources[i] = {
-          ...src,
-          nextRunAt: new Date(nextRunMs).toISOString()
-        };
-        hasUpdates = true;
-        continue;
+        nextRunMs = now;
       }
 
-      // Check if this source was stuck in the past (> 30 minutes in the past from previous days)
-      const isStalePastDate = (now - nextRunMs) > 30 * 60 * 1000;
-      if (isStalePastDate) {
-        console.log(`[Scheduler Engine] Source "${src.name}" had past schedule timestamp (${src.nextRunAt}). Auto-aligning to future.`);
-        nextRunMs = now + intervalMs + ((i % 15) * 60 * 1000);
-        updatedSources[i] = {
-          ...src,
-          nextRunAt: new Date(nextRunMs).toISOString()
-        };
-        hasUpdates = true;
-        continue;
-      }
-
-      // Check if source is due now
+      // Check if source is due
       if (now >= nextRunMs) {
         console.log(`[Scheduler Engine] Source "${src.name}" (${src.id}) is due for scrape (Interval: ${src.interval || '24h'}).`);
         triggered.push(src.id);
@@ -156,7 +113,6 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           const runResult = await executeScraperWithWizard({
             mode: 'since_last',
             sourceId: src.id,
-            isSchedulerRun: true,
             autoPublishTrusted: src.autoApprove && featureFlags.enableScraperAutoApprove
           });
 
@@ -173,7 +129,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         }
 
         if (wasBusy) {
-          // If the engine became busy, defer this source to next tick (2 minutes)
+          // If the engine became busy, defer this source to next tick (2 minutes) rather than skipping full interval
           updatedSources[i] = {
             ...updatedSources[i],
             nextRunAt: new Date(Date.now() + 2 * 60 * 1000).toISOString()
@@ -216,11 +172,6 @@ export function initScraperScheduler(): void {
     scheduledTask.stop();
   }
 
-  // Clean any stale past dates from previous days on startup
-  ScraperRepository.resetStaleSchedules().catch(err => {
-    console.warn('[Scheduler Engine] Startup schedule alignment notice:', err.message);
-  });
-
   // Ticks every 2 minutes to evaluate each source's configured interval
   scheduledTask = cron.schedule('*/2 * * * *', async () => {
     try {
@@ -238,17 +189,13 @@ export function initScraperScheduler(): void {
  */
 export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
   const sources = await ScraperRepository.getConfigs();
-  const config = await ScraperRepository.getSchedulerConfig();
   const now = Date.now();
-
-  let overdueCount = 0;
 
   const sourceStatuses: SchedulerSourceStatus[] = sources.map(src => {
     const intervalMs = parseIntervalToMs(src.interval);
     const nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
     const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
-    const isOverdue = isActive && nextRunMs > 0 && nextRunMs < now;
-    if (isOverdue) overdueCount++;
+    const isDue = isActive && (nextRunMs <= now);
 
     return {
       sourceId: src.id,
@@ -258,18 +205,16 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
       status: src.status,
       lastRunAt: src.lastRunAt || src.lastCompletedAt,
       nextRunAt: src.nextRunAt,
-      isDue: isActive && (nextRunMs <= now),
+      isDue,
       healthStatus: src.healthStatus || 'healthy'
     };
   });
 
   return {
-    isRunning: scheduledTask !== null && config.enabled,
-    isSchedulerEnabled: config.enabled,
+    isRunning: scheduledTask !== null,
     tickCronPattern: '*/2 * * * *',
     activeSourcesCount: sources.filter(s => s.status === 'Active Scheduled' || s.status === 'Active').length,
     dueSourcesCount: sourceStatuses.filter(s => s.isDue).length,
-    overdueSourcesCount: overdueCount,
     lastTickTimestamp: lastTickTime,
     sources: sourceStatuses
   };

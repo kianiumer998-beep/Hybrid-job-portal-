@@ -10,7 +10,7 @@ export type AdPlacement =
   | 'toast-float'     // Bottom-right toast notification
   | 'sms-broadcast';  // Direct SMS text message broadcast
 
-export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft';
+export type AdStatus = 'active' | 'paused' | 'pending_approval' | 'rejected' | 'completed' | 'draft' | 'budget_exhausted' | 'limit_reached' | 'needs_correction' | 'under_dispute';
 
 export type AdDurationUnit = 'hours' | 'days' | 'weeks' | 'months';
 
@@ -74,13 +74,19 @@ export interface PopupDisplaySettings {
   allowUnlimitedQueue: boolean; // Allow admin to queue unlimited popups on cross
 }
 
+export interface FeedInlineAdPatternEntry {
+  jobsInterval: number;
+  adCount: number;
+}
+
 export interface FeedInlineAdSettings {
-  insertionMode: 'cadence' | 'custom_indices'; // 'cadence' = every N jobs, 'custom_indices' = after specific job numbers
+  insertionMode: 'cadence' | 'custom_indices' | 'custom_pattern'; // 'cadence' = every N jobs, 'custom_indices' = after specific job numbers, 'custom_pattern' = sequence of intervals and counts
   repeatEveryNJobs: number; // e.g. 2, 3, 4, 5
   customIndices: number[]; // e.g. [2, 5, 8] -> after 2nd job, after 5th job, after 8th job
   page1SpecificIndices?: number[]; // Optional different indices for page 1
   maxAdsPerPage: number; // e.g. 3
   rotateMultipleAds: boolean; // Rotate through different active feed ads
+  customPattern?: FeedInlineAdPatternEntry[];
 }
 
 export interface PromoDiscountBanner {
@@ -96,6 +102,12 @@ export interface PromoDiscountBanner {
   bgGradient?: string;
   ctaText?: string;
   ctaUrl?: string;
+  imageUrl?: string;
+  order?: number;
+  mobileSize?: 'compact' | 'standard' | 'large';
+  desktopSize?: 'compact' | 'standard' | 'large';
+  mobileVisible?: boolean;
+  desktopVisible?: boolean;
 }
 
 export interface JobPostingFeeSettings {
@@ -130,6 +142,11 @@ export interface CampaignCustomizationConfig {
   feedInlineSettings: FeedInlineAdSettings;
   promoBanners: PromoDiscountBanner[];
   jobPostingFeeSettings?: JobPostingFeeSettings;
+  billingConfig?: CampaignBillingConfig;
+  jobFeedSettings: {
+    defaultPostsPerPage: number;
+    postsPerPageOptions: number[];
+  };
   formRules: {
     requireImage: boolean;
     requireAdminApproval: boolean;
@@ -139,6 +156,23 @@ export interface CampaignCustomizationConfig {
     instantPublishForPro: boolean;
     adminFreeCampaignBypass: boolean; // Admin can create campaigns 100% free
   };
+}
+
+export type CampaignBillingModel = 'duration' | 'cpm' | 'cpc';
+
+export interface CampaignBillingConfig {
+  durationEnabled: boolean;
+  cpmEnabled: boolean;
+  cpcEnabled: boolean;
+  allowDurationBilling?: boolean;
+  allowCpmBilling?: boolean;
+  allowCpcBilling?: boolean;
+  cpmRatePkr: number;       // PKR per 1,000 impressions (e.g. 150)
+  cpcRatePkr: number;       // PKR per verified click (e.g. 15)
+  minCampaignBudgetPkr: number; // Minimum campaign budget in PKR (e.g. 500)
+  maxCampaignBudgetPkr: number; // Maximum campaign budget in PKR (e.g. 500000)
+  autoBillingEnabled: boolean;  // Auto pause/stop on exhaustion
+  defaultModel: CampaignBillingModel;
 }
 
 export const DEFAULT_PORTAL_PAGES_CONFIG: PortalPageConfig[] = [
@@ -466,7 +500,13 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
     customIndices: [2, 5, 8, 12], // After 2nd job, after 5th job, after 8th job
     page1SpecificIndices: [2, 5, 8],
     maxAdsPerPage: 3,
-    rotateMultipleAds: true
+    rotateMultipleAds: true,
+    customPattern: [
+      { jobsInterval: 1, adCount: 1 },
+      { jobsInterval: 3, adCount: 1 },
+      { jobsInterval: 2, adCount: 1 },
+      { jobsInterval: 4, adCount: 2 }
+    ]
   },
   promoBanners: DEFAULT_PROMO_BANNERS,
   jobPostingFeeSettings: {
@@ -474,6 +514,21 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
     customStandardFeePkr: 500,
     globalDiscountPercent: 0,
     promoBannerText: ''
+  },
+  billingConfig: {
+    durationEnabled: true,
+    cpmEnabled: true,
+    cpcEnabled: true,
+    cpmRatePkr: 150,
+    cpcRatePkr: 15,
+    minCampaignBudgetPkr: 500,
+    maxCampaignBudgetPkr: 500000,
+    autoBillingEnabled: true,
+    defaultModel: 'duration'
+  },
+  jobFeedSettings: {
+    defaultPostsPerPage: 10,
+    postsPerPageOptions: [10, 15, 20, 25, 50]
   },
   formRules: {
     requireImage: false,
@@ -538,12 +593,26 @@ export interface Advertisement {
   submittedByUserEmail?: string;
   submittedByUserPhone?: string;
   
-  // Approval / Rejection Workflow
+  // Approval / Rejection & Moderation Workflow
   approvalStatus?: 'Approved' | 'Pending' | 'Rejected';
   rejectionReason?: string;
   approvedAt?: string;
   rejectedAt?: string;
   approvedBy?: string;
+  
+  // Correction Workflow
+  correctionRequested?: boolean;
+  correctionReason?: string;
+  correctionRequestedAt?: string;
+  resubmittedAt?: string;
+  
+  // Dispute Workflow
+  disputeStatus?: 'None' | 'Open' | 'Reviewing' | 'Resolved';
+  disputeReason?: string;
+  disputeOpenedAt?: string;
+  disputeResolvedAt?: string;
+  disputeResolution?: string;
+  disputeResolutionAction?: 'Approved' | 'Refunded' | 'Rejected' | 'No Action';
   
   // Timeframe, Duration & Scheduling
   durationUnit?: AdDurationUnit;
@@ -556,6 +625,18 @@ export interface Advertisement {
   campaignCostPkr?: number;
   paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Refunded' | 'Exempt';
   walletTxId?: string;
+
+  // Billing Model & Monetization
+  billingModel?: CampaignBillingModel; // 'duration' | 'cpm' | 'cpc'
+  cpmRatePkr?: number;
+  cpcRatePkr?: number;
+  budgetLimit?: number;       // Total assigned campaign budget
+  budgetSpent?: number;       // Amount spent/deducted so far
+  budgetRemaining?: number;   // Remaining campaign budget
+  impressionLimit?: number;   // Optional impressions cap
+  clickLimit?: number;        // Optional clicks cap
+  autoBillingEnabled?: boolean;
+  stopReason?: string;        // 'Budget Exhausted' | 'Click Limit Reached' | 'Impression Limit Reached' | 'Duration Expired' | 'Low Wallet Balance' | etc.
   
   // Visual & Content Details
   headline: string;
@@ -1040,6 +1121,20 @@ export function validateCampaignTargetPages(selectedPages: string[], portalConfi
 export function isAdCurrentlyRunning(ad: Advertisement, nowIso?: string): boolean {
   if (ad.status !== 'active') return false;
   if (ad.approvalStatus && ad.approvalStatus !== 'Approved') return false;
+  if (ad.stopReason) return false;
+
+  // Check budget limits
+  if (ad.budgetLimit !== undefined && ad.budgetLimit > 0) {
+    if ((ad.budgetSpent || 0) >= ad.budgetLimit) return false;
+  }
+  // Check impression limits
+  if (ad.impressionLimit !== undefined && ad.impressionLimit > 0) {
+    if ((ad.impressions || 0) >= ad.impressionLimit) return false;
+  }
+  // Check click limits
+  if (ad.clickLimit !== undefined && ad.clickLimit > 0) {
+    if ((ad.clicks || 0) >= ad.clickLimit) return false;
+  }
 
   if (!ad.scheduledStartAt || !ad.scheduledEndAt) {
     return true; // Unscheduled admin ads default to always running when active
@@ -1050,6 +1145,18 @@ export function isAdCurrentlyRunning(ad: Advertisement, nowIso?: string): boolea
   const end = new Date(ad.scheduledEndAt.replace(' ', 'T')).getTime();
 
   return now >= start && now <= end;
+}
+
+export function getBillingModelDisplayName(model?: CampaignBillingModel): string {
+  switch (model) {
+    case 'cpm':
+      return 'CPM (Pay-Per-1,000 Views)';
+    case 'cpc':
+      return 'CPC (Pay-Per-Click)';
+    case 'duration':
+    default:
+      return 'Duration (Time-based)';
+  }
 }
 
 /**

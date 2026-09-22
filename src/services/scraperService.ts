@@ -2,7 +2,6 @@ import * as cheerio from 'cheerio';
 import { Currency, Region } from '../types/job';
 import { safeFetchWithRetry, validateSafeScrapeUrl } from '../../server/utils/ssrfProtection';
 import { parsePdfFromUrl } from '../../server/services/pdfParserEngine';
-import { MOCK_CONSOLIDATED_PDF_GAZETTES } from '../data/mockPdfConsolidatedAds';
 
 export interface ScraperTargetConfig {
   id: string;
@@ -26,30 +25,37 @@ export interface ScraperTargetConfig {
   lastRunId?: string;
   healthStatus?: 'healthy' | 'warning' | 'error';
   lastErrorMessage?: string;
+
+  // Source-level location controls
+  region?: Region;
+  province?: string;
+  city?: string;
+  district?: string;
+  useSourceLocation?: boolean;
 }
 
 export interface ScrapedJobResult {
   id: string;
   title: string;
   company: string;
-  jobType: 'Remote' | 'On-site' | 'Hybrid';
-  region: Region;
+  jobType?: 'Remote' | 'On-site' | 'Hybrid';
+  region?: Region;
   province?: string;
   city?: string;
   district?: string;
-  salary: string;
-  currency: Currency;
-  experienceLevel: 'Junior' | 'Mid' | 'Senior' | 'Lead';
-  department: string;
-  tags: string[];
-  description: string;
-  requirements: string[];
-  benefits: string[];
-  postedAt: string;
+  salary?: string;
+  currency?: Currency;
+  experienceLevel?: 'Junior' | 'Mid' | 'Senior' | 'Lead' | 'Entry' | 'Executive';
+  department?: string;
+  tags?: string[];
+  description?: string;
+  requirements?: string[];
+  benefits?: string[];
+  postedAt?: string;
   datePosted?: string;
   deadlineDate?: string;
-  applicationsCount: number;
-  status: 'Approved' | 'Pending';
+  applicationsCount?: number;
+  status?: 'Approved' | 'Pending';
   sourceUrl: string;
   sourceJobId?: string;
   originalApplyUrl?: string;
@@ -78,7 +84,10 @@ export interface ScrapedJobResult {
   isNewspaperAd?: boolean;
   newspaperName?: string;
   clippingImageUrl?: string;
+  mediaUrl?: string;
   newspaperDate?: string;
+  extractedText?: string;
+  rawText?: string;
 
   // Next page pagination discovery
   nextPageUrl?: string;
@@ -207,27 +216,25 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
 
     const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => {
       const locName = j.location?.name || '';
-      const isRemote = locName.toLowerCase().includes('remote') || (j.title || '').toLowerCase().includes('remote');
-      const isPk = locName.toLowerCase().includes('pakistan') || (config.keywords || '').toLowerCase().includes('pakistan');
       const cleanDesc = (j.content || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
 
       return {
         id: `gh-${config.id}-${j.id}`,
         title: (j.title || '').trim() || 'Untitled Position',
-        company: config.name,
-        jobType: isRemote ? 'Remote' : 'On-site',
-        region: isPk ? 'Pakistan' : 'Global',
+        company: j.company_name || '',
+        jobType: undefined,
+        region: undefined,
         city: locName || undefined,
-        salary: 'Salary not disclosed',
-        currency: 'USD' as Currency,
-        experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : 'Mid',
-        department: j.departments?.[0]?.name || config.keywords || 'General',
-        tags: [config.name, 'Greenhouse ATS', isRemote ? 'Remote' : 'On-site'],
-        description: cleanDesc.slice(0, 1500) || `Official job listing on ${config.name} careers portal.`,
+        salary: undefined,
+        currency: undefined,
+        experienceLevel: undefined,
+        department: j.departments?.[0]?.name || undefined,
+        tags: [],
+        description: cleanDesc.slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
-        postedAt: j.updated_at ? new Date(j.updated_at).toLocaleDateString() : 'Recent',
-        datePosted: j.updated_at,
+        postedAt: j.updated_at ? new Date(j.updated_at).toLocaleDateString() : undefined,
+        datePosted: j.updated_at || undefined,
         applicationsCount: 0,
         status: config.autoApprove ? 'Approved' : 'Pending',
         sourceUrl: j.absolute_url || targetUrl,
@@ -275,25 +282,23 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
 
     const jobs: ScrapedJobResult[] = data.map((j: any) => {
       const loc = j.categories?.location || '';
-      const isRemote = loc.toLowerCase().includes('remote') || j.workplaceType === 'remote';
-      const isPk = loc.toLowerCase().includes('pakistan');
 
       return {
         id: `lever-${config.id}-${j.id}`,
         title: (j.text || '').trim() || 'Untitled Position',
-        company: config.name,
-        jobType: isRemote ? 'Remote' : 'On-site',
-        region: isPk ? 'Pakistan' : 'Global',
+        company: '',
+        jobType: undefined,
+        region: undefined,
         city: loc || undefined,
-        salary: 'Salary not disclosed',
-        currency: 'USD' as Currency,
-        experienceLevel: (j.text || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-        department: j.categories?.team || j.categories?.department || 'General',
-        tags: [config.name, 'Lever ATS', isRemote ? 'Remote' : 'On-site'],
-        description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official vacancy on ${config.name}.`,
+        salary: undefined,
+        currency: undefined,
+        experienceLevel: undefined,
+        department: j.categories?.team || j.categories?.department || undefined,
+        tags: [],
+        description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
-        postedAt: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : 'Recent',
+        postedAt: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : undefined,
         datePosted: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
         applicationsCount: 0,
         status: config.autoApprove ? 'Approved' : 'Pending',
@@ -339,20 +344,20 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
             const jobs: ScrapedJobResult[] = data.content.map((j: any) => ({
               id: `sr-${config.id}-${j.id}`,
               title: j.name || 'Untitled Position',
-              company: j.company?.name || config.name,
-              jobType: (j.location?.remote || (j.name || '').toLowerCase().includes('remote')) ? 'Remote' : 'On-site',
-              region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : 'Global',
+              company: j.company?.name || company || '',
+              jobType: j.location?.remote ? 'Remote' : undefined,
+              region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : undefined,
               city: j.location?.city || undefined,
-              salary: 'Salary not disclosed',
-              currency: 'USD' as Currency,
-              experienceLevel: (j.experienceLevel?.id === 'senior' || (j.name || '').toLowerCase().includes('senior')) ? 'Senior' : 'Mid',
-              department: j.department?.label || 'General',
-              tags: [config.name, 'SmartRecruiters'],
-              description: `Position at ${config.name}. Apply on official portal.`,
+              salary: undefined,
+              currency: undefined,
+              experienceLevel: undefined,
+              department: j.department?.label || undefined,
+              tags: [],
+              description: undefined,
               requirements: [],
               benefits: [],
-              postedAt: j.releasedDate ? new Date(j.releasedDate).toLocaleDateString() : 'Recent',
-              datePosted: j.releasedDate,
+              postedAt: j.releasedDate ? new Date(j.releasedDate).toLocaleDateString() : undefined,
+              datePosted: j.releasedDate || undefined,
               applicationsCount: 0,
               status: config.autoApprove ? 'Approved' : 'Pending',
               sourceUrl: `https://jobs.smartrecruiters.com/${company}/${j.id}`,
@@ -384,20 +389,20 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
             const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => ({
               id: `ashby-${config.id}-${j.id}`,
               title: j.title || 'Untitled Position',
-              company: config.name,
-              jobType: j.isRemote ? 'Remote' : 'On-site',
-              region: (j.location || '').toLowerCase().includes('pakistan') ? 'Pakistan' : 'Global',
+              company: company || '',
+              jobType: j.isRemote ? 'Remote' : undefined,
+              region: undefined,
               city: j.location || undefined,
-              salary: 'Salary not disclosed',
-              currency: 'USD' as Currency,
-              experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-              department: j.department || 'General',
-              tags: [config.name, 'Ashby ATS'],
-              description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official listing at ${config.name}`,
+              salary: undefined,
+              currency: undefined,
+              experienceLevel: undefined,
+              department: j.department || undefined,
+              tags: [],
+              description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
               requirements: [],
               benefits: [],
-              postedAt: j.publishedDate ? new Date(j.publishedDate).toLocaleDateString() : 'Recent',
-              datePosted: j.publishedDate,
+              postedAt: j.publishedDate ? new Date(j.publishedDate).toLocaleDateString() : undefined,
+              datePosted: j.publishedDate || undefined,
               applicationsCount: 0,
               status: config.autoApprove ? 'Approved' : 'Pending',
               sourceUrl: j.jobUrl || targetUrl,
@@ -420,17 +425,17 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
 }
 
 /**
- * ADAPTER 4: Government PDF Parser (Connected to pdfParserEngine)
- * Handles FPSC, PPSC, WAPDA, KPPSC, SPSC, BPSC, or any PDF recruitment gazette.
+ * ADAPTER 4: Government PDF & Scanned Document Parser (Connected to pdfParserEngine)
+ * Handles FPSC, PPSC, WAPDA, KPPSC, SPSC, BPSC, or any PDF/Image recruitment gazette.
  */
 async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
   const effectiveUrl = config.url || config.portalUrl || config.pdfUrl || '';
-  const isExplicitPdf =
-    (config.formatType && config.formatType.includes('PDF')) ||
+  const isExplicitPdfOrDoc =
+    (config.formatType && (config.formatType.includes('PDF') || config.formatType.includes('Image') || config.formatType.includes('OCR') || config.formatType.includes('Scan'))) ||
     (config.pdfUrl && config.pdfUrl.trim().length > 0) ||
-    (effectiveUrl && effectiveUrl.toLowerCase().split('?')[0].endsWith('.pdf'));
+    (effectiveUrl && /\.(pdf|jpg|jpeg|png|webp)(\?|$)/i.test(effectiveUrl.toLowerCase()));
 
-  if (!isExplicitPdf) return null;
+  if (!isExplicitPdfOrDoc) return null;
 
   const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : effectiveUrl;
   if (!targetPdfUrl || !targetPdfUrl.startsWith('http')) return null;
@@ -448,32 +453,36 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
     const jobs: ScrapedJobResult[] = pdfResult.extractedJobs.map(j => ({
       id: j.id,
       title: j.title,
-      company: j.company || config.name,
-      jobType: j.jobType || 'On-site',
-      region: (j.region || 'Pakistan') as Region,
-      salary: j.salary || 'Government Pay Scale',
-      currency: 'PKR',
-      experienceLevel: (j.experienceLevel || 'Mid') as any,
-      department: j.department || config.name,
-      tags: j.tags || [config.name, 'PDF Gazette'],
-      description: j.description || `Official government vacancy extracted from ${pdfResult.fileName || 'recruitment notice'}.`,
+      company: j.company || '',
+      jobType: j.jobType || undefined,
+      region: (j.region as Region) || undefined,
+      province: j.province || undefined,
+      city: j.city || undefined,
+      district: (j as any).district || undefined,
+      salary: j.salary || undefined,
+      currency: j.currency || (j.region === 'Pakistan' ? 'PKR' : undefined),
+      experienceLevel: j.experienceLevel as any || undefined,
+      department: j.department || undefined,
+      tags: j.tags || [],
+      description: j.description || undefined,
       requirements: j.requirements || [],
       benefits: j.benefits || [],
-      postedAt: j.postedAt || 'Recent',
-      deadlineDate: j.deadlineDate,
+      postedAt: j.postedAt || undefined,
+      datePosted: (j as any).datePosted || j.postedAt || undefined,
+      deadlineDate: j.deadlineDate || undefined,
       applicationsCount: 0,
       status: config.autoApprove ? 'Approved' : 'Pending',
       sourceUrl: targetPdfUrl,
       sourceJobId: j.pdfCaseNumber || undefined,
       originalApplyUrl: targetPdfUrl,
       sourcePortal: config.name,
-      extractionMethod: 'government_pdf_engine',
+      extractionMethod: (pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
       scrapeRunId: options.runId,
       scrapedAt: new Date().toISOString(),
-      isGovtJob: true,
-      govtDepartment: j.govtDepartment || config.name,
-      govtScale: j.govtScale,
-      govtCategory: j.govtCategory || 'Federal',
+      isGovtJob: j.isGovtJob ?? true,
+      govtDepartment: j.govtDepartment || j.department || undefined,
+      govtScale: j.govtScale || undefined,
+      govtCategory: j.govtCategory || undefined,
       isPdfScraped: true,
       pdfFileName: pdfResult.fileName,
       pdfSourceUrl: targetPdfUrl,
@@ -481,12 +490,16 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       pdfTotalVacanciesInCase: j.pdfTotalVacanciesInCase,
       domicileQuota: j.domicileQuota,
       ageRelaxationNote: j.ageRelaxationNote,
-      pdfParserEngine: 'pdfplumber'
+      pdfParserEngine: j.pdfParserEngine || (pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image' ? 'gemini-ocr-vision' : 'pdfplumber'),
+      clippingImageUrl: j.clippingImageUrl || pdfResult.clippingImageUrl || targetPdfUrl,
+      mediaUrl: j.mediaUrl || pdfResult.mediaUrl || targetPdfUrl,
+      extractedText: j.extractedText || pdfResult.rawTextSample || undefined,
+      rawText: j.extractedText || pdfResult.rawTextSample || undefined
     }));
 
     return {
       jobs,
-      extractionMethod: 'government_pdf_engine',
+      extractionMethod: (pdfResult.formatType === 'scanned_pdf' || pdfResult.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
       totalFoundOnPage: jobs.length
     };
   } catch (err: any) {
@@ -514,16 +527,16 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
           const title = (item.title || item.name || '').trim();
           if (!title || title.length < 3) continue;
 
-          const company = item.hiringOrganization?.name || config.name;
+          const company = item.hiringOrganization?.name || '';
           const description = (item.description || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
 
-          let city = '';
-          let province = '';
-          let region: Region = 'Global';
+          let city: string | undefined = undefined;
+          let province: string | undefined = undefined;
+          let region: Region | undefined = undefined;
           if (item.jobLocation?.address) {
             const addr = item.jobLocation.address;
-            city = addr.addressLocality || '';
-            province = addr.addressRegion || '';
+            city = addr.addressLocality || undefined;
+            province = addr.addressRegion || undefined;
             const country = (addr.addressCountry || '').toLowerCase();
             if (country === 'pk' || country.includes('pakistan')) region = 'Pakistan';
             else if (country === 'us' || country.includes('united states')) region = 'US';
@@ -538,18 +551,17 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
             title.toLowerCase().includes('remote') ||
             description.toLowerCase().includes('remote');
 
-          const jobType = isRemote ? 'Remote' : 'On-site';
+          const jobType = isRemote ? 'Remote' : undefined;
 
           // Factual salary handling: NEVER invent salary if missing
-          let salary = 'Salary not disclosed';
-          let currency: Currency = region === 'Pakistan' ? 'PKR' : 'USD';
+          let salary: string | undefined = undefined;
+          let currency: Currency | undefined = (item.baseSalary?.currency as Currency) || undefined;
           if (item.baseSalary) {
             const val = item.baseSalary.value;
-            currency = (item.baseSalary.currency || currency) as Currency;
             if (typeof val === 'number') {
-              salary = `${currency} ${val.toLocaleString()}`;
+              salary = `${currency || ''} ${val.toLocaleString()}`.trim();
             } else if (val && (val.minValue || val.maxValue)) {
-              salary = `${currency} ${val.minValue || 0} - ${val.maxValue || 0}`;
+              salary = `${currency || ''} ${val.minValue || 0} - ${val.maxValue || 0}`.trim();
             }
           }
 
@@ -559,19 +571,19 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
             company,
             jobType,
             region,
-            province: province || undefined,
-            city: city || undefined,
+            province,
+            city,
             salary,
             currency,
-            experienceLevel: title.toLowerCase().includes('senior') ? 'Senior' : title.toLowerCase().includes('junior') ? 'Junior' : 'Mid',
-            department: config.keywords?.split(',')[0]?.trim() || 'General',
-            tags: [config.name, jobType, region, 'JSON-LD Verified'],
-            description: description.slice(0, 1500) || `Official vacancy listed on ${company}.`,
+            experienceLevel: undefined,
+            department: undefined,
+            tags: [],
+            description: description.slice(0, 1500) || undefined,
             requirements: [],
             benefits: [],
-            postedAt: item.datePosted ? new Date(item.datePosted).toLocaleDateString() : 'Recent',
-            datePosted: item.datePosted,
-            deadlineDate: item.validThrough,
+            postedAt: item.datePosted ? new Date(item.datePosted).toLocaleDateString() : undefined,
+            datePosted: item.datePosted || undefined,
+            deadlineDate: item.validThrough || undefined,
             applicationsCount: 0,
             status: config.autoApprove ? 'Approved' : 'Pending',
             sourceUrl: item.url || baseUrl,
@@ -613,22 +625,26 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
           const title = item.title || item.name || item.jobTitle;
           if (!title || typeof title !== 'string') continue;
 
+          const loc = item.city || item.location || '';
+          const isRemote = item.isRemote || (item.title || '').toLowerCase().includes('remote') || loc.toLowerCase().includes('remote');
+
           results.push({
             id: `next-${config.id}-${item.id || Date.now().toString(36)}`,
             title: title.trim(),
-            company: item.company || item.companyName || config.name,
-            jobType: item.isRemote || (item.title || '').toLowerCase().includes('remote') ? 'Remote' : 'On-site',
-            region: config.isGovtPortal ? 'Pakistan' : 'Global',
-            city: item.city || item.location || undefined,
-            salary: item.salary || 'Salary not disclosed',
-            currency: 'USD' as Currency,
-            experienceLevel: (item.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-            department: item.department || 'General',
-            tags: [config.name, 'Next.js SSR'],
-            description: item.description || `Listing from ${config.name}`,
+            company: item.company || item.companyName || '',
+            jobType: isRemote ? 'Remote' : undefined,
+            region: undefined,
+            city: loc || undefined,
+            salary: item.salary || undefined,
+            currency: undefined,
+            experienceLevel: undefined,
+            department: item.department || undefined,
+            tags: [],
+            description: item.description || undefined,
             requirements: item.requirements || [],
             benefits: [],
-            postedAt: item.postedAt || 'Recent',
+            postedAt: item.postedAt || item.datePosted || undefined,
+            datePosted: item.datePosted || item.postedAt || undefined,
             applicationsCount: 0,
             status: config.autoApprove ? 'Approved' : 'Pending',
             sourceUrl: item.url ? resolveUrl(item.url, currentUrl) : currentUrl,
@@ -672,7 +688,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
     const elements = $(sel);
     if (elements.length > 0) {
       elements.each((_, el) => {
-        if (extractedJobs.length >= 35) return;
+        if (extractedJobs.length >= 100) return;
         const container = $(el);
 
         const linkEl = container.find('a[href]').first();
@@ -685,17 +701,17 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
         let href = linkEl.attr('href') || '';
         const fullUrl = href ? resolveUrl(href, currentUrl) : currentUrl;
 
-        const company = (container.find('.company, .organization, .employer, .company-name').first().text().trim()) || config.name;
+        const company = (container.find('.company, .organization, .employer, .company-name').first().text().trim()) || '';
         const location = (container.find('.location, .city, .region').first().text().trim()) || '';
         const snippet = (container.find('.description, .snippet, p').first().text().trim()) || '';
 
         const combined = `${rawTitle} ${location} ${snippet}`.toLowerCase();
         const isRemote = combined.includes('remote') || combined.includes('work from home');
         const isHybrid = combined.includes('hybrid');
-        const jobType = isRemote ? 'Remote' : isHybrid ? 'Hybrid' : 'On-site';
+        const jobType = isRemote ? 'Remote' : isHybrid ? 'Hybrid' : undefined;
 
-        let region: Region = 'Global';
-        if (location.toLowerCase().includes('pakistan') || config.name.toLowerCase().includes('pakistan') || config.isGovtPortal) {
+        let region: Region | undefined = undefined;
+        if (location.toLowerCase().includes('pakistan')) {
           region = 'Pakistan';
         } else if (location.toLowerCase().includes('uae') || location.toLowerCase().includes('dubai')) {
           region = 'UAE';
@@ -704,11 +720,22 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
         }
 
         // Factual salary extraction
-        let salary = 'Salary not disclosed';
+        let salary: string | undefined = undefined;
         const salaryMatch = combined.match(/(?:pkr|rs|usd|\$|aed|sar|£|€)\s?[\d,]+(?:\s?-\s?[\d,]+)?(?:\s?(?:\/|per)?\s?(?:mo|month|yr|year))?/i);
         if (salaryMatch) {
           salary = salaryMatch[0];
         }
+
+        const imgEl = container.find('img[src]').first();
+        const imgSrc = imgEl.attr('src') || '';
+        const realMediaUrl = imgSrc && !/logo|icon|avatar|spinner|user|nav/i.test(imgSrc)
+          ? resolveUrl(imgSrc, currentUrl)
+          : undefined;
+
+        const isNewspaper = config.isNewspaperClippingPortal || /classified|newspaper|daily\s*jang|dawn|express|nawaiwaqt|the\s*news/i.test(config.name);
+        const pdfLinkEl = container.find('a[href*=".pdf"]').first();
+        const pdfHref = pdfLinkEl.attr('href') || (fullUrl.toLowerCase().split('?')[0].endsWith('.pdf') ? fullUrl : undefined);
+        const pdfSourceUrl = pdfHref ? resolveUrl(pdfHref, currentUrl) : undefined;
 
         extractedJobs.push({
           id: `html-${config.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
@@ -718,14 +745,14 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           region,
           city: location || undefined,
           salary,
-          currency: region === 'Pakistan' ? 'PKR' : 'USD',
-          experienceLevel: rawTitle.toLowerCase().includes('senior') ? 'Senior' : rawTitle.toLowerCase().includes('junior') ? 'Junior' : 'Mid',
-          department: config.keywords?.split(',')[0]?.trim() || 'General',
-          tags: [config.name, jobType, region],
-          description: snippet || `Official vacancy listed on ${config.name}. Visit source URL for complete qualifications.`,
+          currency: undefined,
+          experienceLevel: undefined,
+          department: undefined,
+          tags: [],
+          description: snippet || undefined,
           requirements: [],
           benefits: [],
-          postedAt: 'Recent',
+          postedAt: undefined,
           applicationsCount: 0,
           status: config.autoApprove ? 'Approved' : 'Pending',
           sourceUrl: fullUrl,
@@ -734,7 +761,15 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           extractionMethod: 'html_cheerio',
           scrapeRunId: options.runId,
           scrapedAt: new Date().toISOString(),
-          isGovtJob: config.isGovtPortal
+          isGovtJob: config.isGovtPortal,
+          pdfSourceUrl: pdfSourceUrl || undefined,
+          isPdfScraped: !!pdfSourceUrl,
+          clippingImageUrl: realMediaUrl || undefined,
+          mediaUrl: realMediaUrl || undefined,
+          extractedText: snippet || undefined,
+          rawText: snippet || undefined,
+          isNewspaperAd: isNewspaper ? true : undefined,
+          newspaperName: isNewspaper ? config.name : undefined
         });
       });
 
@@ -742,47 +777,45 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
     }
   }
 
-  // ADAPTER 8: Generic Fallback - Factual Job Link Extraction
+  // ADAPTER 8: Fallback - Only extract explicit PDF advertisement links
   if (extractedJobs.length === 0) {
-    $('a[href]').each((_, el) => {
-      if (extractedJobs.length >= 20) return;
+    $('a[href*=".pdf"]').each((_, el) => {
+      if (extractedJobs.length >= 100) return;
       const a = $(el);
       const text = a.text().trim();
       const href = a.attr('href') || '';
 
-      const isJobLink = (
-        (href.includes('/job/') || href.includes('/careers/') || href.includes('/vacancy/') || href.includes('/post/') || href.includes('/opportunity/')) &&
-        text.length > 5 &&
-        text.length < 100 &&
-        !/^(apply\s*now|view\s*all|login|register|home|about|contact|terms|privacy)/i.test(text)
-      );
+      const isGenericNav = /^(apply\s*now|view\s*all|login|register|home|about|contact|terms|privacy|careers?|jobs?|all\s*jobs|search|menu|back|next|previous|more|read\s*more|learn\s*more)/i.test(text);
 
-      if (isJobLink) {
+      if (text.length >= 6 && text.length <= 150 && !isGenericNav) {
         const fullUrl = resolveUrl(href, currentUrl);
         extractedJobs.push({
-          id: `generic-${config.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+          id: `pdf-link-${config.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
           title: text,
-          company: config.name,
-          jobType: text.toLowerCase().includes('remote') ? 'Remote' : 'On-site',
-          region: config.isGovtPortal ? 'Pakistan' : 'Global',
-          salary: 'Salary not disclosed',
-          currency: config.isGovtPortal ? 'PKR' : 'USD',
-          experienceLevel: text.toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-          department: config.keywords?.split(',')[0]?.trim() || 'General',
-          tags: [config.name, 'Heuristic'],
-          description: `Listing from ${config.name}: ${text}. Refer to original URL for full requirements.`,
+          company: '',
+          jobType: undefined,
+          region: undefined,
+          salary: undefined,
+          currency: undefined,
+          experienceLevel: undefined,
+          department: undefined,
+          tags: [],
+          description: undefined,
           requirements: [],
           benefits: [],
-          postedAt: 'Recent',
+          postedAt: undefined,
           applicationsCount: 0,
           status: config.autoApprove ? 'Approved' : 'Pending',
           sourceUrl: fullUrl,
           originalApplyUrl: fullUrl,
           sourcePortal: config.name,
-          extractionMethod: 'generic_fallback',
+          extractionMethod: 'pdf_link_detection',
           scrapeRunId: options.runId,
           scrapedAt: new Date().toISOString(),
-          isGovtJob: config.isGovtPortal
+          isGovtJob: config.isGovtPortal,
+          pdfSourceUrl: fullUrl,
+          isPdfScraped: true,
+          extractedText: text
         });
       }
     });
@@ -850,16 +883,21 @@ export async function scrapeTargetPortal(
       return [];
     }
 
-    // Check if Content-Type is PDF (e.g. redirected or served without .pdf extension)
+    // Check if Content-Type is PDF or direct image (e.g. redirected or served without .pdf extension)
     const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/pdf')) {
+    if (contentType.includes('application/pdf') || contentType.includes('image/')) {
       const pdfRes = await parsePdfFromUrl(targetUrl, config.name);
       if (pdfRes.success && pdfRes.extractedJobs.length > 0) {
         return filterByOptions(pdfRes.extractedJobs.map(j => ({
           ...j,
           sourcePortal: config.name,
-          extractionMethod: 'government_pdf_engine',
-          scrapeRunId: options.runId
+          extractionMethod: (pdfRes.formatType === 'scanned_pdf' || pdfRes.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
+          scrapeRunId: options.runId,
+          pdfSourceUrl: targetUrl,
+          clippingImageUrl: j.clippingImageUrl || pdfRes.clippingImageUrl || targetUrl,
+          mediaUrl: j.mediaUrl || pdfRes.mediaUrl || targetUrl,
+          extractedText: j.extractedText || pdfRes.rawTextSample || undefined,
+          rawText: j.extractedText || pdfRes.rawTextSample || undefined
         })) as any, options);
       }
       return [];
@@ -867,31 +905,42 @@ export async function scrapeTargetPortal(
 
     const html = await response.text();
 
-    // Check if the HTML page contains recruitment PDF gazette links (e.g., FPSC/PPSC circulars)
-    if (config.isGovtPortal || config.formatType?.includes('PDF') || /fpsc|ppsc|wapda|kppsc|spsc|bpsc/i.test(config.name)) {
+    // Check if the HTML page contains recruitment PDF or image clipping links (e.g., FPSC/PPSC circulars, newspaper advertisements)
+    if (config.isGovtPortal || config.formatType?.includes('PDF') || config.formatType?.includes('Image') || /fpsc|ppsc|wapda|kppsc|spsc|bpsc|epaper|newspaper/i.test(config.name)) {
       const $ = cheerio.load(html);
-      let linkedPdfUrl: string | null = null;
+      let linkedDocUrl: string | null = null;
 
-      $('a[href]').each((_, el) => {
-        if (linkedPdfUrl) return;
-        const href = $(el).attr('href') || '';
+      $('a[href], img[src]').each((_, el) => {
+        if (linkedDocUrl) return;
+        const href = $(el).attr('href') || $(el).attr('src') || '';
         const text = $(el).text().toLowerCase();
+        const alt = ($(el).attr('alt') || '').toLowerCase();
+        const cleanHref = href.toLowerCase().split('?')[0];
+        const isDoc = cleanHref.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/i.test(cleanHref);
+
         if (
-          href.toLowerCase().split('?')[0].endsWith('.pdf') &&
-          (/adv|advertisement|consolidated|gazette|vacancy|recruitment|phase/i.test(href) || /adv|advertisement|gazette/i.test(text))
+          isDoc &&
+          (/adv|advertisement|consolidated|gazette|vacancy|recruitment|phase|clipping|epaper|classified/i.test(href) ||
+           /adv|advertisement|gazette|vacancy|recruitment|jobs/i.test(text) ||
+           /advertisement|recruitment|vacancy/i.test(alt))
         ) {
-          linkedPdfUrl = resolveUrl(href, targetUrl);
+          linkedDocUrl = resolveUrl(href, targetUrl);
         }
       });
 
-      if (linkedPdfUrl) {
-        const pdfRes = await parsePdfFromUrl(linkedPdfUrl, config.name);
-        if (pdfRes.success && pdfRes.extractedJobs.length > 0) {
-          return filterByOptions(pdfRes.extractedJobs.map(j => ({
+      if (linkedDocUrl) {
+        const docRes = await parsePdfFromUrl(linkedDocUrl, config.name);
+        if (docRes.success && docRes.extractedJobs.length > 0) {
+          return filterByOptions(docRes.extractedJobs.map(j => ({
             ...j,
             sourcePortal: config.name,
-            extractionMethod: 'government_pdf_engine',
-            scrapeRunId: options.runId
+            extractionMethod: (docRes.formatType === 'scanned_pdf' || docRes.formatType === 'image') ? 'ocr_vision_extractor' : 'government_pdf_engine',
+            scrapeRunId: options.runId,
+            pdfSourceUrl: linkedDocUrl,
+            clippingImageUrl: j.clippingImageUrl || docRes.clippingImageUrl || linkedDocUrl,
+            mediaUrl: j.mediaUrl || docRes.mediaUrl || linkedDocUrl,
+            extractedText: j.extractedText || docRes.rawTextSample || undefined,
+            rawText: j.extractedText || docRes.rawTextSample || undefined
           })) as any, options);
         }
       }
@@ -920,26 +969,10 @@ export async function scrapeTargetPortal(
 
     return filterByOptions(htmlJobs, options);
   } catch (error: any) {
-    console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${error?.message || 'Remote portal did not respond'}`);
-
-    // If official portal has verified gazette vacancies in the repository, use them
-    const gazette = MOCK_CONSOLIDATED_PDF_GAZETTES.find(g =>
-      (config.id && g.id.toLowerCase().includes(config.id.toLowerCase().replace('portal-', ''))) ||
-      (g.organization && config.name && g.organization.toLowerCase().includes(config.name.toLowerCase().split('(')[0].trim())) ||
-      (g.pdfUrl && config.pdfUrl && g.pdfUrl.toLowerCase() === config.pdfUrl.toLowerCase())
-    );
-
-    if (gazette && gazette.extractedVacancies && gazette.extractedVacancies.length > 0) {
-      return filterByOptions(gazette.extractedVacancies.map(j => ({
-        ...j,
-        sourcePortal: config.name,
-        extractionMethod: 'government_pdf_engine',
-        rawSourceHtml: undefined,
-        scrapeRunId: options.runId
-      })) as any, options);
-    }
-
-    // Never invent fake jobs on error
+    const detail = String(error?.message || 'Remote portal did not respond')
+      .replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
+    console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${detail}`);
+    // Never invent fake jobs on error - return empty array on failure
     return [];
   }
 }
@@ -954,9 +987,21 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
     const cutoff = new Date(options.sinceTimestamp).getTime();
     if (!isNaN(cutoff)) {
       filtered = filtered.filter(j => {
-        if (!j.datePosted) return true;
-        const postTime = new Date(j.datePosted).getTime();
-        return isNaN(postTime) || postTime >= cutoff;
+        const rawTimeStr = j.datePosted || j.postedAt;
+        if (
+          !rawTimeStr ||
+          typeof rawTimeStr !== 'string' ||
+          rawTimeStr.trim().toLowerCase() === 'recent' ||
+          rawTimeStr.trim().toLowerCase() === 'just now' ||
+          rawTimeStr.trim().toLowerCase() === 'today'
+        ) {
+          return false;
+        }
+        const postTime = new Date(rawTimeStr).getTime();
+        if (isNaN(postTime)) {
+          return false;
+        }
+        return postTime >= cutoff;
       });
     }
   }

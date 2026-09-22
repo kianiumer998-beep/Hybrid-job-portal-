@@ -3,7 +3,8 @@ import {
   getPendingJobsCollection,
   normalizeMongoJob,
   isMongoConfigured,
-  withMongoTimeout
+  executeWithFallback,
+  resetMongoClient
 } from '../mongodb';
 import { Database } from '../database';
 import { generateJobSlug } from '../../utils/slugify';
@@ -23,94 +24,159 @@ export interface JobFilterOptions {
   page?: number;
   limit?: number;
   includeExpired?: boolean;
-  lightweight?: boolean;
 }
 
-export interface PendingJobOptions {
-  limit?: number;
-  page?: number;
-  status?: string;
-  search?: string;
-  lightweight?: boolean;
+export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
+  if (!deadlineStr || typeof deadlineStr !== 'string') return null;
+  const clean = deadlineStr.trim();
+  if (!clean) return null;
+
+  // Try standard ISO / JS date parsing
+  let ts = new Date(clean).getTime();
+  if (!isNaN(ts)) return ts;
+
+  // Try parsing formats like DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const parsed = new Date(year, month, day, 23, 59, 59).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  // Try DD Mon YYYY e.g. "15 Oct 2025" or "15-Oct-2025"
+  const textDateMatch = clean.match(/^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s](\d{4})/);
+  if (textDateMatch) {
+    const parsed = new Date(clean).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  return null;
 }
 
-export function checkJobExpired(job: any): boolean {
+export function checkJobExpired(job: any, offsetDays: number = 1): boolean {
   if (!job) return false;
   if (job.status === 'Expired' || job.isExpired === true) {
     return true;
   }
-  const deadlineStr = job.deadline || job.deadlineDate || job.closingDeadline;
+  const deadlineStr = job.deadlineDate || job.deadline || job.closingDeadline;
   if (!deadlineStr) return false;
 
-  const deadlineTime = new Date(deadlineStr).getTime();
-  if (isNaN(deadlineTime)) return false;
+  const deadlineTime = parseDeadlineTimestamp(deadlineStr);
+  if (!deadlineTime) return false;
 
-  return deadlineTime < Date.now();
+  // Portal expiry = deadline + (offsetDays * 24h)
+  // Offset is ONLY for removing from LIVE portal, never modifies source deadline
+  const safeOffsetDays = Math.max(0, Math.min(2, offsetDays));
+  const portalExpiryTime = deadlineTime + (safeOffsetDays * 24 * 60 * 60 * 1000);
+
+  return Date.now() > portalExpiryTime;
 }
 
 function generateJobId(): string {
   return `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
-function filterLocalJobs(jobs: any[], filter: JobFilterOptions = {}): any[] {
-  let list = Array.isArray(jobs) ? [...jobs] : [];
+function queryLocalJobs(filter: JobFilterOptions = {}): { jobs: any[]; total: number; page: number; limit: number } {
+  let list = Database.getJobs().filter(j => !j.isSuspended);
 
   if (!filter.includeExpired) {
-    list = list.filter((j) => {
-      if (checkJobExpired(j)) return false;
-      const st = j.status || 'Approved';
-      return st === 'Approved';
-    });
+    list = list.filter(j => (j.status === 'Approved' || !j.status) && j.isExpired !== true);
+  } else {
+    list = list.filter(j => j.status === 'Approved' || j.status === 'Expired' || !j.status);
   }
 
   if (filter.search && filter.search.trim()) {
-    const q = filter.search.trim().toLowerCase();
-    list = list.filter(
-      (j) =>
-        (j.title && j.title.toLowerCase().includes(q)) ||
-        (j.company && j.company.toLowerCase().includes(q)) ||
-        (j.city && j.city.toLowerCase().includes(q)) ||
-        (j.department && j.department.toLowerCase().includes(q))
+    const q = filter.search.toLowerCase().trim();
+    list = list.filter(j =>
+      (j.title && j.title.toLowerCase().includes(q)) ||
+      (j.company && j.company.toLowerCase().includes(q)) ||
+      (j.department && j.department.toLowerCase().includes(q)) ||
+      (j.description && j.description.toLowerCase().includes(q)) ||
+      (j.city && j.city.toLowerCase().includes(q)) ||
+      (Array.isArray(j.tags) && j.tags.some((t: string) => t.toLowerCase().includes(q)))
     );
   }
 
   if (filter.jobType && filter.jobType !== 'All') {
-    list = list.filter((j) => j.jobType === filter.jobType);
-  }
-  if (filter.region && filter.region !== 'All') {
-    list = list.filter((j) => j.region === filter.region);
-  }
-  if (filter.province && filter.province !== 'All') {
-    list = list.filter((j) => j.province === filter.province);
-  }
-  if (filter.city && filter.city !== 'All') {
-    list = list.filter((j) => j.city === filter.city);
-  }
-  if (filter.isGovt) {
-    list = list.filter((j) => j.isGovtJob);
-  }
-  if (filter.isUrgent) {
-    list = list.filter((j) => j.urgent);
-  }
-  if (filter.isFeatured) {
-    list = list.filter((j) => j.featured || j.isPinnedTop);
+    list = list.filter(j => j.jobType === filter.jobType);
   }
 
-  return list;
+  if (filter.region && filter.region !== 'All') {
+    list = list.filter(j => j.region === filter.region);
+  }
+
+  if (filter.province && filter.province !== 'All') {
+    list = list.filter(j => j.province === filter.province);
+  }
+
+  if (filter.city && filter.city !== 'All') {
+    list = list.filter(j => j.city === filter.city);
+  }
+
+  if (filter.experienceLevel && filter.experienceLevel !== 'All') {
+    list = list.filter(j => j.experienceLevel === filter.experienceLevel);
+  }
+
+  if (filter.salaryMin && filter.salaryMin > 0) {
+    list = list.filter(j => (j.salaryNumericMin || 0) >= filter.salaryMin!);
+  }
+
+  if (filter.isGovt) {
+    list = list.filter(j => j.isGovtJob === true);
+  }
+
+  if (filter.isUrgent) {
+    list = list.filter(j => j.urgent === true);
+  }
+
+  if (filter.isFeatured) {
+    list = list.filter(j => j.featured === true || j.isPinnedTop === true);
+  }
+
+  // Sort
+  if (filter.sortBy === 'salary-high') {
+    list.sort((a, b) => (b.salaryNumericMin || 0) - (a.salaryNumericMin || 0));
+  } else if (filter.sortBy === 'salary-low') {
+    list.sort((a, b) => (a.salaryNumericMin || 0) - (b.salaryNumericMin || 0));
+  } else if (filter.sortBy === 'popular') {
+    list.sort((a, b) => (b.applicationsCount || 0) - (a.applicationsCount || 0));
+  } else if (filter.sortBy === 'oldest') {
+    list.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  } else {
+    // Default newest with pinned top first
+    list.sort((a, b) => {
+      if (a.isPinnedTop && !b.isPinnedTop) return -1;
+      if (!a.isPinnedTop && b.isPinnedTop) return 1;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+  }
+
+  const total = list.length;
+  const page = Math.max(1, filter.page || 1);
+  const limit = Math.min(10000, Math.max(1, filter.limit || 5000));
+  const skip = (page - 1) * limit;
+  const paged = list.slice(skip, skip + limit).map(doc => {
+    const normalized = normalizeMongoJob(doc);
+    const isExpired = checkJobExpired(normalized);
+    return {
+      ...normalized,
+      isExpired,
+      status: isExpired ? 'Expired' : (normalized.status || 'Approved')
+    };
+  });
+
+  return { jobs: paged, total, page, limit };
 }
 
 export class JobRepository {
   /**
-   * Reads all approved / active jobs directly from MongoDB with filtering, sorting, and pagination.
-   * Gracefully falls back to local database on network timeout or connection error.
+   * Reads all approved / active jobs directly with filtering, sorting, and pagination.
    */
   static async getAll(filter: JobFilterOptions = {}): Promise<{ jobs: any[]; total: number; page: number; limit: number }> {
-    const page = Math.max(1, filter.page || 1);
-    const limit = Math.min(2000, Math.max(1, filter.limit || 500));
-    const skip = (page - 1) * limit;
-
-    if (isMongoConfigured()) {
-      try {
+    return executeWithFallback(
+      async () => {
         const jobsColl = await getJobsCollection();
 
         const query: any = {
@@ -212,16 +278,13 @@ export class JobRepository {
           sort = { createdAt: 1 };
         }
 
-        const mongoPromise = (async () => {
-          const cursor = jobsColl.find(query, { projection: { extractedText: 0 } }).sort(sort).skip(skip).limit(limit);
-          const [total, rawDocs] = await Promise.all([
-            jobsColl.countDocuments(query),
-            cursor.toArray()
-          ]);
-          return { total, rawDocs };
-        })();
+        const page = Math.max(1, filter.page || 1);
+        const limit = Math.min(10000, Math.max(1, filter.limit || 5000));
+        const skip = (page - 1) * limit;
 
-        const { total, rawDocs } = await withMongoTimeout(mongoPromise, 15000, 'getAll');
+        const total = await jobsColl.countDocuments(query);
+        const cursor = jobsColl.find(query).sort(sort).skip(skip).limit(limit);
+        const rawDocs = await cursor.toArray();
 
         const jobs = rawDocs.map((doc) => {
           const normalized = normalizeMongoJob(doc);
@@ -233,267 +296,199 @@ export class JobRepository {
           };
         });
 
-        // Warm local fallback cache in the background
-        if (page === 1 && !filter.search && jobs.length > 0) {
-          try {
-            Database.saveJobs(jobs);
-          } catch {}
-        }
-
         return { jobs, total, page, limit };
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice reading jobs from MongoDB (${err?.message || err}). Serving from local fallback.`);
-      }
-    }
-
-    // Local JSON Database Fallback
-    const allLocal = Database.getJobs();
-    const filtered = filterLocalJobs(allLocal, filter);
-    const paginated = filtered.slice(skip, skip + limit);
-    return {
-      jobs: paginated,
-      total: filtered.length,
-      page,
-      limit
-    };
+      },
+      () => queryLocalJobs(filter),
+      'JobRepository.getAll'
+    );
   }
 
   /**
-   * Get single job by ID with fallback.
+   * Get single job by ID.
    */
   static async getById(id: string): Promise<any | null> {
-    if (isMongoConfigured()) {
-      try {
+    return executeWithFallback(
+      async () => {
         const jobsColl = await getJobsCollection();
-        const doc = await withMongoTimeout(jobsColl.findOne({ id }), 10000, 'getById');
-        if (doc) {
-          const normalized = normalizeMongoJob(doc);
-          const isExpired = checkJobExpired(normalized);
-          return {
-            ...normalized,
-            isExpired,
-            status: isExpired ? 'Expired' : (normalized.status || 'Approved')
-          };
+        const doc = await jobsColl.findOne({ id });
+        if (!doc) {
+          return Database.getJobById(id);
         }
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice reading job ${id} from MongoDB:`, err?.message || err);
-      }
-    }
 
-    return Database.getJobById(id);
+        const normalized = normalizeMongoJob(doc);
+        const isExpired = checkJobExpired(normalized);
+        return {
+          ...normalized,
+          isExpired,
+          status: isExpired ? 'Expired' : (normalized.status || 'Approved')
+        };
+      },
+      () => Database.getJobById(id),
+      'JobRepository.getById'
+    );
   }
 
   /**
-   * Get single job by SEO slug with fallback.
+   * Get single job by SEO slug.
    */
   static async getBySlug(slug: string): Promise<any | null> {
-    if (isMongoConfigured()) {
-      try {
+    return executeWithFallback(
+      async () => {
         const jobsColl = await getJobsCollection();
-        const doc = await withMongoTimeout(jobsColl.findOne({ slug }), 10000, 'getBySlug');
-        if (doc) {
-          const normalized = normalizeMongoJob(doc);
-          const isExpired = checkJobExpired(normalized);
-          return {
-            ...normalized,
-            isExpired,
-            status: isExpired ? 'Expired' : (normalized.status || 'Approved')
-          };
+        const doc = await jobsColl.findOne({ slug });
+        if (!doc) {
+          return Database.getJobBySlug(slug);
         }
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice reading job slug ${slug} from MongoDB:`, err?.message || err);
-      }
-    }
 
-    return Database.getJobBySlug(slug);
+        const normalized = normalizeMongoJob(doc);
+        const isExpired = checkJobExpired(normalized);
+        return {
+          ...normalized,
+          isExpired,
+          status: isExpired ? 'Expired' : (normalized.status || 'Approved')
+        };
+      },
+      () => Database.getJobBySlug(slug),
+      'JobRepository.getBySlug'
+    );
   }
 
   /**
-   * Creates a new live job directly in MongoDB and mirrors to local backup.
+   * Creates a new live job.
    */
   static async create(jobData: any): Promise<any> {
     const id = jobData.id || generateJobId();
     const slug = jobData.slug || generateJobSlug(jobData.title, jobData.city, id);
     const now = new Date().toISOString();
-
-    const newJob: any = {
+    const doc = normalizeMongoJob({
       ...jobData,
       id,
       slug,
       status: jobData.status || 'Approved',
       createdAt: jobData.createdAt || now,
-      updatedAt: now,
-      applicationsCount: typeof jobData.applicationsCount === 'number' ? jobData.applicationsCount : 0
-    };
-
-    const normalized = normalizeMongoJob(newJob);
-
-    // Save locally
-    try {
-      Database.addJob(normalized);
-    } catch {}
+      updatedAt: now
+    });
 
     if (isMongoConfigured()) {
+      const jobsColl = await getJobsCollection();
+      await jobsColl.updateOne({ id }, { $set: doc }, { upsert: true });
       try {
-        const jobsColl = await getJobsCollection();
-        await withMongoTimeout(jobsColl.updateOne({ id }, { $set: normalized }, { upsert: true }), 15000, 'create');
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice creating job ${id} in MongoDB:`, err?.message || err);
-      }
+        Database.addJob(doc);
+      } catch {}
+      return doc;
     }
 
-    return normalized;
+    return Database.addJob(jobData);
   }
 
   /**
-   * Updates an existing job directly in MongoDB and mirrors to local backup.
+   * Updates an existing job.
    */
   static async update(id: string, updates: any): Promise<any | null> {
     const safeUpdates = { ...updates };
     delete safeUpdates._id;
     safeUpdates.updatedAt = new Date().toISOString();
 
-    // Mirror locally
-    let localUpdated: any = null;
-    try {
-      localUpdated = Database.updateJob(id, safeUpdates);
-    } catch {}
-
     if (isMongoConfigured()) {
+      const jobsColl = await getJobsCollection();
+      const pendingColl = await getPendingJobsCollection();
+      await Promise.all([
+        jobsColl.updateOne({ id }, { $set: safeUpdates }),
+        pendingColl.updateOne({ id }, { $set: safeUpdates })
+      ]);
       try {
-        const jobsColl = await getJobsCollection();
-        const pendingColl = await getPendingJobsCollection();
-
-        const updatedLive = await withMongoTimeout(
-          jobsColl.findOneAndUpdate({ id }, { $set: safeUpdates }, { returnDocument: 'after' }),
-          15000,
-          'update'
-        );
-
-        if (updatedLive) {
-          return normalizeMongoJob(updatedLive);
-        }
-
-        const updatedPending = await withMongoTimeout(
-          pendingColl.findOneAndUpdate({ id }, { $set: safeUpdates }, { returnDocument: 'after' }),
-          15000,
-          'updatePending'
-        );
-
-        if (updatedPending) {
-          return normalizeMongoJob(updatedPending);
-        }
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice updating job ${id} in MongoDB:`, err?.message || err);
-      }
+        Database.updateJob(id, safeUpdates);
+      } catch {}
+      const updated = await jobsColl.findOne({ id });
+      return updated ? normalizeMongoJob(updated) : Database.getJobById(id);
     }
 
-    return localUpdated;
+    return Database.updateJob(id, updates);
   }
 
   /**
-   * Deletes a job from MongoDB and local backup.
+   * Deletes a job (both live jobs and pending queue).
    */
   static async delete(id: string): Promise<boolean> {
-    let localDeleted = false;
-    try {
-      localDeleted = Database.deleteJob(id);
-    } catch {}
-
     if (isMongoConfigured()) {
+      const jobsColl = await getJobsCollection();
+      const pendingColl = await getPendingJobsCollection();
+      const [res1, res2] = await Promise.all([
+        jobsColl.deleteOne({ id }),
+        pendingColl.deleteOne({ id })
+      ]);
       try {
-        const jobsColl = await getJobsCollection();
-        const pendingColl = await getPendingJobsCollection();
-
-        const [delLive, delPending] = await withMongoTimeout(
-          Promise.all([jobsColl.deleteOne({ id }), pendingColl.deleteOne({ id })]),
-          15000,
-          'delete'
-        );
-
-        return (delLive.deletedCount || 0) > 0 || (delPending.deletedCount || 0) > 0 || localDeleted;
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice deleting job ${id} from MongoDB:`, err?.message || err);
-      }
+        Database.deleteJob(id);
+      } catch {}
+      return (res1.deletedCount > 0) || (res2.deletedCount > 0);
     }
 
-    return localDeleted;
+    return Database.deleteJob(id);
   }
 
   /**
-   * Bulk add / ingest jobs directly into MongoDB and local backup.
+   * Bulk add / ingest jobs.
    */
   static async createBatch(
     jobsList: any[],
-    autoApprove = true
+    autoApprove: boolean = true
   ): Promise<{ inserted: number; updated: number; total: number }> {
     if (!Array.isArray(jobsList) || jobsList.length === 0) {
       return { inserted: 0, updated: 0, total: 0 };
     }
 
-    // Mirror locally
-    let localRes = { inserted: 0, updated: 0, total: 0 };
-    try {
-      localRes = autoApprove
-        ? Database.addJobsBatch(jobsList, autoApprove)
-        : Database.addPendingJobsBatch(jobsList);
-    } catch {}
-
     if (isMongoConfigured()) {
-      try {
-        const coll = autoApprove ? await getJobsCollection() : await getPendingJobsCollection();
-        const now = new Date().toISOString();
-
-        const operations = jobsList
-          .filter((j) => j && j.title)
-          .map((j) => {
-            const id = j.id || generateJobId();
-            const slug = j.slug || generateJobSlug(j.title, j.city, id);
-            const doc = normalizeMongoJob({
-              ...j,
-              id,
-              slug,
-              status: autoApprove ? 'Approved' : 'Pending',
-              createdAt: j.createdAt || now,
-              updatedAt: now
-            });
-
-            return {
-              updateOne: {
-                filter: { id },
-                update: { $set: doc },
-                upsert: true
-              }
-            };
+      const coll = autoApprove ? await getJobsCollection() : await getPendingJobsCollection();
+      const now = new Date().toISOString();
+      const operations = jobsList
+        .filter((j) => j && j.title)
+        .map((j) => {
+          const id = j.id || generateJobId();
+          const slug = j.slug || generateJobSlug(j.title, j.city, id);
+          const doc = normalizeMongoJob({
+            ...j,
+            id,
+            slug,
+            status: autoApprove ? 'Approved' : 'Pending',
+            createdAt: j.createdAt || now,
+            updatedAt: now
           });
-
-        if (operations.length > 0) {
-          const res = await withMongoTimeout(coll.bulkWrite(operations, { ordered: false }), 20000, 'createBatch');
-          const total = await coll.countDocuments();
           return {
-            inserted: res.upsertedCount || 0,
-            updated: res.modifiedCount || 0,
-            total
+            updateOne: {
+              filter: { id },
+              update: { $set: doc },
+              upsert: true
+            }
           };
-        }
-      } catch (err: any) {
-        console.warn('[JobRepository] Notice in createBatch for MongoDB:', err?.message || err);
+        });
+
+      if (operations.length > 0) {
+        const res = await coll.bulkWrite(operations, { ordered: false });
+        try {
+          if (autoApprove) {
+            Database.addJobsBatch(jobsList, true);
+          } else {
+            Database.addPendingJobsBatch(jobsList);
+          }
+        } catch {}
+        return {
+          inserted: (res.upsertedCount || 0) + (res.insertedCount || 0),
+          updated: res.modifiedCount || 0,
+          total: operations.length
+        };
       }
+      return { inserted: 0, updated: 0, total: 0 };
     }
 
-    return localRes;
+    return autoApprove
+      ? Database.addJobsBatch(jobsList, autoApprove)
+      : Database.addPendingJobsBatch(jobsList);
   }
 
-  /**
-   * Alias for createBatch(..., true).
-   */
-  static async bulkAdd(jobsList: any[], status = 'Approved') {
+  static async bulkAdd(jobsList: any[], status: string = 'Approved') {
     return this.createBatch(jobsList, status === 'Approved');
   }
 
-  /**
-   * Bulk update multiple jobs.
-   */
   static async bulkUpdate(jobsList: any[]): Promise<number> {
     if (!Array.isArray(jobsList) || jobsList.length === 0) return 0;
     let count = 0;
@@ -506,169 +501,81 @@ export class JobRepository {
     return count;
   }
 
-  /**
-   * Bulk delete jobs by ID array.
-   */
   static async bulkDelete(ids: string[]): Promise<number> {
     if (!Array.isArray(ids) || ids.length === 0) return 0;
 
-    let localCount = 0;
-    for (const id of ids) {
-      if (Database.deleteJob(id)) localCount++;
-    }
-
     if (isMongoConfigured()) {
+      const jobsColl = await getJobsCollection();
+      const pendingColl = await getPendingJobsCollection();
+      const [res1, res2] = await Promise.all([
+        jobsColl.deleteMany({ id: { $in: ids } }),
+        pendingColl.deleteMany({ id: { $in: ids } })
+      ]);
       try {
-        const jobsColl = await getJobsCollection();
-        const pendingColl = await getPendingJobsCollection();
-
-        const [resLive, resPending] = await withMongoTimeout(
-          Promise.all([
-            jobsColl.deleteMany({ id: { $in: ids } }),
-            pendingColl.deleteMany({ id: { $in: ids } })
-          ]),
-          15000,
-          'bulkDelete'
-        );
-
-        return (resLive.deletedCount || 0) + (resPending.deletedCount || 0);
-      } catch (err: any) {
-        console.warn('[JobRepository] Notice in bulkDelete for MongoDB:', err?.message || err);
-      }
+        for (const id of ids) Database.deleteJob(id);
+      } catch {}
+      return (res1.deletedCount || 0) + (res2.deletedCount || 0);
     }
 
-    return localCount;
+    let count = 0;
+    for (const id of ids) {
+      if (Database.deleteJob(id)) count++;
+    }
+    return count;
   }
 
   // --- PENDING QUEUE OPERATIONS ---
 
   /**
-   * Retrieves pending scraper / user jobs with limits, projection, and fallback.
+   * Retrieves pending scraper / user jobs safely without timing out.
    */
-  static async getPending(options: PendingJobOptions = {}): Promise<any[]> {
-    const limit = Math.min(1000, Math.max(1, options.limit || 300));
-    const page = Math.max(1, options.page || 1);
-    const skip = (page - 1) * limit;
-
-    if (isMongoConfigured()) {
-      try {
+  static async getPending(): Promise<any[]> {
+    return executeWithFallback(
+      async () => {
         const pendingColl = await getPendingJobsCollection();
-        const query: any = {};
-
-        if (options.status) {
-          query.status = options.status;
-        } else {
-          query.status = { $ne: 'Rejected' };
-        }
-
-        if (options.search && options.search.trim()) {
-          const q = options.search.trim();
-          const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-          query.$or = [{ title: regex }, { company: regex }, { city: regex }];
-        }
-
-        const projection = options.lightweight
-          ? {
-              id: 1,
-              title: 1,
-              company: 1,
-              department: 1,
-              city: 1,
-              region: 1,
-              salary: 1,
-              sourceUrl: 1,
-              sourceJobId: 1,
-              deadlineDate: 1,
-              isGovtJob: 1,
-              status: 1,
-              createdAt: 1,
-              isDuplicate: 1,
-              duplicateOfJobId: 1
-            }
-          : { extractedText: 0 };
-
-        const mongoPromise = pendingColl
-          .find(query, { projection })
+        const docs = await pendingColl
+          .find({ status: { $ne: 'Rejected' } })
           .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
           .toArray();
 
-        const docs = await withMongoTimeout(mongoPromise, 15000, 'getPending');
-        const results = docs.map(normalizeMongoJob);
-
-        // Keep local pending backup fresh in background
-        if (page === 1 && !options.search && results.length > 0) {
-          try {
-            Database.savePendingJobs(results);
-          } catch {}
+        if (docs && docs.length > 0) {
+          return docs.map(normalizeMongoJob);
         }
-
-        return results;
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice reading pending jobs from MongoDB (${err?.message || err}). Serving local fallback.`);
-      }
-    }
-
-    // Local fallback
-    const local = Database.getPendingJobs();
-    let filtered = local.filter((j) => j.status !== 'Rejected');
-    if (options.status) {
-      filtered = filtered.filter((j) => j.status === options.status);
-    }
-    if (options.search && options.search.trim()) {
-      const q = options.search.trim().toLowerCase();
-      filtered = filtered.filter(
-        (j) =>
-          (j.title && j.title.toLowerCase().includes(q)) ||
-          (j.company && j.company.toLowerCase().includes(q))
-      );
-    }
-    return filtered.slice(skip, skip + limit);
+        return Database.getPendingJobs().filter(p => p.status !== 'Rejected');
+      },
+      () => Database.getPendingJobs().filter(p => p.status !== 'Rejected'),
+      'JobRepository.getPending'
+    );
   }
 
   /**
-   * Adds a job into pending_jobs and local fallback.
+   * Adds a job into pending_jobs collection.
    */
   static async addPending(jobData: any): Promise<any> {
     const id = jobData.id || generateJobId();
     const slug = jobData.slug || generateJobSlug(jobData.title, jobData.city, id);
     const now = new Date().toISOString();
-
-    const newPending = normalizeMongoJob({
+    const doc = normalizeMongoJob({
       ...jobData,
       id,
       slug,
       status: jobData.status || 'Pending',
       createdAt: jobData.createdAt || now,
-      updatedAt: now,
-      applicationsCount: 0
+      updatedAt: now
     });
 
-    // Mirror locally
-    try {
-      Database.addPendingJob(newPending);
-    } catch {}
-
     if (isMongoConfigured()) {
+      const pendingColl = await getPendingJobsCollection();
+      await pendingColl.updateOne({ id }, { $set: doc }, { upsert: true });
       try {
-        const pendingColl = await getPendingJobsCollection();
-        await withMongoTimeout(
-          pendingColl.updateOne({ id }, { $set: newPending }, { upsert: true }),
-          15000,
-          'addPending'
-        );
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice adding pending job ${id} to MongoDB:`, err?.message || err);
-      }
+        Database.addPendingJob(doc);
+      } catch {}
+      return doc;
     }
 
-    return newPending;
+    return Database.addPendingJob(jobData);
   }
 
-  /**
-   * Adds a batch of pending jobs directly into MongoDB pending_jobs.
-   */
   static async addPendingBatch(jobsList: any[]): Promise<{ inserted: number; updated: number; total: number }> {
     return this.createBatch(jobsList, false);
   }
@@ -677,86 +584,55 @@ export class JobRepository {
    * Atomically approves a pending job.
    */
   static async approvePending(id: string): Promise<any | null> {
-    let localApproved: any = null;
-    try {
-      localApproved = Database.approvePendingJob(id);
-    } catch {}
-
     if (isMongoConfigured()) {
+      const pendingColl = await getPendingJobsCollection();
+      const jobsColl = await getJobsCollection();
+      const pendingDoc = await pendingColl.findOneAndDelete({ id });
+      const baseDoc = pendingDoc || Database.getPendingJobs().find(p => p.id === id);
+      if (!baseDoc) return null;
+
+      const toSave = normalizeMongoJob({
+        ...baseDoc,
+        status: 'Approved',
+        verifiedDate: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      await jobsColl.updateOne({ id }, { $set: toSave }, { upsert: true });
       try {
-        const pendingColl = await getPendingJobsCollection();
-        const jobsColl = await getJobsCollection();
-
-        const pendingDoc = await withMongoTimeout(pendingColl.findOneAndDelete({ id }), 15000, 'approvePendingFind');
-        if (!pendingDoc) {
-          const existing = await jobsColl.findOne({ id });
-          if (existing) {
-            const updated = await jobsColl.findOneAndUpdate(
-              { id },
-              { $set: { status: 'Approved', verifiedDate: new Date().toISOString() } },
-              { returnDocument: 'after' }
-            );
-            return updated ? normalizeMongoJob(updated) : localApproved;
-          }
-          return localApproved;
-        }
-
-        const approvedJob = normalizeMongoJob({
-          ...pendingDoc,
-          status: 'Approved',
-          verifiedDate: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
-
-        await withMongoTimeout(jobsColl.updateOne({ id }, { $set: approvedJob }, { upsert: true }), 15000, 'approvePendingInsert');
-        return approvedJob;
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice approving pending job ${id} in MongoDB:`, err?.message || err);
-      }
+        Database.approvePendingJob(id);
+      } catch {}
+      return toSave;
     }
 
-    return localApproved;
+    return Database.approvePendingJob(id);
   }
 
   /**
    * Rejects a pending job.
    */
   static async rejectPending(id: string, reason?: string): Promise<boolean> {
-    let localRejected = false;
-    try {
-      localRejected = Database.rejectPendingJob(id, reason);
-    } catch {}
-
     if (isMongoConfigured()) {
+      const pendingColl = await getPendingJobsCollection();
+      const res = await pendingColl.updateOne(
+        { id },
+        {
+          $set: {
+            status: 'Rejected',
+            rejectionReason: reason || 'Rejected by administrator',
+            rejectedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        }
+      );
       try {
-        const pendingColl = await getPendingJobsCollection();
-        const res = await withMongoTimeout(
-          pendingColl.updateOne(
-            { id },
-            {
-              $set: {
-                status: 'Rejected',
-                rejectionReason: reason || 'Rejected by administrator',
-                rejectedAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              }
-            }
-          ),
-          15000,
-          'rejectPending'
-        );
-        return res.matchedCount > 0 || localRejected;
-      } catch (err: any) {
-        console.warn(`[JobRepository] Notice rejecting pending job ${id} in MongoDB:`, err?.message || err);
-      }
+        Database.rejectPendingJob(id, reason);
+      } catch {}
+      return (res.matchedCount || 0) > 0 || (res.modifiedCount || 0) > 0;
     }
 
-    return localRejected;
+    return Database.rejectPendingJob(id, reason);
   }
 
-  /**
-   * Bulk approves pending jobs.
-   */
   static async bulkApprovePending(ids: string[]): Promise<{
     successCount: number;
     failureCount: number;
@@ -772,7 +648,7 @@ export class JobRepository {
         if (approved) {
           approvedJobs.push(approved);
         } else {
-          errors.push({ id, error: `Pending job with ID "${id}" could not be found or processed.` });
+          errors.push({ id, error: `Pending job with ID "${id}" could not be found.` });
         }
       } catch (err: any) {
         errors.push({ id, error: err.message || `Error approving job "${id}".` });
@@ -787,9 +663,6 @@ export class JobRepository {
     };
   }
 
-  /**
-   * Bulk rejects pending jobs.
-   */
   static async bulkRejectPending(ids: string[], reason?: string): Promise<{
     successCount: number;
     failureCount: number;
@@ -818,46 +691,31 @@ export class JobRepository {
     };
   }
 
-  /**
-   * Bulk deletes duplicate jobs directly from pending queue.
-   */
   static async bulkDeleteDuplicates(ids: string[]): Promise<{
     successCount: number;
     failureCount: number;
     errors: { id: string; error: string }[];
   }> {
+    if (isMongoConfigured()) {
+      const pendingColl = await getPendingJobsCollection();
+      const res = await pendingColl.deleteMany({ id: { $in: ids } });
+      try {
+        for (const id of ids) Database.deleteJob(id);
+      } catch {}
+      return {
+        successCount: res.deletedCount || ids.length,
+        failureCount: 0,
+        errors: []
+      };
+    }
+
     let successCount = 0;
     const errors: { id: string; error: string }[] = [];
 
     for (const id of ids) {
       try {
-        let deleted = false;
-        if (isMongoConfigured()) {
-          try {
-            const pendingColl = await getPendingJobsCollection();
-            const doc = await withMongoTimeout(pendingColl.findOne({ id }), 10000, 'findDuplicate');
-            if (doc) {
-              const res = await withMongoTimeout(pendingColl.deleteOne({ id }), 10000, 'deleteDuplicate');
-              if (res.deletedCount && res.deletedCount > 0) {
-                deleted = true;
-              }
-            }
-          } catch (mErr: any) {
-            console.warn(`[JobRepository] Notice deleting duplicate ${id} in MongoDB:`, mErr?.message || mErr);
-          }
-        }
-
-        try {
-          if (Database.deleteJob(id)) {
-            deleted = true;
-          }
-        } catch {}
-
-        if (deleted) {
-          successCount++;
-        } else {
-          errors.push({ id, error: `Failed to delete duplicate job "${id}".` });
-        }
+        Database.deleteJob(id);
+        successCount++;
       } catch (err: any) {
         errors.push({ id, error: err.message || `Failed to delete duplicate job "${id}".` });
       }
@@ -870,9 +728,6 @@ export class JobRepository {
     };
   }
 
-  /**
-   * Keep Original + Delete Duplicates.
-   */
   static async keepOriginalAndDeleteDuplicates(duplicateIds: string[]): Promise<{
     successCount: number;
     failureCount: number;
@@ -881,59 +736,151 @@ export class JobRepository {
     return this.bulkDeleteDuplicates(duplicateIds);
   }
 
-  /**
-   * Overwrite Original:
-   * Selected duplicate's content replaces the original job's content in the live jobs.
-   */
   static async overwriteOriginalWithDuplicates(duplicateIds: string[]): Promise<{
     successCount: number;
     failureCount: number;
     errors: { id: string; error: string }[];
   }> {
-    let successCount = 0;
-    const errors: { id: string; error: string }[] = [];
+    return this.bulkApprovePending(duplicateIds);
+  }
 
-    for (const dupId of duplicateIds) {
-      try {
-        let dupDoc: any = null;
-        if (isMongoConfigured()) {
-          try {
-            const pendingColl = await getPendingJobsCollection();
-            dupDoc = await withMongoTimeout(pendingColl.findOne({ id: dupId }), 10000, 'findDupDoc');
-          } catch (mErr: any) {
-            console.warn(`[JobRepository] Notice reading duplicate ${dupId} in MongoDB:`, mErr?.message || mErr);
-          }
-        }
+  static async scanAndExpireDueJobs(offsetDays: number = 1): Promise<{ expiredCount: number; expiredJobIds: string[] }> {
+    const jobs = Database.getJobs();
+    const expiredJobIds: string[] = [];
+    const safeOffsetDays = Math.max(0, Math.min(2, offsetDays));
 
-        if (!dupDoc) {
-          dupDoc = Database.getPendingJobs().find((j) => j.id === dupId);
-        }
-
-        if (!dupDoc) {
-          errors.push({ id: dupId, error: `Duplicate job "${dupId}" was not found in pending queue.` });
-          continue;
-        }
-
-        const originalId = dupDoc.duplicateOfJobId || dupDoc.duplicateMatchedJob?.id;
-        if (!originalId || originalId === dupId) {
-          errors.push({ id: dupId, error: `Invalid original ID link for duplicate "${dupId}".` });
-          continue;
-        }
-
-        // Apply overwrite to live
-        const replacement = { ...dupDoc, id: originalId, status: 'Approved', isDuplicate: false };
-        await this.update(originalId, replacement);
-        await this.delete(dupId);
-        successCount++;
-      } catch (err: any) {
-        errors.push({ id: dupId, error: err.message || `Error overwriting original with duplicate "${dupId}".` });
+    for (const job of jobs) {
+      if (job.status === 'Approved' && checkJobExpired(job, safeOffsetDays)) {
+        job.status = 'Expired';
+        job.isExpired = true;
+        job.expiredAt = new Date().toISOString();
+        expiredJobIds.push(job.id);
       }
     }
 
+    if (isMongoConfigured() && expiredJobIds.length > 0) {
+      const jobsColl = await getJobsCollection();
+      await jobsColl.updateMany(
+        { id: { $in: expiredJobIds } },
+        {
+          $set: {
+            status: 'Expired',
+            isExpired: true,
+            expiredAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        }
+      );
+    }
+
+    if (expiredJobIds.length > 0) {
+      Database.saveJobs(jobs);
+    }
+
     return {
-      successCount,
-      failureCount: errors.length,
-      errors
+      expiredCount: expiredJobIds.length,
+      expiredJobIds
+    };
+  }
+
+  static async restoreJobToLive(id: string): Promise<any | null> {
+    if (isMongoConfigured()) {
+      const jobsColl = await getJobsCollection();
+      await jobsColl.updateOne(
+        { id },
+        {
+          $set: {
+            status: 'Approved',
+            isExpired: false,
+            restoredAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          $unset: { expiredAt: '' }
+        }
+      );
+      try {
+        Database.updateJob(id, { status: 'Approved', isExpired: false });
+      } catch {}
+      const updated = await jobsColl.findOne({ id });
+      return updated ? normalizeMongoJob(updated) : null;
+    }
+
+    return Database.updateJob(id, { status: 'Approved', isExpired: false });
+  }
+
+  static async bulkRestoreJobs(ids: string[]): Promise<number> {
+    if (isMongoConfigured()) {
+      const jobsColl = await getJobsCollection();
+      const res = await jobsColl.updateMany(
+        { id: { $in: ids } },
+        {
+          $set: {
+            status: 'Approved',
+            isExpired: false,
+            restoredAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          $unset: { expiredAt: '' }
+        }
+      );
+      try {
+        for (const id of ids) {
+          Database.updateJob(id, { status: 'Approved', isExpired: false });
+        }
+      } catch {}
+      return res.modifiedCount || 0;
+    }
+
+    let count = 0;
+    for (const id of ids) {
+      if (Database.updateJob(id, { status: 'Approved', isExpired: false })) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  static async deleteJobPermanently(id: string): Promise<boolean> {
+    return this.delete(id);
+  }
+
+  static async bulkUpdateLocation(
+    jobIds: string[],
+    locationData: { region?: string; province?: string; city?: string; district?: string }
+  ): Promise<{ successCount: number; errors: any[] }> {
+    if (!Array.isArray(jobIds) || jobIds.length === 0) {
+      return { successCount: 0, errors: [] };
+    }
+
+    if (isMongoConfigured()) {
+      const jobsColl = await getJobsCollection();
+      const pendingColl = await getPendingJobsCollection();
+      const updateFields: any = { ...locationData, updatedAt: new Date().toISOString() };
+      const [res1, res2] = await Promise.all([
+        jobsColl.updateMany({ id: { $in: jobIds } }, { $set: updateFields }),
+        pendingColl.updateMany({ id: { $in: jobIds } }, { $set: updateFields })
+      ]);
+      try {
+        for (const id of jobIds) {
+          Database.updateJob(id, locationData);
+        }
+      } catch {}
+      return {
+        successCount: (res1.modifiedCount || 0) + (res2.modifiedCount || 0),
+        errors: []
+      };
+    }
+
+    let modified = 0;
+    for (const id of jobIds) {
+      const updated = Database.updateJob(id, locationData);
+      if (updated) modified++;
+    }
+
+    return {
+      successCount: modified,
+      errors: []
     };
   }
 }
+

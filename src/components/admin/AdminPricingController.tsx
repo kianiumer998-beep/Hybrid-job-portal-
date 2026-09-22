@@ -13,11 +13,13 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { DEFAULT_DURATION_PRESETS, CampaignDurationPreset } from '../../types/ad';
 
 export const AdminPricingController: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [durationPresets, setDurationPresets] = useState<CampaignDurationPreset[]>(DEFAULT_DURATION_PRESETS);
   const [pricing, setPricing] = useState<any>({
     jobPosting: {
       standardFeePkr: 1000,
@@ -68,9 +70,15 @@ export const AdminPricingController: React.FC = () => {
   const loadPricing = async () => {
     setLoading(true);
     try {
-      const data = await api.pricing.get();
-      if (data.success && data.pricing) {
-        setPricing(data.pricing);
+      const [pricingRes, campaignRes] = await Promise.all([
+        api.pricing.get(),
+        api.settings.getCampaigns()
+      ]);
+      if (pricingRes.success && pricingRes.pricing) {
+        setPricing(pricingRes.pricing);
+      }
+      if (campaignRes.success && campaignRes.config && Array.isArray(campaignRes.config.durationPresets)) {
+        setDurationPresets(campaignRes.config.durationPresets);
       }
     } catch (err) {
       console.error('Failed to load pricing:', err);
@@ -82,8 +90,19 @@ export const AdminPricingController: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await api.pricing.update(pricing);
-      if (res.success) {
+      // Save universal pricing and campaign duration presets concurrently
+      const [pRes, cRes] = await Promise.all([
+        api.pricing.update(pricing),
+        api.settings.getCampaigns().then(async (curr) => {
+          const currentConfig = curr.success && curr.config ? curr.config : {};
+          return api.settings.updateCampaigns({
+            ...currentConfig,
+            durationPresets
+          });
+        })
+      ]);
+
+      if (pRes.success || cRes?.success) {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       }
@@ -102,6 +121,14 @@ export const AdminPricingController: React.FC = () => {
         [field]: value
       }
     }));
+  };
+
+  const handleToggleDurationPreset = (id: string) => {
+    setDurationPresets(prev => prev.map(d => d.id === id ? { ...d, isEnabled: !d.isEnabled } : d));
+  };
+
+  const handleUpdateDurationField = (id: string, field: keyof CampaignDurationPreset, value: any) => {
+    setDurationPresets(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
   };
 
   if (loading) {
@@ -506,6 +533,75 @@ export const AdminPricingController: React.FC = () => {
                 <span className="text-xs text-slate-400">PKR</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* 5. Campaign Duration Options & Presets Management */}
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div className="flex items-center space-x-2.5">
+              <Clock className="w-5 h-5 text-amber-400" />
+              <div>
+                <h3 className="font-bold text-white text-base">Campaign Duration Presets & Rate Options</h3>
+                <p className="text-xs text-slate-400">Manage hourly, daily, weekly, monthly and custom campaign duration slots, discounts, and overrides.</p>
+              </div>
+            </div>
+            <span className="text-xs font-mono text-slate-400 bg-slate-950 px-3 py-1 rounded-full border border-slate-800">
+              {durationPresets.filter(d => d.isEnabled).length} of {durationPresets.length} Active
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {durationPresets.map((dur) => (
+              <div 
+                key={dur.id}
+                className={`p-4 rounded-xl border transition-all ${
+                  dur.isEnabled 
+                    ? 'bg-slate-950/80 border-slate-800' 
+                    : 'bg-slate-950/30 border-slate-900 opacity-60'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-400 font-bold">
+                      {dur.value} {dur.unit}
+                    </span>
+                    <span className="text-sm font-black text-white">{dur.label}</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={dur.isEnabled}
+                      onChange={() => handleToggleDurationPreset(dur.id)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500" />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Discount %</label>
+                    <input
+                      type="number"
+                      value={dur.discountPercent || 0}
+                      onChange={(e) => handleUpdateDurationField(dur.id, 'discountPercent', Number(e.target.value))}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Fixed Price Override (PKR)</label>
+                    <input
+                      type="number"
+                      placeholder="Dynamic calculation"
+                      value={dur.fixedPriceOverridePkr ?? ''}
+                      onChange={(e) => handleUpdateDurationField(dur.id, 'fixedPriceOverridePkr', e.target.value === '' ? undefined : Number(e.target.value))}
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

@@ -1,8 +1,16 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
-import { executeScraperWithWizard, ScraperRunOptions } from '../services/scraperEngine';
+import {
+  executeScraperWithWizard,
+  ScraperRunOptions,
+  getActiveRunStatus,
+  pauseActiveRun,
+  resumeActiveRun,
+  stopActiveRun,
+  resetActiveRun
+} from '../services/scraperEngine';
 import { requireAdmin } from '../auth/authManager';
-import { ScraperRepository, AuditRepository } from '../db/repositories';
+import { ScraperRepository, AuditRepository, JobRepository } from '../db/repositories';
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
 import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
@@ -342,3 +350,136 @@ scraperRouter.post('/groups/:id/run', requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error executing group scraper' });
   }
 });
+
+scraperRouter.post('/sources/:id/move-group', requireAdmin, async (req, res) => {
+  try {
+    const { targetGroupId } = req.body;
+    const sourceId = req.params.id;
+    const groups = await ScraperRepository.getGroups();
+    for (const g of groups) {
+      if (g.sourceIds && g.sourceIds.includes(sourceId)) {
+        await ScraperRepository.removeSourcesFromGroup(g.id, [sourceId]);
+      }
+    }
+    if (targetGroupId && targetGroupId !== 'all' && targetGroupId !== 'none') {
+      await ScraperRepository.addSourcesToGroup(targetGroupId, [sourceId]);
+    }
+    res.json({ success: true, sourceId, targetGroupId });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error moving source group' });
+  }
+});
+
+scraperRouter.post('/sources/bulk-move-group', requireAdmin, async (req, res) => {
+  try {
+    const { sourceIds, targetGroupId } = req.body;
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No sourceIds provided' });
+    }
+    const groups = await ScraperRepository.getGroups();
+    for (const g of groups) {
+      const toRemove = sourceIds.filter(id => g.sourceIds?.includes(id));
+      if (toRemove.length > 0) {
+        await ScraperRepository.removeSourcesFromGroup(g.id, toRemove);
+      }
+    }
+    if (targetGroupId && targetGroupId !== 'all' && targetGroupId !== 'none') {
+      await ScraperRepository.addSourcesToGroup(targetGroupId, sourceIds);
+    }
+    res.json({ success: true, count: sourceIds.length, targetGroupId });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error bulk moving sources' });
+  }
+});
+
+// 12. Active Run Live Status (Admin Only)
+scraperRouter.get('/active-status', requireAdmin, async (req, res) => {
+  try {
+    const status = getActiveRunStatus();
+    res.json({ success: true, status });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error fetching active run status' });
+  }
+});
+
+// 13. Pause Active Run (Admin Only)
+scraperRouter.post('/pause', requireAdmin, async (req, res) => {
+  try {
+    const paused = pauseActiveRun();
+    res.json({ success: true, paused, message: paused ? 'Scraper run paused.' : 'No active run to pause.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error pausing run' });
+  }
+});
+
+// 14. Resume Active Run (Admin Only)
+scraperRouter.post('/resume', requireAdmin, async (req, res) => {
+  try {
+    // Start resume in background and return immediate status
+    resumeActiveRun().catch(err => {
+      console.error('[Scraper Routes] Resume error:', err);
+    });
+    res.json({ success: true, message: 'Scraper run resumed.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error resuming run' });
+  }
+});
+
+// 15. Stop Active Run (Admin Only)
+scraperRouter.post('/stop', requireAdmin, async (req, res) => {
+  try {
+    const stopped = stopActiveRun();
+    res.json({ success: true, stopped, message: stopped ? 'Scraper run stopped.' : 'No active run to stop.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error stopping run' });
+  }
+});
+
+// 15b. Reset Active Run State (Admin Only)
+scraperRouter.post('/reset', requireAdmin, async (req, res) => {
+  try {
+    resetActiveRun();
+    res.json({ success: true, message: 'Scraper engine state has been reset to Idle.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error resetting run state' });
+  }
+});
+
+// 16. Get Portal Expiry Settings (Admin Only)
+scraperRouter.get('/expiry-settings', requireAdmin, async (req, res) => {
+  try {
+    const settings = await ScraperRepository.getExpirySettings();
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error getting expiry settings' });
+  }
+});
+
+// 17. Update Portal Expiry Settings (Admin Only)
+scraperRouter.put('/expiry-settings', requireAdmin, async (req, res) => {
+  try {
+    const settings = await ScraperRepository.updateExpirySettings(req.body);
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Portal Expiry Offset Updated',
+      target: `+${settings.offsetDays} Days`,
+      status: 'Success'
+    });
+    res.json({ success: true, settings, message: `Portal expiry offset saved (+${settings.offsetDays} days).` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error updating expiry settings' });
+  }
+});
+
+// 18. Trigger Manual Expiry Scan (Admin Only)
+scraperRouter.post('/scan-expiry', requireAdmin, async (req, res) => {
+  try {
+    const settings = await ScraperRepository.getExpirySettings();
+    const result = await JobRepository.scanAndExpireDueJobs(settings.offsetDays);
+    res.json({ success: true, ...result, message: `Expiry scan completed. ${result.expiredCount} jobs moved to Expired status.` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error scanning expired jobs' });
+  }
+});
+

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Megaphone,
   Mail,
@@ -14,10 +14,13 @@ import {
   Eye,
   Layers,
   Search,
-  Filter
+  Filter,
+  ShieldCheck,
+  Trash2
 } from 'lucide-react';
 import { Subscriber, UserAccount } from '../../types/job';
 import { BroadcastCampaign, CommunicationProviderConfig } from '../../types/adminSuite';
+import { api } from '../../services/api';
 
 interface AdminBroadcastCenterProps {
   campaigns?: BroadcastCampaign[];
@@ -43,6 +46,35 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>('compose');
 
+  // Load real broadcast and persistent notification campaigns from MongoDB
+  useEffect(() => {
+    let mounted = true;
+    api.notifications.getAdminAll().then(res => {
+      if (mounted && res?.success && Array.isArray(res.notifications)) {
+        const mappedCampaigns: BroadcastCampaign[] = res.notifications.map(n => ({
+          id: n.id,
+          title: n.title,
+          channel: n.channels?.popup ? 'Multi-Channel' : (n.channels?.bell ? 'Push Notification' : 'Email'),
+          targetAudience: n.targetAudience === 'all' ? 'All Users' : (n.targetAudience === 'employers' ? 'Employers / Posters' : 'Job Seekers Only'),
+          subject: n.title,
+          messageBody: n.plainText || n.body,
+          sentAt: n.createdAt ? new Date(n.createdAt).toLocaleString() : undefined,
+          status: n.status === 'published' ? 'Sent' : 'Draft',
+          recipientsCount: n.recipientsCount || n.viewCount || 0,
+          openRate: n.viewCount && n.recipientsCount ? Math.min(100, Math.round((n.viewCount / Math.max(1, n.recipientsCount)) * 100)) : undefined,
+          clickRate: n.clickCount && n.viewCount ? Math.min(100, Math.round((n.clickCount / Math.max(1, n.viewCount)) * 100)) : undefined
+        }));
+
+        if (mappedCampaigns.length > 0) {
+          setCampaignList(mappedCampaigns);
+        }
+      }
+    }).catch(err => {
+      console.warn('Failed to load campaigns from MongoDB:', err);
+    });
+    return () => { mounted = false; };
+  }, []);
+
   // Composer state
   const [title, setTitle] = useState('');
   const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>('Email');
@@ -53,6 +85,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [messageBody, setMessageBody] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
   const [isSending, setIsSending] = useState(false);
+
 
   // Provider Settings state
   const [providerSettings, setProviderSettings] = useState<CommunicationProviderConfig>(
@@ -105,7 +138,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setActiveTab('compose');
   };
 
-  const handleDispatchCampaign = (e: React.FormEvent) => {
+  const handleDispatchCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !messageBody.trim()) {
       alert('Please provide both campaign title and message content.');
@@ -113,10 +146,27 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     }
 
     setIsSending(true);
-    setTimeout(() => {
+    try {
       const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+      
+      // Persist to MongoDB notifications collection
+      const createRes = await api.notifications.create({
+        title: title.trim(),
+        body: messageBody.trim(),
+        plainText: messageBody.trim(),
+        targetAudience: targetAudience === 'All Users' ? 'all' : (targetAudience === 'Employers / Posters' ? 'employers' : 'jobseekers'),
+        priority: channel === 'WhatsApp' || channel === 'Multi-Channel' ? 'urgent' : 'high',
+        channels: {
+          bell: true,
+          popup: channel === 'Multi-Channel' || channel === 'Push Notification',
+          pageBanner: channel === 'Multi-Channel'
+        },
+        status: 'published',
+        recipientsCount: audienceCount
+      });
+
       const newCamp: BroadcastCampaign = {
-        id: `camp-${Date.now().toString(36)}`,
+        id: createRes?.notification?.id || `camp-${Date.now().toString(36)}`,
         title: title.trim(),
         channel,
         targetAudience,
@@ -129,16 +179,22 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         clickRate: channel === 'WhatsApp' ? 64.2 : 22.1
       };
 
-      onSendCampaign(newCamp);
+      if (onSendCampaign) {
+        onSendCampaign(newCamp);
+      }
       setCampaignList([newCamp, ...campaignList]);
       setIsSending(false);
-      alert(`🚀 Broadcast Campaign "${newCamp.title}" dispatched to ${newCamp.recipientsCount} recipients via ${newCamp.channel}!`);
+      alert(`🚀 Broadcast Campaign "${newCamp.title}" dispatched & saved to MongoDB (${newCamp.recipientsCount} recipients via ${newCamp.channel})!`);
       setTitle('');
       setSubject('');
       setMessageBody('');
       setActiveTab('history');
-    }, 1200);
+    } catch (err: any) {
+      setIsSending(false);
+      alert(`Failed to dispatch broadcast: ${err.message || 'Server error'}`);
+    }
   };
+
 
   const handleSaveProviders = (e: React.FormEvent) => {
     e.preventDefault();
@@ -381,18 +437,18 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-4 font-mono text-right">
-                  {camp.openRate && (
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase">Open Rate</span>
-                      <span className="font-bold text-emerald-400">{camp.openRate}%</span>
-                    </div>
-                  )}
-                  {camp.clickRate && (
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase">Click CTR</span>
-                      <span className="font-bold text-amber-400">{camp.clickRate}%</span>
-                    </div>
-                  )}
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase">Open Rate</span>
+                    <span className={`font-bold ${camp.openRate !== undefined && camp.openRate > 0 ? 'text-emerald-400' : 'text-slate-500 text-[11px]'}`}>
+                      {camp.openRate !== undefined && camp.openRate > 0 ? `${camp.openRate}%` : 'Not tracked'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase">Click CTR</span>
+                    <span className={`font-bold ${camp.clickRate !== undefined && camp.clickRate > 0 ? 'text-amber-400' : 'text-slate-500 text-[11px]'}`}>
+                      {camp.clickRate !== undefined && camp.clickRate > 0 ? `${camp.clickRate}%` : 'Not tracked'}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

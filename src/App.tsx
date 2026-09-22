@@ -25,6 +25,7 @@ import { ToastNotificationAd } from './components/ads/ToastNotificationAd';
 import { AdNotificationDrawer } from './components/ads/AdNotificationDrawer';
 import { 
   Advertisement, 
+  AdStatus,
   INITIAL_ADVERTISEMENTS, 
   AdPricingConfig, 
   DEFAULT_AD_PRICING_CONFIG,
@@ -48,18 +49,23 @@ import {
 import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X, Layers, Globe, MapPin, Zap } from 'lucide-react';
 import { SiteSeoConfig } from './types/adminSuite';
 import { INITIAL_SITE_SEO_CONFIG } from './data/mockAdminSuiteData';
-import { 
-  LandingPageConfig, 
+import { LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
   CountryOption, 
   SUPPORTED_COUNTRIES 
 } from './types/landing';
 import { safeLocalStorageSet, safeLocalStorageGet } from './utils/safeStorage';
+import { NotificationCenterModal } from './components/notifications/NotificationCenterModal';
+import { NotificationPopupModal } from './components/notifications/NotificationPopupModal';
+import { MandatoryActionModal } from './components/notifications/MandatoryActionModal';
+import { NotificationItem } from './types/notification';
 
 export default function App() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
-  const [showAdminView, setShowAdminView] = useState<boolean>(false);
+  const [showAdminView, setShowAdminView] = useState<boolean>(() => {
+    return safeLocalStorageGet<string>('hybrid_admin_view_active', 'false') === 'true';
+  });
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
   // User Country Selection State (Pop-up on entry if not set)
@@ -136,7 +142,54 @@ export default function App() {
   // Campaign Customization & Portal Page Scheduling State
   const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(() => {
     const saved = localStorage.getItem('hybrid_campaign_customization_config');
-    return saved ? JSON.parse(saved) : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+    if (!saved) return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+    try {
+      const parsed = JSON.parse(saved);
+      return {
+        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+        ...parsed,
+        placementOptions: Array.isArray(parsed.placementOptions) && parsed.placementOptions.length > 0
+          ? parsed.placementOptions
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions,
+        portalPages: Array.isArray(parsed.portalPages) && parsed.portalPages.length > 0
+          ? parsed.portalPages
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
+        durationPresets: Array.isArray(parsed.durationPresets) && parsed.durationPresets.length > 0
+          ? parsed.durationPresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+        badgePresets: Array.isArray(parsed.badgePresets) && parsed.badgePresets.length > 0
+          ? parsed.badgePresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.badgePresets,
+        ctaPresets: Array.isArray(parsed.ctaPresets) && parsed.ctaPresets.length > 0
+          ? parsed.ctaPresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.ctaPresets,
+        promoBanners: Array.isArray(parsed.promoBanners) && parsed.promoBanners.length > 0
+          ? parsed.promoBanners
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
+        popupSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
+          ...(parsed.popupSettings || {})
+        },
+        feedInlineSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+          ...(parsed.feedInlineSettings || {})
+        },
+        formRules: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.formRules,
+          ...(parsed.formRules || {})
+        },
+        jobPostingFeeSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings,
+          ...(parsed.jobPostingFeeSettings || {})
+        },
+        jobFeedSettings: {
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobFeedSettings,
+          ...(parsed.jobFeedSettings || {})
+        }
+      };
+    } catch {
+      return DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
+    }
   });
 
   useEffect(() => {
@@ -145,11 +198,94 @@ export default function App() {
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
-  const handleAdClick = (ad: Advertisement) => {
+  const handleAdClick = useCallback((ad: Advertisement) => {
+    // Never bill demo or preview ads
+    if (!ad || !ad.id || ad.id.startsWith('demo-') || ad.id.startsWith('preview-')) return;
+
     setAdvertisements((prev) =>
-      prev.map((a) => (a.id === ad.id ? { ...a, clicks: (a.clicks || 0) + 1 } : a))
+      prev.map((a) => {
+        if (a.id !== ad.id) return a;
+        if (a.status !== 'active') return a;
+
+        const newClicks = (a.clicks || 0) + 1;
+        let budgetSpent = a.budgetSpent || 0;
+        const budgetLimit = a.budgetLimit || a.campaignCostPkr || 0;
+        let status: AdStatus = a.status;
+        let stopReason = a.stopReason;
+
+        if (a.billingModel === 'cpc') {
+          const cpcRate = typeof a.cpcRatePkr === 'number' && a.cpcRatePkr > 0 ? a.cpcRatePkr : 15;
+          budgetSpent += cpcRate;
+        }
+
+        const budgetRemaining = budgetLimit > 0 ? Math.max(0, budgetLimit - budgetSpent) : undefined;
+        const reachedClickLimit = typeof a.clickLimit === 'number' && a.clickLimit > 0 && newClicks >= a.clickLimit;
+        const reachedBudget = a.billingModel === 'cpc' && budgetLimit > 0 && (budgetRemaining ?? 0) <= 0;
+
+        if (reachedBudget) {
+          status = 'budget_exhausted';
+          stopReason = 'Campaign budget limit reached';
+        } else if (reachedClickLimit) {
+          status = 'limit_reached';
+          stopReason = 'Campaign click limit reached';
+        }
+
+        return {
+          ...a,
+          clicks: newClicks,
+          budgetSpent: Math.round(budgetSpent * 100) / 100,
+          budgetRemaining: budgetRemaining !== undefined ? Math.round(budgetRemaining * 100) / 100 : undefined,
+          status,
+          stopReason
+        };
+      })
     );
-  };
+  }, []);
+
+  const handleAdImpression = useCallback((adId: string) => {
+    // Never bill demo or preview ads
+    if (!adId || adId.startsWith('demo-') || adId.startsWith('preview-')) return;
+
+    setAdvertisements((prev) =>
+      prev.map((a) => {
+        if (a.id !== adId) return a;
+        if (a.status !== 'active') return a;
+
+        const newImpressions = (a.impressions || 0) + 1;
+        let budgetSpent = a.budgetSpent || 0;
+        const budgetLimit = a.budgetLimit || a.campaignCostPkr || 0;
+        let status: AdStatus = a.status;
+        let stopReason = a.stopReason;
+
+        if (a.billingModel === 'cpm') {
+          const cpmRate = typeof a.cpmRatePkr === 'number' && a.cpmRatePkr > 0 ? a.cpmRatePkr : 150;
+          const costPerImpression = cpmRate / 1000;
+          budgetSpent += costPerImpression;
+        }
+
+        const budgetRemaining = budgetLimit > 0 ? Math.max(0, budgetLimit - budgetSpent) : undefined;
+        const reachedImpressionLimit = typeof a.impressionLimit === 'number' && a.impressionLimit > 0 && newImpressions >= a.impressionLimit;
+        const reachedBudget = a.billingModel === 'cpm' && budgetLimit > 0 && (budgetRemaining ?? 0) <= 0;
+
+        if (reachedBudget) {
+          status = 'budget_exhausted';
+          stopReason = 'Campaign budget limit reached';
+        } else if (reachedImpressionLimit) {
+          status = 'limit_reached';
+          stopReason = 'Campaign impression limit reached';
+        }
+
+        return {
+          ...a,
+          impressions: newImpressions,
+          budgetSpent: Math.round(budgetSpent * 100) / 100,
+          budgetRemaining: budgetRemaining !== undefined ? Math.round(budgetRemaining * 100) / 100 : undefined,
+          status,
+          stopReason
+        };
+      })
+    );
+  }, []);
 
   const handleAddAd = (newAd: Advertisement) => {
     setAdvertisements((prev) => [newAd, ...prev]);
@@ -315,16 +451,9 @@ export default function App() {
   const [whatsAppSupportConfig, setWhatsAppSupportConfig] = useState<WhatsAppSupportConfig>(() => {
     try {
       const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...DEFAULT_WHATSAPP_CONFIG, ...JSON.parse(saved) };
     } catch (e) {}
-    return {
-      phoneNumber: '923001234567',
-      agentName: 'Ayesha (Lead Career Advisor)',
-      defaultMessage: 'Hello! I need assistance with job applications on CareerPak...',
-      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
-      enabled: true,
-      position: 'bottom-right'
-    };
+    return DEFAULT_WHATSAPP_CONFIG;
   });
 
   useEffect(() => {
@@ -396,9 +525,12 @@ export default function App() {
   // Pending Jobs Queue for Admin Verification (Single Backend Source of Truth via /api/jobs/queue/pending)
   const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(true);
+  const [jobsApiError, setJobsApiError] = useState<string | null>(null);
 
   // Fetch jobs from backend Single Source of Truth
   const loadBackendJobs = useCallback(async () => {
+    setIsLoadingJobs(true);
+    setJobsApiError(null);
     try {
       const [liveRes, pendingRes] = await Promise.all([
         api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
@@ -410,6 +542,9 @@ export default function App() {
       } else if (Array.isArray(liveRes)) {
         setJobs(liveRes);
       } else {
+        if (liveRes && liveRes.message && !liveRes.success) {
+          setJobsApiError(liveRes.message);
+        }
         setJobs([]);
       }
 
@@ -421,8 +556,9 @@ export default function App() {
       } else {
         setPendingJobs([]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[App] Failed to load jobs from backend /api/jobs:', err);
+      setJobsApiError(err?.message || 'Failed to connect to backend jobs API. Please check your network connection.');
     } finally {
       setIsLoadingJobs(false);
     }
@@ -436,7 +572,263 @@ export default function App() {
     } catch {}
 
     loadBackendJobs();
+
+    // Fetch live MongoDB-backed settings for landing page, campaigns, and WhatsApp widget
+    api.settings.getLanding().then(res => {
+      if (res?.success && res.config) setLandingConfig(res.config);
+    }).catch(() => {});
+
+    api.settings.getCampaigns().then(res => {
+      if (res?.success && res.config) {
+        const feedSettings = res.config.jobFeedSettings;
+        if (feedSettings && typeof feedSettings.defaultPostsPerPage === 'number' && feedSettings.defaultPostsPerPage > 0) {
+          const rawOptions = feedSettings.postsPerPageOptions;
+          const validOptions = Array.isArray(rawOptions) && rawOptions.length > 0
+            ? rawOptions.filter((n: any) => typeof n === 'number' && n > 0)
+            : [10, 15, 20, 25, 50];
+          
+          if (validOptions.includes(feedSettings.defaultPostsPerPage)) {
+            setPostsPerPage(feedSettings.defaultPostsPerPage);
+          }
+        }
+
+        setCampaignConfig(prev => ({
+          ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+          ...res.config,
+          jobFeedSettings: {
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobFeedSettings,
+            ...(res.config.jobFeedSettings || {})
+          },
+          placementOptions: Array.isArray(res.config.placementOptions) && res.config.placementOptions.length > 0
+            ? res.config.placementOptions
+            : (prev?.placementOptions || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions),
+          portalPages: Array.isArray(res.config.portalPages) && res.config.portalPages.length > 0
+            ? res.config.portalPages
+            : (prev?.portalPages || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages),
+          durationPresets: Array.isArray(res.config.durationPresets) && res.config.durationPresets.length > 0
+            ? res.config.durationPresets
+            : (prev?.durationPresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets),
+          badgePresets: Array.isArray(res.config.badgePresets) && res.config.badgePresets.length > 0
+            ? res.config.badgePresets
+            : (prev?.badgePresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.badgePresets),
+          ctaPresets: Array.isArray(res.config.ctaPresets) && res.config.ctaPresets.length > 0
+            ? res.config.ctaPresets
+            : (prev?.ctaPresets || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.ctaPresets),
+          promoBanners: Array.isArray(res.config.promoBanners) && res.config.promoBanners.length > 0
+            ? res.config.promoBanners
+            : (prev?.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners)
+        }));
+      }
+    }).catch(() => {});
+
+    api.settings.getWhatsApp().then(res => {
+      if (res?.success && res.config) {
+        setWhatsAppSupportConfig(prev => ({
+          ...DEFAULT_WHATSAPP_CONFIG,
+          ...prev,
+          ...res.config
+        }));
+      }
+    }).catch(() => {});
   }, [loadBackendJobs]);
+
+  // Validate existing admin authentication / session on app startup & restore admin view if valid
+  useEffect(() => {
+    const token = localStorage.getItem('hybrid_auth_token');
+    const wasAdminViewActive = safeLocalStorageGet<string>('hybrid_admin_view_active', 'false') === 'true';
+
+    if (!token) {
+      setIsAdminLoggedIn(false);
+      setShowAdminView(false);
+      safeLocalStorageSet('hybrid_admin_view_active', 'false');
+      return;
+    }
+
+    api.auth.me().then((res) => {
+      const adminRoles = [
+        'super admin',
+        'admin',
+        'job moderator',
+        'scraper manager',
+        'payment manager',
+        'finance manager',
+        'seo manager',
+        'advertisement manager'
+      ];
+      const userRole = res?.user?.role ? res.user.role.toLowerCase() : '';
+      const isAdmin = res?.success && res?.user && (adminRoles.includes(userRole) || userRole.includes('admin'));
+
+      if (isAdmin) {
+        setIsAdminLoggedIn(true);
+        if (wasAdminViewActive) {
+          setShowAdminView(true);
+        } else {
+          setShowAdminView(false);
+        }
+      } else {
+        setIsAdminLoggedIn(false);
+        setShowAdminView(false);
+        safeLocalStorageSet('hybrid_admin_view_active', 'false');
+      }
+    }).catch(() => {
+      setIsAdminLoggedIn(false);
+      setShowAdminView(false);
+      safeLocalStorageSet('hybrid_admin_view_active', 'false');
+    });
+  }, []);
+
+  // Load User Notifications from MongoDB (Single Source of Truth)
+  const loadUserNotifications = useCallback(async () => {
+    try {
+      const res = await api.notifications.getActive(
+        currentUser ? {
+          userId: currentUser.id,
+          role: currentUser.role,
+          plan: currentUser.plan,
+          membershipStatus: currentUser.membershipStatus
+        } : undefined
+      );
+
+      if (res?.success && Array.isArray(res.notifications)) {
+        setUserNotifications(res.notifications);
+        const unread = res.notifications.filter(n => !n.userState?.read).length;
+        setUnreadNotificationCount(unread);
+
+        // Check for active mandatory restriction for logged-in user
+        if (currentUser) {
+          const mandatoryNotif = res.notifications.find(
+            n => n.isMandatory && !n.userState?.completed && !n.userState?.adminOverridden
+          );
+          setActiveMandatoryNotification(mandatoryNotif || null);
+        } else {
+          setActiveMandatoryNotification(null);
+        }
+
+        // Check for popup notification to display on page load
+        const popupNotif = res.notifications.find(
+          n => n.channels?.popup && !n.userState?.read && (!n.isMandatory || !n.userState?.completed)
+        );
+        if (popupNotif) {
+          setActivePopupNotification(popupNotif);
+        }
+      }
+    } catch (err) {
+      console.warn('[App] Failed to load user notifications:', err);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    loadUserNotifications();
+  }, [loadUserNotifications]);
+
+  // Notification Action Handlers
+  const handleMarkNotificationRead = async (id: string) => {
+    try {
+      await api.notifications.markRead(id, currentUser?.id);
+      setUserNotifications(prev => prev.map(n => n.id === id ? {
+        ...n,
+        userState: {
+          read: true,
+          readAt: new Date().toISOString(),
+          dismissed: n.userState?.dismissed ?? false,
+          dismissedAt: n.userState?.dismissedAt,
+          completed: n.userState?.completed ?? false,
+          completedAt: n.userState?.completedAt,
+          adminOverridden: n.userState?.adminOverridden
+        }
+      } : n));
+      setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error('Failed to mark notification read:', err);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      await api.notifications.markAllRead(currentUser?.id);
+      setUserNotifications(prev => prev.map(n => ({
+        ...n,
+        userState: {
+          read: true,
+          readAt: new Date().toISOString(),
+          dismissed: n.userState?.dismissed ?? false,
+          dismissedAt: n.userState?.dismissedAt,
+          completed: n.userState?.completed ?? false,
+          completedAt: n.userState?.completedAt,
+          adminOverridden: n.userState?.adminOverridden
+        }
+      })));
+      setUnreadNotificationCount(0);
+    } catch (err) {
+      console.error('Failed to mark all notifications read:', err);
+    }
+  };
+
+  const handleDismissNotification = async (id: string) => {
+    try {
+      await api.notifications.dismiss(id, currentUser?.id);
+      setUserNotifications(prev => prev.filter(n => n.id !== id));
+      setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error('Failed to dismiss notification:', err);
+    }
+  };
+
+  const handleCompleteMandatoryAction = async (notificationId: string, metadata?: any) => {
+    try {
+      const res = await api.notifications.completeMandatory(notificationId, currentUser?.id, metadata);
+      if (res?.success) {
+        setActiveMandatoryNotification(null);
+        await loadUserNotifications();
+      } else {
+        alert(res?.message || 'Failed to complete mandatory action.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to complete mandatory action.');
+    }
+  };
+
+  // MongoDB-backed Settings Updaters with localStorage fallback
+  const handleUpdateLandingConfig = async (newConfig: LandingPageConfig) => {
+    setLandingConfig(newConfig);
+    try {
+      localStorage.setItem('hybrid_landing_page_config', JSON.stringify(newConfig));
+      await api.settings.updateLanding(newConfig);
+    } catch (e) {
+      console.error('[App] Failed to sync landing config to MongoDB:', e);
+    }
+  };
+
+  const handleUpdateCampaignConfig = async (newConfig: CampaignCustomizationConfig) => {
+    setCampaignConfig(newConfig);
+    const feedSettings = newConfig.jobFeedSettings;
+    if (feedSettings && typeof feedSettings.defaultPostsPerPage === 'number' && feedSettings.defaultPostsPerPage > 0) {
+      const rawOptions = feedSettings.postsPerPageOptions;
+      const validOptions = Array.isArray(rawOptions) && rawOptions.length > 0
+        ? rawOptions.filter((n: any) => typeof n === 'number' && n > 0)
+        : [10, 15, 20, 25, 50];
+      
+      if (validOptions.includes(feedSettings.defaultPostsPerPage)) {
+        setPostsPerPage(feedSettings.defaultPostsPerPage);
+      }
+    }
+    try {
+      localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(newConfig));
+      await api.settings.updateCampaigns(newConfig);
+    } catch (e) {
+      console.error('[App] Failed to sync campaign config to MongoDB:', e);
+    }
+  };
+
+  const handleUpdateWhatsAppConfig = async (newConfig: WhatsAppSupportConfig) => {
+    setWhatsAppSupportConfig(newConfig);
+    try {
+      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(newConfig));
+      await api.settings.updateWhatsApp(newConfig);
+    } catch (e) {
+      console.error('[App] Failed to sync WhatsApp config to MongoDB:', e);
+    }
+  };
 
   // Chat Messages State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
@@ -555,6 +947,13 @@ export default function App() {
   const [legalModalTab, setLegalModalTab] = useState<'disclaimer' | 'privacy' | 'terms' | 'contact'>('disclaimer');
   const [userDashboardInitialTab, setUserDashboardInitialTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat'>('overview');
 
+  // User Notifications & Mandatory Portal Actions State (MongoDB Single Source of Truth)
+  const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState<boolean>(false);
+  const [activePopupNotification, setActivePopupNotification] = useState<NotificationItem | null>(null);
+  const [activeMandatoryNotification, setActiveMandatoryNotification] = useState<NotificationItem | null>(null);
+
   const handlePostJobClick = () => {
     setUserDashboardInitialTab('post-job');
     if (currentUser) {
@@ -596,7 +995,21 @@ export default function App() {
     };
   });
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [postsPerPage, setPostsPerPage] = useState<number>(10);
+  const [postsPerPage, setPostsPerPage] = useState<number>(() => {
+    const configured = campaignConfig?.jobFeedSettings?.defaultPostsPerPage;
+    return typeof configured === 'number' && configured > 0 ? configured : 10;
+  });
+
+  const postsPerPageOptions = useMemo<number[]>(() => {
+    const opts = campaignConfig?.jobFeedSettings?.postsPerPageOptions;
+    if (Array.isArray(opts) && opts.length > 0) {
+      const valid = opts.filter((n) => typeof n === 'number' && n > 0);
+      if (valid.length > 0) {
+        return Array.from(new Set(valid)).sort((a, b) => a - b);
+      }
+    }
+    return [10, 15, 20, 25, 50];
+  }, [campaignConfig?.jobFeedSettings?.postsPerPageOptions]);
 
   const handleSelectCountry = (country: CountryOption) => {
     setUserSelectedCountry(country);
@@ -735,7 +1148,15 @@ export default function App() {
       if (filters.sortBy === 'salary-high') return (b.salaryNumericMin || 0) - (a.salaryNumericMin || 0);
       if (filters.sortBy === 'salary-low') return (a.salaryNumericMin || 0) - (b.salaryNumericMin || 0);
       if (filters.sortBy === 'popular') return b.applicationsCount - a.applicationsCount;
-      return 0;
+
+      // Default / 'latest' sorting: sort newest jobs first using postedAt, then createdAt, then updatedAt
+      const getJobTime = (job: Job): number => {
+        const rawDate = job.postedAt || job.createdAt || job.updatedAt;
+        if (!rawDate) return 0;
+        const time = new Date(rawDate).getTime();
+        return isNaN(time) ? 0 : time;
+      };
+      return getJobTime(b) - getJobTime(a);
     });
   }, [jobs, filters]);
 
@@ -1332,6 +1753,73 @@ export default function App() {
     alert(`Successfully deposited PKR ${amount.toLocaleString()} via ${paymentMethod}! New Wallet Balance: PKR ${newBalance.toLocaleString()}`);
   };
 
+  // Top-Up / Recharge Ad Campaign Budget from Wallet Balance
+  const handleTopUpCampaignBudget = (adId: string, additionalBudget: number) => {
+    if (!currentUser || additionalBudget <= 0) return;
+    const currentBalance = currentUser.walletBalance ?? 0;
+    if (currentBalance < additionalBudget) {
+      alert(`Insufficient wallet balance. You have PKR ${currentBalance.toLocaleString()} but need PKR ${additionalBudget.toLocaleString()}. Please deposit funds first.`);
+      return;
+    }
+
+    const targetAd = advertisements.find(a => a.id === adId);
+    const adTitle = targetAd?.title || 'Campaign';
+
+    const newBalance = Math.max(0, currentBalance - additionalBudget);
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+
+    const newTx: PaymentTransaction = {
+      id: 'tx-topup-' + Date.now(),
+      dateTime: nowStr,
+      amount: additionalBudget,
+      currency: 'PKR',
+      type: 'Campaign Top-Up',
+      status: 'Success',
+      paymentMethod: 'Wallet Balance',
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userEmail: currentUser.email,
+      campaignIdRef: adId,
+      jobIdRef: adId,
+      balanceBefore: currentBalance,
+      balanceAfter: newBalance,
+      description: `Campaign Budget Top-Up: ${adTitle}`,
+      jobTitleRef: `Budget Recharge: ${adTitle}`
+    };
+
+    const updatedUser: UserAccount = {
+      ...currentUser,
+      walletBalance: newBalance,
+      transactions: [newTx, ...(currentUser.transactions || [])]
+    };
+
+    setCurrentUser(updatedUser);
+    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+    setPaymentTransactions(prev => [newTx, ...prev]);
+
+    setAdvertisements(prev => prev.map(a => {
+      if (a.id === adId) {
+        const currentLimit = a.budgetLimit || a.campaignCostPkr || 0;
+        const newLimit = currentLimit + additionalBudget;
+        const currentSpent = a.budgetSpent || 0;
+        const newRemaining = Math.max(0, newLimit - currentSpent);
+        const newStatus = (a.status === 'completed' || a.status === 'budget_exhausted' || a.status === 'limit_reached') ? 'active' : a.status;
+
+        return {
+          ...a,
+          budgetLimit: newLimit,
+          budgetRemaining: newRemaining,
+          campaignCostPkr: (a.campaignCostPkr || 0) + additionalBudget,
+          status: newStatus,
+          stopReason: undefined
+        };
+      }
+      return a;
+    }));
+
+    alert(`Recharge Successful! Added PKR ${additionalBudget.toLocaleString()} to "${adTitle}". New Budget Limit: PKR ${((targetAd?.budgetLimit || targetAd?.campaignCostPkr || 0) + additionalBudget).toLocaleString()}.`);
+  };
+
   // Admin Approves Ad Campaign
   const handleApproveAd = (adId: string) => {
     const adToApprove = advertisements.find(a => a.id === adId);
@@ -1502,6 +1990,7 @@ export default function App() {
         ads={advertisements}
         currentPage={activeTab}
         onAdClick={handleAdClick}
+        onAdImpression={handleAdImpression}
         onNavigateTab={setActiveTab}
       />
 
@@ -1511,6 +2000,7 @@ export default function App() {
         setActiveTab={(tab) => {
           setActiveTab(tab);
           setShowAdminView(false);
+          safeLocalStorageSet('hybrid_admin_view_active', 'false');
         }}
         isSubscribed={isSubscribed}
         onOpenSubscriptionModal={() => {
@@ -1521,13 +2011,16 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         isAdminLoggedIn={isAdminLoggedIn}
-        onToggleAdminView={() => setShowAdminView(!showAdminView)}
+        onToggleAdminView={() => {
+          const next = !showAdminView;
+          setShowAdminView(next);
+          safeLocalStorageSet('hybrid_admin_view_active', next ? 'true' : 'false');
+        }}
         showAdminView={showAdminView}
         activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
         onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
-        selectedCountryName={userSelectedCountry?.name || 'All Countries'}
-        selectedCountryFlag={userSelectedCountry?.flag || '🌐'}
-        onOpenCountryModal={() => setShowCountryModal(true)}
+        unreadNotificationsCount={unreadNotificationCount}
+        onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
       />
 
       {/* Main View Area */}
@@ -1581,7 +2074,10 @@ export default function App() {
             onBulkDeleteFeeLogs={(logIds) => setJobPostingFeeLogs(prev => prev.filter(l => !logIds.includes(l.id)))}
             monthlyFeePkr={monthlyFeePkr}
             onChangeMonthlyFee={setMonthlyFeePkr}
-            onExitAdmin={() => setShowAdminView(false)}
+            onExitAdmin={() => {
+              setShowAdminView(false);
+              safeLocalStorageSet('hybrid_admin_view_active', 'false');
+            }}
             ads={advertisements}
             onAddAd={handleAddAd}
             onUpdateAd={handleUpdateAd}
@@ -1589,16 +2085,16 @@ export default function App() {
             onResetAdMetrics={handleResetAdMetrics}
             pricingConfig={pricingConfig}
             onUpdatePricingConfig={setPricingConfig}
-            campaignConfig={campaignConfig}
-            onUpdateCampaignConfig={setCampaignConfig}
             onApproveAd={handleApproveAd}
             onRejectAd={handleRejectAd}
             jobPostingPricing={jobPostingPricing}
             onChangeJobPostingPricing={setJobPostingPricing}
             landingConfig={landingConfig}
-            onUpdateLandingConfig={setLandingConfig}
+            onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
-            onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
+            onUpdateWhatsAppConfig={handleUpdateWhatsAppConfig}
+            campaignConfig={campaignConfig}
+            onUpdateCampaignConfig={handleUpdateCampaignConfig}
             paymentTransactions={paymentTransactions}
             onApprovePaymentTransaction={handleApprovePaymentTransaction}
             onRejectPaymentTransaction={handleRejectPaymentTransaction}
@@ -1612,19 +2108,38 @@ export default function App() {
                   .filter((sec) => sec.isEnabled)
                   .sort((a, b) => a.order - b.order)
                   .map((section) => {
+                    // Check responsive visibility
+                    const isSecMobileHidden = section.mobileVisible === false;
+                    const isSecDesktopHidden = section.desktopVisible === false;
+                    if (isSecMobileHidden && isSecDesktopHidden) return null;
+
+                    const secResponsiveClass = isSecMobileHidden
+                      ? 'hidden md:block'
+                      : isSecDesktopHidden
+                      ? 'block md:hidden'
+                      : 'block';
+
+                    const secWidthClass = section.width || 'max-w-7xl';
+                    const secHeightClass = section.height && section.height !== 'auto' ? section.height : '';
+                    const secPaddingClass = section.padding || 'py-0';
+                    const secSpacingClass = section.spacing || 'space-y-6';
+                    const secMobileSizeClass = section.mobileSize === 'compact' ? 'px-2 py-1' : section.mobileSize === 'large' ? 'px-6 py-4' : 'px-4 sm:px-6 lg:px-8';
+                    const secDesktopSizeClass = section.desktopSize === 'compact' ? 'md:px-4' : section.desktopSize === 'large' ? 'md:px-8' : '';
+
                     if (section.id === 'hero') {
                       return (
-                        <HeroSection
-                          key="section-hero"
-                          heroConfig={landingConfig.hero}
-                          totalJobsCount={jobs.length}
-                          onExploreClick={() => {
-                            const el = document.getElementById('jobs-section');
-                            el?.scrollIntoView({ behavior: 'smooth' });
-                          }}
-                          onCvClick={() => setActiveTab('cv')}
-                          onPostJobClick={handlePostJobClick}
-                        />
+                        <div key="section-hero" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secHeightClass} ${secPaddingClass}`}>
+                          <HeroSection
+                            heroConfig={landingConfig.hero}
+                            totalJobsCount={jobs.length}
+                            onExploreClick={() => {
+                              const el = document.getElementById('jobs-section');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            onCvClick={() => setActiveTab('cv')}
+                            onPostJobClick={handlePostJobClick}
+                          />
+                        </div>
                       );
                     }
 
@@ -1632,44 +2147,78 @@ export default function App() {
                       const activeBanners = (campaignConfig.promoBanners || []).filter(b => b.isEnabled);
                       if (activeBanners.length === 0) return null;
                       return (
-                        <div key="section-promo" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
-                          {activeBanners.map((banner) => (
-                            <div
-                              key={banner.id}
-                              className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/20`}
-                            >
-                              <div className="space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
-                                    {banner.badgeText || '🔥 SPECIAL OFFER'}
-                                  </span>
-                                  <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
-                                    {banner.discountPercent}% OFF
-                                  </span>
-                                  {banner.promoCode && (
-                                    <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
-                                      Use Code: {banner.promoCode}
-                                    </span>
-                                  )}
-                                </div>
-                                <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
-                                <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
-                              </div>
+                        <div key="section-promo" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
+                          {activeBanners.map((banner) => {
+                            const isBannerMobileHidden = banner.mobileVisible === false;
+                            const isBannerDesktopHidden = banner.desktopVisible === false;
+                            if (isBannerMobileHidden && isBannerDesktopHidden) return null;
 
-                              <button
-                                onClick={() => {
-                                  if (currentUser) {
-                                    setActiveTab('dashboard');
-                                  } else {
-                                    setAuthModalOpen(true);
-                                  }
-                                }}
-                                className="px-5 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                            const bannerRespClass = isBannerMobileHidden
+                              ? 'hidden md:flex'
+                              : isBannerDesktopHidden
+                              ? 'flex md:hidden'
+                              : 'flex';
+
+                            const isCompactMobile = banner.mobileSize === 'compact';
+                            const isLargeDesktop = banner.desktopSize === 'large';
+
+                            return (
+                              <div
+                                key={banner.id}
+                                className={`relative overflow-hidden rounded-2xl ${isCompactMobile ? 'p-3 sm:p-5' : 'p-4 sm:p-5'} ${isLargeDesktop ? 'md:p-7' : ''} bg-gradient-to-r ${banner.bgGradient || 'from-amber-600 via-rose-600 to-indigo-700'} text-white shadow-xl shadow-amber-500/10 ${bannerRespClass} flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 border border-white/20`}
                               >
-                                {banner.ctaText || 'Book Discount Ad'} →
-                              </button>
-                            </div>
-                          ))}
+                                <div className="flex items-start sm:items-center space-x-3 w-full sm:w-auto">
+                                  {banner.imageUrl && (
+                                    <img
+                                      src={banner.imageUrl}
+                                      alt={banner.title}
+                                      className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl object-cover shrink-0 border border-white/30 shadow"
+                                    />
+                                  )}
+                                  <div className="space-y-1">
+                                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-sm border border-white/30 text-white">
+                                        {banner.badgeText || '🔥 SPECIAL OFFER'}
+                                      </span>
+                                      <span className="text-xs font-black font-mono bg-white/20 px-2 py-0.5 rounded text-white">
+                                        {banner.discountPercent}% OFF
+                                      </span>
+                                      {banner.promoCode && (
+                                        <span className="text-xs font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/20">
+                                          Use Code: {banner.promoCode}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <h4 className="text-sm sm:text-base font-black tracking-tight">{banner.title}</h4>
+                                    <p className="text-xs text-white/90 max-w-2xl">{banner.description}</p>
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => {
+                                    if (banner.ctaUrl?.startsWith('#')) {
+                                      const targetTab = banner.ctaUrl.replace('#', '') as any;
+                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(targetTab)) {
+                                        setActiveTab(targetTab);
+                                      } else {
+                                        const el = document.getElementById(targetTab);
+                                        el?.scrollIntoView({ behavior: 'smooth' });
+                                      }
+                                    } else if (banner.ctaUrl?.startsWith('http')) {
+                                      window.location.href = banner.ctaUrl;
+                                    } else if (currentUser) {
+                                      setActiveTab('dashboard');
+                                    } else {
+                                      setAuthModalOpen(true);
+                                    }
+                                  }}
+                                  className="w-full sm:w-auto text-center px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs shadow-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                                >
+                                  {banner.ctaText || 'Book Discount Ad'} →
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     }
@@ -1680,7 +2229,7 @@ export default function App() {
 
                     if (section.id === 'quick-stats') {
                       return (
-                        <div key="section-stats" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div key="section-stats" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
                             <div className="p-3 text-center">
                               <div className="text-xl sm:text-2xl font-black text-amber-400">{jobs.length === 0 ? '0 Jobs' : `${jobs.length}+`}</div>
@@ -1707,38 +2256,68 @@ export default function App() {
                       const activeCards = (landingConfig.customCards || []).filter(c => c.isEnabled);
                       if (activeCards.length === 0) return null;
                       return (
-                        <div key="section-cards" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div key="section-cards" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {activeCards.sort((a, b) => a.order - b.order).map((card) => (
-                              <div
-                                key={card.id}
-                                className={`p-6 rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white flex flex-col justify-between space-y-4 shadow-xl`}
-                              >
-                                <div className="space-y-2">
-                                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
-                                    {card.badge}
-                                  </span>
-                                  <h4 className="text-lg font-black">{card.title}</h4>
-                                  <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    if (card.buttonUrl?.startsWith('#')) {
-                                      const tab = card.buttonUrl.replace('#', '') as any;
-                                      if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
-                                        setActiveTab(tab);
-                                      } else {
-                                        const el = document.getElementById(tab);
-                                        el?.scrollIntoView({ behavior: 'smooth' });
-                                      }
-                                    }
-                                  }}
-                                  className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
+                            {activeCards.sort((a, b) => a.order - b.order).map((card) => {
+                              const isCardMobileHidden = card.mobileVisible === false;
+                              const isCardDesktopHidden = card.desktopVisible === false;
+                              if (isCardMobileHidden && isCardDesktopHidden) return null;
+
+                              const cardRespClass = isCardMobileHidden
+                                  ? 'hidden md:flex'
+                                  : isCardDesktopHidden
+                                  ? 'flex md:hidden'
+                                  : 'flex';
+
+                              const isCompactMobile = card.mobileSize === 'compact';
+                              const isLargeDesktop = card.desktopSize === 'large';
+                              const cardWidth = card.width || 'w-full';
+                              const cardHeight = card.height && card.height !== 'auto' ? card.height : 'h-auto';
+                              const cardPadding = card.padding || (isCompactMobile ? 'p-4 sm:p-6' : 'p-5 sm:p-6');
+                              const cardSpacing = card.spacing || 'space-y-4';
+
+                              return (
+                                <div
+                                  key={card.id}
+                                  className={`rounded-2xl bg-gradient-to-r ${card.bgGradient || 'from-slate-900 to-indigo-950'} border border-white/10 text-white ${cardRespClass} ${cardWidth} ${cardHeight} ${cardPadding} ${cardSpacing} flex-col justify-between shadow-xl ${isLargeDesktop ? 'md:p-8' : ''}`}
                                 >
-                                  {card.buttonText} →
-                                </button>
-                              </div>
-                            ))}
+                                  <div className="space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/40 text-amber-300 border border-white/20 inline-block">
+                                        {card.badge}
+                                      </span>
+                                      {card.imageUrl && (
+                                        <img
+                                          src={card.imageUrl}
+                                          alt={card.title}
+                                          className="w-8 h-8 rounded-lg object-cover border border-white/20"
+                                        />
+                                      )}
+                                    </div>
+                                    <h4 className="text-lg font-black">{card.title}</h4>
+                                    <p className="text-xs text-slate-300 leading-relaxed">{card.description}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      if (card.buttonUrl?.startsWith('#')) {
+                                        const tab = card.buttonUrl.replace('#', '') as any;
+                                        if (['jobs', 'cv', 'alerts', 'dashboard'].includes(tab)) {
+                                          setActiveTab(tab);
+                                        } else {
+                                          const el = document.getElementById(tab);
+                                          el?.scrollIntoView({ behavior: 'smooth' });
+                                        }
+                                      } else if (card.buttonUrl?.startsWith('http')) {
+                                        window.location.href = card.buttonUrl;
+                                      }
+                                    }}
+                                    className="self-start px-4 py-2 rounded-xl bg-white text-slate-950 font-bold text-xs hover:bg-slate-100 transition-all cursor-pointer shadow-md"
+                                  >
+                                    {card.buttonText} →
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
@@ -1746,27 +2325,22 @@ export default function App() {
 
                     if (section.id === 'jobs-feed') {
                       return (
-                        <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-                          
-                          {/* Active Country Filter Notification Badge */}
-                          {userSelectedCountry && userSelectedCountry.code !== 'GL' && (
-                            <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3 text-xs">
-                              <div className="flex items-center space-x-2.5">
-                                <span className="text-xl">{userSelectedCountry.flag}</span>
+                        <div key="section-jobs-feed" id="jobs-section" className={`${secResponsiveClass} ${secWidthClass} mx-auto ${secPaddingClass} ${secSpacingClass} ${secHeightClass} ${secMobileSizeClass} ${secDesktopSizeClass}`}>
+                          {/* API Connection Error Banner */}
+                          {jobsApiError && (
+                            <div className="p-4 bg-rose-950/80 border border-rose-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-rose-200 shadow-lg">
+                              <div className="flex items-center space-x-3">
+                                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
                                 <div>
-                                  <span className="font-bold text-white">
-                                    Showing Jobs for {userSelectedCountry.name} ({userSelectedCountry.nameUrdu})
-                                  </span>
-                                  <p className="text-[11px] text-slate-400">
-                                    Sorted by recently updated & priority verified listings.
-                                  </p>
+                                  <p className="font-bold text-white">Backend Connection Notice</p>
+                                  <p className="text-xs text-rose-300">{jobsApiError}</p>
                                 </div>
                               </div>
                               <button
-                                onClick={() => setShowCountryModal(true)}
-                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] border border-amber-500/20 transition-all cursor-pointer shrink-0"
+                                onClick={() => loadBackendJobs()}
+                                className="px-4 py-2 bg-rose-800 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow"
                               >
-                                Change Country
+                                Retry Connection
                               </button>
                             </div>
                           )}
@@ -1791,6 +2365,7 @@ export default function App() {
                             isSubscribed={isSubscribed}
                             currentPage={currentPage}
                             postsPerPage={postsPerPage}
+                            postsPerPageOptions={postsPerPageOptions}
                             onPageChange={setCurrentPage}
                             onPostsPerPageChange={handlePostsPerPageChange}
                             ads={advertisements}
@@ -1827,6 +2402,8 @@ export default function App() {
                 campaignConfig={campaignConfig}
                 jobPostingPricing={jobPostingPricing}
                 onSubmitCampaign={handleSubmitCampaign}
+                onTopUpCampaignBudget={handleTopUpCampaignBudget}
+                onUpdateCampaign={handleUpdateAd}
                 onDepositFunds={handleDepositFunds}
                 onDeleteAd={handleDeleteAd}
                 onDuplicateAd={handleAddAd}
@@ -1977,7 +2554,42 @@ export default function App() {
         onLoginSuccess={() => {
           setIsAdminLoggedIn(true);
           setShowAdminView(true);
+          safeLocalStorageSet('hybrid_admin_view_active', 'true');
         }}
+      />
+
+      {/* User Notification Center Modal */}
+      <NotificationCenterModal
+        isOpen={isNotificationCenterOpen}
+        onClose={() => setIsNotificationCenterOpen(false)}
+        notifications={userNotifications}
+        unreadCount={unreadNotificationCount}
+        onMarkRead={handleMarkNotificationRead}
+        onMarkAllRead={handleMarkAllNotificationsRead}
+        onDismiss={handleDismissNotification}
+        onTriggerMandatoryAction={(notif) => {
+          setIsNotificationCenterOpen(false);
+          setActiveMandatoryNotification(notif);
+        }}
+      />
+
+      {/* User Popup Notification Modal */}
+      <NotificationPopupModal
+        notification={activePopupNotification}
+        onClose={() => setActivePopupNotification(null)}
+        onMarkRead={handleMarkNotificationRead}
+        onTriggerMandatoryAction={(notif) => {
+          setActivePopupNotification(null);
+          setActiveMandatoryNotification(notif);
+        }}
+      />
+
+      {/* Mandatory Action Modal */}
+      <MandatoryActionModal
+        notification={activeMandatoryNotification}
+        currentUser={currentUser}
+        onComplete={handleCompleteMandatoryAction}
+        onClose={() => setActiveMandatoryNotification(null)}
       />
 
       {/* Country Selection Modal (Urdu/English First-Time & Switcher) */}
@@ -1996,6 +2608,7 @@ export default function App() {
           currentPage={activeTab}
           popupSettings={campaignConfig.popupSettings}
           onAdClick={handleAdClick}
+          onAdImpression={handleAdImpression}
           onNavigateTab={setActiveTab}
         />
       )}
@@ -2005,6 +2618,7 @@ export default function App() {
         ads={advertisements}
         currentPage={activeTab}
         onAdClick={handleAdClick}
+        onAdImpression={handleAdImpression}
         onNavigateTab={setActiveTab}
       />
 

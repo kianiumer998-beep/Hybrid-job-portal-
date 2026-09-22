@@ -99,6 +99,7 @@ export interface ScrapeOptions {
   endPage?: number;
   sinceTimestamp?: string;
   runId?: string;
+  signal?: AbortSignal;
 }
 
 export interface ScrapeExecutionResult {
@@ -220,8 +221,8 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
 
       return {
         id: `gh-${config.id}-${j.id}`,
-        title: (j.title || '').trim() || 'Untitled Position',
-        company: j.company_name || '',
+        title: (j.title || '').trim(),
+        company: j.company_name ? String(j.company_name).trim() : '',
         jobType: undefined,
         region: undefined,
         city: locName || undefined,
@@ -229,7 +230,7 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
         currency: undefined,
         experienceLevel: undefined,
         department: j.departments?.[0]?.name || undefined,
-        tags: [],
+        tags: [config.name, 'Greenhouse ATS'].filter(Boolean) as string[],
         description: cleanDesc.slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
@@ -282,19 +283,21 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
 
     const jobs: ScrapedJobResult[] = data.map((j: any) => {
       const loc = j.categories?.location || '';
+      const workplace = (j.workplaceType || '').toLowerCase();
+      const jobType = workplace === 'remote' ? 'Remote' : workplace === 'hybrid' ? 'Hybrid' : workplace === 'onsite' ? 'On-site' : undefined;
 
       return {
         id: `lever-${config.id}-${j.id}`,
-        title: (j.text || '').trim() || 'Untitled Position',
-        company: '',
-        jobType: undefined,
+        title: (j.text || '').trim(),
+        company: (j.company || j.employer || '').trim(),
+        jobType,
         region: undefined,
         city: loc || undefined,
         salary: undefined,
         currency: undefined,
         experienceLevel: undefined,
         department: j.categories?.team || j.categories?.department || undefined,
-        tags: [],
+        tags: [config.name, 'Lever ATS', jobType].filter(Boolean) as string[],
         description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
         requirements: [],
         benefits: [],
@@ -343,8 +346,8 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
           if (data && Array.isArray(data.content)) {
             const jobs: ScrapedJobResult[] = data.content.map((j: any) => ({
               id: `sr-${config.id}-${j.id}`,
-              title: j.name || 'Untitled Position',
-              company: j.company?.name || company || '',
+              title: (j.name || '').trim(),
+              company: (j.company?.name || company || '').trim(),
               jobType: j.location?.remote ? 'Remote' : undefined,
               region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : undefined,
               city: j.location?.city || undefined,
@@ -352,7 +355,7 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               currency: undefined,
               experienceLevel: undefined,
               department: j.department?.label || undefined,
-              tags: [],
+              tags: [config.name, 'SmartRecruiters'],
               description: undefined,
               requirements: [],
               benefits: [],
@@ -388,8 +391,8 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
           if (data && Array.isArray(data.jobs)) {
             const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => ({
               id: `ashby-${config.id}-${j.id}`,
-              title: j.title || 'Untitled Position',
-              company: company || '',
+              title: (j.title || '').trim(),
+              company: (company || '').trim(),
               jobType: j.isRemote ? 'Remote' : undefined,
               region: undefined,
               city: j.location || undefined,
@@ -397,7 +400,7 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               currency: undefined,
               experienceLevel: undefined,
               department: j.department || undefined,
-              tags: [],
+              tags: [config.name, 'Ashby ATS'],
               description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || undefined,
               requirements: [],
               benefits: [],
@@ -437,7 +440,9 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
 
   if (!isExplicitPdfOrDoc) return null;
 
-  const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : effectiveUrl;
+  const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http'))
+    ? config.pdfUrl
+    : (/\.(pdf|jpg|jpeg|png|webp)(\?|$)/i.test(effectiveUrl) ? effectiveUrl : '');
   if (!targetPdfUrl || !targetPdfUrl.startsWith('http')) return null;
 
   try {
@@ -460,7 +465,7 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       city: j.city || undefined,
       district: (j as any).district || undefined,
       salary: j.salary || undefined,
-      currency: j.currency || (j.region === 'Pakistan' ? 'PKR' : undefined),
+      currency: j.currency || undefined,
       experienceLevel: j.experienceLevel as any || undefined,
       department: j.department || undefined,
       tags: j.tags || [],
@@ -546,15 +551,17 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
           }
 
           const isRemote =
-            item.jobLocationType === 'TELECOMMUTE' || item.applicantLocationRequirements !== undefined;
+            item.jobLocationType === 'TELECOMMUTE' ||
+            item.applicantLocationRequirements !== undefined;
 
           const jobType = isRemote ? 'Remote' : undefined;
 
-          // Factual salary handling: NEVER invent salary if missing
+          // Factual salary handling: NEVER invent salary or currency if missing
           let salary: string | undefined = undefined;
-          let currency: Currency | undefined = (item.baseSalary?.currency as Currency) || undefined;
+          let currency: Currency | undefined = undefined;
           if (item.baseSalary) {
             const val = item.baseSalary.value;
+            currency = item.baseSalary.currency ? (item.baseSalary.currency as Currency) : undefined;
             if (typeof val === 'number') {
               salary = `${currency || ''} ${val.toLocaleString()}`.trim();
             } else if (val && (val.minValue || val.maxValue)) {
@@ -574,7 +581,7 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
             currency,
             experienceLevel: undefined,
             department: undefined,
-            tags: [],
+            tags: [config.name, jobType, region, 'JSON-LD Verified'].filter(Boolean) as string[],
             description: description.slice(0, 1500) || undefined,
             requirements: [],
             benefits: [],
@@ -623,7 +630,7 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
           if (!title || typeof title !== 'string') continue;
 
           const loc = item.city || item.location || '';
-          const isRemote = item.isRemote;
+          const isRemote = item.isRemote === true;
 
           results.push({
             id: `next-${config.id}-${item.id || Date.now().toString(36)}`,
@@ -633,10 +640,10 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
             region: undefined,
             city: loc || undefined,
             salary: item.salary || undefined,
-            currency: undefined,
+            currency: item.currency || undefined,
             experienceLevel: undefined,
             department: item.department || undefined,
-            tags: [],
+            tags: [config.name, 'Next.js SSR', isRemote ? 'Remote' : null].filter(Boolean) as string[],
             description: item.description || undefined,
             requirements: item.requirements || [],
             benefits: [],
@@ -703,8 +710,9 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
         const snippet = (container.find('.description, .snippet, p').first().text().trim()) || '';
 
         const combined = `${rawTitle} ${location} ${snippet}`.toLowerCase();
-        
-        let jobType: 'Remote' | 'On-site' | 'Hybrid' | undefined = undefined;
+        const isRemote = combined.includes('remote') || combined.includes('work from home');
+        const isHybrid = combined.includes('hybrid');
+        const jobType = isRemote ? 'Remote' : isHybrid ? 'Hybrid' : undefined;
 
         let region: Region | undefined = undefined;
         if (location.toLowerCase().includes('pakistan')) {
@@ -717,9 +725,17 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
 
         // Factual salary extraction
         let salary: string | undefined = undefined;
-        const salaryMatch = combined.match(/(?:pkr|rs|usd|\$|aed|sar|£|€)\s?[\d,]+(?:\s?-\s?[\d,]+)?(?:\s?(?:\/|per)?\s?(?:mo|month|yr|year))?/i);
+        let currency: Currency | undefined = undefined;
+        const salaryMatch = combined.match(/(pkr|rs\.?|usd|\$|aed|sar|£|€)\s?([\d,]+(?:\s?-\s?[\d,]+)?(?:\s?(?:\/|per)?\s?(?:mo|month|yr|year))?)/i);
         if (salaryMatch) {
           salary = salaryMatch[0];
+          const sym = salaryMatch[1].toLowerCase();
+          if (sym === 'pkr' || sym.startsWith('rs')) currency = 'PKR';
+          else if (sym === 'usd' || sym === '$') currency = 'USD';
+          else if (sym === 'aed') currency = 'AED';
+          else if (sym === 'sar') currency = 'SAR';
+          else if (sym === '£') currency = 'GBP';
+          else if (sym === '€') currency = 'EUR';
         }
 
         const imgEl = container.find('img[src]').first();
@@ -741,10 +757,10 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           region,
           city: location || undefined,
           salary,
-          currency: undefined,
+          currency,
           experienceLevel: undefined,
           department: undefined,
-          tags: [],
+          tags: [jobType, region].filter(Boolean) as string[],
           description: snippet || undefined,
           requirements: [],
           benefits: [],
@@ -795,7 +811,7 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
           currency: undefined,
           experienceLevel: undefined,
           department: undefined,
-          tags: [],
+          tags: ['PDF Notice'],
           description: undefined,
           requirements: [],
           benefits: [],
@@ -834,7 +850,9 @@ export async function scrapeTargetPortal(
 
   if (!effectiveUrl) {
     console.log(`[Scraper Pipeline] Portal "${config.name}" has no valid URL configured.`);
-    return [];
+    const err: any = new Error(`Portal "${config.name}" has no valid URL configured.`);
+    err.status = 400;
+    throw err;
   }
 
   try {
@@ -862,8 +880,18 @@ export async function scrapeTargetPortal(
       return filterByOptions(restResult.jobs, options);
     }
 
-    // 5. Build paginated target URL if page > 1
-    let targetUrl = effectiveUrl;
+    // 5. Fall back to existing configured portalUrl / source URL for HTML extraction if PDF was unreachable, 404, or yielded 0 jobs
+    const isDocUrl = (u?: string) => !!u && /\.(pdf|jpg|jpeg|png|webp)(\?|$)/i.test(u.toLowerCase());
+    let targetHtmlUrl = effectiveUrl;
+    if (config.portalUrl && config.portalUrl.startsWith('http') && (!isDocUrl(config.portalUrl) || isDocUrl(targetHtmlUrl))) {
+      targetHtmlUrl = config.portalUrl;
+    } else if (config.url && config.url.startsWith('http') && !isDocUrl(config.url)) {
+      targetHtmlUrl = config.url;
+    } else if (config.portalUrl && config.portalUrl.startsWith('http')) {
+      targetHtmlUrl = config.portalUrl;
+    }
+
+    let targetUrl = targetHtmlUrl;
     if (options.page && options.page > 1) {
       try {
         const urlObj = new URL(targetUrl);
@@ -873,10 +901,22 @@ export async function scrapeTargetPortal(
     }
 
     // 6. Safe Fetch with SSRF protection, timeout, and retries
-    const response = await safeFetchWithRetry(targetUrl, {}, 10000, 1);
+    const response = await safeFetchWithRetry(targetUrl, { signal: options.signal }, 10000, 1);
     if (!response.ok) {
       console.log(`[Scraper Pipeline] Target ${config.name} (${targetUrl}) responded with HTTP ${response.status}.`);
-      return [];
+      const retryAfterHeader = response.status === 429 ? (response.headers.get('retry-after') || undefined) : undefined;
+      const httpErr: any = new Error(
+        response.status === 429
+          ? `HTTP 429 Rate limited fetching ${targetUrl}${retryAfterHeader ? ` (Retry-After: ${retryAfterHeader})` : ''}`
+          : `HTTP ${response.status} ${response.statusText || 'Error'} fetching ${targetUrl}`
+      );
+      httpErr.status = response.status;
+      httpErr.statusCode = response.status;
+      httpErr.httpStatus = response.status;
+      if (retryAfterHeader) {
+        httpErr.retryAfter = retryAfterHeader;
+      }
+      throw httpErr;
     }
 
     // Check if Content-Type is PDF or direct image (e.g. redirected or served without .pdf extension)
@@ -895,6 +935,10 @@ export async function scrapeTargetPortal(
           extractedText: j.extractedText || pdfRes.rawTextSample || undefined,
           rawText: j.extractedText || pdfRes.rawTextSample || undefined
         })) as any, options);
+      }
+      if (!pdfRes.success) {
+        const err: any = new Error(pdfRes.message || `Failed to process document from ${targetUrl}`);
+        throw err;
       }
       return [];
     }
@@ -968,8 +1012,8 @@ export async function scrapeTargetPortal(
     const detail = String(error?.message || 'Remote portal did not respond')
       .replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
     console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${detail}`);
-    // Never invent fake jobs on error - return empty array on failure
-    return [];
+    // Preserve error status for observability - distinguish real network/HTTP/parse failure from genuine 0 jobs
+    throw error;
   }
 }
 
@@ -984,19 +1028,25 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
     if (!isNaN(cutoff)) {
       filtered = filtered.filter(j => {
         const rawTimeStr = j.datePosted || j.postedAt;
-        if (
-          !rawTimeStr ||
-          typeof rawTimeStr !== 'string' ||
-          rawTimeStr.trim().toLowerCase() === 'recent' ||
-          rawTimeStr.trim().toLowerCase() === 'just now' ||
-          rawTimeStr.trim().toLowerCase() === 'today'
-        ) {
-          return false;
+        // If posting date is missing/undefined or placeholder/non-date (e.g. "Recent", "Just now"),
+        // NEVER fabricate or guess a date. Preserve authentic job with the date field empty.
+        if (!rawTimeStr || typeof rawTimeStr !== 'string' || /^(recent|just now|recently)$/i.test(rawTimeStr.trim())) {
+          if (j.postedAt && (typeof j.postedAt !== 'string' || /^(recent|just now|recently)$/i.test(j.postedAt.trim()))) {
+            j.postedAt = undefined;
+          }
+          if (j.datePosted && (typeof j.datePosted !== 'string' || /^(recent|just now|recently)$/i.test(j.datePosted.trim()))) {
+            j.datePosted = undefined;
+          }
+          return true;
         }
         const postTime = new Date(rawTimeStr).getTime();
         if (isNaN(postTime)) {
-          return false;
+          // Cannot be reliably parsed: preserve authentic job with date field empty
+          j.postedAt = undefined;
+          j.datePosted = undefined;
+          return true;
         }
+        // Factual valid date: apply existing cutoff normally
         return postTime >= cutoff;
       });
     }

@@ -262,7 +262,7 @@ export class Database {
       ...job,
       id: job.id || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       slug: job.slug || generateJobSlug(job.title, job.city, job.id),
-      postedAt: job.postedAt,
+      postedAt: job.postedAt || 'Just now',
       status: job.status || 'Approved',
       applicationsCount: job.applicationsCount || 0,
       createdAt: job.createdAt || new Date().toISOString()
@@ -305,7 +305,7 @@ export class Database {
           ...item,
           id: targetId || `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           slug: item.slug || generateJobSlug(item.title, item.city, targetId),
-          postedAt: item.postedAt,
+          postedAt: item.postedAt || 'Just now',
           status: autoApprove ? 'Approved' : (item.status || 'Approved'),
           applicationsCount: item.applicationsCount || 0,
           createdAt: item.createdAt || new Date().toISOString()
@@ -355,7 +355,7 @@ export class Database {
           id: targetId || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           slug: item.slug || generateJobSlug(item.title, item.city, targetId),
           status: 'Pending',
-          postedAt: item.postedAt,
+          postedAt: item.postedAt || 'Just now',
           createdAt: item.createdAt || new Date().toISOString()
         };
         toPrepend.push(freshJob);
@@ -435,7 +435,7 @@ export class Database {
       id: job.id || `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       slug: job.slug || generateJobSlug(job.title, job.city, job.id),
       status: 'Pending',
-      postedAt: job.postedAt,
+      postedAt: job.postedAt || 'Just now',
       createdAt: job.createdAt || new Date().toISOString()
     };
     pending.unshift(newJob);
@@ -940,52 +940,5 @@ export class Database {
     const deleted = filtered.length !== list.length;
     if (deleted) this.saveUserDocuments(filtered);
     return deleted;
-  }
-
-  // --- NOTIFICATIONS ---
-  static getNotifications(): any[] {
-    return safeReadJson<any[]>('notifications.json', []);
-  }
-
-  static saveNotifications(notifs: any[]): void {
-    safeWriteJson('notifications.json', notifs);
-  }
-
-  static addNotification(notif: any): any {
-    const list = this.getNotifications();
-    const newNotif = {
-      ...notif,
-      id: notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      createdAt: notif.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    list.unshift(newNotif);
-    this.saveNotifications(list);
-    return newNotif;
-  }
-
-  static updateNotification(id: string, updates: any): any | null {
-    const list = this.getNotifications();
-    const idx = list.findIndex(n => n.id === id);
-    if (idx === -1) return null;
-    list[idx] = { ...list[idx], ...updates, updatedAt: new Date().toISOString() };
-    this.saveNotifications(list);
-    return list[idx];
-  }
-
-  static deleteNotification(id: string): boolean {
-    const list = this.getNotifications();
-    const filtered = list.filter(n => n.id !== id);
-    const deleted = filtered.length !== list.length;
-    if (deleted) this.saveNotifications(filtered);
-    return deleted;
-  }
-
-  static getUserNotificationRecords(): any[] {
-    return safeReadJson<any[]>('user_notification_records.json', []);
-  }
-
-  static saveUserNotificationRecords(records: any[]): void {
-    safeWriteJson('user_notification_records.json', records);
   }
 }

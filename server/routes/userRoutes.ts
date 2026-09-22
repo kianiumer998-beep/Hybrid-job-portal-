@@ -5,6 +5,21 @@ import { requireAdmin, requireAuth } from '../auth/authManager';
 
 export const userRouter = Router();
 
+const ADMIN_ROLES = [
+  'Super Admin',
+  'Admin',
+  'Job Moderator',
+  'Scraper Manager',
+  'Payment Manager',
+  'Finance Manager',
+  'SEO Manager',
+  'Advertisement Manager'
+];
+
+function isUserAdmin(user: any): boolean {
+  return Boolean(user && ADMIN_ROLES.includes(user.role));
+}
+
 // 1. Get All Users (Admin Only)
 userRouter.get('/', requireAdmin, async (req, res) => {
   try {
@@ -23,7 +38,7 @@ userRouter.get('/', requireAdmin, async (req, res) => {
 userRouter.get('/:id', requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
 
     if (!isAdmin && id !== currentUserId) {
@@ -45,7 +60,7 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
 // 2. Get User Wallet Summary (Strictly authorization protected)
 userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
 
     if (!isAdmin && req.params.id !== currentUserId) {
@@ -62,7 +77,7 @@ userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
 // 3. User Saved Jobs
 userRouter.get('/saved-jobs', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -93,7 +108,7 @@ userRouter.post('/saved-jobs/toggle', requireAuth, (req: any, res) => {
 // 4. User Job Alerts
 userRouter.get('/job-alerts', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -127,7 +142,7 @@ userRouter.post('/job-alerts', requireAuth, (req: any, res) => {
 
 userRouter.delete('/job-alerts/:id', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -141,7 +156,7 @@ userRouter.delete('/job-alerts/:id', requireAuth, (req: any, res) => {
 // 5. User Documents (CVs & Portfolios)
 userRouter.get('/documents', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -178,7 +193,7 @@ userRouter.post('/documents', requireAuth, (req: any, res) => {
 
 userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
   try {
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
@@ -196,26 +211,65 @@ userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
 userRouter.put('/:id', requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const updates = req.body || {};
+    const isAdmin = isUserAdmin(req.user);
     const currentUserId = req.user?.userId || req.user?.id;
 
-    // Normal users can only edit their own profile, and cannot modify their role or wallet balance
+    let finalUpdates: Record<string, any>;
+
     if (!isAdmin) {
       if (id !== currentUserId) {
         return res.status(403).json({ success: false, message: 'Access denied: You can only edit your own profile.' });
       }
-      delete updates.role;
-      delete updates.walletBalance;
-      delete updates.membershipStatus;
-      delete updates.permissions;
+
+      // Explicit allowlist of profile fields a normal user is permitted to self-update.
+      // Strictly prevents modification of: role, walletBalance, membershipStatus, permissions,
+      // plan, verified, kycStatus, activationDate, expiryDate, and administrative fields.
+      const ALLOWED_NORMAL_USER_FIELDS = new Set([
+        'name',
+        'fullName',
+        'phone',
+        'phoneNumber',
+        'bio',
+        'location',
+        'city',
+        'country',
+        'address',
+        'avatarUrl',
+        'company',
+        'companyName',
+        'headline',
+        'title',
+        'skills',
+        'preferences',
+        'website',
+        'experience',
+        'education',
+        'cvUrl',
+        'resumeUrl',
+        'socialLinks',
+        'notificationsEnabled',
+        'whatsappAlertsEnabled'
+      ]);
+
+      finalUpdates = {};
+      for (const [key, value] of Object.entries(updates)) {
+        if (ALLOWED_NORMAL_USER_FIELDS.has(key)) {
+          finalUpdates[key] = value;
+        }
+      }
+    } else {
+      // Administrators retain full administrative user management capabilities
+      finalUpdates = { ...updates };
     }
 
-    // Do not allow updating passwordHash directly via this endpoint
-    delete updates.passwordHash;
-    delete updates.salt;
+    // Never allow updating passwordHash, salt, password, or primary ID directly via this endpoint
+    delete finalUpdates.passwordHash;
+    delete finalUpdates.salt;
+    delete finalUpdates.password;
+    delete finalUpdates.id;
 
-    const updated = await UserRepository.updateAsync(id, updates);
+    const updated = await UserRepository.updateAsync(id, finalUpdates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }

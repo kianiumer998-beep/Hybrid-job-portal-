@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdmin, requireAuth } from '../auth/authManager';
 
 export const auditRouter = Router();
 
@@ -14,17 +14,22 @@ auditRouter.get('/', requireAdmin, (req, res) => {
   }
 });
 
-// Append audit log
-auditRouter.post('/', (req, res) => {
+// Append audit log (Requires authentication, derives actor identity strictly from authenticated token)
+auditRouter.post('/', requireAuth, (req: any, res) => {
   try {
-    const { user, role, action, target, status, details } = req.body;
+    const authUser = req.user;
+    const actorUser = authUser?.name || authUser?.email || 'Authenticated User';
+    const actorRole = authUser?.role || 'Member';
+    const { action, target, status, details, metadata } = req.body || {};
+
+    // Ignore any client-supplied actor identity fields (user, role, userId, admin, etc.)
     Database.addAuditLog({
-      user: user || 'Anonymous',
-      role: role || 'Guest',
-      action: action || 'General Action',
-      target: target || 'Portal',
-      status: status || 'Success',
-      details
+      user: actorUser,
+      role: actorRole,
+      action: typeof action === 'string' && action.trim() ? action.trim() : 'General Action',
+      target: typeof target === 'string' && target.trim() ? target.trim() : 'Portal',
+      status: status === 'Warning' || status === 'Error' ? status : 'Success',
+      details: details || metadata
     });
     res.json({ success: true });
   } catch (err: any) {

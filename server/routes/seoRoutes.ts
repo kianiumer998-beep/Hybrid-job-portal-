@@ -293,8 +293,8 @@ seoRouter.put('/config', requireAdmin, (req, res) => {
     const updated = { ...Database.getSeoConfig(), ...req.body, updatedAt: new Date().toISOString() };
     Database.saveSeoConfig(updated);
     Database.addAuditLog({
-      user: 'Administrator',
-      role: 'SEO Manager',
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'SEO Manager',
       action: 'SEO Configuration Updated',
       target: updated.siteTitle || 'Meta Settings',
       status: 'Success'

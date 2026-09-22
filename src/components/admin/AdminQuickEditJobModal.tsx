@@ -1,26 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Job, JobType, Region, Currency, JobStatus } from '../../types/job';
 import { X, Save, Edit3, Briefcase, Building2, MapPin, DollarSign, Calendar, Tag, FileText, CheckCircle2, ShieldCheck, Sparkles, AlertCircle } from 'lucide-react';
 import { PAKISTAN_LOCATIONS } from '../../data/pakistanLocations';
+import { calculateJobMissingFields, isScrapedJob } from '../../utils/jobValidation';
 
 interface AdminQuickEditJobModalProps {
   job: Job | null;
   selectedJobs?: Job[]; // For bulk edit mode
+  jobs?: Job[]; // Alias for bulk edit mode
   isOpen: boolean;
   onClose: () => void;
   onSaveJob: (updatedJob: Job) => void;
   onBulkSaveJobs?: (updatedJobs: Job[]) => void;
+  onSaveJobs?: (updatedJobs: Job[]) => void;
+  onSaveAndApproveJob?: (updatedJob: Job) => void;
 }
 
 export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   job,
-  selectedJobs = [],
+  selectedJobs: propSelectedJobs,
+  jobs: propJobs,
   isOpen,
   onClose,
   onSaveJob,
-  onBulkSaveJobs
+  onBulkSaveJobs,
+  onSaveJobs,
+  onSaveAndApproveJob
 }) => {
-  const isBulkMode = selectedJobs.length > 1;
+  const activeBulkJobs = propSelectedJobs || propJobs || [];
+  const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
+  const selectedJobs = activeBulkJobs;
 
   // Single job state
   const [formData, setFormData] = useState<Job>(() => {
@@ -29,21 +38,19 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       id: 'job-' + Date.now(),
       title: '',
       company: '',
-      jobType: undefined as any,
-      region: undefined as any,
-      province: undefined,
-      city: undefined,
-      country: undefined,
-      district: undefined,
+      jobType: 'On-site',
+      region: 'Pakistan',
+      province: 'Punjab',
+      city: 'Lahore',
       salary: '',
-      currency: undefined as any,
-      experienceLevel: undefined as any,
-      department: '',
-      tags: [],
+      currency: 'PKR',
+      experienceLevel: 'Mid',
+      department: 'General Operations',
+      tags: ['Urgent', 'Full-time'],
       description: '',
-      requirements: [],
-      benefits: [],
-      postedAt: '',
+      requirements: ['Relevant Bachelor degree', '2+ years experience'],
+      benefits: ['Medical coverage', 'Paid leaves'],
+      postedAt: new Date().toISOString().split('T')[0],
       applicationsCount: 0,
       status: 'Approved',
       featured: false,
@@ -52,12 +59,18 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       isFutureJob: false,
       futureIntakeDate: '',
       priorityTier: 'standard',
-      jobCategory: '',
-      govtScale: undefined,
+      jobCategory: 'Private Corporate',
+      govtScale: 'BPS-17',
       isGovtJob: false,
-      deadlineDate: ''
+      deadlineDate: '2026-11-30'
     };
   });
+
+  useEffect(() => {
+    if (job) {
+      setFormData({ ...job });
+    }
+  }, [job]);
 
   // Bulk edit state
   const [bulkFields, setBulkFields] = useState({
@@ -68,15 +81,15 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
     applyStatus: false,
     status: 'Approved' as JobStatus,
     applyRegion: false,
-    region: '' as any,
+    region: 'Pakistan' as Region,
     applyProvince: false,
-    province: '',
+    province: 'Punjab',
     applyCity: false,
-    city: '',
+    city: 'Islamabad',
     applyJobType: false,
-    jobType: '' as any,
+    jobType: 'On-site' as JobType,
     applyDeadline: false,
-    deadlineDate: '',
+    deadlineDate: '2026-12-31',
     applyFeatured: false,
     featured: true,
     applyUrgent: false,
@@ -106,9 +119,28 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
     onClose();
   };
 
+  const handleSaveAndApprove = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const missing = calculateJobMissingFields(formData);
+    if (missing.length > 0) {
+      alert(`Cannot approve job yet! Missing required factual fields: ${missing.join(', ')}. Please fill in these details before publishing.`);
+      return;
+    }
+    const approvedJob = { ...formData, status: 'Approved' as JobStatus };
+    if (onSaveAndApproveJob) {
+      onSaveAndApproveJob(approvedJob);
+    } else {
+      onSaveJob(approvedJob);
+    }
+    onClose();
+  };
+
+  const currentMissingFields = job ? calculateJobMissingFields(formData) : [];
+
   const handleBulkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onBulkSaveJobs) {
+    const saveFn = onBulkSaveJobs || onSaveJobs;
+    if (!saveFn) {
       onClose();
       return;
     }
@@ -135,7 +167,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return updatedJob;
     });
 
-    onBulkSaveJobs(updated);
+    saveFn(updated);
     onClose();
   };
 
@@ -347,13 +379,27 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
         ) : (
           /* SINGLE JOB EDIT FORM */
           <form onSubmit={handleSingleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+            {job && isScrapedJob(job) && currentMissingFields.length > 0 && (
+              <div className="p-3.5 bg-amber-500/10 border border-amber-500/40 rounded-2xl flex items-start space-x-3 text-amber-300">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" />
+                <div className="text-xs">
+                  <div className="font-black text-amber-300">
+                    Missing Required Factual Fields: <span className="text-rose-400 font-bold">{currentMissingFields.join(', ')}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    To maintain data accuracy, scraped listings must have factual Title, Company, Location, and Job Type before being published live.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2 space-y-1">
                 <label className="font-bold text-slate-300">Job Title *</label>
                 <input
                   type="text"
                   required
-                  value={formData.title || ''}
+                  value={formData.title}
                   onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-bold focus:border-amber-400 outline-none text-sm"
                 />
@@ -364,7 +410,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <input
                   type="text"
                   required
-                  value={formData.company || ''}
+                  value={formData.company}
                   onChange={(e) => setFormData(p => ({ ...p, company: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 />
@@ -373,11 +419,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Job Category *</label>
                 <select
-                  value={formData.jobCategory || ''}
+                  value={formData.jobCategory || 'Private Corporate'}
                   onChange={(e) => setFormData(p => ({ ...p, jobCategory: e.target.value, isGovtJob: e.target.value === 'Government Sector' }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Category...</option>
                   <option value="Government Sector">Government Sector</option>
                   <option value="Private Corporate">Private Corporate</option>
                   <option value="Newspaper Classified">Newspaper Classified</option>
@@ -393,11 +438,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Govt BPS Scale (If Govt Job)</label>
                 <select
-                  value={formData.govtScale || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, govtScale: e.target.value || undefined, isGovtJob: e.target.value !== '' && e.target.value !== 'N/A (Private)' }))}
+                  value={formData.govtScale || 'BPS-17'}
+                  onChange={(e) => setFormData(p => ({ ...p, govtScale: e.target.value, isGovtJob: true }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Scale...</option>
                   {['N/A (Private)', 'BPS-01', 'BPS-05', 'BPS-07', 'BPS-09', 'BPS-11', 'BPS-14', 'BPS-16', 'BPS-17', 'BPS-18', 'BPS-19', 'BPS-20', 'BPS-21', 'BPS-22'].map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}
@@ -405,108 +449,47 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">Salary / Pay Scale *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.salary || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, salary: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
+                <label className="font-bold text-slate-300">Salary / Pay Scale (Optional if not disclosed)</label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={formData.salary || ''}
+                    placeholder="e.g. PKR 75,000 - 100,000 / month (Leave empty if not disclosed)"
+                    onChange={(e) => setFormData(p => ({ ...p, salary: e.target.value }))}
+                    className="flex-1 bg-slate-950 border border-slate-800 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-medium outline-none"
+                  />
+                  <select
+                    value={formData.currency || 'PKR'}
+                    onChange={(e) => setFormData(p => ({ ...p, currency: e.target.value as Currency }))}
+                    className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-2 py-2 text-white font-bold focus:border-amber-400 outline-none text-xs"
+                  >
+                    <option value="PKR">PKR</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="AED">AED</option>
+                    <option value="SAR">SAR</option>
+                  </select>
+                </div>
               </div>
 
-              
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">Country</label>
-                <input
-                  type="text"
-                  value={formData.country || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, country: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Region</label>
-                <input
-                  type="text"
-                  value={formData.region || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, region: e.target.value as any }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">District</label>
-                <input
-                  type="text"
-                  value={formData.district || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, district: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Currency</label>
-                <input
-                  type="text"
-                  value={formData.currency || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, currency: e.target.value as any }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Experience Level</label>
-                <input
-                  type="text"
+                <label className="font-bold text-slate-300">Experience Level (Optional)</label>
+                <select
                   value={formData.experienceLevel || ''}
                   onChange={(e) => setFormData(p => ({ ...p, experienceLevel: e.target.value as any }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
+                >
+                  <option value="">-- Not Specified / Any Experience --</option>
+                  <option value="Entry">Entry Level (0-2 years)</option>
+                  <option value="Mid">Mid Level (2-5 years)</option>
+                  <option value="Senior">Senior Level (5-8 years)</option>
+                  <option value="Lead">Lead / Staff (8+ years)</option>
+                  <option value="Executive">Executive / Director</option>
+                </select>
               </div>
+
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">Department</label>
-                <input
-                  type="text"
-                  value={formData.department || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, department: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="font-bold text-slate-300">Posted At</label>
-                <input
-                  type="date"
-                  value={formData.postedAt || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, postedAt: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="md:col-span-2 space-y-1">
-                <label className="font-bold text-slate-300">Requirements (one per line)</label>
-                <textarea
-                  rows={3}
-                  value={formData.requirements?.join('\n') || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, requirements: e.target.value.split('\n').filter(Boolean) }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="md:col-span-2 space-y-1">
-                <label className="font-bold text-slate-300">Responsibilities (one per line)</label>
-                <textarea
-                  rows={3}
-                  value={formData.responsibilities?.join('\n') || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, responsibilities: e.target.value.split('\n').filter(Boolean) }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-              <div className="md:col-span-2 space-y-1">
-                <label className="font-bold text-slate-300">Benefits (one per line)</label>
-                <textarea
-                  rows={3}
-                  value={formData.benefits?.join('\n') || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, benefits: e.target.value.split('\n').filter(Boolean) }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none"
-                />
-              </div>
-<div className="space-y-1">
                 <label className="font-bold text-slate-300">City / Location</label>
                 <input
                   type="text"
@@ -520,11 +503,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Province / Region</label>
                 <select
-                  value={formData.province || ''}
+                  value={formData.province || 'Punjab'}
                   onChange={(e) => setFormData(p => ({ ...p, province: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Province...</option>
                   {PAKISTAN_LOCATIONS.map(p => (
                     <option key={p.province} value={p.province}>{p.province}</option>
                   ))}
@@ -536,11 +518,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               <div className="space-y-1">
                 <label className="font-bold text-slate-300">Job Type</label>
                 <select
-                  value={formData.jobType || ''}
+                  value={formData.jobType}
                   onChange={(e) => setFormData(p => ({ ...p, jobType: e.target.value as JobType }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
                 >
-                  <option value="">Select Job Type...</option>
                   <option value="On-site">On-site</option>
                   <option value="Hybrid">Hybrid</option>
                   <option value="Remote">Remote</option>
@@ -598,7 +579,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 <label className="font-bold text-slate-300">Job Description & Details</label>
                 <textarea
                   rows={4}
-                  value={formData.description || ""}
+                  value={formData.description}
                   onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-amber-400 outline-none leading-relaxed"
                 />
@@ -737,11 +718,21 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2"
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2"
               >
                 <Save className="w-4 h-4" />
-                <span>Save Job Changes</span>
+                <span>Save Changes</span>
               </button>
+              {job?.status === 'Pending' && (
+                <button
+                  type="button"
+                  onClick={handleSaveAndApprove}
+                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Save & Approve to Live</span>
+                </button>
+              )}
             </div>
           </form>
         )}

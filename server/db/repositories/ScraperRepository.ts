@@ -2,8 +2,17 @@ import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
   getScraperGroupsCollection,
+  getMongoDb,
   isMongoConfigured
 } from '../mongodb';
+
+interface LocalScraperLockState {
+  ownerId: string;
+  acquiredAt: Date;
+  expiresAt: Date;
+}
+
+const localScraperLocks = new Map<string, LocalScraperLockState>();
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
 
 export interface ScraperSourceGroup {
@@ -536,6 +545,97 @@ export class ScraperRepository {
     }
 
     return { offsetDays: safeOffset };
+  }
+
+  /**
+   * Acquires a cross-instance distributed lock for automatic scraper scheduler batches.
+   * Lock key defaults to 'AUTO_SCRAPER_BATCH_LOCK'.
+   * Safe TTL ensures a crashed or stopped instance auto-releases the lock after expiry.
+   */
+  static async acquireDistributedLock(
+    lockKey: string = 'AUTO_SCRAPER_BATCH_LOCK',
+    ownerId: string,
+    ttlMs: number = 300000
+  ): Promise<boolean> {
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlMs);
+
+    if (isMongoConfigured()) {
+      try {
+        const db = await getMongoDb();
+        const coll = db.collection('scraper_locks');
+
+        const existing = await coll.findOne({ id: lockKey });
+        if (existing) {
+          const existingExpiresAt = new Date(existing.expiresAt || 0).getTime();
+          if (existing.ownerId !== ownerId && existingExpiresAt > now.getTime()) {
+            return false;
+          }
+        }
+
+        const res = await coll.updateOne(
+          {
+            id: lockKey,
+            $or: [
+              { ownerId: ownerId },
+              { expiresAt: { $lte: now } },
+              { expiresAt: { $exists: false } }
+            ]
+          },
+          {
+            $set: {
+              id: lockKey,
+              ownerId: ownerId,
+              acquiredAt: now,
+              expiresAt: expiresAt
+            }
+          },
+          { upsert: true }
+        );
+
+        return res.modifiedCount > 0 || res.upsertedCount > 0;
+      } catch (err: any) {
+        if (err.code === 11000) {
+          return false;
+        }
+        console.warn(`[ScraperRepository] Mongo lock acquisition notice:`, err.message);
+        return false;
+      }
+    }
+
+    const local = localScraperLocks.get(lockKey);
+    if (local && local.ownerId !== ownerId && local.expiresAt.getTime() > now.getTime()) {
+      return false;
+    }
+    localScraperLocks.set(lockKey, { ownerId, acquiredAt: now, expiresAt });
+    return true;
+  }
+
+  /**
+   * Releases a distributed lock. ONLY the lock owner matching ownerId can release it.
+   */
+  static async releaseDistributedLock(
+    lockKey: string = 'AUTO_SCRAPER_BATCH_LOCK',
+    ownerId: string
+  ): Promise<boolean> {
+    if (isMongoConfigured()) {
+      try {
+        const db = await getMongoDb();
+        const coll = db.collection('scraper_locks');
+        const res = await coll.deleteOne({ id: lockKey, ownerId: ownerId });
+        return res.deletedCount > 0;
+      } catch (err: any) {
+        console.warn(`[ScraperRepository] Mongo lock release notice:`, err.message);
+        return false;
+      }
+    }
+
+    const local = localScraperLocks.get(lockKey);
+    if (local && local.ownerId === ownerId) {
+      localScraperLocks.delete(lockKey);
+      return true;
+    }
+    return false;
   }
 }
 

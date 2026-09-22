@@ -5,7 +5,6 @@ import { featureFlags, updateFeatureFlags } from './server/config/featureFlags';
 import { createServer as createViteServer } from 'vite';
 
 import { Database } from './server/db/database';
-import { UserRepository } from './server/db/repositories/UserRepository';
 import { authMiddleware, requireAdmin } from './server/auth/authManager';
 import { authRouter } from './server/routes/authRoutes';
 import { jobRouter } from './server/routes/jobRoutes';
@@ -27,7 +26,7 @@ import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // Basic security headers
   app.use((req, res, next) => {
@@ -102,21 +101,29 @@ async function startServer() {
     res.json({ status: 'ok', service: 'Hybrid Job & CV Portal API', uptime: process.uptime() });
   });
 
-  // API Route: Feature Flags (Backward Compatible)
+  // API Route: Feature Flags (Read-only for users, requireAdmin for modifications)
   app.get('/api/admin/feature-flags', (req, res) => {
     res.json(featureFlags);
   });
 
-  app.post('/api/admin/feature-flags', requireAdmin, (req, res) => {
+  const handleUpdateFeatureFlags = (req: any, res: any) => {
+    const adminUser = req.user?.name || req.user?.email || 'Administrator';
     const updated = updateFeatureFlags(req.body);
     Database.addAuditLog({
-      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
-      role: (req as any).user?.role || 'Admin',
+      user: adminUser,
+      role: req.user?.role || 'Admin',
       action: 'Feature Flags Updated',
       target: 'System Configuration',
       status: 'Success'
     });
-    res.json({ success: true, featureFlags });
+    res.json({ success: true, featureFlags: updated });
+  };
+
+  app.post('/api/admin/feature-flags', requireAdmin, handleUpdateFeatureFlags);
+  app.put('/api/admin/feature-flags', requireAdmin, handleUpdateFeatureFlags);
+  app.patch('/api/admin/feature-flags', requireAdmin, handleUpdateFeatureFlags);
+  app.delete('/api/admin/feature-flags', requireAdmin, (req, res) => {
+    res.status(405).json({ success: false, message: 'Feature flag deletion is not permitted.' });
   });
 
   // Dynamic Sitemap & Robots.txt at Root & /api/
@@ -144,9 +151,6 @@ async function startServer() {
   app.use('/api/cases', caseRouter);
   app.use('/api/support', supportRouter);
 
-
-  // Synchronize demo admin credentials in MongoDB if configured
-  await UserRepository.syncDemoAdminAsync();
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

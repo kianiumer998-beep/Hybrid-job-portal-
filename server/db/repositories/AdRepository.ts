@@ -1,6 +1,7 @@
 import { Database } from '../database';
-import { getAdsCollection, isMongoConfigured, executeWithFallback } from '../mongodb';
+import { getAdsCollection, isMongoConfigured } from '../mongodb';
 import { PaymentRepository } from './PaymentRepository';
+import { UserRepository } from './UserRepository';
 
 export class AdRepository {
   static getAll(options?: { status?: string; placement?: string }): any[] {
@@ -15,25 +16,19 @@ export class AdRepository {
   }
 
   static async getAllAsync(options?: { status?: string; placement?: string }): Promise<any[]> {
-    return executeWithFallback(
-      async () => {
-        const coll = await getAdsCollection();
-        const query: any = {};
-        if (options?.status) query.status = options.status;
-        if (options?.placement) query.placement = options.placement;
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const query: any = {};
+      if (options?.status) query.status = options.status;
+      if (options?.placement) query.placement = options.placement;
 
-        const ads = await coll.find(query).sort({ createdAt: -1 }).toArray();
-        if (ads && ads.length > 0) {
-          return ads.map(doc => {
-            const { _id, ...safe } = doc;
-            return safe;
-          });
-        }
-        return this.getAll(options);
-      },
-      () => this.getAll(options),
-      'AdRepository.getAllAsync'
-    );
+      const ads = await coll.find(query).sort({ createdAt: -1 }).toArray();
+      return (ads || []).map(doc => {
+        const { _id, ...safe } = doc;
+        return safe;
+      });
+    }
+    return this.getAll(options);
   }
 
   static getById(id: string): any | null {
@@ -42,17 +37,14 @@ export class AdRepository {
   }
 
   static async getByIdAsync(id: string): Promise<any | null> {
-    return executeWithFallback(
-      async () => {
-        const coll = await getAdsCollection();
-        const ad = await coll.findOne({ id });
-        if (!ad) return this.getById(id);
-        const { _id, ...safe } = ad;
-        return safe;
-      },
-      () => this.getById(id),
-      'AdRepository.getByIdAsync'
-    );
+    if (isMongoConfigured()) {
+      const coll = await getAdsCollection();
+      const ad = await coll.findOne({ id });
+      if (!ad) return null;
+      const { _id, ...safe } = ad;
+      return safe;
+    }
+    return this.getById(id);
   }
 
   static async createAsync(adData: any): Promise<any> {
@@ -78,16 +70,16 @@ export class AdRepository {
       return newAd;
     }
 
-    try {
-      const ads = Database.getAds();
-      ads.unshift(newAd);
-      Database.saveAds(ads);
-    } catch {}
-
+    const ads = Database.getAds();
+    ads.unshift(newAd);
+    Database.saveAds(ads);
     return newAd;
   }
 
   static create(adData: any): any {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
+    }
     const ads = Database.getAds();
     const newAd = {
       ...adData,
@@ -115,20 +107,26 @@ export class AdRepository {
         { $set: updatePayload },
         { returnDocument: 'after' }
       );
+      if (!updatedDoc) return null;
+      const { _id, ...safe } = updatedDoc;
       try {
-        this.update(id, updates);
+        const ads = Database.getAds();
+        const idx = ads.findIndex(a => a.id === id);
+        if (idx !== -1) {
+          ads[idx] = safe;
+          Database.saveAds(ads);
+        }
       } catch {}
-      if (updatedDoc) {
-        const { _id, ...safe } = updatedDoc;
-        return safe;
-      }
-      return null;
+      return safe;
     }
 
     return this.update(id, updates);
   }
 
   static update(id: string, updates: any): any | null {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');
+    }
     const ads = Database.getAds();
     const idx = ads.findIndex(a => a.id === id);
     if (idx === -1) return null;
@@ -143,15 +141,19 @@ export class AdRepository {
       const coll = await getAdsCollection();
       const res = await coll.deleteOne({ id });
       try {
-        this.delete(id);
+        const ads = Database.getAds();
+        const filtered = ads.filter(a => a.id !== id);
+        Database.saveAds(filtered);
       } catch {}
       return res.deletedCount > 0;
     }
-
     return this.delete(id);
   }
 
   static delete(id: string): boolean {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous delete is prohibited to ensure authoritative persistence; use deleteAsync.');
+    }
     const ads = Database.getAds();
     const filtered = ads.filter(a => a.id !== id);
     if (filtered.length === ads.length) return false;
@@ -164,7 +166,7 @@ export class AdRepository {
    * Server-authoritative CPC click tracking & billing.
    * If ad is CPC billing, debits advertiser wallet atomically via PaymentRepository.
    */
-  static async trackClickAsync(id: string, options?: { idempotencyKey?: string }): Promise<any | null> {
+  static async trackClickAsync(id: string, options?: { idempotencyKey?: string; authUser?: any }): Promise<any | null> {
     const ad = await this.getByIdAsync(id);
     if (!ad) return null;
 
@@ -179,23 +181,40 @@ export class AdRepository {
       return ad;
     }
 
-    const key = options?.idempotencyKey;
-    if (key) {
+    const cpcRate = Number(ad.cpcRatePkr || 0);
+    const isBillable = ad.billingModel === 'cpc' && cpcRate > 0;
+
+    if (isBillable) {
+      // 1. Require authenticated user identity before any wallet debit
+      if (!options?.authUser || !(options.authUser.userId || options.authUser.id)) {
+        throw new Error('Authentication required: Valid authenticated user session is required for billable ad interactions.');
+      }
+
+      // 2. Require idempotency key to prevent un-idempotent or duplicate charges
+      const key = options?.idempotencyKey;
+      if (!key) {
+        throw new Error('Idempotency key required for billable ad interactions.');
+      }
+
+      // Replay protection: skip duplicate debit if transaction already exists
       const existingTx = await PaymentRepository.findByIdempotencyKeyAsync(key);
       if (existingTx) {
         return ad;
       }
-    }
 
-    const advertiserId = ad.submittedByUserId || ad.userId;
-    const cpcRate = Number(ad.cpcRatePkr || 0);
-
-    if (ad.billingModel === 'cpc' && cpcRate > 0 && advertiserId) {
-      if (!key) {
-        // Safely reject un-keyed billable event to prevent un-idempotent duplicate charges
-        return ad;
+      // 3. Derive advertiser user strictly from server-authoritative DB record (never trust client input)
+      const advertiserId = ad.submittedByUserId || ad.userId;
+      if (!advertiserId || typeof advertiserId !== 'string') {
+        throw new Error('Invalid ad campaign: Advertiser user identity is missing or unlinked.');
       }
 
+      // 4. Validate advertiser existence before charging
+      const advertiser = await UserRepository.getByIdAsync(advertiserId);
+      if (!advertiser) {
+        throw new Error('Invalid ad campaign: Advertiser user account not found.');
+      }
+
+      // 5. Execute atomic wallet debit & budget updates
       try {
         await PaymentRepository.debitWalletAsync(
           advertiserId,
@@ -205,7 +224,8 @@ export class AdRepository {
           {
             adId: ad.id,
             billingModel: 'cpc',
-            ratePkr: cpcRate
+            ratePkr: cpcRate,
+            clickedByUserId: options.authUser.userId || options.authUser.id
           },
           key
         );
@@ -261,7 +281,7 @@ export class AdRepository {
    * Server-authoritative CPM impression tracking & billing.
    * If ad is CPM billing, debits advertiser wallet atomically via PaymentRepository.
    */
-  static async trackImpressionAsync(id: string, options?: { idempotencyKey?: string }): Promise<any | null> {
+  static async trackImpressionAsync(id: string, options?: { idempotencyKey?: string; authUser?: any }): Promise<any | null> {
     const ad = await this.getByIdAsync(id);
     if (!ad) return null;
 
@@ -276,56 +296,72 @@ export class AdRepository {
       return ad;
     }
 
-    const key = options?.idempotencyKey;
-    if (key) {
+    const cpmRate = Number(ad.cpmRatePkr || 0);
+    const perImpressionCost = Number((cpmRate / 1000).toFixed(4));
+    const isBillable = ad.billingModel === 'cpm' && cpmRate > 0 && perImpressionCost > 0;
+
+    if (isBillable) {
+      // 1. Require authenticated user identity before any wallet debit
+      if (!options?.authUser || !(options.authUser.userId || options.authUser.id)) {
+        throw new Error('Authentication required: Valid authenticated user session is required for billable ad interactions.');
+      }
+
+      // 2. Require idempotency key to prevent un-idempotent or duplicate charges
+      const key = options?.idempotencyKey;
+      if (!key) {
+        throw new Error('Idempotency key required for billable ad interactions.');
+      }
+
+      // Replay protection: skip duplicate debit if transaction already exists
       const existingTx = await PaymentRepository.findByIdempotencyKeyAsync(key);
       if (existingTx) {
         return ad;
       }
-    }
 
-    const advertiserId = ad.submittedByUserId || ad.userId;
-    const cpmRate = Number(ad.cpmRatePkr || 0);
+      // 3. Derive advertiser user strictly from server-authoritative DB record (never trust client input)
+      const advertiserId = ad.submittedByUserId || ad.userId;
+      if (!advertiserId || typeof advertiserId !== 'string') {
+        throw new Error('Invalid ad campaign: Advertiser user identity is missing or unlinked.');
+      }
 
-    if (ad.billingModel === 'cpm' && cpmRate > 0 && advertiserId) {
-      const perImpressionCost = Number((cpmRate / 1000).toFixed(4));
-      if (perImpressionCost > 0) {
-        if (!key) {
-          // Safely reject un-keyed billable event to prevent un-idempotent duplicate charges
-          return ad;
-        }
+      // 4. Validate advertiser existence before charging
+      const advertiser = await UserRepository.getByIdAsync(advertiserId);
+      if (!advertiser) {
+        throw new Error('Invalid ad campaign: Advertiser user account not found.');
+      }
 
-        try {
-          await PaymentRepository.debitWalletAsync(
-            advertiserId,
-            perImpressionCost,
-            'Ad Impression Billing',
-            `CPM impression charge for ad campaign: "${ad.title || ad.headline || ad.id}"`,
-            {
-              adId: ad.id,
-              billingModel: 'cpm',
-              cpmRatePkr: cpmRate,
-              impressionNumber: Number(ad.impressions || 0) + 1
-            },
-            key
-          );
+      // 5. Execute atomic wallet debit & budget updates
+      try {
+        await PaymentRepository.debitWalletAsync(
+          advertiserId,
+          perImpressionCost,
+          'Ad Impression Billing',
+          `CPM impression charge for ad campaign: "${ad.title || ad.headline || ad.id}"`,
+          {
+            adId: ad.id,
+            billingModel: 'cpm',
+            cpmRatePkr: cpmRate,
+            impressionNumber: Number(ad.impressions || 0) + 1,
+            viewedByUserId: options.authUser.userId || options.authUser.id
+          },
+          key
+        );
 
-          ad.budgetSpent = Number(ad.budgetSpent || 0) + perImpressionCost;
-          if (ad.budgetLimit) {
-            ad.budgetRemaining = Math.max(0, Number(ad.budgetLimit) - ad.budgetSpent);
-            if (ad.budgetSpent >= Number(ad.budgetLimit)) {
-              ad.status = 'Paused';
-              ad.stopReason = 'Budget Exhausted';
-            }
-          }
-        } catch (err: any) {
-          if (err.message && err.message.includes('Insufficient wallet balance')) {
+        ad.budgetSpent = Number(ad.budgetSpent || 0) + perImpressionCost;
+        if (ad.budgetLimit) {
+          ad.budgetRemaining = Math.max(0, Number(ad.budgetLimit) - ad.budgetSpent);
+          if (ad.budgetSpent >= Number(ad.budgetLimit)) {
             ad.status = 'Paused';
-            ad.stopReason = 'Low Wallet Balance';
-            await this.updateAsync(ad.id, { status: ad.status, stopReason: ad.stopReason });
+            ad.stopReason = 'Budget Exhausted';
           }
-          throw err;
         }
+      } catch (err: any) {
+        if (err.message && err.message.includes('Insufficient wallet balance')) {
+          ad.status = 'Paused';
+          ad.stopReason = 'Low Wallet Balance';
+          await this.updateAsync(ad.id, { status: ad.status, stopReason: ad.stopReason });
+        }
+        throw err;
       }
     }
 

@@ -1,14 +1,20 @@
 import {
   getNotificationsCollection,
   getUserNotificationRecordsCollection,
-  isMongoConfigured,
-  executeWithFallback
+  isMongoConfigured
 } from '../mongodb';
-import { Database } from '../database';
 import { sanitizeServerHtml } from '../../utils/sanitizeHtml';
 
 function generateNotifId(): string {
   return `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+}
+
+function assertMongoAvailable() {
+  if (!isMongoConfigured()) {
+    throw new Error(
+      'Database Configuration Error: MONGODB_URI environment variable is not defined or invalid.'
+    );
+  }
 }
 
 export class NotificationRepository {
@@ -16,21 +22,14 @@ export class NotificationRepository {
    * Retrieves all notifications for Admin Dashboard management with stats.
    */
   static async getAllAdmin(): Promise<any[]> {
-    return executeWithFallback(
-      async () => {
-        const coll = await getNotificationsCollection();
-        const notifs = await coll.find({}).sort({ createdAt: -1 }).toArray();
-        if (notifs && notifs.length > 0) {
-          return notifs.map(doc => {
-            const { _id, ...safeDoc } = doc;
-            return safeDoc;
-          });
-        }
-        return Database.getNotifications();
-      },
-      () => Database.getNotifications(),
-      'NotificationRepository.getAllAdmin'
-    );
+    assertMongoAvailable();
+    const coll = await getNotificationsCollection();
+    const notifs = await coll.find({}).sort({ createdAt: -1 }).toArray();
+
+    return notifs.map(doc => {
+      const { _id, ...safeDoc } = doc;
+      return safeDoc;
+    });
   }
 
   /**
@@ -42,125 +41,110 @@ export class NotificationRepository {
     plan?: string;
     membershipStatus?: string;
   }): Promise<any[]> {
-    return executeWithFallback(
-      async () => {
-        const notifsColl = await getNotificationsCollection();
-        const userRecordsColl = await getUserNotificationRecordsCollection();
+    assertMongoAvailable();
+    const notifsColl = await getNotificationsCollection();
+    const userRecordsColl = await getUserNotificationRecordsCollection();
 
-        const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-        // Query active & published notifications
-        const activeNotifs = await notifsColl
-          .find({
-            status: 'published',
-            enabled: { $ne: false }
-          })
-          .sort({ priority: -1, createdAt: -1 })
-          .toArray();
+    // Query active & published notifications
+    const activeNotifs = await notifsColl
+      .find({
+        status: 'published',
+        enabled: { $ne: false }
+      })
+      .sort({ priority: -1, createdAt: -1 })
+      .toArray();
 
-        // Fetch user-specific notification states if userId is provided
-        let userRecordMap = new Map<string, any>();
-        if (params.userId) {
-          const userRecords = await userRecordsColl
-            .find({ userId: params.userId })
-            .toArray();
-          userRecords.forEach(r => userRecordMap.set(r.notificationId, r));
+    // Fetch user-specific notification states if userId is provided
+    let userRecordMap = new Map<string, any>();
+    if (params.userId) {
+      const userRecords = await userRecordsColl
+        .find({ userId: params.userId })
+        .toArray();
+      userRecords.forEach(r => userRecordMap.set(r.notificationId, r));
+    }
+
+    const filtered: any[] = [];
+
+    for (const doc of activeNotifs) {
+      const { _id, ...notif } = doc;
+
+      // Check schedule startDate
+      if (notif.startDate && notif.startDate > now) {
+        continue; // Scheduled for future
+      }
+
+      // Check expiryDate
+      if (notif.expiryDate && notif.expiryDate < now) {
+        continue; // Expired
+      }
+
+      // Check targetAudience
+      if (notif.targetAudience === 'specific_users') {
+        if (!params.userId || !Array.isArray(notif.targetUserIds) || !notif.targetUserIds.includes(params.userId)) {
+          continue;
         }
+      } else if (notif.targetAudience === 'employers') {
+        const isEmp = params.role?.toLowerCase()?.includes('employer');
+        if (!isEmp) continue;
+      } else if (notif.targetAudience === 'jobseekers') {
+        const isSeeker = !params.role?.toLowerCase()?.includes('employer');
+        if (!isSeeker) continue;
+      } else if (notif.targetAudience === 'subscribers') {
+        const isSub = params.plan === 'Premium' && params.membershipStatus !== 'Expired';
+        if (!isSub) continue;
+      } else if (notif.targetAudience === 'unpaid_expired') {
+        const isUnpaid = params.plan === 'Free' || params.membershipStatus === 'Expired' || params.membershipStatus === 'Revoked';
+        if (!isUnpaid) continue;
+      }
 
-        const filtered: any[] = [];
+      // User state
+      const state = params.userId ? userRecordMap.get(notif.id) : null;
+      const isDismissed = state?.dismissed === true;
+      const isCompleted = state?.completed === true;
+      const isOverridden = state?.adminOverridden === true;
 
-        for (const doc of activeNotifs) {
-          const { _id, ...notif } = doc;
+      // If user dismissed it and it is NOT an incomplete mandatory action, skip from active list
+      if (isDismissed && !(notif.isMandatory && !isCompleted && !isOverridden)) {
+        continue;
+      }
 
-          // Check schedule startDate
-          if (notif.startDate && notif.startDate > now) {
-            continue; // Scheduled for future
-          }
+      notif.userState = {
+        read: state?.read === true,
+        readAt: state?.readAt,
+        dismissed: isDismissed,
+        dismissedAt: state?.dismissedAt,
+        completed: isCompleted,
+        completedAt: state?.completedAt,
+        adminOverridden: isOverridden
+      };
 
-          // Check expiryDate
-          if (notif.expiryDate && notif.expiryDate < now) {
-            continue; // Expired
-          }
+      filtered.push(notif);
+    }
 
-          // Check targetAudience
-          if (notif.targetAudience === 'specific_users') {
-            if (!params.userId || !Array.isArray(notif.targetUserIds) || !notif.targetUserIds.includes(params.userId)) {
-              continue;
-            }
-          } else if (notif.targetAudience === 'employers') {
-            const isEmp = params.role?.toLowerCase()?.includes('employer');
-            if (!isEmp) continue;
-          } else if (notif.targetAudience === 'jobseekers') {
-            const isSeeker = !params.role?.toLowerCase()?.includes('employer');
-            if (!isSeeker) continue;
-          } else if (notif.targetAudience === 'subscribers') {
-            const isSub = params.plan === 'Premium' && params.membershipStatus !== 'Expired';
-            if (!isSub) continue;
-          } else if (notif.targetAudience === 'unpaid_expired') {
-            const isUnpaid = params.plan === 'Free' || params.membershipStatus === 'Expired' || params.membershipStatus === 'Revoked';
-            if (!isUnpaid) continue;
-          }
-
-          // User state
-          const state = params.userId ? userRecordMap.get(notif.id) : null;
-          const isDismissed = state?.dismissed === true;
-          const isCompleted = state?.completed === true;
-          const isOverridden = state?.adminOverridden === true;
-
-          // If user dismissed it and it is NOT an incomplete mandatory action, skip from active list
-          if (isDismissed && !(notif.isMandatory && !isCompleted && !isOverridden)) {
-            continue;
-          }
-
-          notif.userState = {
-            read: state?.read === true,
-            readAt: state?.readAt,
-            dismissed: isDismissed,
-            dismissedAt: state?.dismissedAt,
-            completed: isCompleted,
-            completedAt: state?.completedAt,
-            adminOverridden: isOverridden
-          };
-
-          filtered.push(notif);
-        }
-
-        return filtered;
-      },
-      () => {
-        const list = Database.getNotifications();
-        const records = Database.getUserNotificationRecords();
-        const userRecordMap = new Map<string, any>();
-        if (params.userId) {
-          records.filter(r => r.userId === params.userId).forEach(r => userRecordMap.set(r.notificationId, r));
-        }
-        return list.filter(n => n.enabled !== false && n.status === 'published');
-      },
-      'NotificationRepository.getForUser'
-    );
+    return filtered;
   }
 
   /**
    * Retrieves single notification by ID.
    */
   static async getById(id: string): Promise<any | null> {
-    return executeWithFallback(
-      async () => {
-        const coll = await getNotificationsCollection();
-        const doc = await coll.findOne({ id });
-        if (!doc) return Database.getNotifications().find(n => n.id === id) || null;
-        const { _id, ...safeDoc } = doc;
-        return safeDoc;
-      },
-      () => Database.getNotifications().find(n => n.id === id) || null,
-      'NotificationRepository.getById'
-    );
+    assertMongoAvailable();
+    const coll = await getNotificationsCollection();
+    const doc = await coll.findOne({ id });
+    if (!doc) return null;
+    const { _id, ...safeDoc } = doc;
+    return safeDoc;
   }
 
   /**
-   * Creates a persistent notification.
+   * Creates a persistent notification in MongoDB.
    */
   static async create(data: any, createdBy?: string): Promise<any> {
+    assertMongoAvailable();
+    const coll = await getNotificationsCollection();
+
     const id = data.id || generateNotifId();
     const now = new Date().toISOString();
 
@@ -202,16 +186,7 @@ export class NotificationRepository {
       completionCount: 0
     };
 
-    if (isMongoConfigured()) {
-      const coll = await getNotificationsCollection();
-      await coll.updateOne({ id }, { $set: newNotif }, { upsert: true });
-      try {
-        Database.addNotification(newNotif);
-      } catch {}
-      return newNotif;
-    }
-
-    Database.addNotification(newNotif);
+    await coll.updateOne({ id }, { $set: newNotif }, { upsert: true });
     return newNotif;
   }
 
@@ -219,6 +194,9 @@ export class NotificationRepository {
    * Updates an existing notification.
    */
   static async update(id: string, updates: any): Promise<any | null> {
+    assertMongoAvailable();
+    const coll = await getNotificationsCollection();
+
     const safeUpdates: any = { ...updates };
     delete safeUpdates._id;
     delete safeUpdates.id;
@@ -232,101 +210,78 @@ export class NotificationRepository {
       delete safeUpdates.messageBody;
     }
 
-    if (isMongoConfigured()) {
-      const coll = await getNotificationsCollection();
-      await coll.updateOne({ id }, { $set: safeUpdates });
-      try {
-        Database.updateNotification(id, safeUpdates);
-      } catch {}
-      const updated = await coll.findOne({ id });
-      if (updated) {
-        const { _id, ...safeDoc } = updated;
-        return safeDoc;
-      }
-      return Database.getNotifications().find(n => n.id === id) || null;
-    }
+    const updated = await coll.findOneAndUpdate(
+      { id },
+      { $set: safeUpdates },
+      { returnDocument: 'after' }
+    );
 
-    return Database.updateNotification(id, safeUpdates);
+    if (!updated) return null;
+    const { _id, ...safeDoc } = updated;
+    return safeDoc;
   }
 
   /**
    * Deletes a notification and all associated user records.
    */
   static async delete(id: string): Promise<boolean> {
-    if (isMongoConfigured()) {
-      const notifsColl = await getNotificationsCollection();
-      const userRecordsColl = await getUserNotificationRecordsCollection();
-      const [res] = await Promise.all([
-        notifsColl.deleteOne({ id }),
-        userRecordsColl.deleteMany({ notificationId: id })
-      ]);
-      try {
-        Database.deleteNotification(id);
-      } catch {}
-      return res.deletedCount > 0;
-    }
+    assertMongoAvailable();
+    const notifsColl = await getNotificationsCollection();
+    const userRecordsColl = await getUserNotificationRecordsCollection();
 
-    return Database.deleteNotification(id);
+    const [delNotif, _] = await Promise.all([
+      notifsColl.deleteOne({ id }),
+      userRecordsColl.deleteMany({ notificationId: id })
+    ]);
+
+    return (delNotif.deletedCount || 0) > 0;
   }
 
   /**
    * Marks a notification as Read for a user.
    */
   static async markRead(userId: string, notificationId: string): Promise<boolean> {
+    assertMongoAvailable();
+    const coll = await getUserNotificationRecordsCollection();
     const recordId = `${userId}_${notificationId}`;
     const now = new Date().toISOString();
 
-    if (isMongoConfigured()) {
-      const coll = await getUserNotificationRecordsCollection();
-      await coll.updateOne(
-        { id: recordId },
-        {
-          $set: {
-            id: recordId,
-            userId,
-            notificationId,
-            read: true,
-            readAt: now,
-            updatedAt: now
-          }
-        },
-        { upsert: true }
-      );
-      try {
-        const notifsColl = await getNotificationsCollection();
-        await notifsColl.updateOne({ id: notificationId }, { $inc: { viewCount: 1 } });
-      } catch {}
-
-      try {
-        const records = Database.getUserNotificationRecords();
-        const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
-        if (idx !== -1) {
-          records[idx] = { ...records[idx], read: true, readAt: now, updatedAt: now };
-        } else {
-          records.push({ id: recordId, userId, notificationId, read: true, readAt: now, updatedAt: now });
+    await coll.updateOne(
+      { id: recordId },
+      {
+        $set: {
+          id: recordId,
+          userId,
+          notificationId,
+          read: true,
+          readAt: now,
+          updatedAt: now
         }
-        Database.saveUserNotificationRecords(records);
-      } catch {}
+      },
+      { upsert: true }
+    );
 
-      return true;
-    }
+    // Increment notification viewCount
+    const notifsColl = await getNotificationsCollection();
+    await notifsColl.updateOne({ id: notificationId }, { $inc: { viewCount: 1 } });
 
-    const records = Database.getUserNotificationRecords();
-    const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
-    if (idx !== -1) {
-      records[idx] = { ...records[idx], read: true, readAt: now, updatedAt: now };
-    } else {
-      records.push({ id: recordId, userId, notificationId, read: true, readAt: now, updatedAt: now });
-    }
-    Database.saveUserNotificationRecords(records);
     return true;
   }
 
   /**
    * Marks all notifications as Read for a user.
    */
-  static async markAllRead(userId: string): Promise<boolean> {
-    const notifs = await this.getForUser({ userId });
+  static async markAllRead(
+    userId: string,
+    userDetails?: { role?: string; plan?: string; membershipStatus?: string }
+  ): Promise<boolean> {
+    assertMongoAvailable();
+    const notifs = await this.getForUser({
+      userId,
+      role: userDetails?.role,
+      plan: userDetails?.plan,
+      membershipStatus: userDetails?.membershipStatus
+    });
     for (const notif of notifs) {
       await this.markRead(userId, notif.id);
     }
@@ -337,48 +292,37 @@ export class NotificationRepository {
    * Dismisses a notification for a user (if dismissible).
    */
   static async dismiss(userId: string, notificationId: string): Promise<{ success: boolean; message?: string }> {
+    assertMongoAvailable();
+    const notifsColl = await getNotificationsCollection();
+    const targetNotif = await notifsColl.findOne({ id: notificationId });
+
+    if (!targetNotif) {
+      return { success: false, message: 'Notification not found.' };
+    }
+
+    if (targetNotif.dismissible === false) {
+      return { success: false, message: 'This is a mandatory non-dismissible notification.' };
+    }
+
+    const coll = await getUserNotificationRecordsCollection();
     const recordId = `${userId}_${notificationId}`;
     const now = new Date().toISOString();
 
-    if (isMongoConfigured()) {
-      const coll = await getUserNotificationRecordsCollection();
-      await coll.updateOne(
-        { id: recordId },
-        {
-          $set: {
-            id: recordId,
-            userId,
-            notificationId,
-            dismissed: true,
-            dismissedAt: now,
-            updatedAt: now
-          }
-        },
-        { upsert: true }
-      );
-
-      try {
-        const records = Database.getUserNotificationRecords();
-        const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
-        if (idx !== -1) {
-          records[idx] = { ...records[idx], dismissed: true, dismissedAt: now, updatedAt: now };
-        } else {
-          records.push({ id: recordId, userId, notificationId, dismissed: true, dismissedAt: now, updatedAt: now });
+    await coll.updateOne(
+      { id: recordId },
+      {
+        $set: {
+          id: recordId,
+          userId,
+          notificationId,
+          dismissed: true,
+          dismissedAt: now,
+          updatedAt: now
         }
-        Database.saveUserNotificationRecords(records);
-      } catch {}
+      },
+      { upsert: true }
+    );
 
-      return { success: true };
-    }
-
-    const records = Database.getUserNotificationRecords();
-    const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
-    if (idx !== -1) {
-      records[idx] = { ...records[idx], dismissed: true, dismissedAt: now, updatedAt: now };
-    } else {
-      records.push({ id: recordId, userId, notificationId, dismissed: true, dismissedAt: now, updatedAt: now });
-    }
-    Database.saveUserNotificationRecords(records);
     return { success: true };
   }
 
@@ -390,65 +334,45 @@ export class NotificationRepository {
     notificationId: string,
     metadata?: any
   ): Promise<any> {
+    assertMongoAvailable();
+    const notifsColl = await getNotificationsCollection();
+    const notif = await notifsColl.findOne({ id: notificationId });
+
+    if (!notif) {
+      throw new Error('Notification not found.');
+    }
+
+    const coll = await getUserNotificationRecordsCollection();
     const recordId = `${userId}_${notificationId}`;
     const now = new Date().toISOString();
-    const newRecord = {
-      id: recordId,
-      userId,
-      notificationId,
-      completed: true,
-      completedAt: now,
-      read: true,
-      readAt: now,
-      metadata: metadata || {},
-      updatedAt: now
-    };
 
-    if (isMongoConfigured()) {
-      const coll = await getUserNotificationRecordsCollection();
-      await coll.updateOne(
-        { id: recordId },
-        { $set: newRecord },
-        { upsert: true }
-      );
-      try {
-        const notifsColl = await getNotificationsCollection();
-        await notifsColl.updateOne({ id: notificationId }, { $inc: { completionCount: 1 } });
-      } catch {}
-
-      try {
-        const records = Database.getUserNotificationRecords();
-        const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
-        if (idx !== -1) {
-          records[idx] = { ...records[idx], ...newRecord };
-        } else {
-          records.push(newRecord);
+    await coll.updateOne(
+      { id: recordId },
+      {
+        $set: {
+          id: recordId,
+          userId,
+          notificationId,
+          completed: true,
+          completedAt: now,
+          read: true,
+          readAt: now,
+          metadata: metadata || {},
+          policyVersion: notif.policyVersion,
+          updatedAt: now
         }
-        Database.saveUserNotificationRecords(records);
-      } catch {}
+      },
+      { upsert: true }
+    );
 
-      return {
-        success: true,
-        notificationId,
-        userId,
-        completedAt: now
-      };
-    }
-
-    const records = Database.getUserNotificationRecords();
-    const idx = records.findIndex(r => r.id === recordId || (r.userId === userId && r.notificationId === notificationId));
-    if (idx !== -1) {
-      records[idx] = { ...records[idx], ...newRecord };
-    } else {
-      records.push(newRecord);
-    }
-    Database.saveUserNotificationRecords(records);
+    await notifsColl.updateOne({ id: notificationId }, { $inc: { completionCount: 1 } });
 
     return {
       success: true,
       notificationId,
       userId,
-      completedAt: now
+      completedAt: now,
+      policyVersion: notif.policyVersion
     };
   }
 
@@ -460,50 +384,26 @@ export class NotificationRepository {
     targetUserId: string,
     notificationId: string
   ): Promise<any> {
+    assertMongoAvailable();
+    const coll = await getUserNotificationRecordsCollection();
     const recordId = `${targetUserId}_${notificationId}`;
     const now = new Date().toISOString();
-    const updated = {
-      id: recordId,
-      userId: targetUserId,
-      notificationId,
-      adminOverridden: true,
-      overriddenBy: adminUserId,
-      overriddenAt: now,
-      updatedAt: now
-    };
 
-    if (isMongoConfigured()) {
-      const coll = await getUserNotificationRecordsCollection();
-      await coll.updateOne({ id: recordId }, { $set: updated }, { upsert: true });
-
-      try {
-        const records = Database.getUserNotificationRecords();
-        const idx = records.findIndex(r => r.id === recordId);
-        if (idx !== -1) {
-          records[idx] = { ...records[idx], ...updated };
-        } else {
-          records.push(updated);
+    await coll.updateOne(
+      { id: recordId },
+      {
+        $set: {
+          id: recordId,
+          userId: targetUserId,
+          notificationId,
+          adminOverridden: true,
+          overriddenBy: adminUserId,
+          overriddenAt: now,
+          updatedAt: now
         }
-        Database.saveUserNotificationRecords(records);
-      } catch {}
-
-      return {
-        success: true,
-        targetUserId,
-        notificationId,
-        overriddenBy: adminUserId,
-        overriddenAt: now
-      };
-    }
-
-    const records = Database.getUserNotificationRecords();
-    const idx = records.findIndex(r => r.id === recordId);
-    if (idx !== -1) {
-      records[idx] = { ...records[idx], ...updated };
-    } else {
-      records.push(updated);
-    }
-    Database.saveUserNotificationRecords(records);
+      },
+      { upsert: true }
+    );
 
     return {
       success: true,
@@ -522,59 +422,57 @@ export class NotificationRepository {
     action: string = 'post_job'
   ): Promise<{ restricted: boolean; reason?: string; notification?: any }> {
     if (!userId) return { restricted: false };
+    assertMongoAvailable();
 
-    return executeWithFallback(
-      async () => {
-        const notifsColl = await getNotificationsCollection();
-        const userRecordsColl = await getUserNotificationRecordsCollection();
+    const notifsColl = await getNotificationsCollection();
+    const userRecordsColl = await getUserNotificationRecordsCollection();
 
-        const mandatoryNotifs = await notifsColl
-          .find({
-            status: 'published',
-            enabled: { $ne: false },
-            isMandatory: true
-          })
-          .toArray();
+    // Query active mandatory notifications
+    const mandatoryNotifs = await notifsColl
+      .find({
+        status: 'published',
+        enabled: { $ne: false },
+        isMandatory: true
+      })
+      .toArray();
 
-        if (mandatoryNotifs.length === 0) {
-          return { restricted: false };
+    if (mandatoryNotifs.length === 0) {
+      return { restricted: false };
+    }
+
+    const userRecords = await userRecordsColl.find({ userId }).toArray();
+    const userRecordMap = new Map<string, any>();
+    userRecords.forEach(r => userRecordMap.set(r.notificationId, r));
+
+    for (const notif of mandatoryNotifs) {
+      // Check feature restriction match
+      if (Array.isArray(notif.restrictedFeatures) && notif.restrictedFeatures.length > 0) {
+        if (!notif.restrictedFeatures.includes(action) && !notif.restrictedFeatures.includes('all')) {
+          continue;
         }
+      }
 
-        const userRecords = await userRecordsColl.find({ userId }).toArray();
-        const userRecordMap = new Map<string, any>();
-        userRecords.forEach(r => userRecordMap.set(r.notificationId, r));
-
-        for (const notif of mandatoryNotifs) {
-          if (Array.isArray(notif.restrictedFeatures) && notif.restrictedFeatures.length > 0) {
-            if (!notif.restrictedFeatures.includes(action) && !notif.restrictedFeatures.includes('all')) {
-              continue;
-            }
-          }
-
-          if (notif.targetAudience === 'specific_users') {
-            if (!Array.isArray(notif.targetUserIds) || !notif.targetUserIds.includes(userId)) {
-              continue;
-            }
-          }
-
-          const state = userRecordMap.get(notif.id);
-          const isCompleted = state?.completed === true;
-          const isOverridden = state?.adminOverridden === true;
-
-          if (!isCompleted && !isOverridden) {
-            const { _id, ...safeNotif } = notif;
-            return {
-              restricted: true,
-              reason: `Action blocked: Incomplete mandatory requirement "${notif.title}" (${notif.mandatoryActionType || 'Policy Acceptance'}). Please complete the required action to unlock this functionality.`,
-              notification: safeNotif
-            };
-          }
+      // Check audience match
+      if (notif.targetAudience === 'specific_users') {
+        if (!Array.isArray(notif.targetUserIds) || !notif.targetUserIds.includes(userId)) {
+          continue;
         }
+      }
 
-        return { restricted: false };
-      },
-      () => ({ restricted: false }),
-      'NotificationRepository.checkUserRestricted'
-    );
+      const state = userRecordMap.get(notif.id);
+      const isCompleted = state?.completed === true;
+      const isOverridden = state?.adminOverridden === true;
+
+      if (!isCompleted && !isOverridden) {
+        const { _id, ...safeNotif } = notif;
+        return {
+          restricted: true,
+          reason: `Action blocked: Incomplete mandatory requirement "${notif.title}" (${notif.mandatoryActionType || 'Policy Acceptance'}). Please complete the required action to unlock this functionality.`,
+          notification: safeNotif
+        };
+      }
+    }
+
+    return { restricted: false };
   }
 }

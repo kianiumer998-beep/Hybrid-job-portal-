@@ -139,5 +139,59 @@ export class UserRepository {
     }
     return Database.deleteUser(id);
   }
+
+  /**
+   * Synchronizes the canonical demo admin account in MongoDB on startup.
+   * Ensures admin@jobportal.com has valid authentication fields for admin123
+   * while preserving existing profile, wallet, and history.
+   */
+  static async syncDemoAdminAsync(): Promise<void> {
+    if (!isMongoConfigured()) {
+      console.log('[UserRepository] MongoDB not configured. Skipping demo admin sync.');
+      return;
+    }
+
+    try {
+      const coll = await getUsersCollection();
+      const adminEmail = 'admin@jobportal.com';
+      const existing = await coll.findOne({ email: adminEmail });
+
+      const adminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // sha256 of admin123
+      const adminSalt = 'dev-salt';
+
+      if (!existing) {
+        const canonicalAdmin = {
+          id: 'user-demo-admin-1',
+          name: 'Super Administrator',
+          email: adminEmail,
+          username: 'admin',
+          passwordHash: adminHash,
+          salt: adminSalt,
+          role: 'Super Admin',
+          permissions: ['all'],
+          plan: 'Premium',
+          walletBalance: 100000,
+          membershipStatus: 'Active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await coll.insertOne(canonicalAdmin);
+        console.log('[UserRepository] Canonical demo admin created in MongoDB.');
+      } else {
+        const updates = {
+          passwordHash: adminHash,
+          salt: adminSalt,
+          role: 'Super Admin',
+          permissions: ['all'],
+          updatedAt: new Date().toISOString()
+        };
+        await coll.updateOne({ email: adminEmail }, { $set: updates });
+        console.log('[UserRepository] Demo admin credentials synchronized in MongoDB.');
+      }
+    } catch (err: any) {
+      console.error('[UserRepository] CRITICAL: MongoDB sync failed on production startup!', err);
+      throw err;
+    }
+  }
 }
 

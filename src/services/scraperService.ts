@@ -546,10 +546,7 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
           }
 
           const isRemote =
-            item.jobLocationType === 'TELECOMMUTE' ||
-            item.applicantLocationRequirements !== undefined ||
-            title.toLowerCase().includes('remote') ||
-            description.toLowerCase().includes('remote');
+            item.jobLocationType === 'TELECOMMUTE' || item.applicantLocationRequirements !== undefined;
 
           const jobType = isRemote ? 'Remote' : undefined;
 
@@ -626,7 +623,7 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
           if (!title || typeof title !== 'string') continue;
 
           const loc = item.city || item.location || '';
-          const isRemote = item.isRemote || (item.title || '').toLowerCase().includes('remote') || loc.toLowerCase().includes('remote');
+          const isRemote = item.isRemote;
 
           results.push({
             id: `next-${config.id}-${item.id || Date.now().toString(36)}`,
@@ -706,9 +703,8 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
         const snippet = (container.find('.description, .snippet, p').first().text().trim()) || '';
 
         const combined = `${rawTitle} ${location} ${snippet}`.toLowerCase();
-        const isRemote = combined.includes('remote') || combined.includes('work from home');
-        const isHybrid = combined.includes('hybrid');
-        const jobType = isRemote ? 'Remote' : isHybrid ? 'Hybrid' : undefined;
+        
+        let jobType: 'Remote' | 'On-site' | 'Hybrid' | undefined = undefined;
 
         let region: Region | undefined = undefined;
         if (location.toLowerCase().includes('pakistan')) {
@@ -988,7 +984,13 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
     if (!isNaN(cutoff)) {
       filtered = filtered.filter(j => {
         const rawTimeStr = j.datePosted || j.postedAt;
-        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') {
+        if (
+          !rawTimeStr ||
+          typeof rawTimeStr !== 'string' ||
+          rawTimeStr.trim().toLowerCase() === 'recent' ||
+          rawTimeStr.trim().toLowerCase() === 'just now' ||
+          rawTimeStr.trim().toLowerCase() === 'today'
+        ) {
           return false;
         }
         const postTime = new Date(rawTimeStr).getTime();

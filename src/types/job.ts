@@ -29,7 +29,7 @@ export interface PaymentTransaction {
   dateTime: string; // "YYYY-MM-DD HH:MM"
   amount: number;
   currency: Currency;
-  type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund' | 'Campaign Top-Up';
+  type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund';
   status: 'Success' | 'Pending' | 'Failed';
   paymentMethod: 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer' | 'Stripe' | 'PayPal' | 'Wallet Balance' | string;
   jobTitleRef?: string;
@@ -40,10 +40,6 @@ export interface PaymentTransaction {
   senderPhoneOrAccount?: string;
   depositBankOrWalletName?: string;
   jobIdRef?: string;
-  campaignIdRef?: string;
-  balanceBefore?: number;
-  balanceAfter?: number;
-  description?: string;
   adminNote?: string;
   proofScreenshotUrl?: string;
   proofNote?: string;
@@ -106,12 +102,6 @@ export interface UserAccount {
   customFieldsData?: Record<string, string>;
   appliedJobs?: JobApplication[];
   walletBalance?: number; // In PKR
-  verificationStatus?: 'Verified' | 'Pending' | 'Unverified';
-  kycStatus?: 'Verified' | 'Pending' | 'Rejected' | 'Not Submitted';
-  kycDocuments?: { type: string; documentNumber?: string; fileUrl?: string; submittedAt?: string }[];
-  adminNotes?: string;
-  lastLoginAt?: string;
-  registrationMethod?: 'Email' | 'Google' | 'Direct Admin' | 'WhatsApp';
   createdAt: string;
 }
 
@@ -212,8 +202,6 @@ export interface Job {
   duplicateDetectedAt?: string;
   applicationType?: 'internal' | 'external' | 'both';
   externalApplyUrl?: string;
-  mediaUrl?: string;
-  extractedText?: string;
 }
 
 export interface ChatMessage {

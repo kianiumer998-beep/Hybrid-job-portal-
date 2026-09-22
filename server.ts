@@ -5,8 +5,7 @@ import { featureFlags, updateFeatureFlags } from './server/config/featureFlags';
 import { createServer as createViteServer } from 'vite';
 
 import { Database } from './server/db/database';
-import { UserRepository } from './server/db/repositories/UserRepository';
-import { authMiddleware, requireAdmin } from './server/auth/authManager';
+import { authMiddleware } from './server/auth/authManager';
 import { authRouter } from './server/routes/authRoutes';
 import { jobRouter } from './server/routes/jobRoutes';
 import { applicationRouter } from './server/routes/applicationRoutes';
@@ -18,76 +17,17 @@ import { transactionRouter } from './server/routes/transactionRoutes';
 import { userRouter } from './server/routes/userRoutes';
 import { adRouter } from './server/routes/adRoutes';
 import { auditRouter } from './server/routes/auditRoutes';
-import settingsRouter from './server/routes/settingsRoutes';
-import { notificationRouter } from './server/routes/notificationRoutes';
-import { caseRouter } from './server/routes/caseRoutes';
-import { supportRouter } from './server/routes/supportRoutes';
 import { AdminFeatureFlags } from './src/types/job';
-
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // Basic security headers
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-XSS-Protection', '1; mode=block');
-    next();
-  });
-
-  // CORS Middleware for cross-origin frontend -> backend connectivity (Vercel, localhost, Cloud Run)
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      let isAllowed = false;
-      try {
-        const originUrl = new URL(origin);
-        const host = originUrl.hostname.toLowerCase();
-        if (
-          host === 'localhost' ||
-          host === '127.0.0.1' ||
-          host === '0.0.0.0' ||
-          host.endsWith('.vercel.app') ||
-          host.endsWith('.run.app') ||
-          host.endsWith('.onrender.com') ||
-          (process.env.ALLOWED_ORIGINS && process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).includes(origin)) ||
-          (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN.split(',').map(s => s.trim()).includes(origin))
-        ) {
-          isAllowed = true;
-        }
-      } catch {
-        // In case origin is not a standard URL string
-        if (origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.endsWith('.onrender.com')) {
-          isAllowed = true;
-        }
-      }
-
-      if (isAllowed) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-      }
-    }
-
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Admin-Dev-Passkey');
-    res.setHeader('Access-Control-Max-Age', '86400');
-
-    // Handle preflight OPTIONS requests immediately
-    if (req.method === 'OPTIONS') {
-      return res.status(204).end();
-    }
-
-    next();
-  });
-
-  // Strict Cache-Control for all /api/* routes (Prevent CDN/browser caching of real-time job and auth data)
-  app.use('/api', (req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('Surrogate-Control', 'no-store');
     next();
   });
 
@@ -107,11 +47,11 @@ async function startServer() {
     res.json(featureFlags);
   });
 
-  app.post('/api/admin/feature-flags', requireAdmin, (req, res) => {
+  app.post('/api/admin/feature-flags', (req, res) => {
     const updated = updateFeatureFlags(req.body);
     Database.addAuditLog({
-      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
-      role: (req as any).user?.role || 'Admin',
+      user: 'Administrator',
+      role: 'Admin',
       action: 'Feature Flags Updated',
       target: 'System Configuration',
       status: 'Success'
@@ -139,14 +79,6 @@ async function startServer() {
   app.use('/api/users', userRouter);
   app.use('/api/ads', adRouter);
   app.use('/api/audit-logs', auditRouter);
-  app.use('/api/settings', settingsRouter);
-  app.use('/api/notifications', notificationRouter);
-  app.use('/api/cases', caseRouter);
-  app.use('/api/support', supportRouter);
-
-
-  // Synchronize demo admin credentials in MongoDB if configured
-  await UserRepository.syncDemoAdminAsync();
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

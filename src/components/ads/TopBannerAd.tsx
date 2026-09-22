@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Advertisement, AdTargetPage } from '../../types/ad';
 import { 
   X, 
@@ -18,7 +18,6 @@ interface TopBannerAdProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
   onAdClick: (ad: Advertisement) => void;
-  onAdImpression?: (adId: string) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   autoPlayIntervalMs?: number;
   showDemoCardIfEmpty?: boolean;
@@ -28,7 +27,6 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   ads,
   currentPage,
   onAdClick,
-  onAdImpression,
   onNavigateTab,
   autoPlayIntervalMs = 6000,
   showDemoCardIfEmpty = true
@@ -36,7 +34,6 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const trackedImpressionsRef = useRef<Set<string>>(new Set());
 
   // Demo fallback ad if no active banner is available
   const demoBannerAd: Advertisement = {
@@ -81,16 +78,6 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const activeCount = activeBannerList.length;
   const safeIndex = activeCount > 0 ? (currentIndex % activeCount) : 0;
   const activeBanner = activeBannerList[safeIndex];
-
-  // Track verified billable impression once per active ad instance
-  useEffect(() => {
-    if (activeBanner && activeBanner.id && !activeBanner.id.startsWith('demo-') && !activeBanner.id.startsWith('preview-')) {
-      if (!trackedImpressionsRef.current.has(activeBanner.id)) {
-        trackedImpressionsRef.current.add(activeBanner.id);
-        onAdImpression?.(activeBanner.id);
-      }
-    }
-  }, [activeBanner?.id, onAdImpression]);
 
   // Auto-play timer
   useEffect(() => {

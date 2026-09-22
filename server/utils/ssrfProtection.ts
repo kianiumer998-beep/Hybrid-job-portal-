@@ -147,10 +147,6 @@ export async function safeFetchWithRetry(
   }
 
   const isAbort = lastError?.name === 'AbortError' || lastError?.message?.includes('aborted');
-  const errorReason = isAbort
-    ? `Connection timed out after ${timeoutMs}ms`
-    : (lastError?.code === 'ENOTFOUND' || lastError?.code === 'EAI_AGAIN' || String(lastError?.message || '').toLowerCase().includes('fetch failed')
-      ? 'Remote server offline or DNS unreachable'
-      : (lastError?.message || 'Host unreachable'));
-  throw new Error(`Remote portal unavailable: ${url} (${errorReason})`);
+  const errorReason = isAbort ? `Connection timed out after ${timeoutMs}ms` : (lastError?.message || 'Host unreachable');
+  throw new Error(`Failed to fetch ${url}. Cause: ${errorReason}`);
 }

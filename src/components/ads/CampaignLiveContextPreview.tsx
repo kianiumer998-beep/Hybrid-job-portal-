@@ -205,23 +205,16 @@ export const CampaignLiveContextPreview: React.FC<CampaignLiveContextPreviewProp
       );
     }
 
-    const highlightBorder = isHighlightOn
-      ? `${themeStyle.highlightRing} ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950 animate-pulse shadow-2xl shadow-emerald-500/20`
-      : '';
+    const highlightBorder = isHighlightOn ? `${themeStyle.highlightRing} animate-pulse` : '';
 
     // 1. TOP HEADER BANNER
     if (placement === 'top-header') {
       return (
         <div id="ad-live-preview-top-header" className={`relative rounded-xl border p-3.5 sm:p-4 shadow-lg transition-all ${themeStyle.bannerBg} ${highlightBorder}`}>
           {isHighlightOn && (
-            <div className="absolute -top-3 left-4 flex items-center space-x-1.5 z-20">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
-                <Sparkles className="w-3 h-3 text-slate-950" />
-                <span>SELECTED</span>
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-slate-900/90 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold shadow">
-                Your ad will appear here (Top Header)
-              </span>
+            <div className="absolute -top-2.5 left-4 px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
+              <Sparkles className="w-2.5 h-2.5" />
+              <span>Live Campaign Display Location</span>
             </div>
           )}
 
@@ -286,14 +279,9 @@ export const CampaignLiveContextPreview: React.FC<CampaignLiveContextPreviewProp
       return (
         <div id="ad-live-preview-feed-inline" className={`relative rounded-2xl border p-4 sm:p-5 shadow-xl transition-all ${themeStyle.bannerBg} ${highlightBorder}`}>
           {isHighlightOn && (
-            <div className="absolute -top-3 left-4 flex items-center space-x-1.5 z-20">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
-                <Sparkles className="w-3 h-3 text-slate-950" />
-                <span>SELECTED</span>
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-slate-900/90 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold shadow">
-                Your ad will appear here (Job Feed Inline)
-              </span>
+            <div className="absolute -top-2.5 left-4 px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
+              <Sparkles className="w-2.5 h-2.5" />
+              <span>Native Feed Placement: {contextLocation}</span>
             </div>
           )}
 
@@ -350,14 +338,9 @@ export const CampaignLiveContextPreview: React.FC<CampaignLiveContextPreviewProp
       return (
         <div id="ad-live-preview-toast" className={`relative rounded-2xl border p-4 shadow-2xl transition-all max-w-sm ml-auto ${themeStyle.bannerBg} ${highlightBorder}`}>
           {isHighlightOn && (
-            <div className="absolute -top-3 right-4 flex items-center space-x-1.5 z-20">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
-                <Sparkles className="w-3 h-3 text-slate-950" />
-                <span>SELECTED</span>
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-slate-900/90 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold shadow">
-                Your ad will appear here (Floating Toast)
-              </span>
+            <div className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
+              <Sparkles className="w-2.5 h-2.5" />
+              <span>Floating Toast (Bottom-Right)</span>
             </div>
           )}
 
@@ -410,14 +393,9 @@ export const CampaignLiveContextPreview: React.FC<CampaignLiveContextPreviewProp
       return (
         <div id="ad-live-preview-popup" className={`relative rounded-3xl border p-6 shadow-2xl max-w-md mx-auto my-4 transition-all ${themeStyle.bannerBg} ${highlightBorder}`}>
           {isHighlightOn && (
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center space-x-1.5 z-20 whitespace-nowrap">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-lg">
-                <Sparkles className="w-3 h-3 text-slate-950" />
-                <span>SELECTED</span>
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-slate-900/90 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold shadow">
-                Your ad will appear here (Lightbox Popup)
-              </span>
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-lg">
+              <Sparkles className="w-3 h-3" />
+              <span>Centered Lightbox Popup Display</span>
             </div>
           )}
 
@@ -482,14 +460,9 @@ export const CampaignLiveContextPreview: React.FC<CampaignLiveContextPreviewProp
       return (
         <div id="ad-live-preview-sidebar" className={`relative rounded-2xl border p-4 shadow-xl transition-all ${themeStyle.bannerBg} ${highlightBorder}`}>
           {isHighlightOn && (
-            <div className="absolute -top-3 left-3 flex items-center space-x-1.5 z-20">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
-                <Sparkles className="w-3 h-3 text-slate-950" />
-                <span>SELECTED</span>
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-slate-900/90 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold shadow">
-                Your ad will appear here (Sidebar)
-              </span>
+            <div className="absolute -top-2.5 left-3 px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-md">
+              <Sparkles className="w-2.5 h-2.5" />
+              <span>Sidebar / Filter Card</span>
             </div>
           )}
 

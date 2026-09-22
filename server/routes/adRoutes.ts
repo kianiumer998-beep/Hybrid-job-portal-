@@ -1,14 +1,22 @@
 import { Router } from 'express';
-import { AdRepository, AuditRepository } from '../db/repositories';
-import { requireAdmin, authMiddleware } from '../auth/authManager';
+import { Database } from '../db/database';
+import { requireAdmin } from '../auth/authManager';
 
 export const adRouter = Router();
 
 // 1. Get Ads (Public active ads or all for admin)
-adRouter.get('/', async (req, res) => {
+adRouter.get('/', (req, res) => {
   try {
     const { status, placement } = req.query as Record<string, string>;
-    const ads = await AdRepository.getAllAsync({ status, placement });
+    let ads = Database.getAds();
+
+    if (status) {
+      ads = ads.filter(a => a.status === status);
+    }
+    if (placement) {
+      ads = ads.filter(a => a.placement === placement);
+    }
+
     res.json({ success: true, advertisements: ads });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching advertisements' });
@@ -16,24 +24,22 @@ adRouter.get('/', async (req, res) => {
 });
 
 // 2. Create Advertisement
-adRouter.post('/', authMiddleware, async (req: any, res) => {
+adRouter.post('/', (req, res) => {
   try {
     const adData = req.body;
-    const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
+    const ads = Database.getAds();
+    const newAd = {
+      ...adData,
+      id: adData.id || `ad-${Date.now().toString(36)}`,
+      impressions: 0,
+      clicks: 0,
+      createdAt: new Date().toISOString()
+    };
+    ads.unshift(newAd);
+    Database.saveAds(ads);
 
-    // Strictly enforce advertiser identity to prevent spoofing another user's wallet
-    if (req.user && !isAdmin) {
-      adData.submittedByUserId = req.user.userId || req.user.id;
-      adData.submittedByUserName = req.user.name || adData.submittedByUserName;
-      adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;
-    } else if (!req.user) {
-      delete adData.submittedByUserId;
-    }
-
-    const newAd = await AdRepository.createAsync(adData);
-
-    AuditRepository.add({
-      user: adData.submittedByUserName || adData.clientName || 'Advertiser',
+    Database.addAuditLog({
+      user: adData.clientName || 'Advertiser',
       role: 'Advertiser',
       action: 'Ad Campaign Created',
       target: newAd.title,
@@ -47,56 +53,52 @@ adRouter.post('/', authMiddleware, async (req: any, res) => {
 });
 
 // 3. Update Advertisement
-adRouter.put('/:id', requireAdmin, async (req, res) => {
+adRouter.put('/:id', requireAdmin, (req, res) => {
   try {
-    const updated = await AdRepository.updateAsync(req.params.id, req.body);
-    if (!updated) {
+    const ads = Database.getAds();
+    const idx = ads.findIndex(a => a.id === req.params.id);
+    if (idx === -1) {
       return res.status(404).json({ success: false, message: 'Ad not found.' });
     }
 
-    res.json({ success: true, advertisement: updated });
+    ads[idx] = { ...ads[idx], ...req.body, updatedAt: new Date().toISOString() };
+    Database.saveAds(ads);
+
+    res.json({ success: true, advertisement: ads[idx] });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating advertisement' });
   }
 });
 
 // 4. Delete Advertisement
-adRouter.delete('/:id', requireAdmin, async (req, res) => {
-  try {
-    const deleted = await AdRepository.deleteAsync(req.params.id);
-    if (!deleted) {
-      return res.status(404).json({ success: false, message: 'Ad not found.' });
-    }
-    res.json({ success: true, message: 'Advertisement deleted.' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error deleting advertisement' });
+adRouter.delete('/:id', requireAdmin, (req, res) => {
+  const ads = Database.getAds();
+  const filtered = ads.filter(a => a.id !== req.params.id);
+  if (filtered.length === ads.length) {
+    return res.status(404).json({ success: false, message: 'Ad not found.' });
   }
+  Database.saveAds(filtered);
+  res.json({ success: true, message: 'Advertisement deleted.' });
 });
 
-// 5. Track Click (Server-authoritative CPC billing against advertiser wallet)
-adRouter.post('/:id/click', async (req, res) => {
-  try {
-    const idempotencyKey = req.body?.idempotencyKey || (req.headers['x-idempotency-key'] as string);
-    const updated = await AdRepository.trackClickAsync(req.params.id, { idempotencyKey });
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'Ad campaign not found' });
-    }
-    res.json({ success: true, advertisement: updated });
-  } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message || 'Failed to record ad click' });
+// 5. Track Click
+adRouter.post('/:id/click', (req, res) => {
+  const ads = Database.getAds();
+  const idx = ads.findIndex(a => a.id === req.params.id);
+  if (idx !== -1) {
+    ads[idx].clicks = (ads[idx].clicks || 0) + 1;
+    Database.saveAds(ads);
   }
+  res.json({ success: true });
 });
 
-// 6. Track Impression (Server-authoritative CPM billing against advertiser wallet)
-adRouter.post('/:id/impression', async (req, res) => {
-  try {
-    const idempotencyKey = req.body?.idempotencyKey || (req.headers['x-idempotency-key'] as string);
-    const updated = await AdRepository.trackImpressionAsync(req.params.id, { idempotencyKey });
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'Ad campaign not found' });
-    }
-    res.json({ success: true, advertisement: updated });
-  } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message || 'Failed to record ad impression' });
+// 6. Track Impression
+adRouter.post('/:id/impression', (req, res) => {
+  const ads = Database.getAds();
+  const idx = ads.findIndex(a => a.id === req.params.id);
+  if (idx !== -1) {
+    ads[idx].impressions = (ads[idx].impressions || 0) + 1;
+    Database.saveAds(ads);
   }
+  res.json({ success: true });
 });

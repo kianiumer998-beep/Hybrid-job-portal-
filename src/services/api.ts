@@ -26,6 +26,7 @@ export function getResolvedApiBase(): string {
 
   const isBrowser = typeof window !== 'undefined';
   const hostname = isBrowser ? window.location.hostname : '';
+  const isVercel = Boolean(isBrowser && (hostname.endsWith('.vercel.app') || hostname.includes('vercel.app')));
   const isLocal = Boolean(
     isBrowser &&
     (hostname === 'localhost' ||
@@ -36,21 +37,23 @@ export function getResolvedApiBase(): string {
      hostname.includes('localhost'))
   );
 
-  // 2. Local dev / container preview where Express serves the API on the same host
-  if (isLocal) {
-    return '/api';
-  }
-
-  // 3. Separate production frontend (Vercel, custom domain, etc.) -> authoritative Render backend
-  if (isBrowser) {
-    const runtimeUrl = localStorage.getItem('hybrid_backend_api_url') || '';
+  // 2. Production Vercel deployment where frontend is hosted statically on Vercel
+  if (isVercel) {
+    const runtimeUrl = isBrowser ? (localStorage.getItem('hybrid_backend_api_url') || '') : '';
     if (runtimeUrl.trim()) {
       const stripped = runtimeUrl.trim().replace(/\/+$/, '').replace(/\/api\/?$/, '');
       return `${stripped}/api`;
     }
+    // Production Render backend
     return 'https://hybrid-job-portal.onrender.com/api';
   }
 
+  // 3. Custom domain / standalone production deployment outside local dev
+  if (isBrowser && !isLocal && (hostname.includes('.com') || hostname.includes('.org') || hostname.includes('.io') || hostname.includes('.app'))) {
+    return 'https://hybrid-job-portal.onrender.com/api';
+  }
+
+  // 4. Local dev / container preview where Express serves the API on /api
   return '/api';
 }
 
@@ -301,20 +304,6 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify({ jobIds, locationData })
       });
-    },
-    async bulkMarkNonJob(ids: string[], reason?: string) {
-      return safeFetchJson(`${API_BASE}/jobs/bulk-mark-non-job`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ ids, reason })
-      });
-    },
-    async convertToJob(id: string) {
-      return safeFetchJson(`${API_BASE}/jobs/convert-to-job`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ id })
-      });
     }
   },
 
@@ -505,18 +494,6 @@ export const api = {
     },
     async triggerSchedulerTick() {
       return safeFetchJson(`${API_BASE}/scraper/scheduler-tick`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async startScheduler() {
-      return safeFetchJson(`${API_BASE}/scraper/scheduler-start`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async stopScheduler() {
-      return safeFetchJson(`${API_BASE}/scraper/scheduler-stop`, {
         method: 'POST',
         headers: getAuthHeader()
       });
@@ -844,32 +821,14 @@ export const api = {
         headers: getAuthHeader()
       });
     },
-    async recordClick(id: string, idempotencyKey?: string) {
+    async recordClick(id: string) {
       try {
-        const key = idempotencyKey || `click-${id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        await fetch(`${API_BASE}/ads/${id}/click`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeader(),
-            'x-idempotency-key': key
-          },
-          body: JSON.stringify({ idempotencyKey: key })
-        });
+        await fetch(`${API_BASE}/ads/${id}/click`, { method: 'POST' });
       } catch {}
     },
-    async recordImpression(id: string, idempotencyKey?: string) {
+    async recordImpression(id: string) {
       try {
-        const key = idempotencyKey || `imp-${id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        await fetch(`${API_BASE}/ads/${id}/impression`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeader(),
-            'x-idempotency-key': key
-          },
-          body: JSON.stringify({ idempotencyKey: key })
-        });
+        await fetch(`${API_BASE}/ads/${id}/impression`, { method: 'POST' });
       } catch {}
     }
   },

@@ -25,7 +25,6 @@ import {
 import { Advertisement, AdPricingConfig, CampaignCustomizationConfig, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../types/ad';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
-import { calculateJobMissingFields, isScrapedJob } from '../utils/jobValidation';
 import { 
   ShieldCheck, 
   Plus, 
@@ -547,26 +546,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
-    const readyJobs = uniqueJobs.filter(j => !isScrapedJob(j) || calculateJobMissingFields(j).length === 0);
-    const incompleteJobs = uniqueJobs.filter(j => isScrapedJob(j) && calculateJobMissingFields(j).length > 0);
-
-    if (readyJobs.length === 0) {
-      alert(`Cannot approve: All ${incompleteJobs.length} scraped jobs have missing required factual fields (Title, Company, Location, or Job Type). Please review and complete them via Quick Edit first.`);
-      return;
-    }
-
-    const confirmMsg = incompleteJobs.length > 0
-      ? `Data Integrity Protection:\n${readyJobs.length} complete jobs will be published to Live.\n${incompleteJobs.length} jobs with missing required fields will remain in Pending Review until completed.\n\nProceed with publishing ${readyJobs.length} complete jobs?`
-      : `Instantly approve and publish all ${uniqueCount} verified complete jobs directly to the Live Job Board?`;
-
-    if (confirm(confirmMsg)) {
-      const readyIds = readyJobs.map(j => j.id);
+    if (confirm(`Instantly approve and publish all ${uniqueCount} verified unique scraped jobs directly to the Live Job Board? (کیا آپ تمام ${uniqueCount} یونیک جابز کو فوری لائیو کرنا چاہتے ہیں؟)`)) {
+      const uniqueIds = uniqueJobs.map(j => j.id);
       if (onBulkApprovePendingJobs) {
-        onBulkApprovePendingJobs(readyIds);
+        onBulkApprovePendingJobs(uniqueIds);
       } else {
-        readyIds.forEach(id => onApproveJob(id));
+        uniqueIds.forEach(id => onApproveJob(id));
       }
-      alert(`Successfully published ${readyJobs.length} jobs directly to Live Job Board!${incompleteJobs.length > 0 ? ` (${incompleteJobs.length} incomplete jobs kept in Pending)` : ''}`);
+      alert(`Successfully published ${uniqueCount} unique jobs directly to Live Job Board! (تمام جابز لائیو ہوگئیں)`);
     }
   };
 
@@ -1716,18 +1703,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Synchronized Approval with Audit Trail & Auto SEO Injection
   const handleAdminApproveJob = (jobId: string) => {
-    const approvedJob = pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
-    if (approvedJob && isScrapedJob(approvedJob)) {
-      const missing = calculateJobMissingFields(approvedJob);
-      if (missing.length > 0) {
-        alert(`Cannot approve "${approvedJob.title}"!\nMissing required factual fields: ${missing.join(', ')}.\n\nPlease edit this job to complete these details before publishing live.`);
-        return;
-      }
-    }
-
     onApproveJob(jobId);
     
     // Auto-generate Google Search SEO & inject Schema.org structured data
+    const approvedJob = pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
     if (approvedJob) {
       injectJobJsonLd(approvedJob);
     }
@@ -2713,15 +2692,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const handleBulkDelete = () => {
           if (selectedPendingIds.length === 0) return;
           if (confirm(`Permanently delete ${selectedPendingIds.length} selected pending postings from queue?`)) {
-            if (onBulkDeleteJobs) {
-              onBulkDeleteJobs(selectedPendingIds);
-            } else if (onBulkRejectPendingJobs) {
-              onBulkRejectPendingJobs(selectedPendingIds, 'Admin deleted from queue');
-            } else {
-              selectedPendingIds.forEach(id => {
-                if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
-              });
-            }
+            selectedPendingIds.forEach(id => {
+              if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
+            });
             setSelectedPendingIds([]);
           }
         };

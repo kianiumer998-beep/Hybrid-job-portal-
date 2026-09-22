@@ -27,8 +27,8 @@ applySettingsRouter.put('/', requireAdmin, (req, res) => {
     Database.saveApplySettings(updated);
 
     Database.addAuditLog({
-      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
-      role: (req as any).user?.role || 'Content Manager',
+      user: 'Administrator',
+      role: 'Content Manager',
       action: 'Apply Settings & Form Flow Updated',
       target: 'Candidate Application Experience',
       status: 'Success'

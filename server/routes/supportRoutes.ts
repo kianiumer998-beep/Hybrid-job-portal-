@@ -32,20 +32,11 @@ supportRouter.get('/:id', authMiddleware, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'Ticket not found' });
     }
 
-    if (!req.user) {
-      return res.status(401).json({ success: false, message: 'Authentication required to view this ticket.' });
-    }
-
     const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
     const currentUserId = req.user?.userId || req.user?.id;
 
-    // Admins may access any ticket (including guest tickets).
-    // Normal authenticated users may access ONLY tickets securely associated with their own authenticated user ID.
-    // They must NOT be allowed to access guest tickets or tickets of other users.
-    if (!isAdmin) {
-      if (!ticket.userId || ticket.userId === 'guest' || ticket.userId !== currentUserId) {
-        return res.status(403).json({ success: false, message: 'Access denied: You can only view your own support tickets.' });
-      }
+    if (!isAdmin && ticket.userId && ticket.userId !== 'guest' && ticket.userId !== currentUserId) {
+      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own support tickets.' });
     }
 
     res.json({ success: true, ticket });
@@ -131,11 +122,8 @@ supportRouter.post('/:id/messages', requireAuth, async (req: any, res) => {
     const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
     const currentUserId = req.user?.userId || req.user?.id;
 
-    // Admins may reply to any ticket. Normal users may reply ONLY to tickets securely associated with their own user ID.
-    if (!isAdmin) {
-      if (!ticket.userId || ticket.userId === 'guest' || ticket.userId !== currentUserId) {
-        return res.status(403).json({ success: false, message: 'Access denied: You cannot reply to another user\'s support ticket.' });
-      }
+    if (!isAdmin && ticket.userId && ticket.userId !== 'guest' && ticket.userId !== currentUserId) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot reply to another user\'s support ticket.' });
     }
 
     const updated = await SupportRepository.addMessageAsync(ticket.id, {
@@ -169,7 +157,7 @@ supportRouter.patch('/:id/status', requireAuth, async (req: any, res) => {
     const currentUserId = req.user?.userId || req.user?.id;
 
     if (!isAdmin) {
-      if (!ticket.userId || ticket.userId === 'guest' || ticket.userId !== currentUserId) {
+      if (ticket.userId !== currentUserId) {
         return res.status(403).json({ success: false, message: 'Access denied: You can only update your own ticket.' });
       }
       if (!['resolved', 'closed'].includes(status)) {

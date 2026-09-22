@@ -4,8 +4,6 @@ import { JobRepository } from '../db/repositories/JobRepository';
 import { executeScraperWithWizard, getActiveRunStatus, stopActiveRun } from './scraperEngine';
 import { featureFlags } from '../config/featureFlags';
 
-export type SchedulerBatchStatus = 'Idle' | 'Running' | 'Stopping' | 'Stopped' | 'Completed';
-
 export interface SchedulerSourceStatus {
   sourceId: string;
   sourceName: string;
@@ -20,24 +18,10 @@ export interface SchedulerSourceStatus {
 
 export interface SchedulerStatusResponse {
   isRunning: boolean;
-  schedulerRunning: boolean;
   tickCronPattern: string;
   activeSourcesCount: number;
   dueSourcesCount: number;
   lastTickTimestamp: string;
-
-  // Batch status fields
-  batchStatus: SchedulerBatchStatus;
-  batchRunId: string | null;
-  batchTotal: number;
-  batchCompleted: number;
-  batchCurrentIndex: number;
-  batchCurrentSourceId: string | null;
-  batchCurrentSourceName: string | null;
-  batchTriggeredSources: string[];
-  batchStartedAt: string | null;
-  batchLastUpdatedAt: string | null;
-
   sources: SchedulerSourceStatus[];
 }
 
@@ -51,113 +35,26 @@ const INTERVAL_MS_MAP: Record<string, number> = {
 };
 
 let scheduledTask: ReturnType<typeof cron.schedule> | null = null;
-let isSchedulerEnabled = true;
 let isTickExecuting = false;
 let lastTickTime: string = 'Never';
-
-interface SchedulerBatchState {
-  batchRunId: string | null;
-  batchStatus: SchedulerBatchStatus;
-  batchTotal: number;
-  batchCompleted: number;
-  batchCurrentIndex: number;
-  batchCurrentSourceId: string | null;
-  batchCurrentSourceName: string | null;
-  batchTriggeredSources: string[];
-  batchStartedAt: string | null;
-  batchLastUpdatedAt: string | null;
-  cancelRequested: boolean;
-  generationId: number;
-}
-
-let batchState: SchedulerBatchState = {
-  batchRunId: null,
-  batchStatus: 'Idle',
-  batchTotal: 0,
-  batchCompleted: 0,
-  batchCurrentIndex: 0,
-  batchCurrentSourceId: null,
-  batchCurrentSourceName: null,
-  batchTriggeredSources: [],
-  batchStartedAt: null,
-  batchLastUpdatedAt: null,
-  cancelRequested: false,
-  generationId: 0,
-};
 
 function parseIntervalToMs(intervalStr?: string): number {
   if (!intervalStr) return INTERVAL_MS_MAP['24h'];
   return INTERVAL_MS_MAP[intervalStr] || INTERVAL_MS_MAP['24h'];
 }
 
-export function startScraperScheduler(): void {
-  isSchedulerEnabled = true;
-  batchState.cancelRequested = false;
-  batchState.generationId++;
-
-  if (batchState.batchStatus === 'Stopped' || batchState.batchStatus === 'Stopping') {
-    batchState.batchStatus = 'Idle';
-    batchState.batchCurrentSourceId = null;
-    batchState.batchCurrentSourceName = null;
-  }
-
-  if (!scheduledTask) {
-    scheduledTask = cron.schedule('*/2 * * * *', async () => {
-      try {
-        await runSchedulerTick();
-      } catch (err: any) {
-        console.log('[Scheduler Engine] Scheduler tick notice:', err?.message || err);
-      }
-    });
-  }
-
-  console.log('⏱️ [Scheduler Engine] Scraper scheduler enabled/started (pattern: */2 * * * *).');
-}
-
-export function stopScraperScheduler(): void {
-  isSchedulerEnabled = false;
-  batchState.cancelRequested = true;
-  batchState.generationId++;
-
-  if (scheduledTask) {
-    scheduledTask.stop();
-    scheduledTask = null;
-  }
-
-  if (batchState.batchStatus === 'Running') {
-    batchState.batchStatus = 'Stopping';
-  } else {
-    batchState.batchStatus = 'Stopped';
-  }
-
-  batchState.batchLastUpdatedAt = new Date().toISOString();
-  console.log('🛑 [Scheduler Engine] Scraper scheduler stopped/disabled.');
-}
-
 /**
- * Initializes the dynamic cron scheduler.
- * Ticks every 2 minutes to evaluate configured intervals for all sources.
- */
-export function initScraperScheduler(): void {
-  startScraperScheduler();
-}
-
-/**
- * Executes a scheduler tick: batches all due sources into ONE BATCH RUN and processes them sequentially.
+ * Executes a scheduler tick: checks individual source intervals and triggers scraping for due sources.
  */
 export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; summary: any }> {
-  if (!isSchedulerEnabled) {
-    console.log('[Scheduler Engine] Scheduler is disabled. Skipping tick.');
-    return { triggeredSources: [], summary: 'Scheduler is disabled' };
-  }
-
-  if (isTickExecuting || batchState.batchStatus === 'Running' || batchState.batchStatus === 'Stopping') {
-    console.log('[Scheduler Engine] Scheduler batch currently running or tick executing. Skipping tick.');
-    return { triggeredSources: [], summary: 'Scheduler tick deferred (batch run in progress)' };
+  if (isTickExecuting) {
+    console.log('[Scheduler Engine] Previous tick still executing. Skipping tick.');
+    return { triggeredSources: [], summary: 'Concurrent tick avoided' };
   }
 
   isTickExecuting = true;
   lastTickTime = new Date().toISOString();
+  const triggered: string[] = [];
 
   try {
     // 1. Run authoritative job expiry scan based on admin portal expiry offset
@@ -173,7 +70,7 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
       return { triggeredSources: [], summary: 'Web scraper disabled by feature flag' };
     }
 
-    // 2. Check if a manual scraper run is already executing (prevent conflicts & handle stale runs)
+    // 2. Check if a scraper run is already executing (prevent conflicts & handle stale runs)
     const currentRun = getActiveRunStatus();
     if (currentRun.isActive) {
       const lastActiveMs = new Date(currentRun.lastUpdatedTime || currentRun.startTime || 0).getTime();
@@ -189,9 +86,8 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
     const sources = await ScraperRepository.getConfigs();
     const now = Date.now();
-    const dueSources: typeof sources = [];
     const updatedSources = [...sources];
-    let initialConfigUpdates = false;
+    let hasUpdates = false;
 
     for (let i = 0; i < updatedSources.length; i++) {
       const src = updatedSources[i];
@@ -208,200 +104,94 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           ...src,
           nextRunAt: new Date(nextRunMs).toISOString()
         };
-        initialConfigUpdates = true;
+        hasUpdates = true;
         continue;
       }
 
       // Check if source is due
       if (now >= nextRunMs) {
-        dueSources.push(src);
-      }
-    }
+        console.log(`[Scheduler Engine] Source "${src.name}" (${src.id}) is due for scrape (Interval: ${src.interval || '24h'}).`);
+        triggered.push(src.id);
 
-    if (initialConfigUpdates) {
-      await ScraperRepository.saveConfigs(updatedSources);
-    }
-
-    if (dueSources.length === 0) {
-      return {
-        triggeredSources: [],
-        summary: 'Tick completed. No due sources found.'
-      };
-    }
-
-    // Create ONE Scheduler Batch for all due sources!
-    batchState.generationId++;
-    const currentGen = batchState.generationId;
-    const batchRunId = `SCHED-BATCH-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const LOCK_KEY = 'AUTO_SCRAPER_BATCH_LOCK';
-    const LOCK_TTL_MS = 5 * 60 * 1000; // 5 minute TTL for batch execution
-
-    // 3. Acquire distributed lock across instances to prevent duplicate concurrent scheduler batches
-    const lockAcquired = await ScraperRepository.acquireDistributedLock(LOCK_KEY, batchRunId, LOCK_TTL_MS);
-    if (!lockAcquired) {
-      console.log(`[Scheduler Engine] Distributed scraper lock is currently held by another server instance. Skipping tick.`);
-      return { triggeredSources: [], summary: 'Scheduler tick deferred (distributed lock held by another instance)' };
-    }
-
-    batchState = {
-      batchRunId,
-      batchStatus: 'Running',
-      batchTotal: dueSources.length,
-      batchCompleted: 0,
-      batchCurrentIndex: 0,
-      batchCurrentSourceId: null,
-      batchCurrentSourceName: null,
-      batchTriggeredSources: dueSources.map(s => s.id),
-      batchStartedAt: new Date().toISOString(),
-      batchLastUpdatedAt: new Date().toISOString(),
-      cancelRequested: false,
-      generationId: currentGen
-    };
-
-    console.log(`[Scheduler Engine] Starting batch ${batchRunId} with ${dueSources.length} due sources.`);
-
-    const configsToUpdate = await ScraperRepository.getConfigs();
-    let hasBatchConfigUpdates = false;
-
-    try {
-      for (let i = 0; i < dueSources.length; i++) {
-        const src = dueSources[i];
-
-        // CRITICAL: Check cancellation / stop / generation token before starting every next source!
-        if (!isSchedulerEnabled || batchState.cancelRequested || batchState.generationId !== currentGen || batchState.batchRunId !== batchRunId) {
-          console.log(`[Scheduler Engine] Batch ${batchRunId} cancelled/stopped before source ${i + 1}/${dueSources.length} ("${src.name}"). Halting batch.`);
-          if ((!isSchedulerEnabled || batchState.cancelRequested) && batchState.batchRunId === batchRunId) {
-            batchState.batchStatus = 'Stopped';
-            batchState.batchCurrentSourceId = null;
-            batchState.batchCurrentSourceName = null;
-            batchState.batchLastUpdatedAt = new Date().toISOString();
-          }
-          break;
-        }
-
-        // Refresh/extend distributed lock before executing each source
-        await ScraperRepository.acquireDistributedLock(LOCK_KEY, batchRunId, LOCK_TTL_MS);
-
-        if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
-          batchState.batchCurrentIndex = i + 1;
-          batchState.batchCurrentSourceId = src.id;
-          batchState.batchCurrentSourceName = src.name;
-          batchState.batchLastUpdatedAt = new Date().toISOString();
-        }
-
-        console.log(`[Scheduler Engine] Batch ${batchRunId} [${i + 1}/${dueSources.length}] Executing source "${src.name}" (${src.id})`);
-
-        let sourceCompleted = false;
         let wasBusy = false;
 
         try {
           const runResult = await executeScraperWithWizard({
             mode: 'since_last',
             sourceId: src.id,
-            autoPublishTrusted: src.autoApprove && featureFlags.enableScraperAutoApprove,
-            isSchedulerRun: true
+            autoPublishTrusted: src.autoApprove && featureFlags.enableScraperAutoApprove
           });
 
-          sourceCompleted = true;
-          console.log(`[Scheduler Engine] Batch ${batchRunId} source "${src.name}" completed. Found: ${runResult.totalFound}`);
+          console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
         } catch (srcErr: any) {
           const errMsg = String(srcErr?.message || srcErr || '');
-          if (errMsg.includes('already in progress') || errMsg.includes('currently in progress') || errMsg.includes('currently executing')) {
+          if (errMsg.includes('already in progress')) {
             wasBusy = true;
-            console.log(`[Scheduler Engine] Source "${src.name}" tick deferred: Scraper run in progress.`);
+            console.log(`[Scheduler Engine] Source "${src.name}" tick deferred: Scraper run in progress. Retrying next tick.`);
           } else {
             const detail = errMsg.replace(/Failed to fetch|fetch failed/gi, 'remote portal unreachable');
             console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${detail}`);
           }
         }
 
-        // Check cancellation immediately after source completes
-        if (!isSchedulerEnabled || batchState.cancelRequested || batchState.generationId !== currentGen || batchState.batchRunId !== batchRunId) {
-          if (sourceCompleted) {
-            if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
-              batchState.batchCompleted++;
-            }
-            const completedNow = new Date();
-            const intervalMs = parseIntervalToMs(src.interval);
-            const cfgIdx = configsToUpdate.findIndex(c => c.id === src.id);
-            if (cfgIdx !== -1) {
-              configsToUpdate[cfgIdx] = {
-                ...configsToUpdate[cfgIdx],
-                lastRunAt: completedNow.toISOString(),
-                lastCompletedAt: completedNow.toISOString(),
-                nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
-              };
-              hasBatchConfigUpdates = true;
-            }
-          }
-          console.log(`[Scheduler Engine] Batch ${batchRunId} stopped after source ${i + 1}/${dueSources.length} ("${src.name}").`);
-          if ((!isSchedulerEnabled || batchState.cancelRequested) && batchState.batchRunId === batchRunId) {
-            batchState.batchStatus = 'Stopped';
-            batchState.batchCurrentSourceId = null;
-            batchState.batchCurrentSourceName = null;
-            batchState.batchLastUpdatedAt = new Date().toISOString();
-          }
-          break;
-        }
-
         if (wasBusy) {
-          // Defer this source to next tick (2 minutes)
-          const cfgIdx = configsToUpdate.findIndex(c => c.id === src.id);
-          if (cfgIdx !== -1) {
-            configsToUpdate[cfgIdx] = {
-              ...configsToUpdate[cfgIdx],
-              nextRunAt: new Date(Date.now() + 2 * 60 * 1000).toISOString()
-            };
-            hasBatchConfigUpdates = true;
-          }
-          break; // Stop evaluating further sources in this batch if engine busy
-        }
-
-        // Schedule next run for successfully completed source
-        if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen) {
-          batchState.batchCompleted++;
-          batchState.batchLastUpdatedAt = new Date().toISOString();
-        }
-        const completedNow = new Date();
-        const intervalMs = parseIntervalToMs(src.interval);
-        const cfgIdx = configsToUpdate.findIndex(c => c.id === src.id);
-        if (cfgIdx !== -1) {
-          configsToUpdate[cfgIdx] = {
-            ...configsToUpdate[cfgIdx],
-            lastRunAt: completedNow.toISOString(),
-            lastCompletedAt: completedNow.toISOString(),
-            nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
+          // If the engine became busy, defer this source to next tick (2 minutes) rather than skipping full interval
+          updatedSources[i] = {
+            ...updatedSources[i],
+            nextRunAt: new Date(Date.now() + 2 * 60 * 1000).toISOString()
           };
-          hasBatchConfigUpdates = true;
+          hasUpdates = true;
+          break; // Stop evaluating further sources in this tick
         }
-      }
 
-      if (hasBatchConfigUpdates) {
-        await ScraperRepository.saveConfigs(configsToUpdate);
+        // Schedule next run
+        const completedNow = new Date();
+        updatedSources[i] = {
+          ...updatedSources[i],
+          lastRunAt: completedNow.toISOString(),
+          lastCompletedAt: completedNow.toISOString(),
+          nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
+        };
+        hasUpdates = true;
       }
-
-      if (batchState.batchRunId === batchRunId && batchState.generationId === currentGen && batchState.batchStatus === 'Running') {
-        batchState.batchStatus = 'Completed';
-        batchState.batchCurrentSourceId = null;
-        batchState.batchCurrentSourceName = null;
-        batchState.batchLastUpdatedAt = new Date().toISOString();
-      }
-
-      return {
-        triggeredSources: dueSources.map(s => s.id),
-        summary: `Scheduler batch completed ${batchState.batchCompleted}/${dueSources.length} sources.`
-      };
-    } finally {
-      // Always release distributed lock when batch finishes, stops, or errors out
-      await ScraperRepository.releaseDistributedLock(LOCK_KEY, batchRunId);
     }
+
+    if (hasUpdates) {
+      await ScraperRepository.saveConfigs(updatedSources);
+    }
+
+    return {
+      triggeredSources: triggered,
+      summary: `Tick completed. Triggered ${triggered.length} sources.`
+    };
   } finally {
     isTickExecuting = false;
   }
 }
 
 /**
- * Returns the current runtime status of the scheduler, batch progress, and all configured sources.
+ * Initializes the dynamic cron scheduler.
+ * Ticks every 2 minutes to check configured intervals for all sources.
+ */
+export function initScraperScheduler(): void {
+  if (scheduledTask) {
+    scheduledTask.stop();
+  }
+
+  // Ticks every 2 minutes to evaluate each source's configured interval
+  scheduledTask = cron.schedule('*/2 * * * *', async () => {
+    try {
+      await runSchedulerTick();
+    } catch (err: any) {
+      console.log('[Scheduler Engine] Scheduler tick notice:', err?.message || err);
+    }
+  });
+
+  console.log('⏱️ [Scheduler Engine] Dynamic interval-aware scraper scheduler initialized (tick pattern: */2 * * * *).');
+}
+
+/**
+ * Returns the current runtime status of the scheduler and all configured sources.
  */
 export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
   const sources = await ScraperRepository.getConfigs();
@@ -427,24 +217,11 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
   });
 
   return {
-    isRunning: isSchedulerEnabled,
-    schedulerRunning: isSchedulerEnabled,
+    isRunning: scheduledTask !== null,
     tickCronPattern: '*/2 * * * *',
     activeSourcesCount: sources.filter(s => s.status === 'Active Scheduled' || s.status === 'Active').length,
     dueSourcesCount: sourceStatuses.filter(s => s.isDue).length,
     lastTickTimestamp: lastTickTime,
-
-    batchStatus: batchState.batchStatus,
-    batchRunId: batchState.batchRunId,
-    batchTotal: batchState.batchTotal,
-    batchCompleted: batchState.batchCompleted,
-    batchCurrentIndex: batchState.batchCurrentIndex,
-    batchCurrentSourceId: batchState.batchCurrentSourceId,
-    batchCurrentSourceName: batchState.batchCurrentSourceName,
-    batchTriggeredSources: batchState.batchTriggeredSources,
-    batchStartedAt: batchState.batchStartedAt,
-    batchLastUpdatedAt: batchState.batchLastUpdatedAt,
-
     sources: sourceStatuses
   };
 }

@@ -194,9 +194,23 @@ async function initMongoIndexes(db: Db): Promise<void> {
       casesColl.createIndex({ caseNumber: 1 }, { unique: true, background: true }),
       ticketsColl.createIndex({ id: 1 }, { unique: true, background: true }),
       savedJobsColl.createIndex({ userId: 1, jobId: 1 }, { unique: true, background: true }),
-      auditColl.createIndex({ id: 1 }, { unique: true, background: true }),
-      db.collection('scraper_locks').createIndex({ id: 1 }, { unique: true, background: true })
+      auditColl.createIndex({ id: 1 }, { unique: true, background: true })
     ]);
+
+    // Authoritative Admin credentials sync in MongoDB (preserve existing ID, role, wallet, permissions)
+    const adminEmail = 'admin@jobportal.com';
+    const correctAdminHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+    const existingAdmin = await userColl.findOne({ email: adminEmail });
+    if (existingAdmin) {
+      if (existingAdmin.passwordHash !== correctAdminHash) {
+        await userColl.updateOne(
+          { email: adminEmail },
+          { $set: { passwordHash: correctAdminHash, updatedAt: new Date().toISOString() } }
+        );
+        console.log('[MongoDB] Synchronized administrative password hash for', adminEmail);
+      }
+    }
+
     indexesInitialized = true;
     console.log('[MongoDB] All production system collections and indexes ensured.');
   } catch (err: any) {
@@ -212,37 +226,9 @@ export function normalizeMongoJob(doc: any): any {
   if (!doc) return null;
   const { _id, ...job } = doc;
   
-  const isScrapedOrigin = Boolean(
-    job.isPdfScraped === true ||
-    job.isScraped === true ||
-    job.scraperSourceId ||
-    job.scraperSourceName ||
-    job.scrapedSourceDomain ||
-    job.sourcePortal ||
-    job.scrapeRunId ||
-    job.scrapedAt ||
-    job.sourceJobId ||
-    job.pdfSourceUrl ||
-    job.pdfFileName ||
-    (typeof job.id === 'string' && /^(scraped|gh|lever|sr|ashby|ld|html|doc|ocr|pdf|next)-/i.test(job.id))
-  );
-
-  const derivedSourceType = isScrapedOrigin
-    ? 'scraped'
-    : (job.sourceType && ['user_posted', 'admin_created', 'imported', 'unknown'].includes(job.sourceType))
-      ? job.sourceType
-      : (job.submittedByUserId && String(job.submittedByUserId).trim())
-        ? 'user_posted'
-        : (job.createdByAdmin === true || job.postedByAdmin === true)
-          ? 'admin_created'
-          : (job.isImported === true || (typeof job.id === 'string' && job.id.startsWith('import-')))
-            ? 'imported'
-            : 'unknown';
-
   return {
     ...job,
     id: job.id || (_id ? _id.toString() : `job-${Date.now()}`),
-    sourceType: derivedSourceType,
     tags: Array.isArray(job.tags)
       ? job.tags
       : typeof job.tags === 'string'

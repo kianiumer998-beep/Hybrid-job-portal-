@@ -101,29 +101,21 @@ async function startServer() {
     res.json({ status: 'ok', service: 'Hybrid Job & CV Portal API', uptime: process.uptime() });
   });
 
-  // API Route: Feature Flags (Read-only for users, requireAdmin for modifications)
+  // API Route: Feature Flags (Backward Compatible)
   app.get('/api/admin/feature-flags', (req, res) => {
     res.json(featureFlags);
   });
 
-  const handleUpdateFeatureFlags = (req: any, res: any) => {
-    const adminUser = req.user?.name || req.user?.email || 'Administrator';
+  app.post('/api/admin/feature-flags', requireAdmin, (req, res) => {
     const updated = updateFeatureFlags(req.body);
     Database.addAuditLog({
-      user: adminUser,
-      role: req.user?.role || 'Admin',
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'Admin',
       action: 'Feature Flags Updated',
       target: 'System Configuration',
       status: 'Success'
     });
-    res.json({ success: true, featureFlags: updated });
-  };
-
-  app.post('/api/admin/feature-flags', requireAdmin, handleUpdateFeatureFlags);
-  app.put('/api/admin/feature-flags', requireAdmin, handleUpdateFeatureFlags);
-  app.patch('/api/admin/feature-flags', requireAdmin, handleUpdateFeatureFlags);
-  app.delete('/api/admin/feature-flags', requireAdmin, (req, res) => {
-    res.status(405).json({ success: false, message: 'Feature flag deletion is not permitted.' });
+    res.json({ success: true, featureFlags });
   });
 
   // Dynamic Sitemap & Robots.txt at Root & /api/

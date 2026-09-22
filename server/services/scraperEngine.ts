@@ -2,7 +2,7 @@ import { ScraperRepository } from '../db/repositories/ScraperRepository';
 import { JobRepository } from '../db/repositories/JobRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { scrapeTargetPortal, ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
-import { detectJobDuplicate, DuplicateIndex, DuplicateMatchResult } from './duplicateEngine';
+import { detectJobDuplicate, DuplicateMatchResult } from './duplicateEngine';
 
 export interface ScraperRunOptions {
   mode: 'complete' | 'since_last' | 'page_range' | 'custom_date' | 'keyword_drill';
@@ -14,7 +14,6 @@ export interface ScraperRunOptions {
   fromTimestamp?: string;
   toTimestamp?: string;
   autoPublishTrusted?: boolean;
-  isSchedulerRun?: boolean;
 }
 
 export interface ActiveScraperRunState {
@@ -105,7 +104,6 @@ let activeRunState: ActiveScraperRunState & {
 
 let activeRunCancelRequested = false;
 let activeRunPauseRequested = false;
-let isSchedulerSourceActive = false;
 
 export function getActiveRunStatus(): any {
   const isPaused = activeRunState.status === 'Paused' || activeRunPauseRequested;
@@ -228,42 +226,18 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
 export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
-  // Concurrency guard: Prevent overlapping manual & scheduler scraper executions
-  if (options.isSchedulerRun) {
-    if (activeRunState.status === 'Running' || activeRunState.status === 'Paused') {
-      const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
-      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-      if (isStale) {
-        console.warn(`[Scraper Engine] Previous manual run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state.`);
-        activeRunState.status = 'Completed';
-        activeRunState.isStopped = true;
-        activeRunCancelRequested = false;
-        activeRunPauseRequested = false;
-      } else {
-        throw new Error('A manual scraper run is currently in progress. Deferring scheduled source execution.');
-      }
-    }
-    if (isSchedulerSourceActive) {
-      throw new Error('A scheduled scraper source is already executing.');
-    }
-    isSchedulerSourceActive = true;
-  } else {
-    if (isSchedulerSourceActive) {
-      throw new Error('A background scheduled scraper source is currently executing. Please try again in a few seconds.');
-    }
-    // Prevent concurrent manual scraper runs (with automatic watchdog recovery for stale runs)
-    if (activeRunState.status === 'Running') {
-      const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
-      const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
-      if (isStale) {
-        console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
-        activeRunState.status = 'Completed';
-        activeRunState.isStopped = true;
-        activeRunCancelRequested = false;
-        activeRunPauseRequested = false;
-      } else {
-        throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
-      }
+  // Prevent concurrent scraper runs (with automatic watchdog recovery for stale runs)
+  if (activeRunState.status === 'Running') {
+    const lastActiveMs = new Date(activeRunState.lastUpdatedTime || activeRunState.startTime || 0).getTime();
+    const isStale = (Date.now() - lastActiveMs) > 5 * 60 * 1000;
+    if (isStale) {
+      console.warn(`[Scraper Engine] Previous run ${activeRunState.runId} appears stale (>5 minutes without updates). Auto-clearing state to unblock scraper.`);
+      activeRunState.status = 'Completed';
+      activeRunState.isStopped = true;
+      activeRunCancelRequested = false;
+      activeRunPauseRequested = false;
+    } else {
+      throw new Error('A scraper run is already in progress. Please wait for it to complete or pause/stop it first.');
     }
   }
 
@@ -271,10 +245,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const timestampStr = startTime.toISOString().replace('T', ' ').substring(0, 19);
   const runId = `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-  if (!options.isSchedulerRun) {
-    activeRunCancelRequested = false;
-    activeRunPauseRequested = false;
-  }
+  activeRunCancelRequested = false;
+  activeRunPauseRequested = false;
 
   const allSources = await ScraperRepository.getConfigs();
   let targets: ScraperTargetConfig[] = [];
@@ -309,33 +281,30 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
   }
 
-  // Initialize live tracking state for manual/wizard runs
-  if (!options.isSchedulerRun) {
-    activeRunState = {
-      runId,
-      status: 'Running',
-      totalSources: targets.length,
-      completedSourcesCount: 0,
-      remainingSourcesCount: targets.length,
-      currentSourceIndex: 0,
-      jobsFound: 0,
-      newJobsCount: 0,
-      duplicatesCount: 0,
-      pendingCount: 0,
-      publishedCount: 0,
-      failedSourcesCount: 0,
-      startTime: startTime.toISOString(),
-      lastUpdatedTime: new Date().toISOString(),
-      options,
-      remainingTargets: [...targets]
-    };
-  }
+  // Initialize live tracking state
+  activeRunState = {
+    runId,
+    status: 'Running',
+    totalSources: targets.length,
+    completedSourcesCount: 0,
+    remainingSourcesCount: targets.length,
+    currentSourceIndex: 0,
+    jobsFound: 0,
+    newJobsCount: 0,
+    duplicatesCount: 0,
+    pendingCount: 0,
+    publishedCount: 0,
+    failedSourcesCount: 0,
+    startTime: startTime.toISOString(),
+    lastUpdatedTime: new Date().toISOString(),
+    options,
+    remainingTargets: [...targets]
+  };
 
   try {
     const existingLiveJobs = (await JobRepository.getAll({ limit: 2000 })).jobs;
     const existingPendingJobs = await JobRepository.getPending();
     const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
-    const duplicateIndex = new DuplicateIndex(combinedExisting);
 
   const harvestedJobs: any[] = [];
   const duplicateJobs: any[] = [];
@@ -346,22 +315,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   let totalPagesAttempted = 0;
   let totalPagesSuccessful = 0;
   let totalJobsRejected = 0;
-  let totalDiscoveredJobs = 0;
-
-  let lastHeartbeatTime = Date.now();
-  const updateHeartbeat = () => {
-    const now = Date.now();
-    if (now - lastHeartbeatTime >= 15000) {
-      lastHeartbeatTime = now;
-      activeRunState.lastUpdatedTime = new Date(now).toISOString();
-      activeRunState.jobsFound = totalDiscoveredJobs;
-      activeRunState.newJobsCount = uniqueJobs.length;
-      activeRunState.duplicatesCount = duplicateJobs.length;
-      activeRunState.pendingCount = pendingJobs.length;
-      activeRunState.publishedCount = publishedJobs.length;
-      activeRunState.failedSourcesCount = failedCount;
-    }
-  };
 
   const sourcesStats: ScraperRunSummary['sourcesStats'] = [];
 
@@ -424,12 +377,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     let sourceFailed = false;
     let sourceError = '';
 
-    const sourceAbortController = new AbortController();
-    const SOURCE_TIMEOUT_MS = 45000;
-    const sourceTimeoutId = setTimeout(() => {
-      sourceAbortController.abort('Source execution timed out after 45 seconds');
-    }, SOURCE_TIMEOUT_MS);
-
     try {
       // 1. Determine cutoff date
       let sinceTimestamp = options.sinceTimestamp;
@@ -439,10 +386,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         sinceTimestamp = options.fromTimestamp;
       }
 
-      // 2. Dynamic next-page crawl loop with repeated-page & real-pagination protection
+      // 2. Dynamic next-page crawl loop (no hard-coded 25-page limit)
       const rawResults: ScrapedJobResult[] = [];
-      const seenPageUrls = new Set<string>();
-      const seenPageFingerprints = new Set<string>();
 
       let startPage = 1;
       let maxAllowedPage = 1;
@@ -452,18 +397,13 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         maxAllowedPage = options.endPage ? Math.max(startPage, options.endPage) : startPage;
       } else if (options.mode === 'complete') {
         startPage = 1;
-        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 50;
+        maxAllowedPage = options.endPage ? Math.max(1, options.endPage) : 1000;
       }
 
       let currentPage = startPage;
       let hasMorePages = true;
 
       while (currentPage <= maxAllowedPage && hasMorePages) {
-        updateHeartbeat();
-        if (sourceAbortController.signal.aborted) {
-          throw new Error('Source execution timed out after 45 seconds');
-        }
-
         if (activeRunPauseRequested) {
           activeRunState.status = 'Paused';
           activeRunState.isPaused = true;
@@ -494,51 +434,26 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
             startPage,
             endPage: maxAllowedPage,
             sinceTimestamp,
-            runId,
-            signal: sourceAbortController.signal
+            runId
           });
 
           sourcePagesSuccessful++;
           totalPagesSuccessful++;
 
           if (pageResults && pageResults.length > 0) {
-            // Content fingerprint & repeated-page protection:
-            // Prevents infinite loops on portals (like SPSC) that ignore ?page=N and return the identical HTML
-            const fingerprint = pageResults
-              .slice(0, 15)
-              .map(j => (j.sourceJobId || j.title || j.sourceUrl || '').trim().toLowerCase())
-              .filter(Boolean)
-              .join('||');
-
-            if (fingerprint && seenPageFingerprints.has(fingerprint)) {
-              console.log(`[Scraper Engine] Repeated page content detected on ${target.name} at page ${currentPage}. Stopping pagination.`);
-              hasMorePages = false;
-              break;
-            }
-            if (fingerprint) {
-              seenPageFingerprints.add(fingerprint);
-            }
-
             rawResults.push(...pageResults);
 
-            // Real Next Page Discovery:
-            // ONLY continue if a genuine explicit next-page destination was discovered on the page
-            const detectedNextUrl = pageResults.find(j => !!j.nextPageUrl)?.nextPageUrl;
-
+            const nextPageDetected = pageResults.some(j => !!j.nextPageUrl);
             if (options.mode === 'complete') {
-              if (detectedNextUrl && detectedNextUrl !== target.url && !seenPageUrls.has(detectedNextUrl) && currentPage < maxAllowedPage) {
-                seenPageUrls.add(detectedNextUrl);
+              if (nextPageDetected && currentPage < maxAllowedPage) {
+                currentPage++;
+              } else if (pageResults.length >= 10 && currentPage < maxAllowedPage) {
                 currentPage++;
               } else {
-                // No explicit next page URL discovered -> Stop pagination immediately
                 hasMorePages = false;
               }
             } else if (options.mode === 'page_range') {
-              if (currentPage < maxAllowedPage) {
-                currentPage++;
-              } else {
-                hasMorePages = false;
-              }
+              currentPage++;
             } else {
               hasMorePages = false;
             }
@@ -548,9 +463,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         } catch (pageErr: any) {
           console.log(`[Scraper Engine] Page ${currentPage} notice on source ${target.name}: ${pageErr?.message || pageErr}`);
           hasMorePages = false;
-          if (sourcePagesSuccessful === 0) {
-            throw pageErr;
-          }
         }
       }
 
@@ -558,22 +470,9 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       let filteredResults = rawResults;
       const parseJobTime = (j: ScrapedJobResult): number | null => {
         const rawTimeStr = j.datePosted || j.postedAt;
-        if (!rawTimeStr || typeof rawTimeStr !== 'string' || /^(recent|just now|recently)$/i.test(rawTimeStr.trim())) {
-          if (j.postedAt && (typeof j.postedAt !== 'string' || /^(recent|just now|recently)$/i.test(j.postedAt.trim()))) {
-            j.postedAt = undefined;
-          }
-          if (j.datePosted && (typeof j.datePosted !== 'string' || /^(recent|just now|recently)$/i.test(j.datePosted.trim()))) {
-            j.datePosted = undefined;
-          }
-          return null;
-        }
+        if (!rawTimeStr || typeof rawTimeStr !== 'string' || rawTimeStr.trim().toLowerCase() === 'recent') return null;
         const parsed = new Date(rawTimeStr).getTime();
-        if (isNaN(parsed)) {
-          j.postedAt = undefined;
-          j.datePosted = undefined;
-          return null;
-        }
-        return parsed;
+        return isNaN(parsed) ? null : parsed;
       };
 
       if (options.mode === 'custom_date') {
@@ -600,40 +499,19 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         if (!isNaN(cutoffTime)) {
           filteredResults = filteredResults.filter(j => {
             const postTime = parseJobTime(j);
-            // If job has a valid factual posting date, apply cutoff normally;
-            // if posting date is missing/undefined or cannot be reliably parsed,
-            // preserve the authentic job with empty date field.
-            return postTime !== null ? postTime >= cutoffTime : true;
+            return postTime !== null && postTime >= cutoffTime;
           });
         }
       }
 
       sourceFound = filteredResults.length;
-      totalDiscoveredJobs += sourceFound;
 
-      const sourcePendingJobs: any[] = [];
-      const sourceApprovedJobs: any[] = [];
-
-      for (let rIdx = 0; rIdx < filteredResults.length; rIdx++) {
-        const raw = filteredResults[rIdx];
-        updateHeartbeat();
-
-        // Responsive async boundary every 100 jobs to keep event loop and heartbeat responsive on massive lists
-        if (rIdx > 0 && rIdx % 100 === 0) {
-          await new Promise(r => setTimeout(r, 0));
-        }
-
+      for (const raw of filteredResults) {
         const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable' && raw.salary.toLowerCase() !== 'salary not disclosed')
           ? raw.salary.trim()
           : (raw.salary && raw.salary.trim() ? raw.salary.trim() : undefined);
 
-        const effectiveCompany = (raw.company || (target as any).organization || '').trim();
-
-        const isQualityAcceptable = !!(
-          raw.title &&
-          raw.title.trim().length >= 3 &&
-          effectiveCompany.length >= 2
-        );
+        const isQualityAcceptable = !!(raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2);
         if (!isQualityAcceptable) {
           totalJobsRejected++;
           continue;
@@ -641,11 +519,17 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
         const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
 
-        // Location determination - preserve extracted location, or source configuration
-        let resolvedRegion = (raw.region && raw.region !== 'Global') ? raw.region : ((target as any).region || undefined);
-        let resolvedProvince = raw.province || (target as any).province || undefined;
-        let resolvedCity = raw.city || (target as any).city || undefined;
-        let resolvedDistrict = (raw as any).district || (target as any).district || undefined;
+        // Location determination - preserve extracted location, or fallback to source configuration
+        const isPakPortal = (target as any).region === 'Pakistan' ||
+          target.isGovtPortal ||
+          domain.endsWith('.pk') ||
+          /pakistan|fpsc|ppsc|spsc|kppsc|bpsc|federal|punjab|sindh|kpk|balochistan|islamabad|lahore|karachi|peshawar|quetta|wapda|nadra|hec|ptcl|ogdcl|fia|nab|fbr/i.test(target.name) ||
+          /pakistan|islamabad|lahore|karachi|rawalpindi|peshawar|quetta|multan|faisalabad|sialkot|gujranwala/i.test(`${raw.title} ${raw.city || ''} ${raw.department || ''} ${raw.province || ''}`);
+
+        let resolvedRegion = (raw.region && raw.region !== 'Global') ? raw.region : ((target as any).region || (isPakPortal ? 'Pakistan' : 'Global'));
+        let resolvedProvince = raw.province || (target as any).province;
+        let resolvedCity = raw.city || (target as any).city;
+        let resolvedDistrict = (raw as any).district || (target as any).district;
 
         // If source location enforcement is enabled, override with source settings
         if (target.useSourceLocation) {
@@ -655,11 +539,30 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           if (target.district) resolvedDistrict = target.district;
         }
 
+        // Pakistani province auto-detection if still unassigned
+        if ((resolvedRegion === 'Pakistan' || isPakPortal) && !resolvedProvince) {
+          const combinedLocText = `${target.name} ${raw.title} ${resolvedCity || ''} ${raw.department || ''}`.toLowerCase();
+          if (combinedLocText.includes('federal') || combinedLocText.includes('fpsc') || combinedLocText.includes('islamabad') || combinedLocText.includes('national')) {
+            resolvedProvince = 'Federal';
+          } else if (combinedLocText.includes('punjab') || combinedLocText.includes('ppsc') || combinedLocText.includes('lahore') || combinedLocText.includes('rawalpindi') || combinedLocText.includes('multan') || combinedLocText.includes('faisalabad')) {
+            resolvedProvince = 'Punjab';
+          } else if (combinedLocText.includes('sindh') || combinedLocText.includes('spsc') || combinedLocText.includes('karachi') || combinedLocText.includes('hyderabad') || combinedLocText.includes('sukkur')) {
+            resolvedProvince = 'Sindh';
+          } else if (combinedLocText.includes('kpk') || combinedLocText.includes('kp') || combinedLocText.includes('kppsc') || combinedLocText.includes('peshawar') || combinedLocText.includes('abbottabad')) {
+            resolvedProvince = 'Khyber Pakhtunkhwa';
+          } else if (combinedLocText.includes('balochistan') || combinedLocText.includes('bpsc') || combinedLocText.includes('quetta') || combinedLocText.includes('gwadar')) {
+            resolvedProvince = 'Balochistan';
+          } else if (combinedLocText.includes('ajk') || combinedLocText.includes('azad kashmir') || combinedLocText.includes('muzaffarabad')) {
+            resolvedProvince = 'Azad Kashmir';
+          } else if (combinedLocText.includes('gilgit') || combinedLocText.includes('baltistan')) {
+            resolvedProvince = 'Gilgit-Baltistan';
+          }
+        }
+
         const standardizedJob: any = {
           ...raw,
           id: raw.id || `scraped-${target.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-          company: effectiveCompany,
-          salary: standardizedSalary || undefined,
+          salary: standardizedSalary || '',
           scraperSourceId: target.id,
           scraperSourceName: target.name,
           scrapedSourceDomain: domain,
@@ -687,10 +590,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           status: (target.autoApprove && options.autoPublishTrusted) ? 'Approved' : 'Pending'
         };
 
-        // Deduplication check with high-performance indexed lookup
+        // Deduplication check
         const dupCheck: DuplicateMatchResult = detectJobDuplicate(
           standardizedJob,
-          duplicateIndex
+          combinedExisting,
+          harvestedJobs
         );
 
         standardizedJob.isDuplicate = dupCheck.isDuplicate;
@@ -702,47 +606,26 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
 
         harvestedJobs.push(standardizedJob);
-        duplicateIndex.addBatchJob(standardizedJob);
-        combinedExisting.push(standardizedJob);
 
         if (dupCheck.isDuplicate) {
           sourceDup++;
           duplicateJobs.push(standardizedJob);
-          sourcePendingJobs.push(standardizedJob);
+          await JobRepository.addPending(standardizedJob);
+          combinedExisting.push(standardizedJob);
         } else {
           sourceNew++;
           uniqueJobs.push(standardizedJob);
 
           if (standardizedJob.status === 'Approved') {
-            sourceApprovedJobs.push(standardizedJob);
+            await JobRepository.create(standardizedJob);
             publishedJobs.push(standardizedJob);
           } else {
-            sourcePendingJobs.push(standardizedJob);
+            await JobRepository.addPending(standardizedJob);
             pendingJobs.push(standardizedJob);
           }
+          combinedExisting.push(standardizedJob);
         }
       }
-
-      // Batch persist accumulated jobs in bounded chunks of 500
-      const BATCH_CHUNK_SIZE = 500;
-
-      if (sourcePendingJobs.length > 0) {
-        for (let c = 0; c < sourcePendingJobs.length; c += BATCH_CHUNK_SIZE) {
-          updateHeartbeat();
-          const chunk = sourcePendingJobs.slice(c, c + BATCH_CHUNK_SIZE);
-          await JobRepository.addPendingBatch(chunk);
-        }
-      }
-
-      if (sourceApprovedJobs.length > 0) {
-        for (let c = 0; c < sourceApprovedJobs.length; c += BATCH_CHUNK_SIZE) {
-          updateHeartbeat();
-          const chunk = sourceApprovedJobs.slice(c, c + BATCH_CHUNK_SIZE);
-          await JobRepository.createBatch(chunk, true);
-        }
-      }
-
-      clearTimeout(sourceTimeoutId);
 
       // Update source stats
       const sourceCompletedAt = new Date().toISOString();
@@ -755,7 +638,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         lastRunId: runId,
         scrapedCountIncrement: sourceFound,
         healthStatus: successHealth,
-        lastErrorMessage: isJobsFound ? undefined : 'Portal reachable, but 0 active job vacancies found today'
+        lastErrorMessage: isJobsFound ? undefined : '0 vacancies extracted from target source'
       });
 
       sourcesStats.push({
@@ -773,52 +656,30 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         lastSuccessfulScrapeAt: isJobsFound ? sourceCompletedAt : target.lastSuccessfulScrapeAt
       });
     } catch (err: any) {
-      clearTimeout(sourceTimeoutId);
       failedCount++;
       sourceFailed = true;
+      sourceError = err.message || 'Scraping target failed';
+      console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${err?.message || err}`);
 
-      const rawErrorMsg = err?.message || String(err);
-      console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${rawErrorMsg}`);
-
-      const errLower = rawErrorMsg.toLowerCase();
+      const errLower = sourceError.toLowerCase();
       let classifiedHealth: string = 'Fetch Error';
       let httpStatus: number | undefined = err.status || err.statusCode || err.httpStatus;
-      let humanReadableError = rawErrorMsg;
 
-      const isTimeout = sourceAbortController.signal.aborted || /timeout|timed out|aborterror|etimedout/i.test(errLower);
-
-      if (isTimeout) {
-        classifiedHealth = 'Timeout';
-        humanReadableError = 'Source execution timed out after 45 seconds';
-      } else if (httpStatus === 429 || errLower.includes('429') || errLower.includes('too many requests') || errLower.includes('rate limit')) {
-        classifiedHealth = 'Rate Limited';
-        if (!httpStatus) httpStatus = 429;
-        humanReadableError = err?.retryAfter
-          ? `Target portal rate limited requests (HTTP 429, Retry-After: ${err.retryAfter})`
-          : 'Target portal rate limited requests (HTTP 429)';
-      } else if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
+      if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
         classifiedHealth = '404';
         if (!httpStatus) httpStatus = 404;
-        humanReadableError = 'Official Gazette PDF or vacancy page not found on remote server (HTTP 404)';
       } else if (httpStatus === 403 || errLower.includes('403') || errLower.includes('forbidden') || errLower.includes('access denied')) {
         classifiedHealth = '403';
         if (!httpStatus) httpStatus = 403;
-        humanReadableError = 'Remote server access forbidden (HTTP 403)';
-      } else if (/enotfound|eai_again|dns|offline|unreachable/i.test(errLower)) {
-        classifiedHealth = 'Fetch Error';
-        humanReadableError = 'Remote portal unavailable or DNS unreachable';
-      } else if (/ssl|tls|certificate|handshake/i.test(errLower)) {
-        classifiedHealth = 'Fetch Error';
-        humanReadableError = 'Remote portal SSL/TLS handshake failed';
+      } else if (errLower.includes('timeout') || errLower.includes('timed out') || errLower.includes('etimedout') || errLower.includes('aborterror')) {
+        classifiedHealth = 'Timeout';
       } else if (errLower.includes('invalid pdf') || errLower.includes('pdf error') || errLower.includes('corrupt pdf') || (errLower.includes('pdf') && errLower.includes('fail'))) {
         classifiedHealth = 'Invalid PDF';
-        humanReadableError = 'PDF document could not be parsed or is corrupted';
       } else if (errLower.includes('cheerio') || errLower.includes('html parse') || errLower.includes('invalid html') || errLower.includes('selector')) {
         classifiedHealth = 'HTML';
-        humanReadableError = 'Portal HTML layout changed or could not be parsed';
+      } else {
+        classifiedHealth = 'Fetch Error';
       }
-
-      sourceError = humanReadableError;
 
       const sourceCompletedAt = new Date().toISOString();
       await ScraperRepository.updateSourceStats(target.id, {
@@ -848,7 +709,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     // Update live state counts after each source
     activeRunState.completedSourcesCount = tIdx + 1;
     activeRunState.remainingSourcesCount = targets.length - (tIdx + 1);
-    activeRunState.jobsFound = totalDiscoveredJobs;
+    activeRunState.jobsFound = harvestedJobs.length;
     activeRunState.newJobsCount = uniqueJobs.length;
     activeRunState.duplicatesCount = duplicateJobs.length;
     activeRunState.pendingCount = pendingJobs.length;
@@ -874,7 +735,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     completedAt: endTime.toISOString(),
     mode: options.mode,
     targetsScraped: sourcesStats.length,
-    totalFound: totalDiscoveredJobs,
+    totalFound: harvestedJobs.length,
     newPublished: publishedJobs.length,
     newPending: pendingJobs.length,
     duplicatesFlagged: duplicateJobs.length,
@@ -887,11 +748,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     user: 'Administrator',
     role: 'Scraper Hub',
     action: 'Scraper Run Completed',
-    target: `${sourcesStats.length} Source Portals (${totalDiscoveredJobs} Jobs Harvested)`,
+    target: `${sourcesStats.length} Source Portals (${harvestedJobs.length} Jobs Harvested)`,
     status: failedCount > 0 ? 'Warning' : 'Success',
     metadata: {
       mode: options.mode,
-      totalFound: totalDiscoveredJobs,
+      totalFound: harvestedJobs.length,
       published: publishedJobs.length,
       pending: pendingJobs.length,
       duplicates: duplicateJobs.length,
@@ -903,7 +764,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     runId,
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
-    totalFound: totalDiscoveredJobs,
+    totalFound: harvestedJobs.length,
     totalNew: uniqueJobs.length,
     totalDuplicates: duplicateJobs.length,
     totalFailedSources: failedCount,
@@ -916,7 +777,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     duplicateJobs,
     sourcesStats,
     executionDurationMs: duration,
-    message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${totalDiscoveredJobs} verified vacancies.`
+    message: `Scrape run completed across ${sourcesStats.length} sources. Extracted ${harvestedJobs.length} verified vacancies.`
   };
 } catch (runErr: any) {
   console.error(`[Scraper Engine] Fatal run error in ${runId}:`, runErr);
@@ -928,12 +789,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   activeRunState.lastUpdatedTime = new Date().toISOString();
   throw runErr;
 } finally {
-  if (options.isSchedulerRun) {
-    isSchedulerSourceActive = false;
-  } else {
-    if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
-      activeRunState.status = 'Completed';
-    }
+  if (activeRunState.status === 'Running' && !activeRunPauseRequested) {
+    activeRunState.status = 'Completed';
   }
   activeRunState.lastUpdatedTime = new Date().toISOString();
 }

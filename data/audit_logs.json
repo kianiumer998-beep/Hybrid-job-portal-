@@ -1,5 +1,14 @@
 [
   {
+    "id": "log-1790090356160-yx0v",
+    "timestamp": "2026-09-22T15:19:16.160Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Bulk Duplicate Jobs Deleted",
+    "target": "279 duplicate jobs deleted (21 failed)",
+    "status": "Warning"
+  },
+  {
     "id": "log-1790090022715-zkd0",
     "timestamp": "2026-09-22T15:13:42.715Z",
     "user": "Super Administrator",

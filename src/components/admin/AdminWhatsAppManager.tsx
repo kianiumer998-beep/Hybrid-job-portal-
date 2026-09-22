@@ -347,3 +347,6 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     </div>
   );
 };
+
+export const AdminWhatsAppSettings = AdminWhatsAppManager;
+export default AdminWhatsAppManager;

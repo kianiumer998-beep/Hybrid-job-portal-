@@ -14,7 +14,10 @@ interface UserDetailModalProps {
   onDeactivateUserJobs?: (userId: string) => void;
   onEndUserMembershipAndJobs?: (userId: string) => void;
   onSuspendJob?: (jobId: string, reason?: string) => void;
-  onInspectJob?: (job) => void;
+  onInspectJob?: (job: any) => void;
+  userAds?: any[];
+  onSaveAdminNotes?: (userId: string, notes: string) => void;
+  onUpdateUserVerification?: (userId: string, status: string, kycStatus?: string) => void;
 }
 
 export const UserDetailModal: React.FC<UserDetailModalProps> = ({

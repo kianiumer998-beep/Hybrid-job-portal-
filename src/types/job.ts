@@ -1,7 +1,6 @@
 export type JobType = 'Remote' | 'Hybrid' | 'On-site';
 export type Region = 'Global' | 'US' | 'UK' | 'Pakistan' | 'UAE' | 'Saudi Arabia' | 'Canada' | 'Europe' | 'Australia';
 export type Currency = 'USD' | 'PKR' | 'GBP' | 'EUR' | 'CAD' | 'AUD' | 'AED' | 'SAR';
-export type JobSourceType = 'user_posted' | 'scraped' | 'admin_created' | 'imported' | 'unknown';
 
 export interface AdminFeatureFlags {
   enableWebScraper: boolean;
@@ -30,7 +29,7 @@ export interface PaymentTransaction {
   dateTime: string; // "YYYY-MM-DD HH:MM"
   amount: number;
   currency: Currency;
-  type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund' | 'Campaign Top-Up';
+  type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund';
   status: 'Success' | 'Pending' | 'Failed';
   paymentMethod: 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer' | 'Stripe' | 'PayPal' | 'Wallet Balance' | string;
   jobTitleRef?: string;
@@ -41,10 +40,6 @@ export interface PaymentTransaction {
   senderPhoneOrAccount?: string;
   depositBankOrWalletName?: string;
   jobIdRef?: string;
-  campaignIdRef?: string;
-  balanceBefore?: number;
-  balanceAfter?: number;
-  description?: string;
   adminNote?: string;
   proofScreenshotUrl?: string;
   proofNote?: string;
@@ -107,12 +102,9 @@ export interface UserAccount {
   customFieldsData?: Record<string, string>;
   appliedJobs?: JobApplication[];
   walletBalance?: number; // In PKR
-  verificationStatus?: 'Verified' | 'Pending' | 'Unverified';
-  kycStatus?: 'Verified' | 'Pending' | 'Rejected' | 'Not Submitted';
-  kycDocuments?: { type: string; documentNumber?: string; fileUrl?: string; submittedAt?: string }[];
   adminNotes?: string;
-  lastLoginAt?: string;
-  registrationMethod?: 'Email' | 'Google' | 'Direct Admin' | 'WhatsApp';
+  verificationStatus?: string;
+  kycStatus?: string;
   createdAt: string;
 }
 
@@ -154,7 +146,6 @@ export interface Job {
   suspensionReason?: string;
   isSuspended?: boolean;
   submittedByUserId?: string;
-  sourceType?: JobSourceType;
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue' | 'Exempt';
   jobCategory?: 'Private Corporate' | 'Government Sector' | 'Newspaper Classified' | 'International Remote' | string;
   sourceUrl?: string;
@@ -214,23 +205,6 @@ export interface Job {
   duplicateDetectedAt?: string;
   applicationType?: 'internal' | 'external' | 'both';
   externalApplyUrl?: string;
-  mediaUrl?: string;
-  extractedText?: string;
-
-  // Non-Job & OCR Review Attributes
-  isNonJob?: boolean;
-  nonJobClassificationReason?: string;
-  nonJobReason?: string;
-  isNeedsReview?: boolean;
-  needsReviewReason?: string;
-  documentUrl?: string;
-  originalPostingUrl?: string;
-  isPdfDocument?: boolean;
-  ocrRequired?: boolean;
-  ocrCompleted?: boolean;
-  ocrFailed?: boolean;
-  documentProcessingError?: string;
-  ocrExtractedText?: string;
 }
 
 export interface ChatMessage {

@@ -354,13 +354,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (onUpdateSeoConfig) {
       onUpdateSeoConfig(newCfg);
     } else {
-      api.settings.updateSeo(newCfg).catch(err => console.error('[AdminDashboard] Failed to save SEO config:', err));
+      (api as any).settings?.updateSeo?.(newCfg)?.catch((err: any) => console.error('[AdminDashboard] Failed to save SEO config:', err));
     }
   };
 
   // Load backend Communication provider credentials on mount
   useEffect(() => {
-    api.settings.getCommunication().then(res => {
+    (api as any).settings?.getCommunication?.()?.then((res: any) => {
       if (res?.success && res.config) {
         setCommConfig(prev => ({ ...prev, ...res.config }));
       }
@@ -369,7 +369,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleUpdateCommConfig = (newCfg: CommunicationProviderConfig) => {
     setCommConfig(newCfg);
-    api.settings.updateCommunication(newCfg).catch(err => console.error('[AdminDashboard] Failed to save Comm config:', err));
+    (api as any).settings?.updateCommunication?.(newCfg)?.catch((err: any) => console.error('[AdminDashboard] Failed to save Comm config:', err));
   };
 
   useEffect(() => {

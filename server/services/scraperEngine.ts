@@ -520,16 +520,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
 
         // Location determination - preserve extracted location, or fallback to source configuration
-        const isPakPortal = (target as any).region === 'Pakistan' ||
-          target.isGovtPortal ||
-          domain.endsWith('.pk') ||
-          /pakistan|fpsc|ppsc|spsc|kppsc|bpsc|federal|punjab|sindh|kpk|balochistan|islamabad|lahore|karachi|peshawar|quetta|wapda|nadra|hec|ptcl|ogdcl|fia|nab|fbr/i.test(target.name) ||
-          /pakistan|islamabad|lahore|karachi|rawalpindi|peshawar|quetta|multan|faisalabad|sialkot|gujranwala/i.test(`${raw.title} ${raw.city || ''} ${raw.department || ''} ${raw.province || ''}`);
-
-        let resolvedRegion = (raw.region && raw.region !== 'Global') ? raw.region : ((target as any).region || (isPakPortal ? 'Pakistan' : 'Global'));
-        let resolvedProvince = raw.province || (target as any).province;
-        let resolvedCity = raw.city || (target as any).city;
-        let resolvedDistrict = (raw as any).district || (target as any).district;
+        let resolvedRegion = (raw.region && raw.region !== 'Global') ? raw.region : ((target as any).region || undefined);
+        let resolvedProvince = raw.province || (target as any).province || undefined;
+        let resolvedCity = raw.city || (target as any).city || undefined;
+        let resolvedDistrict = (raw as any).district || (target as any).district || undefined;
 
         // If source location enforcement is enabled, override with source settings
         if (target.useSourceLocation) {
@@ -537,26 +531,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           if (target.province) resolvedProvince = target.province;
           if (target.city) resolvedCity = target.city;
           if (target.district) resolvedDistrict = target.district;
-        }
-
-        // Pakistani province auto-detection if still unassigned
-        if ((resolvedRegion === 'Pakistan' || isPakPortal) && !resolvedProvince) {
-          const combinedLocText = `${target.name} ${raw.title} ${resolvedCity || ''} ${raw.department || ''}`.toLowerCase();
-          if (combinedLocText.includes('federal') || combinedLocText.includes('fpsc') || combinedLocText.includes('islamabad') || combinedLocText.includes('national')) {
-            resolvedProvince = 'Federal';
-          } else if (combinedLocText.includes('punjab') || combinedLocText.includes('ppsc') || combinedLocText.includes('lahore') || combinedLocText.includes('rawalpindi') || combinedLocText.includes('multan') || combinedLocText.includes('faisalabad')) {
-            resolvedProvince = 'Punjab';
-          } else if (combinedLocText.includes('sindh') || combinedLocText.includes('spsc') || combinedLocText.includes('karachi') || combinedLocText.includes('hyderabad') || combinedLocText.includes('sukkur')) {
-            resolvedProvince = 'Sindh';
-          } else if (combinedLocText.includes('kpk') || combinedLocText.includes('kp') || combinedLocText.includes('kppsc') || combinedLocText.includes('peshawar') || combinedLocText.includes('abbottabad')) {
-            resolvedProvince = 'Khyber Pakhtunkhwa';
-          } else if (combinedLocText.includes('balochistan') || combinedLocText.includes('bpsc') || combinedLocText.includes('quetta') || combinedLocText.includes('gwadar')) {
-            resolvedProvince = 'Balochistan';
-          } else if (combinedLocText.includes('ajk') || combinedLocText.includes('azad kashmir') || combinedLocText.includes('muzaffarabad')) {
-            resolvedProvince = 'Azad Kashmir';
-          } else if (combinedLocText.includes('gilgit') || combinedLocText.includes('baltistan')) {
-            resolvedProvince = 'Gilgit-Baltistan';
-          }
         }
 
         const standardizedJob: any = {

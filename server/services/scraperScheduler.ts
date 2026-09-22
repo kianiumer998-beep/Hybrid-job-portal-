@@ -190,3 +190,22 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
     sources: sourceStatuses
   };
 }
+
+/**
+ * Enables or pauses the global scraper scheduler runtime.
+ */
+export function setGlobalSchedulerState(enabled: boolean): { isRunning: boolean; message: string } {
+  if (enabled) {
+    if (!scheduledTask) {
+      initScraperScheduler();
+    }
+    return { isRunning: true, message: 'Global scraper scheduler enabled successfully.' };
+  } else {
+    if (scheduledTask) {
+      scheduledTask.stop();
+      scheduledTask = null;
+    }
+    return { isRunning: false, message: 'Global scraper scheduler paused successfully.' };
+  }
+}
+

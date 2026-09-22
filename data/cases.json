@@ -1,0 +1,55 @@
+[
+  {
+    "id": "case-demo-1",
+    "caseNumber": "CASE-2026-0001",
+    "type": "deposit",
+    "referenceId": "tx-demo-1",
+    "title": "Initial Wallet Deposit Proof",
+    "userId": "user-demo-qwer-unified",
+    "userName": "Qwer Member",
+    "userEmail": "qwer@jobportal.com",
+    "status": "approved",
+    "priority": "medium",
+    "timeline": [
+      {
+        "timestamp": "2026-09-18T14:07:20.368Z",
+        "actor": "Qwer Member",
+        "role": "Member",
+        "action": "Case Submitted",
+        "note": "JazzCash receipt proof submitted."
+      },
+      {
+        "timestamp": "2026-09-19T14:07:20.368Z",
+        "actor": "Super Administrator",
+        "role": "Super Admin",
+        "action": "Case Approved",
+        "note": "Transaction verified and credited to user wallet."
+      }
+    ],
+    "createdAt": "2026-09-18T14:07:20.368Z",
+    "updatedAt": "2026-09-18T14:07:20.368Z"
+  },
+  {
+    "id": "case-demo-2",
+    "caseNumber": "CASE-2026-0002",
+    "type": "job_submission",
+    "referenceId": "job-1",
+    "title": "Senior React & Node.js Engineer Vacancy Review",
+    "userId": "user-demo-qwer-unified",
+    "userName": "Qwer Member",
+    "userEmail": "qwer@jobportal.com",
+    "status": "approved",
+    "priority": "high",
+    "timeline": [
+      {
+        "timestamp": "2026-09-19T14:07:20.368Z",
+        "actor": "System",
+        "role": "System",
+        "action": "Case Created",
+        "note": "Direct employer vacancy review case opened."
+      }
+    ],
+    "createdAt": "2026-09-19T14:07:20.368Z",
+    "updatedAt": "2026-09-19T14:07:20.368Z"
+  }
+]

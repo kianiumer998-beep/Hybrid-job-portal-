@@ -4,7 +4,7 @@
     "name": "Super Administrator",
     "email": "admin@jobportal.com",
     "username": "admin",
-    "passwordHash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+    "passwordHash": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
     "salt": "dev-salt",
     "role": "Super Admin",
     "permissions": [
@@ -49,6 +49,7 @@
     "activationDate": "2026-07-20 14:00",
     "expiryDate": "2026-08-19 14:00",
     "autoRenew": true,
-    "createdAt": "2026-09-09T11:15:04.852Z"
+    "createdAt": "2026-09-09T11:15:04.852Z",
+    "updatedAt": "2026-09-19T14:55:26.281Z"
   }
 ]

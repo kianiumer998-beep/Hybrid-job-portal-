@@ -25,6 +25,7 @@ import {
 import { Advertisement, AdPricingConfig, CampaignCustomizationConfig, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../types/ad';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
+import { calculateJobMissingFields, isScrapedJob } from '../utils/jobValidation';
 import { 
   ShieldCheck, 
   Plus, 
@@ -112,10 +113,11 @@ import { AdminFeeManager } from './admin/AdminFeeManager';
 import { AdminActivityLogs } from './admin/AdminActivityLogs';
 import { AdminBulkNotificationTool } from './admin/AdminBulkNotificationTool';
 import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
+import { AdminWhatsAppSettings } from './admin/AdminWhatsAppSettings';
 import { AdminPaymentVerificationHub } from './admin/AdminPaymentVerificationHub';
 import { AdminPricingController } from './admin/AdminPricingController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
-import { WhatsAppSupportConfig } from './WhatsAppStickyButton';
+import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
 import { LandingPageConfig } from '../types/landing';
 import { 
@@ -198,6 +200,8 @@ interface AdminDashboardProps {
   onUpdateLandingConfig?: (config: LandingPageConfig) => void;
   whatsAppSupportConfig?: WhatsAppSupportConfig;
   onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => void;
+  siteSeoConfig?: SiteSeoConfig;
+  onUpdateSeoConfig?: (config: SiteSeoConfig) => void;
   paymentTransactions?: PaymentTransaction[];
   onApprovePaymentTransaction?: (transactionId: string, note?: string) => void;
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => void;
@@ -267,6 +271,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateLandingConfig,
   whatsAppSupportConfig,
   onUpdateWhatsAppConfig,
+  siteSeoConfig: propSiteSeoConfig,
+  onUpdateSeoConfig,
   paymentTransactions,
   onApprovePaymentTransaction,
   onRejectPaymentTransaction
@@ -312,14 +318,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [moduleSearchQuery, setModuleSearchQuery] = useState('');
   const [seoPreviewJob, setSeoPreviewJob] = useState<Job | null>(null);
 
-  // International Admin Suite States (Persisted in LocalStorage)
-  const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_seo_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_SITE_SEO_CONFIG;
-  });
+  // International Admin Suite States
+  const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(INITIAL_SITE_SEO_CONFIG);
 
   const [currencyConfig, setCurrencyConfig] = useState<CurrencyExchangeConfig>(() => {
     try {
@@ -337,13 +337,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return INITIAL_BROADCAST_CAMPAIGNS;
   });
 
-  const [commConfig, setCommConfig] = useState<CommunicationProviderConfig>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_comm_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_COMM_CONFIG;
-  });
+  const [commConfig, setCommConfig] = useState<CommunicationProviderConfig>(INITIAL_COMM_CONFIG);
 
   const [kycRequests, setKycRequests] = useState<EmployerKycRequest[]>(() => {
     try {
@@ -353,11 +347,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return INITIAL_KYC_REQUESTS;
   });
 
+  const effectiveSeoConfig = propSiteSeoConfig || siteSeoConfig;
+
+  const handleUpdateSeoConfig = (newCfg: SiteSeoConfig) => {
+    setSiteSeoConfig(newCfg);
+    if (onUpdateSeoConfig) {
+      onUpdateSeoConfig(newCfg);
+    } else {
+      api.settings.updateSeo(newCfg).catch(err => console.error('[AdminDashboard] Failed to save SEO config:', err));
+    }
+  };
+
+  // Load backend Communication provider credentials on mount
   useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_seo_config', JSON.stringify(siteSeoConfig));
-    } catch (e) {}
-  }, [siteSeoConfig]);
+    api.settings.getCommunication().then(res => {
+      if (res?.success && res.config) {
+        setCommConfig(prev => ({ ...prev, ...res.config }));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleUpdateCommConfig = (newCfg: CommunicationProviderConfig) => {
+    setCommConfig(newCfg);
+    api.settings.updateCommunication(newCfg).catch(err => console.error('[AdminDashboard] Failed to save Comm config:', err));
+  };
 
   useEffect(() => {
     try {
@@ -373,32 +386,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     try {
-      localStorage.setItem('career_pak_comm_config', JSON.stringify(commConfig));
-    } catch (e) {}
-  }, [commConfig]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem('career_pak_kyc_requests', JSON.stringify(kycRequests));
     } catch (e) {}
   }, [kycRequests]);
 
   // WhatsApp Support Configuration State
   const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
-    if (whatsAppSupportConfig) return whatsAppSupportConfig;
-    try {
-      const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return {
-      phoneNumber: '923001234567',
-      agentName: 'Ayesha (Lead Career Advisor)',
-      defaultMessage: 'Hello! I need assistance regarding job applications on CareerPak...',
-      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
-      enabled: true,
-      position: 'bottom-right'
-    };
+    if (whatsAppSupportConfig) return { ...DEFAULT_WHATSAPP_CONFIG, ...whatsAppSupportConfig };
+    return DEFAULT_WHATSAPP_CONFIG;
   });
+
+  useEffect(() => {
+    if (whatsAppSupportConfig) {
+      setInternalWhatsAppConfig(prev => ({
+        ...DEFAULT_WHATSAPP_CONFIG,
+        ...prev,
+        ...whatsAppSupportConfig
+      }));
+    }
+  }, [whatsAppSupportConfig]);
 
   // Payment Verification Transactions State
   const [internalTransactions, setInternalTransactions] = useState<PaymentTransaction[]>(() => {
@@ -418,9 +424,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (onUpdateWhatsAppConfig) {
       onUpdateWhatsAppConfig(newCfg);
     }
-    try {
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(newCfg));
-    } catch (e) {}
   };
 
   const handleApproveTx = (txId: string, note?: string) => {
@@ -445,29 +448,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   };
 
-  // Helper for computing duplicate scraped & pending jobs
-  const computeScrapedDuplicates = (jobList: Job[]) => {
-    const keyMap = new Map<string, Job[]>();
+  // Helper for computing duplicate scraped & pending jobs (Pending vs Pending + Pending vs Live)
+  const computeScrapedDuplicates = (jobList: Job[], liveJobList: Job[] = jobs) => {
+    // 1. Build live jobs map
+    const liveKeyMap = new Map<string, Job>();
+    (liveJobList || []).forEach(liveJob => {
+      if (!liveJob || !liveJob.title) return;
+      const normalizedTitle = liveJob.title.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const normalizedCompany = (liveJob.company || liveJob.govtDepartment || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const key = `${normalizedTitle}_${normalizedCompany}`;
+      if (!liveKeyMap.has(key)) {
+        liveKeyMap.set(key, liveJob);
+      }
+    });
+
+    const pendingKeyMap = new Map<string, Job>();
+    const duplicateJobIds: string[] = [];
+    const uniqueJobs: Job[] = [];
+    const duplicatesInfo: Array<{
+      job: Job;
+      duplicateType: 'Live Duplicate' | 'Pending Duplicate';
+      matchedWith: Job;
+    }> = [];
+
     jobList.forEach(job => {
       if (!job || !job.title) return;
       const normalizedTitle = job.title.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
       const normalizedCompany = (job.company || job.govtDepartment || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
       const key = `${normalizedTitle}_${normalizedCompany}`;
-      if (!keyMap.has(key)) {
-        keyMap.set(key, []);
-      }
-      keyMap.get(key)!.push(job);
-    });
 
-    const duplicateJobIds: string[] = [];
-    const uniqueJobs: Job[] = [];
-
-    keyMap.forEach((group) => {
-      if (group.length > 0) {
-        uniqueJobs.push(group[0]); // Keep the first as unique
-        if (group.length > 1) {
-          group.slice(1).forEach(dup => duplicateJobIds.push(dup.id));
-        }
+      // Check against live jobs first
+      if (liveKeyMap.has(key)) {
+        duplicateJobIds.push(job.id);
+        duplicatesInfo.push({
+          job,
+          duplicateType: 'Live Duplicate',
+          matchedWith: liveKeyMap.get(key)!
+        });
+      } else if (pendingKeyMap.has(key)) {
+        // Check against earlier pending jobs
+        duplicateJobIds.push(job.id);
+        duplicatesInfo.push({
+          job,
+          duplicateType: 'Pending Duplicate',
+          matchedWith: pendingKeyMap.get(key)!
+        });
+      } else {
+        // Unique
+        pendingKeyMap.set(key, job);
+        uniqueJobs.push(job);
       }
     });
 
@@ -475,7 +504,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       duplicateCount: duplicateJobIds.length,
       duplicateIds: duplicateJobIds,
       uniqueCount: uniqueJobs.length,
-      uniqueJobs
+      uniqueJobs,
+      liveDuplicateCount: duplicatesInfo.filter(d => d.duplicateType === 'Live Duplicate').length,
+      pendingDuplicateCount: duplicatesInfo.filter(d => d.duplicateType === 'Pending Duplicate').length,
+      duplicatesInfo
     };
   };
 
@@ -513,14 +545,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
-    if (confirm(`Instantly approve and publish all ${uniqueCount} verified unique scraped jobs directly to the Live Job Board? (کیا آپ تمام ${uniqueCount} یونیک جابز کو فوری لائیو کرنا چاہتے ہیں؟)`)) {
-      const uniqueIds = uniqueJobs.map(j => j.id);
+    const readyJobs = uniqueJobs.filter(j => !isScrapedJob(j) || calculateJobMissingFields(j).length === 0);
+    const incompleteJobs = uniqueJobs.filter(j => isScrapedJob(j) && calculateJobMissingFields(j).length > 0);
+
+    if (readyJobs.length === 0) {
+      alert(`Cannot approve: All ${incompleteJobs.length} scraped jobs have missing required factual fields (Title, Company, Location, or Job Type). Please review and complete them via Quick Edit first.`);
+      return;
+    }
+
+    const confirmMsg = incompleteJobs.length > 0
+      ? `Data Integrity Protection:\n${readyJobs.length} complete jobs will be published to Live.\n${incompleteJobs.length} jobs with missing required fields will remain in Pending Review until completed.\n\nProceed with publishing ${readyJobs.length} complete jobs?`
+      : `Instantly approve and publish all ${uniqueCount} verified complete jobs directly to the Live Job Board?`;
+
+    if (confirm(confirmMsg)) {
+      const readyIds = readyJobs.map(j => j.id);
       if (onBulkApprovePendingJobs) {
-        onBulkApprovePendingJobs(uniqueIds);
+        onBulkApprovePendingJobs(readyIds);
       } else {
-        uniqueIds.forEach(id => onApproveJob(id));
+        readyIds.forEach(id => onApproveJob(id));
       }
-      alert(`Successfully published ${uniqueCount} unique jobs directly to Live Job Board! (تمام جابز لائیو ہوگئیں)`);
+      alert(`Successfully published ${readyJobs.length} jobs directly to Live Job Board!${incompleteJobs.length > 0 ? ` (${incompleteJobs.length} incomplete jobs kept in Pending)` : ''}`);
     }
   };
 
@@ -1670,10 +1714,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Synchronized Approval with Audit Trail & Auto SEO Injection
   const handleAdminApproveJob = (jobId: string) => {
+    const approvedJob = pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
+    if (approvedJob && isScrapedJob(approvedJob)) {
+      const missing = calculateJobMissingFields(approvedJob);
+      if (missing.length > 0) {
+        alert(`Cannot approve "${approvedJob.title}"!\nMissing required factual fields: ${missing.join(', ')}.\n\nPlease edit this job to complete these details before publishing live.`);
+        return;
+      }
+    }
+
     onApproveJob(jobId);
     
     // Auto-generate Google Search SEO & inject Schema.org structured data
-    const approvedJob = pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
     if (approvedJob) {
       injectJobJsonLd(approvedJob);
     }
@@ -2414,8 +2466,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: VISUAL CAMPAIGN COMMAND CENTER & GRANULAR DATES */}
       {adminTab === 'campaign-center' && (
         <AdminCampaignCenter
-          ads={ads}
-          campaignConfig={campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG}
+          ads={ads || []}
+          campaignConfig={
+            campaignConfig?.placementOptions
+              ? campaignConfig
+              : { ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG, ...(campaignConfig || {}) }
+          }
           onUpdateCampaignConfig={onUpdateCampaignConfig || (() => {})}
           onUpdateAd={onUpdateAd || (() => {})}
           onDeleteAd={onDeleteAd || (() => {})}
@@ -2472,8 +2528,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: GLOBAL SEO, METADATA & ANNOUNCEMENT ENGINE */}
       {adminTab === 'seo-config' && (
         <AdminSeoSettings
-          seoConfig={siteSeoConfig}
-          onUpdateSeoConfig={setSiteSeoConfig}
+          seoConfig={effectiveSeoConfig}
+          onUpdateSeoConfig={handleUpdateSeoConfig}
         />
       )}
 
@@ -2493,7 +2549,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           subscribers={subscribers}
           commConfig={commConfig}
           onSendCampaign={(newCamp) => setBroadcastCampaigns(prev => [newCamp, ...prev])}
-          onUpdateCommConfig={setCommConfig}
+          onUpdateCommConfig={handleUpdateCommConfig}
         />
       )}
 
@@ -2574,7 +2630,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB 1: PENDING JOBS APPROVAL QUEUE */}
       {adminTab === 'pending' && (() => {
         // Pending jobs duplicate detection
-        const pendingClusters = computeJobDuplicateClusters(pendingJobs);
+        const pendingClusters = computeJobDuplicateClusters([...jobs, ...pendingJobs]);
         const liveTitleSet = new Set(jobs.map(j => `${(j.title || '').trim().toLowerCase()}|${(j.company || '').trim().toLowerCase()}`));
         const liveCaseSet = new Set(jobs.filter(j => j.pdfCaseNumber).map(j => j.pdfCaseNumber!.trim().toLowerCase()));
 
@@ -2655,9 +2711,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const handleBulkDelete = () => {
           if (selectedPendingIds.length === 0) return;
           if (confirm(`Permanently delete ${selectedPendingIds.length} selected pending postings from queue?`)) {
-            selectedPendingIds.forEach(id => {
-              if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
-            });
+            if (onBulkDeleteJobs) {
+              onBulkDeleteJobs(selectedPendingIds);
+            } else if (onBulkRejectPendingJobs) {
+              onBulkRejectPendingJobs(selectedPendingIds, 'Admin deleted from queue');
+            } else {
+              selectedPendingIds.forEach(id => {
+                if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
+              });
+            }
             setSelectedPendingIds([]);
           }
         };
@@ -4412,7 +4474,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB 8: LIVE LISTINGS */}
       {adminTab === 'jobs' && (() => {
-        const liveJobClusters = computeJobDuplicateClusters(jobs);
+        const liveJobClusters = computeJobDuplicateClusters([...jobs, ...pendingJobs]);
 
         const filteredLiveJobs = jobs.filter(job => {
           if (jobsSearchQuery.trim()) {
@@ -5939,6 +6001,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
+          {/* WHATSAPP SUPPORT WIDGET SETTINGS */}
+          <AdminWhatsAppSettings
+            config={currentWhatsAppConfig}
+            onSave={handleUpdateWhatsApp}
+          />
+
         </div>
       )}
 
@@ -6113,6 +6181,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           user={selectedUserForModal}
           userJobs={jobs.concat(pendingJobs).filter(j => j.submittedByUserId === selectedUserForModal.id || j.company.toLowerCase() === selectedUserForModal.companyName?.toLowerCase())}
           userApplications={allApplications.filter(a => a.applicantId === selectedUserForModal.id)}
+          userAds={ads}
           onClose={() => setSelectedUserForModal(null)}
           onUpdateUserExpiry={onUpdateUserExpiry}
           onToggleUserPlan={onToggleUserPlan}
@@ -6122,6 +6191,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onEndUserMembershipAndJobs={onEndUserMembershipAndJobs}
           onSuspendJob={onSuspendJob}
           onInspectJob={(j) => setSelectedJobForModal(j)}
+          onSaveAdminNotes={(userId, notes) => {
+            if (onUpdateUser) {
+              const target = users.find(u => u.id === userId);
+              if (target) {
+                onUpdateUser({ ...target, adminNotes: notes });
+              }
+            }
+          }}
+          onUpdateUserVerification={(userId, status, kycStatus) => {
+            if (onUpdateUser) {
+              const target = users.find(u => u.id === userId);
+              if (target) {
+                onUpdateUser({
+                  ...target,
+                  verificationStatus: status,
+                  ...(kycStatus ? { kycStatus } : {})
+                });
+              }
+            }
+          }}
         />
       )}
 
@@ -6193,17 +6282,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         isOpen={isJobDuplicateModalOpen}
         onClose={() => setIsJobDuplicateModalOpen(false)}
         entityType="jobs"
-        jobClusters={computeJobDuplicateClusters(jobs)}
+        jobClusters={computeJobDuplicateClusters([...jobs, ...pendingJobs])}
         onResolveJobDuplicates={(keepId, deleteIds) => {
+          const liveIdsSet = new Set(jobs.map(j => j.id));
+          const validDeleteIds = deleteIds.filter(id => liveIdsSet.has(id));
           if (onBulkDeleteJobs) {
-            onBulkDeleteJobs(deleteIds);
+            onBulkDeleteJobs(validDeleteIds);
           } else {
-            deleteIds.forEach(id => onDeleteJob(id));
+            validDeleteIds.forEach(id => onDeleteJob(id));
           }
           setIsJobDuplicateModalOpen(false);
         }}
         onBulkSelectDuplicateIds={(ids) => {
-          setSelectedJobIds(ids);
+          const liveIdsSet = new Set(jobs.map(j => j.id));
+          setSelectedJobIds(ids.filter(id => liveIdsSet.has(id)));
           setIsJobDuplicateModalOpen(false);
         }}
       />
@@ -6213,17 +6305,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         isOpen={isPendingDuplicateModalOpen}
         onClose={() => setIsPendingDuplicateModalOpen(false)}
         entityType="pending"
-        jobClusters={computeJobDuplicateClusters(pendingJobs)}
+        jobClusters={computeJobDuplicateClusters([...jobs, ...pendingJobs])}
         onResolveJobDuplicates={(keepId, deleteIds) => {
+          const pendingIdsSet = new Set(pendingJobs.map(p => p.id));
+          const validDeleteIds = deleteIds.filter(id => pendingIdsSet.has(id));
           if (onBulkRejectPendingJobs) {
-            onBulkRejectPendingJobs(deleteIds, 'Duplicate job submission detected in moderation queue');
+            onBulkRejectPendingJobs(validDeleteIds, 'Duplicate job submission detected in moderation queue');
           } else {
-            deleteIds.forEach(id => onRejectJob(id, 'Duplicate job submission detected'));
+            validDeleteIds.forEach(id => onRejectJob(id, 'Duplicate job submission detected'));
           }
           setIsPendingDuplicateModalOpen(false);
         }}
         onBulkSelectDuplicateIds={(ids) => {
-          setSelectedPendingIds(ids);
+          const pendingIdsSet = new Set(pendingJobs.map(p => p.id));
+          setSelectedPendingIds(ids.filter(id => pendingIdsSet.has(id)));
           setIsPendingDuplicateModalOpen(false);
         }}
       />

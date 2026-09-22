@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
+import { UserRepository, AuditRepository } from '../db/repositories';
 import { 
   hashPassword, 
   verifyPassword, 
@@ -10,7 +11,7 @@ import {
 export const authRouter = Router();
 
 // 1. User Registration
-authRouter.post('/register', (req, res) => {
+authRouter.post('/register', async (req, res) => {
   try {
     const { name, email, password, role, phone, companyName } = req.body;
 
@@ -18,18 +19,33 @@ authRouter.post('/register', (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, email, and password are required.' });
     }
 
-    const existing = Database.getUserByEmail(email);
+    const existing = await UserRepository.getByEmailAsync(email);
     if (existing) {
       return res.status(409).json({ success: false, message: 'An account with this email address already exists.' });
     }
 
     const { hash, salt } = hashPassword(password);
-    const newUser = Database.addUser({
+
+    const ADMIN_ROLES = [
+      'Super Admin',
+      'Admin',
+      'Job Moderator',
+      'Scraper Manager',
+      'Payment Manager',
+      'Finance Manager',
+      'SEO Manager',
+      'Advertisement Manager'
+    ];
+
+    const requestedRole = (role || '').toString().trim();
+    const safeRegistrationRole = ADMIN_ROLES.includes(requestedRole) ? 'Job Seeker' : (requestedRole || 'Job Seeker');
+
+    const newUser = await UserRepository.createAsync({
       name,
       email: email.toLowerCase().trim(),
       passwordHash: hash,
       salt,
-      role: role || 'Job Seeker',
+      role: safeRegistrationRole,
       phone: phone || '',
       companyName: companyName || '',
       plan: 'Free',
@@ -48,7 +64,7 @@ authRouter.post('/register', (req, res) => {
     // Sanitized user without sensitive credentials
     const { passwordHash, salt: _, ...safeUser } = newUser;
 
-    Database.addAuditLog({
+    AuditRepository.add({
       user: safeUser.name,
       role: safeUser.role,
       action: 'User Registered',
@@ -68,14 +84,14 @@ authRouter.post('/register', (req, res) => {
 });
 
 // 2. User Login
-authRouter.post('/login', (req, res) => {
+authRouter.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
     }
 
-    const user = Database.getUserByEmail(email);
+    const user = await UserRepository.getByEmailAsync(email);
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
     }
@@ -102,7 +118,7 @@ authRouter.post('/login', (req, res) => {
 
     const { passwordHash, salt, password: _, ...safeUser } = user;
 
-    Database.addAuditLog({
+    AuditRepository.add({
       user: safeUser.name,
       role: safeUser.role,
       action: 'User Login',
@@ -120,6 +136,7 @@ authRouter.post('/login', (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Login error' });
   }
 });
+
 
 // In-memory brute-force protection / rate limiter for admin and auth endpoints
 const loginAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
@@ -167,7 +184,7 @@ function clearAttempts(ip: string) {
 }
 
 // 3. Admin Login (Requires valid admin account credentials; verifies existing test admin 'admin123')
-authRouter.post('/admin-login', (req, res) => {
+authRouter.post('/admin-login', async (req, res) => {
   try {
     const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
     const rateCheck = checkRateLimit(ip);
@@ -187,7 +204,7 @@ authRouter.post('/admin-login', (req, res) => {
     }
 
     // Locate administrative account
-    const user = Database.getUserByEmail(adminEmail);
+    const user = await UserRepository.getByEmailAsync(adminEmail);
     const adminRoles = [
       'Super Admin',
       'Admin',
@@ -241,7 +258,7 @@ authRouter.post('/admin-login', (req, res) => {
 
     const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = user;
 
-    Database.addAuditLog({
+    AuditRepository.add({
       user: safeUser.name,
       role: safeUser.role,
       action: 'Admin Panel Authenticated',
@@ -261,9 +278,9 @@ authRouter.post('/admin-login', (req, res) => {
 });
 
 // 4. Current Authenticated User Session
-authRouter.get('/me', requireAuth, (req: any, res) => {
+authRouter.get('/me', requireAuth, async (req: any, res) => {
   try {
-    const user = Database.getUserById(req.user.userId);
+    const user = await UserRepository.getByIdAsync(req.user.userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User record not found.' });
     }
@@ -278,7 +295,7 @@ authRouter.get('/me', requireAuth, (req: any, res) => {
 // 5. Logout
 authRouter.post('/logout', (req: any, res) => {
   if (req.user) {
-    Database.addAuditLog({
+    AuditRepository.add({
       user: req.user.name || 'User',
       role: req.user.role || 'Member',
       action: 'Session Logged Out',
@@ -288,3 +305,4 @@ authRouter.post('/logout', (req: any, res) => {
   }
   res.json({ success: true, message: 'Logged out successfully.' });
 });
+

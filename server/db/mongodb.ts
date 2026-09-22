@@ -20,35 +20,67 @@ export function isMongoConfigured(): boolean {
 }
 
 /**
- * Safe logging helper for MongoDB connection events.
- * Does NOT forcibly close active MongoClient instances during server execution,
- * allowing the official driver's automatic reconnection and socket-pool recovery to function.
+ * Checks whether an error is network/connection-related so we can safely reconnect and retry.
  */
-export function resetMongoClient(err?: any): void {
-  if (err) {
-    console.warn(`[MongoDB] Connection notice: ${err?.message || err}`);
+export function isNetworkError(err: any): boolean {
+  if (!err) return false;
+  const name = String(err.name || '').toLowerCase();
+  const msg = String(err.message || '').toLowerCase();
+  const code = String(err.code || '');
+  
+  if (
+    name.includes('timeout') ||
+    name.includes('network') ||
+    name.includes('serverselection') ||
+    msg.includes('timed out') ||
+    msg.includes('connection timed out') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('socket closed') ||
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNREFUSED'
+  ) {
+    return true;
   }
+
+  // Check MongoDB RetryableWriteError label or driver error labels
+  if (err.hasErrorLabel && (err.hasErrorLabel('RetryableWriteError') || err.hasErrorLabel('TransientTransactionError'))) {
+    return true;
+  }
+  if (err.errorLabels) {
+    if (typeof err.errorLabels.has === 'function') {
+      if (err.errorLabels.has('RetryableWriteError') || err.errorLabels.has('TransientTransactionError')) {
+        return true;
+      }
+    } else if (Array.isArray(err.errorLabels)) {
+      if (err.errorLabels.includes('RetryableWriteError') || err.errorLabels.includes('TransientTransactionError')) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
- * Safely executes a MongoDB promise with an enforced timeout to prevent network stalls.
- * Does not destroy or close the shared connection pool if an individual query exceeds timeout.
+ * Closes and resets the cached MongoDB client, destroying stale or dead sockets in the pool.
  */
-export async function withMongoTimeout<T>(promise: Promise<T>, timeoutMs = 15000, label = 'Operation'): Promise<T> {
-  let timer: NodeJS.Timeout | null = null;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      const timeoutErr = new Error(`MongoDB ${label} timed out after ${timeoutMs}ms`);
-      timeoutErr.name = 'MongoNetworkTimeoutError';
-      reject(timeoutErr);
-    }, timeoutMs);
-  });
+export async function closeAndResetMongoClient(cause?: any): Promise<void> {
+  const clientToClose = cachedClient;
+  cachedClient = null;
+  cachedDb = null;
+  clientPromise = null;
 
-  try {
-    const result = await Promise.race([promise, timeoutPromise]);
-    return result;
-  } finally {
-    if (timer) clearTimeout(timer);
+  if (clientToClose) {
+    try {
+      if (cause) {
+        console.warn(`[MongoDB] Resetting connection pool due to network issue: ${cause.name || cause.message || cause}`);
+      }
+      await clientToClose.close(true);
+    } catch {
+      // Ignore errors on closing a dead socket
+    }
   }
 }
 
@@ -60,28 +92,40 @@ export async function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
     const uri = getMongoUri();
     const client = new MongoClient(uri, {
-      maxPoolSize: 50,
-      minPoolSize: 2,
-      maxIdleTimeMS: 60000,
-      serverSelectionTimeoutMS: 15000,
-      connectTimeoutMS: 15000,
-      socketTimeoutMS: 30000,
+      maxPoolSize: 15,
+      minPoolSize: 0,              // Never hold dead idle sockets
+      maxIdleTimeMS: 20000,        // Prune connections idle for 20s to prevent remote timeout
+      serverSelectionTimeoutMS: 6000,
+      connectTimeoutMS: 6000,
+      socketTimeoutMS: 20000,      // Fast socket timeout
+      waitQueueTimeoutMS: 8000,
       retryWrites: true,
-      retryReads: true
+      retryReads: true,
+    });
+
+    client.on('serverClosed', () => {
+      console.warn('[MongoDB Event] Server connection closed. Invalidating client pool.');
+      closeAndResetMongoClient('serverClosed');
     });
 
     clientPromise = client.connect().then((connectedClient) => {
       cachedClient = connectedClient;
       cachedDb = connectedClient.db();
       console.log(`[MongoDB] Connected successfully to database "${cachedDb.databaseName}"`);
-      // Initialize indexes in background without delaying queries
-      initMongoIndexes(cachedDb).catch((err) => {
-        console.warn('[MongoDB] Background index setup note:', err?.message || err);
-      });
+      // Run index initialization asynchronously in background without blocking queries
+      setTimeout(() => {
+        if (cachedDb) {
+          initMongoIndexes(cachedDb).catch((e) => {
+            console.warn('[MongoDB Background Index Notice]', e.message);
+          });
+        }
+      }, 1000);
       return connectedClient;
     }).catch((err) => {
       clientPromise = null;
-      console.error('[MongoDB] Initial connection error:', err?.message || err);
+      cachedClient = null;
+      cachedDb = null;
+      console.error('[MongoDB] Connection error:', err.message);
       throw err;
     });
   }
@@ -96,6 +140,37 @@ export async function getMongoDb(): Promise<Db> {
   const client = await getMongoClient();
   cachedDb = client.db();
   return cachedDb;
+}
+
+/**
+ * Robust executor for database operations.
+ * Automatically catches network timeouts, invalidates broken socket pools, retries once,
+ * and falls back gracefully to a fallback function (e.g. local cache) if remote remains down.
+ */
+export async function executeWithMongoRetry<T>(
+  operationName: string,
+  operation: () => Promise<T>,
+  fallbackFn?: () => Promise<T> | T
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (firstErr: any) {
+    if (isNetworkError(firstErr)) {
+      console.warn(`[MongoDB] ${operationName} network error (${firstErr.name}: ${firstErr.message}). Resetting pool and retrying...`);
+      await closeAndResetMongoClient(firstErr);
+      try {
+        return await operation();
+      } catch (secondErr: any) {
+        console.error(`[MongoDB] ${operationName} retry failed:`, secondErr.message);
+        if (fallbackFn) {
+          console.warn(`[MongoDB] Engaging fallback for ${operationName}...`);
+          return await fallbackFn();
+        }
+        throw secondErr;
+      }
+    }
+    throw firstErr;
+  }
 }
 
 export async function getJobsCollection(): Promise<Collection<any>> {
@@ -123,6 +198,61 @@ export async function getScraperGroupsCollection(): Promise<Collection<any>> {
   return db.collection('scraper_groups');
 }
 
+export async function getSettingsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('site_settings');
+}
+
+export async function getNotificationsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('notifications');
+}
+
+export async function getUserNotificationRecordsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('user_notification_records');
+}
+
+export async function getTransactionsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('transactions');
+}
+
+export async function getUsersCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('users');
+}
+
+export async function getApplicationsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('applications');
+}
+
+export async function getAdsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('advertisements');
+}
+
+export async function getCasesCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('cases');
+}
+
+export async function getSupportTicketsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('support_tickets');
+}
+
+export async function getSavedJobsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('saved_jobs');
+}
+
+export async function getAuditLogsCollection(): Promise<Collection<any>> {
+  const db = await getMongoDb();
+  return db.collection('audit_logs');
+}
+
 let indexesInitialized = false;
 async function initMongoIndexes(db: Db): Promise<void> {
   if (indexesInitialized) return;
@@ -133,35 +263,49 @@ async function initMongoIndexes(db: Db): Promise<void> {
     const scraperSourcesColl = db.collection('scraper_sources');
     const scraperRunsColl = db.collection('scraper_runs');
     const scraperGroupsColl = db.collection('scraper_groups');
+    const settingsColl = db.collection('site_settings');
+    const notifsColl = db.collection('notifications');
+    const userNotifsColl = db.collection('user_notification_records');
+    const txColl = db.collection('transactions');
+    const userColl = db.collection('users');
+    const appColl = db.collection('applications');
+    const adsColl = db.collection('advertisements');
+    const casesColl = db.collection('cases');
+    const ticketsColl = db.collection('support_tickets');
+    const savedJobsColl = db.collection('saved_jobs');
+    const auditColl = db.collection('audit_logs');
 
-    await jobsColl.createIndexes([
-      { key: { id: 1 }, unique: true },
-      { key: { slug: 1 } },
-      { key: { status: 1, createdAt: -1 } },
-      { key: { company: 1 } },
-      { key: { region: 1 } },
-      { key: { city: 1 } },
-      { key: { jobType: 1 } }
-    ]).catch(e => console.warn('[MongoDB] Jobs indexes setup note:', e.message));
+    const indexTasks: (() => Promise<any>)[] = [
+      () => jobsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => jobsColl.createIndex({ slug: 1 }, { background: true }),
+      () => jobsColl.createIndex({ status: 1, createdAt: -1 }, { background: true }),
+      () => pendingColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => pendingColl.createIndex({ status: 1, createdAt: -1 }, { background: true }),
+      () => scraperSourcesColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => scraperRunsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => scraperRunsColl.createIndex({ startedAt: -1 }, { background: true }),
+      () => scraperGroupsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => settingsColl.createIndex({ key: 1 }, { unique: true, background: true }),
+      () => notifsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => userNotifsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => txColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => txColl.createIndex({ idempotencyKey: 1 }, { sparse: true, background: true }),
+      () => userColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => userColl.createIndex({ email: 1 }, { unique: true, background: true }),
+      () => appColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => adsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => casesColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => ticketsColl.createIndex({ id: 1 }, { unique: true, background: true }),
+      () => savedJobsColl.createIndex({ userId: 1, jobId: 1 }, { unique: true, background: true }),
+      () => auditColl.createIndex({ id: 1 }, { unique: true, background: true })
+    ];
 
-    await pendingColl.createIndexes([
-      { key: { id: 1 }, unique: true },
-      { key: { status: 1, createdAt: -1 } },
-      { key: { createdAt: -1 } }
-    ]).catch(e => console.warn('[MongoDB] Pending jobs indexes setup note:', e.message));
-
-    await scraperSourcesColl.createIndex({ id: 1 }, { unique: true })
-      .catch(e => console.warn('[MongoDB] Scraper sources index note:', e.message));
-
-    await scraperRunsColl.createIndexes([
-      { key: { id: 1 }, unique: true },
-      { key: { startedAt: -1 } }
-    ]).catch(e => console.warn('[MongoDB] Scraper runs indexes note:', e.message));
-
-    await scraperGroupsColl.createIndex({ id: 1 }, { unique: true })
-      .catch(e => console.warn('[MongoDB] Scraper groups index note:', e.message));
-
-    console.log('[MongoDB] Collections indexes ensured.');
+    // Execute gently in small batches to preserve connection pool bandwidth
+    for (let i = 0; i < indexTasks.length; i += 2) {
+      const batch = indexTasks.slice(i, i + 2);
+      await Promise.all(batch.map(fn => fn().catch(() => {})));
+    }
+    console.log('[MongoDB] Production collections and essential indexes initialized.');
   } catch (err: any) {
     console.warn('[MongoDB] Index creation notice:', err.message);
   }

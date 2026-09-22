@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   MessageCircle,
   Phone,
@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Copy
 } from 'lucide-react';
-import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from '../WhatsAppStickyButton';
+import { WhatsAppSupportConfig } from '../WhatsAppStickyButton';
 
 interface AdminWhatsAppManagerProps {
   config: WhatsAppSupportConfig;
@@ -28,10 +28,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   onUpdateConfig,
   subscribersCount = 0
 }) => {
-  const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => ({
-    ...DEFAULT_WHATSAPP_CONFIG,
-    ...config
-  }));
+  const [formData, setFormData] = useState<WhatsAppSupportConfig>(config);
   const [groupLink, setGroupLink] = useState<string>(() => {
     return localStorage.getItem('hybrid_whatsapp_group_link') || 'https://chat.whatsapp.com/sampleCareerPakCommunity';
   });
@@ -41,17 +38,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     'السلام علیکم! کیریئر پاک پر جاب الرٹس اور اپلائی کرنے کے لیے رہنمائی درکار ہے۔'
   );
 
-  useEffect(() => {
-    if (config) {
-      setFormData(prev => ({
-        ...DEFAULT_WHATSAPP_CONFIG,
-        ...prev,
-        ...config
-      }));
-    }
-  }, [config]);
-
-  const cleanPhone = (formData.phoneNumber || '923001234567').replace(/[^0-9]/g, '');
+  const cleanPhone = formData.phoneNumber.replace(/[^0-9]/g, '');
   const testChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(formData.defaultMessage || 'Hello Support')}`;
   const testUrduChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(testUrduMessage)}`;
 
@@ -221,17 +208,17 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
             </div>
           </div>
 
-            {/* Widget Display & Position Controls */}
+          {/* Widget Display & Position Controls */}
           <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
             <h4 className="text-sm font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
               <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>2. Floating Sticky Button Display Options & Layout</span>
+              <span>2. Floating Sticky Button Display Options</span>
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-black text-white">WhatsApp Button (Icon/Monogram)</div>
+                  <div className="text-xs font-black text-white">Enable Floating Sticky Widget</div>
                   <div className="text-[11px] text-slate-400">Show button on all public pages</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -239,22 +226,6 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                     type="checkbox"
                     checked={formData.enabled}
                     onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                </label>
-              </div>
-
-              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-black text-white">WhatsApp Greeting / Chat Widget</div>
-                  <div className="text-[11px] text-slate-400">Enable / Disable prompt bubble</div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.showBubblePrompt !== false}
-                    onChange={(e) => setFormData({ ...formData, showBubblePrompt: e.target.checked })}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
@@ -274,125 +245,6 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                   <option value="bottom-right">Bottom-Right (Standard)</option>
                   <option value="bottom-left">Bottom-Left</option>
                 </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Action Button CTA Text
-                </label>
-                <input
-                  type="text"
-                  value={formData.ctaText || 'Start WhatsApp Chat'}
-                  onChange={(e) => setFormData({ ...formData, ctaText: e.target.value })}
-                  placeholder="e.g. Start WhatsApp Chat"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Agent Support Badge Text
-                </label>
-                <input
-                  type="text"
-                  value={formData.badgeText || 'HR Support'}
-                  onChange={(e) => setFormData({ ...formData, badgeText: e.target.value })}
-                  placeholder="e.g. HR Support / 24/7 Helpline"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Tooltip Speech Bubble Prompt Message
-              </label>
-              <textarea
-                rows={2}
-                value={formData.bubblePromptText || ''}
-                onChange={(e) => setFormData({ ...formData, bubblePromptText: e.target.value })}
-                placeholder="Need help applying for remote jobs, hiring candidates, or setting WhatsApp alerts? Chat directly with our team!"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors resize-none"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Mobile Button Size
-                </label>
-                <select
-                  value={formData.mobileSize || 'compact'}
-                  onChange={(e) => setFormData({ ...formData, mobileSize: e.target.value as any })}
-                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="compact">Compact (48px)</option>
-                  <option value="standard">Standard (56px)</option>
-                  <option value="large">Large (64px)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Desktop Button Size
-                </label>
-                <select
-                  value={formData.desktopSize || 'standard'}
-                  onChange={(e) => setFormData({ ...formData, desktopSize: e.target.value as any })}
-                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="compact">Compact (56px)</option>
-                  <option value="standard">Standard (64px)</option>
-                  <option value="large">Large (80px)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Icon Scale
-                </label>
-                <select
-                  value={formData.iconSize || 'standard'}
-                  onChange={(e) => setFormData({ ...formData, iconSize: e.target.value as any })}
-                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="compact">Compact Icon</option>
-                  <option value="standard">Standard Icon</option>
-                  <option value="large">Large Icon</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Speech Bubble Size
-                </label>
-                <select
-                  value={formData.bubbleSize || 'standard'}
-                  onChange={(e) => setFormData({ ...formData, bubbleSize: e.target.value as any })}
-                  className="w-full bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="compact">Compact Bubble</option>
-                  <option value="standard">Standard Bubble</option>
-                  <option value="large">Large Bubble</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Unread Badge Count
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="99"
-                  value={formData.unreadCount ?? 1}
-                  onChange={(e) => setFormData({ ...formData, unreadCount: parseInt(e.target.value, 10) || 0 })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-                />
               </div>
             </div>
 

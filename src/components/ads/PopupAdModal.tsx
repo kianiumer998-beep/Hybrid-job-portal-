@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Advertisement, AdTargetPage, PopupDisplaySettings } from '../../types/ad';
 import { X, Sparkles, ExternalLink, ArrowRight, ShieldCheck, CheckCircle2, Layers, ChevronRight } from 'lucide-react';
 
@@ -7,7 +7,6 @@ interface PopupAdModalProps {
   currentPage: AdTargetPage;
   popupSettings?: PopupDisplaySettings;
   onAdClick: (ad: Advertisement) => void;
-  onAdImpression?: (adId: string) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
 
@@ -24,14 +23,12 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   currentPage,
   popupSettings = DEFAULT_POPUP_SETTINGS,
   onAdClick,
-  onAdImpression,
   onNavigateTab
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [popupQueue, setPopupQueue] = useState<Advertisement[]>([]);
   const [currentQueueIndex, setCurrentQueueIndex] = useState<number>(0);
   const [dualClosedAdIds, setDualClosedAdIds] = useState<string[]>([]);
-  const trackedImpressionsRef = useRef<Set<string>>(new Set());
 
   const [dismissedSessionIds, setDismissedSessionIds] = useState<string[]>(() => {
     try {
@@ -75,18 +72,6 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
       setCurrentQueueIndex(0);
     }
   }, [ads, currentPage, dismissedSessionIds, popupSettings]);
-
-  // Track impressions for visible popups
-  useEffect(() => {
-    if (!isOpen || popupQueue.length === 0) return;
-    const currentAd = popupQueue[currentQueueIndex];
-    if (currentAd && currentAd.id && !currentAd.id.startsWith('demo-') && !currentAd.id.startsWith('preview-')) {
-      if (!trackedImpressionsRef.current.has(currentAd.id)) {
-        trackedImpressionsRef.current.add(currentAd.id);
-        onAdImpression?.(currentAd.id);
-      }
-    }
-  }, [isOpen, popupQueue, currentQueueIndex, onAdImpression]);
 
   if (!isOpen || popupQueue.length === 0) return null;
 

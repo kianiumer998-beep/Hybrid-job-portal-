@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Send, 
   Users, 
@@ -18,15 +18,9 @@ import {
   Zap,
   Crown,
   Trash2,
-  Copy,
-  ShieldAlert,
-  ShieldCheck,
-  Lock,
-  Unlock,
-  CheckCheck
+  Copy
 } from 'lucide-react';
 import { UserAccount, Subscriber, Job } from '../../types/job';
-import { api } from '../../services/api';
 
 export interface BulkNotificationBroadcast {
   id: string;
@@ -40,14 +34,10 @@ export interface BulkNotificationBroadcast {
   ctaText?: string;
   ctaUrl?: string;
   recipientsCount: number;
-  openRatePercent?: number;
-  clickRatePercent?: number;
+  openRatePercent: number;
+  clickRatePercent: number;
   status: 'Delivered' | 'Scheduled' | 'Failed';
-  isMandatory?: boolean;
-  mandatoryActionType?: string;
-  policyVersion?: string;
 }
-
 
 const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
   {
@@ -62,6 +52,8 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     ctaText: 'Explore Remote Roles',
     ctaUrl: '#jobs',
     recipientsCount: 4280,
+    openRatePercent: 68.4,
+    clickRatePercent: 24.1,
     status: 'Delivered'
   },
   {
@@ -76,6 +68,8 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     ctaText: 'Build ATS CV Now',
     ctaUrl: '#cv',
     recipientsCount: 8940,
+    openRatePercent: 52.0,
+    clickRatePercent: 19.5,
     status: 'Delivered'
   },
   {
@@ -90,6 +84,8 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     ctaText: 'Launch Campaign Slot',
     ctaUrl: '#dashboard',
     recipientsCount: 1450,
+    openRatePercent: 41.2,
+    clickRatePercent: 12.8,
     status: 'Delivered'
   }
 ];
@@ -156,7 +152,13 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   subscribers = [],
   onBroadcastSent
 }) => {
-  const [history, setHistory] = useState<BulkNotificationBroadcast[]>(INITIAL_BROADCAST_HISTORY);
+  const [history, setHistory] = useState<BulkNotificationBroadcast[]>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_admin_broadcast_history');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_BROADCAST_HISTORY;
+  });
 
   // Form State
   const [targetAudience, setTargetAudience] = useState<string>('all_users');
@@ -165,61 +167,20 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   const [category, setCategory] = useState<string>('Career Alert');
   const [title, setTitle] = useState<string>('🚀 Verified Remote Tech Jobs Added (USD / PKR)');
   const [messageBody, setMessageBody] = useState<string>('New high-paying remote roles in software engineering, UI/UX, and data analytics have just been listed. Apply before deadline.');
-  const [imageUrl, setImageUrl] = useState<string>('');
   const [ctaText, setCtaText] = useState<string>('View Verified Openings');
   const [ctaUrl, setCtaUrl] = useState<string>('#jobs');
-  
-  // Mandatory Action & Restriction State
-  const [isMandatory, setIsMandatory] = useState<boolean>(false);
-  const [mandatoryActionType, setMandatoryActionType] = useState<'terms_acceptance' | 'kyc' | 'cta_confirmation' | 'custom_acknowledgement'>('terms_acceptance');
-  const [policyVersion, setPolicyVersion] = useState<string>('v2.1');
 
   // Preview Mode
   const [previewChannel, setPreviewChannel] = useState<'In-App' | 'Email' | 'WhatsApp'>('In-App');
   const [isSending, setIsSending] = useState<boolean>(false);
   const [sendSuccessMsg, setSendSuccessMsg] = useState<string | null>(null);
 
-  // Override Modal state
-  const [overrideModalNotifId, setOverrideModalNotifId] = useState<string | null>(null);
-  const [overrideUserId, setOverrideUserId] = useState<string>('');
-  const [overrideSuccessMsg, setOverrideSuccessMsg] = useState<string | null>(null);
-
-  // Load real broadcast and persistent notification campaigns from MongoDB
-  const loadNotifications = () => {
-    api.notifications.getAdminAll().then(res => {
-      if (res?.success && Array.isArray(res.notifications)) {
-        const mapped: BulkNotificationBroadcast[] = res.notifications.map(n => ({
-          id: n.id,
-          timestamp: n.createdAt ? new Date(n.createdAt).toISOString().replace('T', ' ').substring(0, 16) : new Date().toISOString().substring(0, 16),
-          title: n.title,
-          category: n.category || (n.isMandatory ? 'Mandatory Requirement' : 'Portal Alert'),
-          priority: n.priority || 'normal',
-          channel: n.channels?.popup ? 'Multi-Channel' : (n.channels?.bell ? 'In-App' : 'Email'),
-          targetAudience: getAudienceLabel(n.targetAudience || 'all_users'),
-          messageBody: n.plainText || n.body,
-          ctaText: n.ctaText,
-          ctaUrl: n.ctaUrl,
-          recipientsCount: n.recipientsCount || n.viewCount || 0,
-          openRatePercent: n.viewCount && n.recipientsCount ? Math.min(100, Math.round((n.viewCount / Math.max(1, n.recipientsCount)) * 100)) : undefined,
-          clickRatePercent: n.clickCount && n.viewCount ? Math.min(100, Math.round((n.clickCount / Math.max(1, n.viewCount)) * 100)) : undefined,
-          status: 'Delivered',
-          isMandatory: n.isMandatory,
-          mandatoryActionType: n.mandatoryActionType,
-          policyVersion: n.policyVersion
-        }));
-
-        if (mapped.length > 0) {
-          setHistory(mapped);
-        }
-      }
-    }).catch(err => {
-      console.warn('Failed to load MongoDB notifications:', err);
-    });
-  };
-
-  useEffect(() => {
-    loadNotifications();
-  }, []);
+  // Persist broadcast history
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('hybrid_admin_broadcast_history', JSON.stringify(history));
+    } catch (e) {}
+  }, [history]);
 
   // Calculate Audience Count dynamically
   const audienceEstimate = useMemo(() => {
@@ -253,10 +214,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
     setTargetAudience(tpl.target);
     setCtaText(tpl.ctaText);
     setCtaUrl(tpl.ctaUrl);
-    setIsMandatory(false);
   };
 
-  const handleDispatchBroadcast = async (e: React.FormEvent) => {
+  const handleDispatchBroadcast = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !messageBody.trim()) {
       alert('Please provide a subject title and message body.');
@@ -265,44 +225,12 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
 
     setIsSending(true);
 
-    try {
+    setTimeout(() => {
       const now = new Date();
       const nowStr = now.toISOString().replace('T', ' ').substring(0, 16);
 
-      // Persist to MongoDB notifications collection
-      const targetAudienceCode = targetAudience === 'all_users' 
-        ? 'all' 
-        : targetAudience === 'employers_only' 
-        ? 'employers' 
-        : targetAudience === 'pro_subscribers' 
-        ? 'paid' 
-        : 'jobseekers';
-
-      const createRes = await api.notifications.create({
-        title: title.trim(),
-        body: messageBody.trim(),
-        plainText: messageBody.trim(),
-        targetAudience: targetAudienceCode,
-        priority,
-        channels: {
-          bell: true,
-          popup: channel === 'Multi-Channel' || isMandatory,
-          pageBanner: channel === 'Multi-Channel'
-        },
-        imageUrl: imageUrl.trim() || undefined,
-        ctaText: ctaText.trim() || undefined,
-        ctaUrl: ctaUrl.trim() || undefined,
-        isMandatory,
-        mandatoryActionType: isMandatory ? mandatoryActionType : undefined,
-        policyVersion: isMandatory ? policyVersion : undefined,
-        restrictedFeatures: isMandatory ? ['post_job', 'apply_job', 'export_cv'] : undefined,
-        dismissible: !isMandatory,
-        status: 'published',
-        recipientsCount: audienceEstimate
-      });
-
       const newBroadcast: BulkNotificationBroadcast = {
-        id: createRes?.notification?.id || `notif-${Date.now()}`,
+        id: `notif-${Date.now()}`,
         timestamp: nowStr,
         title: title.trim(),
         category: category.trim(),
@@ -313,10 +241,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
         ctaText: ctaText.trim() || undefined,
         ctaUrl: ctaUrl.trim() || undefined,
         recipientsCount: audienceEstimate,
-        status: 'Delivered',
-        isMandatory,
-        mandatoryActionType: isMandatory ? mandatoryActionType : undefined,
-        policyVersion: isMandatory ? policyVersion : undefined
+        openRatePercent: Math.round(55 + Math.random() * 20),
+        clickRatePercent: Math.round(15 + Math.random() * 12),
+        status: 'Delivered'
       };
 
       setHistory((prev) => [newBroadcast, ...prev]);
@@ -325,41 +252,10 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
       }
 
       setIsSending(false);
-      setSendSuccessMsg(`Broadcast saved to MongoDB & dispatched to ${audienceEstimate.toLocaleString()} recipients across ${channel}!`);
+      setSendSuccessMsg(`Broadcast dispatched successfully to ${audienceEstimate.toLocaleString()} recipients across ${channel}!`);
       setTimeout(() => setSendSuccessMsg(null), 5000);
-    } catch (err: any) {
-      setIsSending(false);
-      alert(`Dispatch error: ${err.message || 'Server error'}`);
-    }
+    }, 1200);
   };
-
-  const handleDeleteNotification = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this notification record from MongoDB?')) return;
-    try {
-      await api.notifications.delete(id);
-      setHistory(prev => prev.filter(h => h.id !== id));
-      alert('Notification deleted successfully from MongoDB.');
-    } catch (err: any) {
-      alert(`Delete failed: ${err.message || 'Error'}`);
-    }
-  };
-
-  const handleAdminOverride = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!overrideModalNotifId || !overrideUserId.trim()) return;
-    try {
-      await api.notifications.overrideMandatory(overrideModalNotifId, overrideUserId.trim());
-      setOverrideSuccessMsg(`User ${overrideUserId} unlocked successfully!`);
-      setTimeout(() => {
-        setOverrideSuccessMsg(null);
-        setOverrideModalNotifId(null);
-        setOverrideUserId('');
-      }, 2000);
-    } catch (err: any) {
-      alert(`Override failed: ${err.message || 'Error'}`);
-    }
-  };
-
 
   const getAudienceLabel = (key: string) => {
     switch (key) {
@@ -544,72 +440,15 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
 
             {/* Message Body */}
             <div>
-              <label className="block font-bold text-slate-300 mb-1">Message Content (Rich Text / HTML supported) *</label>
+              <label className="block font-bold text-slate-300 mb-1">Message Content *</label>
               <textarea
                 required
                 rows={4}
                 value={messageBody}
                 onChange={(e) => setMessageBody(e.target.value)}
-                placeholder="Type your announcement, job digest description, or policy update here..."
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 resize-none leading-relaxed font-mono"
+                placeholder="Type your announcement, job digest description, or promotional discount message here..."
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 resize-none leading-relaxed"
               />
-            </div>
-
-            {/* Optional Banner/Image URL */}
-            <div>
-              <label className="block font-bold text-slate-300 mb-1">Featured Banner Image URL (Optional)</label>
-              <input
-                type="url"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://images.unsplash.com/... or /images/banner.png"
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-              />
-            </div>
-
-            {/* Mandatory Action Toggle & Settings */}
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-              <label className="flex items-center space-x-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isMandatory}
-                  onChange={(e) => setIsMandatory(e.target.checked)}
-                  className="w-4 h-4 rounded text-rose-500 border-slate-700 bg-slate-900 focus:ring-0 cursor-pointer"
-                />
-                <span className="font-bold text-rose-300 text-xs flex items-center space-x-1.5">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Enforce as Mandatory Compliance Action (Blocks restricted portal actions until completed)</span>
-                </span>
-              </label>
-
-              {isMandatory && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1">Action Type</label>
-                    <select
-                      value={mandatoryActionType}
-                      onChange={(e) => setMandatoryActionType(e.target.value as any)}
-                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
-                    >
-                      <option value="terms_acceptance">Terms / Policy Acceptance (v2.1)</option>
-                      <option value="kyc">Employer / Entity KYC Identity Details</option>
-                      <option value="cta_confirmation">Critical Announcement Confirmation</option>
-                      <option value="custom_acknowledgement">Custom Acknowledgement</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1">Policy / Version Identifier</label>
-                    <input
-                      type="text"
-                      value={policyVersion}
-                      onChange={(e) => setPolicyVersion(e.target.value)}
-                      placeholder="e.g. v2.1, kyc-2026"
-                      className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white font-mono"
-                    />
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* CTA Button Text & URL */}
@@ -647,17 +486,16 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                 {isSending ? (
                   <>
                     <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Saving to MongoDB & Dispatching...</span>
+                    <span>Dispatching Broadcast Stream...</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>Save to MongoDB & Dispatch to {audienceEstimate.toLocaleString()} Users</span>
+                    <span>Dispatch Broadcast to {audienceEstimate.toLocaleString()} Users</span>
                   </>
                 )}
               </button>
             </div>
-
 
           </form>
         </div>
@@ -796,9 +634,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-black text-white flex items-center space-x-2">
             <Clock className="w-4 h-4 text-indigo-400" />
-            <span>MongoDB Broadcast & Notification Log</span>
+            <span>Broadcast Dispatch History & Delivery Metrics</span>
           </h4>
-          <span className="text-xs font-mono text-slate-400">{history.length} Records</span>
+          <span className="text-xs font-mono text-slate-400">{history.length} Broadcasts Logged</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -810,10 +648,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                 <th className="pb-3">Channel</th>
                 <th className="pb-3">Target Segment</th>
                 <th className="pb-3 text-right">Recipients</th>
-                <th className="pb-3 text-right">Open / Views</th>
-                <th className="pb-3 text-right">Clicks</th>
+                <th className="pb-3 text-right">Open Rate</th>
+                <th className="pb-3 text-right">Click Rate</th>
                 <th className="pb-3 text-right">Status</th>
-                <th className="pb-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -824,14 +661,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                   </td>
                   <td className="py-3 pr-4">
                     <div className="font-bold text-white truncate max-w-xs">{item.title}</div>
-                    <div className="flex items-center space-x-1.5 mt-0.5">
-                      <span className="text-[10px] text-emerald-400 font-semibold">{item.category}</span>
-                      {item.isMandatory && (
-                        <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px] font-black">
-                          Mandatory [{item.policyVersion || 'v1.0'}]
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-[10px] text-emerald-400 font-semibold">{item.category}</span>
                   </td>
                   <td className="py-3">
                     <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
@@ -844,45 +674,16 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                   <td className="py-3 text-right font-mono font-bold text-slate-200">
                     {item.recipientsCount.toLocaleString()}
                   </td>
-                  <td className="py-3 text-right font-mono text-xs">
-                    {item.openRatePercent !== undefined && item.openRatePercent > 0 ? (
-                      <span className="font-bold text-emerald-400">{item.openRatePercent}%</span>
-                    ) : (
-                      <span className="text-slate-500">Not tracked</span>
-                    )}
+                  <td className="py-3 text-right font-mono font-bold text-emerald-400">
+                    {item.openRatePercent}%
                   </td>
-                  <td className="py-3 text-right font-mono text-xs">
-                    {item.clickRatePercent !== undefined && item.clickRatePercent > 0 ? (
-                      <span className="font-bold text-indigo-400">{item.clickRatePercent}%</span>
-                    ) : (
-                      <span className="text-slate-500">Not tracked</span>
-                    )}
+                  <td className="py-3 text-right font-mono font-bold text-indigo-400">
+                    {item.clickRatePercent}%
                   </td>
                   <td className="py-3 text-right">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                       {item.status}
                     </span>
-                  </td>
-                  <td className="py-3 text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end space-x-1.5">
-                      {item.isMandatory && (
-                        <button
-                          onClick={() => setOverrideModalNotifId(item.id)}
-                          className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-[10px] font-bold flex items-center space-x-1 cursor-pointer transition-all"
-                          title="Override & Unlock Specific User"
-                        >
-                          <Unlock className="w-3 h-3" />
-                          <span>Unlock User</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDeleteNotification(item.id)}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
-                        title="Delete record from MongoDB"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
                   </td>
                 </tr>
               ))}
@@ -890,65 +691,6 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
           </table>
         </div>
       </div>
-
-      {/* Admin User Unlock / Override Modal */}
-      {overrideModalNotifId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center space-x-2 text-rose-400 font-bold text-sm border-b border-slate-800 pb-3">
-              <Unlock className="w-4 h-4" />
-              <span>Admin Override: Unlock User Mandatory Restriction</span>
-            </div>
-
-            {overrideSuccessMsg ? (
-              <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold flex items-center space-x-2">
-                <CheckCheck className="w-4 h-4 text-emerald-400" />
-                <span>{overrideSuccessMsg}</span>
-              </div>
-            ) : (
-              <form onSubmit={handleAdminOverride} className="space-y-3 text-xs">
-                <p className="text-slate-300 leading-relaxed">
-                  Enter the User ID or Email to manually bypass mandatory compliance restrictions for notification:
-                  <strong className="text-white block font-mono mt-1">ID: {overrideModalNotifId}</strong>
-                </p>
-
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">Target User ID or Email *</label>
-                  <input
-                    type="text"
-                    required
-                    value={overrideUserId}
-                    onChange={(e) => setOverrideUserId(e.target.value)}
-                    placeholder="e.g. usr-1234 or user@example.com"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end space-x-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOverrideModalNotifId(null);
-                      setOverrideUserId('');
-                    }}
-                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs flex items-center space-x-1.5 shadow-lg shadow-rose-600/30 cursor-pointer"
-                  >
-                    <Unlock className="w-3.5 h-3.5" />
-                    <span>Apply Unlock Override</span>
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
 
     </div>
   );

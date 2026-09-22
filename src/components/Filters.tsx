@@ -114,45 +114,61 @@ export const Filters: React.FC<FiltersProps> = ({
               <option value="popular">Sort: Most Popular</option>
             </select>
           </div>
+
+          {/* Posts Per Page Filter Select */}
+          {onPostsPerPageChange && (
+            <div className="w-full sm:w-36">
+              <select
+                value={postsPerPage}
+                onChange={(e) => onPostsPerPageChange(Number(e.target.value))}
+                className="w-full px-3.5 py-3.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                title="Select number of job posts per page"
+              >
+                <option value={10}>10 / page</option>
+                <option value={15}>15 / page</option>
+                <option value={20}>20 / page</option>
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Main Filter Grid */}
-      <div className="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+      <div className="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         
         {/* Job Type */}
         <div>
-          <label className="block text-[11px] sm:text-xs font-semibold text-slate-400 mb-1 sm:mb-1.5 uppercase tracking-wider truncate">
+          <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
             Job Type
           </label>
           <select
             value={filters.jobType}
             onChange={(e) => onChange({ ...filters, jobType: e.target.value })}
-            className="w-full px-2.5 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           >
-            <option value="All">All Types</option>
+            <option value="All">All Job Types</option>
             <option value="Remote">100% Remote</option>
-            <option value="Hybrid">Hybrid</option>
+            <option value="Hybrid">Hybrid (Office + Remote)</option>
             <option value="On-site">On-site Office</option>
           </select>
         </div>
 
         {/* Region */}
         <div>
-          <label className="block text-[11px] sm:text-xs font-semibold text-slate-400 mb-1 sm:mb-1.5 uppercase tracking-wider truncate">
+          <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
             Region / Location
           </label>
           <select
             value={filters.region}
             onChange={(e) => handleRegionChange(e.target.value)}
-            className="w-full px-2.5 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           >
             <option value="All">All Regions Worldwide</option>
             <option value="Global">🌐 Global International Remote</option>
-            <option value="Pakistan">🇵🇰 Pakistan</option>
+            <option value="Pakistan">🇵🇰 Pakistan (Provinces & Districts)</option>
             <option value="US">🇺🇸 United States</option>
             <option value="UK">🇬🇧 United Kingdom</option>
-            <option value="UAE">🇦🇪 UAE</option>
+            <option value="UAE">🇦🇪 United Arab Emirates</option>
             <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
             <option value="Canada">🇨🇦 Canada</option>
             <option value="Europe">🇪🇺 Europe</option>
@@ -162,19 +178,19 @@ export const Filters: React.FC<FiltersProps> = ({
 
         {/* Experience Level */}
         <div>
-          <label className="block text-[11px] sm:text-xs font-semibold text-slate-400 mb-1 sm:mb-1.5 uppercase tracking-wider truncate">
+          <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
             Experience Level
           </label>
           <select
             value={filters.experienceLevel}
             onChange={(e) => onChange({ ...filters, experienceLevel: e.target.value })}
-            className="w-full px-2.5 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           >
             <option value="All">All Levels</option>
-            <option value="Entry">Entry Level</option>
-            <option value="Mid">Mid Level (2-4y)</option>
-            <option value="Senior">Senior (5+y)</option>
-            <option value="Lead">Lead / Principal</option>
+            <option value="Entry">Entry Level / Junior</option>
+            <option value="Mid">Mid Level (2-4 yrs)</option>
+            <option value="Senior">Senior Level (5+ yrs)</option>
+            <option value="Lead">Team Lead / Principal</option>
           </select>
         </div>
 
@@ -183,15 +199,15 @@ export const Filters: React.FC<FiltersProps> = ({
           {hasActiveFilters ? (
             <button
               onClick={onReset}
-              className="w-full py-2 sm:py-2.5 px-2.5 sm:px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors border border-slate-700"
+              className="w-full py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors border border-slate-700"
             >
-              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">Reset Filters</span>
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset All Filters</span>
             </button>
           ) : (
-            <div className="w-full py-2 sm:py-2.5 px-2 sm:px-3 bg-slate-950/50 rounded-lg text-xs text-slate-500 flex items-center justify-center space-x-1 border border-slate-800/40">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              <span className="truncate">Filter instantly</span>
+            <div className="w-full py-2.5 px-3 bg-slate-950/50 rounded-lg text-xs text-slate-500 flex items-center justify-center space-x-1 border border-slate-800/40">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+              <span>Filter instantly</span>
             </div>
           )}
         </div>
@@ -200,23 +216,22 @@ export const Filters: React.FC<FiltersProps> = ({
 
       {/* DYNAMIC PAKISTAN SUB-DROPDOWNS (Province, City, District) */}
       {filters.region === 'Pakistan' && (
-        <div className="mt-4 pt-3 sm:pt-4 border-t border-emerald-500/20 bg-emerald-950/20 rounded-xl p-2.5 sm:p-4 border">
-          <div className="flex items-center space-x-1.5 sm:space-x-2 text-emerald-400 font-bold text-[11px] sm:text-xs uppercase tracking-wider mb-2.5 sm:mb-3">
-            <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 shrink-0" />
-            <span className="truncate">Pakistan Detailed Location Filtering (Province → City → District)</span>
+        <div className="mt-4 pt-4 border-t border-emerald-500/20 bg-emerald-950/20 rounded-xl p-4 border">
+          <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider mb-3">
+            <MapPin className="w-4 h-4 text-emerald-400" />
+            <span>Pakistan Detailed Location Filtering (Province → City → District)</span>
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* Province Dropdown */}
             <div>
-              <label className="block text-[10px] sm:text-xs text-emerald-300 font-medium mb-1 truncate" title="1. Select Province">
-                <span className="sm:hidden">1. Province</span>
-                <span className="hidden sm:inline">1. Select Province</span>
+              <label className="block text-xs text-emerald-300 font-medium mb-1">
+                1. Select Province
               </label>
               <select
                 value={filters.province}
                 onChange={(e) => handleProvinceChange(e.target.value)}
-                className="w-full px-1.5 sm:px-3 py-1.5 sm:py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="">All Provinces</option>
                 {PAKISTAN_LOCATIONS.map((loc) => (
@@ -229,15 +244,14 @@ export const Filters: React.FC<FiltersProps> = ({
 
             {/* City Dropdown */}
             <div>
-              <label className="block text-[10px] sm:text-xs text-emerald-300 font-medium mb-1 truncate" title="2. Select City">
-                <span className="sm:hidden">2. City</span>
-                <span className="hidden sm:inline">2. Select City</span>
+              <label className="block text-xs text-emerald-300 font-medium mb-1">
+                2. Select City
               </label>
               <select
                 value={filters.city}
                 onChange={(e) => handleCityChange(e.target.value)}
                 disabled={!filters.province}
-                className="w-full px-1.5 sm:px-3 py-1.5 sm:py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="">
                   {!filters.province ? 'Select Province first' : 'All Cities'}
@@ -252,15 +266,14 @@ export const Filters: React.FC<FiltersProps> = ({
 
             {/* District Dropdown */}
             <div>
-              <label className="block text-[10px] sm:text-xs text-emerald-300 font-medium mb-1 truncate" title="3. Select District / Area">
-                <span className="sm:hidden">3. District</span>
-                <span className="hidden sm:inline">3. Select District / Area</span>
+              <label className="block text-xs text-emerald-300 font-medium mb-1">
+                3. Select District / Area
               </label>
               <select
                 value={filters.district}
                 onChange={(e) => onChange({ ...filters, district: e.target.value })}
                 disabled={!filters.city}
-                className="w-full px-1.5 sm:px-3 py-1.5 sm:py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/30 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="">
                   {!filters.city ? 'Select City first' : 'All Districts'}
@@ -326,6 +339,32 @@ export const Filters: React.FC<FiltersProps> = ({
             </button>
           )}
         </div>
+
+        {/* Posts Per Page Quick Filter Buttons */}
+        {onPostsPerPageChange && (
+          <div className="flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800">
+            <span className="text-slate-400 font-medium text-[11px]">Posts per page:</span>
+            <div className="flex items-center space-x-1">
+              {[10, 15, 20].map((count) => {
+                const isActive = postsPerPage === count;
+                return (
+                  <button
+                    key={count}
+                    onClick={() => onPostsPerPageChange(count)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm shadow-emerald-500/30'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                    title={`Show ${count} posts per page`}
+                  >
+                    {count}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

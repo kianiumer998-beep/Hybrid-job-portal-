@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   Advertisement, 
   AdType, 
@@ -11,11 +11,9 @@ import {
   CampaignCustomizationConfig,
   DEFAULT_AD_PRICING_CONFIG,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
-  DEFAULT_PLACEMENT_OPTIONS,
   calculateCampaignCost,
   getPlacementDisplayName,
   getPageDisplayName,
-  getBillingModelDisplayName,
   formatTimeRemaining,
   isAdCurrentlyRunning,
   isPageScheduledActive,
@@ -23,8 +21,7 @@ import {
   getOccupiedSlotRangesForPlacement,
   checkSlotDateAvailability,
   getNextAvailableDateForPlacement,
-  AD_BANNER_PRESETS,
-  CampaignBillingModel
+  AD_BANNER_PRESETS
 } from '../../types/ad';
 import { UserAccount } from '../../types/job';
 import { CampaignLiveContextPreview } from './CampaignLiveContextPreview';
@@ -61,10 +58,7 @@ import {
   ChevronUp,
   Send,
   Lock,
-  Monitor,
-  BarChart3,
-  TrendingUp,
-  Sliders
+  Monitor
 } from 'lucide-react';
 
 interface UserCampaignHubProps {
@@ -75,10 +69,8 @@ interface UserCampaignHubProps {
   campaignConfig?: CampaignCustomizationConfig;
   onDepositWallet: (amount: number, paymentMethod: string) => void;
   onSubmitCampaign: (ad: Advertisement, cost: number) => void;
-  onTopUpCampaignBudget?: (adId: string, additionalBudget: number) => void;
   onDeleteCampaign: (adId: string) => void;
   onDuplicateCampaign: (ad: Advertisement) => void;
-  onUpdateCampaign?: (ad: Advertisement) => void;
   onOpenGlobalDepositModal?: () => void;
 }
 
@@ -90,10 +82,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   onDepositWallet,
   onSubmitCampaign,
-  onTopUpCampaignBudget,
   onDeleteCampaign,
   onDuplicateCampaign,
-  onUpdateCampaign,
   onOpenGlobalDepositModal
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
@@ -115,70 +105,16 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [depositTxRef, setDepositTxRef] = useState<string>('');
   const [isDepositSuccess, setIsDepositSuccess] = useState<boolean>(false);
 
-  // Top Up Modal State for existing CPM/CPC campaigns
-  const [topUpModalAd, setTopUpModalAd] = useState<Advertisement | null>(null);
-  const [topUpAmountInput, setTopUpAmountInput] = useState<number>(1000);
-
-  // Billing Config Resolution
-  const billingConfig = campaignConfig.billingConfig || {
-    durationEnabled: true,
-    cpmEnabled: true,
-    cpcEnabled: true,
-    cpmRatePkr: 150,
-    cpcRatePkr: 15,
-    minCampaignBudgetPkr: 500,
-    maxCampaignBudgetPkr: 500000,
-    autoBillingEnabled: true,
-    defaultModel: 'duration' as const
-  };
-
-  const isDurationModelEnabled = billingConfig.durationEnabled !== false;
-  const isCpmModelEnabled = billingConfig.cpmEnabled !== false;
-  const isCpcModelEnabled = billingConfig.cpcEnabled !== false;
-
-  const resolvedDefaultModel: 'duration' | 'cpm' | 'cpc' =
-    billingConfig.defaultModel && (
-      (billingConfig.defaultModel === 'cpm' && isCpmModelEnabled) ||
-      (billingConfig.defaultModel === 'cpc' && isCpcModelEnabled) ||
-      (billingConfig.defaultModel === 'duration' && isDurationModelEnabled)
-    )
-      ? billingConfig.defaultModel
-      : isDurationModelEnabled
-      ? 'duration'
-      : isCpmModelEnabled
-      ? 'cpm'
-      : isCpcModelEnabled
-      ? 'cpc'
-      : 'duration';
-
   // --- Campaign Creation Wizard State ---
-  const [formBillingModel, setFormBillingModel] = useState<CampaignBillingModel>(resolvedDefaultModel);
-  const [formBudgetLimit, setFormBudgetLimit] = useState<number>(Math.max(billingConfig.minCampaignBudgetPkr || 500, 2500));
-  const [formImpressionLimit, setFormImpressionLimit] = useState<string>('');
-  const [formClickLimit, setFormClickLimit] = useState<string>('');
-
   const [formTitle, setFormTitle] = useState<string>('');
   const [formType, setFormType] = useState<AdType>('banner');
   const [formPlacement, setFormPlacement] = useState<AdPlacement>('top-header');
   const [formTargetPages, setFormTargetPages] = useState<AdTargetPage[]>(['alerts']);
   
-  const enabledDurationPresets = (campaignConfig.durationPresets || []).filter(d => d.isEnabled !== false);
-  const defaultDurationId = enabledDurationPresets[0]?.id || 'custom';
-
   // Duration State
-  const [selectedDurationId, setSelectedDurationId] = useState<string>(defaultDurationId);
+  const [selectedDurationId, setSelectedDurationId] = useState<string>('fullday-24h');
   const [customDurationUnit, setCustomDurationUnit] = useState<AdDurationUnit>('days');
   const [customDurationValue, setCustomDurationValue] = useState<number>(1);
-
-  // Auto-correct to first enabled preset if current selection is disabled or missing
-  useEffect(() => {
-    if (enabledDurationPresets.length > 0 && selectedDurationId !== 'custom') {
-      const isValid = enabledDurationPresets.some(d => d.id === selectedDurationId);
-      if (!isValid) {
-        setSelectedDurationId(enabledDurationPresets[0].id);
-      }
-    }
-  }, [enabledDurationPresets, selectedDurationId]);
   
   // Creative Content
   const [formHeadline, setFormHeadline] = useState<string>('');
@@ -200,19 +136,29 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [selectedContextPage, setSelectedContextPage] = useState<string>('alerts');
 
   // Calculate duration unit & value from preset or custom
-  const matchedPreset = enabledDurationPresets.find(d => d.id === selectedDurationId) || (selectedDurationId !== 'custom' ? enabledDurationPresets[0] : undefined);
-
   const getResolvedDuration = (): { unit: AdDurationUnit; value: number } => {
-    if (selectedDurationId === 'custom' || !matchedPreset) {
+    if (selectedDurationId === 'custom') {
       return { unit: customDurationUnit, value: Math.max(1, customDurationValue) };
     }
-    return { unit: matchedPreset.unit, value: matchedPreset.value };
+    const matchedPreset = campaignConfig.durationPresets.find(d => d.id === selectedDurationId);
+    if (matchedPreset) {
+      return { unit: matchedPreset.unit, value: matchedPreset.value };
+    }
+    // Fallback standard presets
+    if (selectedDurationId === '6h') return { unit: 'hours', value: 6 };
+    if (selectedDurationId === '12h') return { unit: 'hours', value: 12 };
+    if (selectedDurationId === '24h') return { unit: 'days', value: 1 };
+    if (selectedDurationId === '3d') return { unit: 'days', value: 3 };
+    if (selectedDurationId === '1w') return { unit: 'weeks', value: 1 };
+    if (selectedDurationId === '2w') return { unit: 'weeks', value: 2 };
+    if (selectedDurationId === '1m') return { unit: 'months', value: 1 };
+    return { unit: 'days', value: 1 };
   };
 
   const { unit: resolvedDurationUnit, value: resolvedDurationValue } = getResolvedDuration();
 
   // Compute live price
-  const rawCostCalculation = calculateCampaignCost(
+  const costCalculation = calculateCampaignCost(
     pricingConfig,
     resolvedDurationUnit,
     resolvedDurationValue,
@@ -221,35 +167,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     formType === 'sms' ? formSmsRecipientsCount : 0
   );
 
-  // Apply preset discount or fixed price override
-  let finalCampaignCostPkr = rawCostCalculation.totalCostPkr;
-  let isFixedPrice = false;
-  let discountPercentApplied = 0;
-
-  if (selectedDurationId !== 'custom' && matchedPreset) {
-    if (typeof matchedPreset.fixedPriceOverridePkr === 'number' && matchedPreset.fixedPriceOverridePkr > 0) {
-      finalCampaignCostPkr = matchedPreset.fixedPriceOverridePkr;
-      isFixedPrice = true;
-    } else if (typeof matchedPreset.discountPercent === 'number' && matchedPreset.discountPercent > 0) {
-      discountPercentApplied = Math.min(100, Math.max(0, matchedPreset.discountPercent));
-      finalCampaignCostPkr = Math.round(rawCostCalculation.totalCostPkr * (1 - discountPercentApplied / 100));
-    }
-  }
-
-  const costCalculation = {
-    ...rawCostCalculation,
-    totalCostPkr: finalCampaignCostPkr
-  };
-
-  // Payable campaign cost based on billing model
-  let totalCampaignPayablePkr = finalCampaignCostPkr;
-  if (formBillingModel === 'cpm' || formBillingModel === 'cpc') {
-    totalCampaignPayablePkr = Math.max(billingConfig.minCampaignBudgetPkr || 500, formBudgetLimit || 500);
-  }
-
   const walletBalance = currentUser.walletBalance ?? 12000;
-  const isWalletSufficient = walletBalance >= totalCampaignPayablePkr;
-  const walletDeficit = totalCampaignPayablePkr - walletBalance;
+  const isWalletSufficient = walletBalance >= costCalculation.totalCostPkr;
+  const walletDeficit = costCalculation.totalCostPkr - walletBalance;
 
   // Handle Preset Select
   const handleApplyPreset = (preset: typeof AD_BANNER_PRESETS[0]) => {
@@ -290,21 +210,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       return;
     }
 
-    // 2. Budget limits validation for CPM / CPC
-    if (formBillingModel === 'cpm' || formBillingModel === 'cpc') {
-      const minBudget = billingConfig.minCampaignBudgetPkr || 500;
-      const maxBudget = billingConfig.maxCampaignBudgetPkr || 500000;
-      if (formBudgetLimit < minBudget) {
-        alert(`Minimum campaign budget for ${formBillingModel.toUpperCase()} is PKR ${minBudget.toLocaleString()}.`);
-        return;
-      }
-      if (formBudgetLimit > maxBudget) {
-        alert(`Maximum campaign budget for ${formBillingModel.toUpperCase()} is PKR ${maxBudget.toLocaleString()}.`);
-        return;
-      }
-    }
-
-    // 3. Target page schedule and availability validation
+    // 2. Target page schedule and availability validation
     const pageValidation = validateCampaignTargetPages(formTargetPages, campaignConfig.portalPages);
     if (!pageValidation.valid) {
       const reasonsList = pageValidation.blockedPages.map(p => `• ${p.name}: ${p.reason}`).join('\n');
@@ -317,10 +223,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setIsDepositModalOpen(true);
       return;
     }
-
-    const finalBudgetLimit = formBillingModel !== 'duration' ? totalCampaignPayablePkr : undefined;
-    const finalImpressionLimit = formBillingModel === 'cpm' && formImpressionLimit ? (parseInt(formImpressionLimit) || undefined) : undefined;
-    const finalClickLimit = formBillingModel === 'cpc' && formClickLimit ? (parseInt(formClickLimit) || undefined) : undefined;
 
     const newAd: Advertisement = {
       id: 'ad-user-' + Date.now(),
@@ -336,17 +238,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       submittedByUserPhone: currentUser.phone || undefined,
       durationUnit: resolvedDurationUnit,
       durationValue: resolvedDurationValue,
-      durationDisplay: formBillingModel === 'duration' ? costCalculation.durationDisplay : undefined,
-      campaignCostPkr: totalCampaignPayablePkr,
-      billingModel: formBillingModel,
-      cpmRatePkr: formBillingModel === 'cpm' ? (billingConfig.cpmRatePkr || 150) : undefined,
-      cpcRatePkr: formBillingModel === 'cpc' ? (billingConfig.cpcRatePkr || 15) : undefined,
-      budgetLimit: finalBudgetLimit,
-      budgetSpent: 0,
-      budgetRemaining: finalBudgetLimit,
-      impressionLimit: finalImpressionLimit,
-      clickLimit: finalClickLimit,
-      autoBillingEnabled: true,
+      durationDisplay: costCalculation.durationDisplay,
+      campaignCostPkr: costCalculation.totalCostPkr,
       paymentStatus: 'Paid',
       headline: formHeadline.trim(),
       bodyText: formBodyText.trim(),
@@ -364,14 +257,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
     };
 
-    onSubmitCampaign(newAd, totalCampaignPayablePkr);
+    onSubmitCampaign(newAd, costCalculation.totalCostPkr);
     
     // Reset form & navigate to my campaigns
     setFormTitle('');
     setFormHeadline('');
     setFormBodyText('');
     setActiveSubTab('my-campaigns');
-    alert(`Campaign "${newAd.title}" submitted successfully! PKR ${totalCampaignPayablePkr.toLocaleString()} has been deducted from your wallet balance. ${campaignConfig.formRules.requireAdminApproval ? 'The portal administrator will review and verify your campaign shortly.' : 'Your campaign is now live!'}`);
+    alert(`Campaign "${newAd.title}" submitted successfully! PKR ${costCalculation.totalCostPkr.toLocaleString()} has been deducted from your wallet balance. ${campaignConfig.formRules.requireAdminApproval ? 'The portal administrator will review and verify your campaign shortly.' : 'Your campaign is now live!'}`);
   };
 
   // Process Deposit
@@ -388,47 +281,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setIsDepositSuccess(false);
       setIsDepositModalOpen(false);
     }, 1200);
-  };
-
-  // Top Up / Add Budget for existing CPM/CPC campaign
-  const handleTopUpBudgetSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!topUpModalAd) return;
-    const minTopUp = billingConfig.minCampaignBudgetPkr || 500;
-    if (topUpAmountInput < minTopUp) {
-      alert(`Minimum budget top up is PKR ${minTopUp.toLocaleString()}`);
-      return;
-    }
-    if (walletBalance < topUpAmountInput) {
-      alert(`Insufficient wallet balance. Please add PKR ${(topUpAmountInput - walletBalance).toLocaleString()} to your wallet.`);
-      setDepositAmountInput(topUpAmountInput - walletBalance);
-      setIsDepositModalOpen(true);
-      return;
-    }
-
-    // Deduct from wallet balance
-    onDepositWallet(-topUpAmountInput, 'Budget Top-Up');
-
-    const currentLimit = topUpModalAd.budgetLimit || topUpModalAd.campaignCostPkr || 0;
-    const currentRemaining = topUpModalAd.budgetRemaining ?? Math.max(0, currentLimit - (topUpModalAd.budgetSpent || 0));
-    const newLimit = currentLimit + topUpAmountInput;
-    const newRemaining = currentRemaining + topUpAmountInput;
-
-    const updatedAd: Advertisement = {
-      ...topUpModalAd,
-      budgetLimit: newLimit,
-      budgetRemaining: newRemaining,
-      campaignCostPkr: (topUpModalAd.campaignCostPkr || 0) + topUpAmountInput,
-      status: topUpModalAd.status === 'budget_exhausted' || topUpModalAd.status === 'limit_reached' ? 'active' : topUpModalAd.status,
-      stopReason: undefined
-    };
-
-    if (onTopUpCampaignBudget) {
-      onTopUpCampaignBudget(topUpModalAd.id, topUpAmountInput);
-    } else if (onUpdateCampaign) {
-      onUpdateCampaign(updatedAd);
-    }
-    setTopUpModalAd(null);
   };
 
   // Filter user ads
@@ -449,13 +301,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
   // Slot availability info for selected placement
   const adsPool = allAds.length > 0 ? allAds : userAds;
-  const safePlacementOptions = Array.isArray(campaignConfig?.placementOptions) && campaignConfig.placementOptions.length > 0
-    ? campaignConfig.placementOptions
-    : DEFAULT_PLACEMENT_OPTIONS;
   const occupiedRanges = getOccupiedSlotRangesForPlacement(adsPool, formPlacement);
   const nextOpenDate = getNextAvailableDateForPlacement(adsPool, formPlacement);
   const isRunningNow = adsPool.some(a => a.placement === formPlacement && isAdCurrentlyRunning(a));
-  const selectedPlacementOpt = safePlacementOptions.find(p => p.id === formPlacement);
+  const selectedPlacementOpt = campaignConfig.placementOptions.find(p => p.id === formPlacement);
   const isPlacementFree = !!selectedPlacementOpt?.isFreeOverride;
   const userCtr = totalUserImpressions > 0 ? ((totalUserClicks / totalUserImpressions) * 100).toFixed(2) : '0.00';
 
@@ -653,13 +502,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 const isPending = ad.status === 'pending_approval' || ad.approvalStatus === 'Pending';
                 const isRejected = ad.status === 'rejected' || ad.approvalStatus === 'Rejected';
                 const isCompleted = ad.status === 'completed';
-                const isBudgetExhausted = ad.status === 'budget_exhausted' || (ad.billingModel !== 'duration' && (ad.budgetRemaining ?? 1) <= 0);
-                const isLimitReached = ad.status === 'limit_reached';
-
-                const budgetLimit = ad.budgetLimit || ad.campaignCostPkr || 0;
-                const budgetSpent = ad.budgetSpent || 0;
-                const budgetRemaining = ad.budgetRemaining ?? Math.max(0, budgetLimit - budgetSpent);
-                const budgetPercent = budgetLimit > 0 ? Math.min(100, Math.round((budgetSpent / budgetLimit) * 100)) : 0;
 
                 return (
                   <div
@@ -667,10 +509,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     className={`bg-slate-900 border rounded-2xl p-5 shadow-xl transition-all space-y-4 ${
                       isRunning
                         ? 'border-emerald-500/50 shadow-emerald-500/5'
-                        : isBudgetExhausted
-                        ? 'border-amber-500/50 bg-amber-950/10'
-                        : isLimitReached
-                        ? 'border-purple-500/50 bg-purple-950/10'
                         : isPending
                         ? 'border-amber-500/40'
                         : isRejected
@@ -702,24 +540,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1"></span>
                                 <span>🟢 Live & Running</span>
                               </span>
-                            ) : isBudgetExhausted ? (
-                              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[11px] font-black uppercase flex items-center space-x-1">
-                                <AlertCircle className="w-3 h-3 mr-1 text-amber-400" />
-                                <span>⚠️ Budget Exhausted</span>
-                              </span>
-                            ) : isLimitReached ? (
-                              <span className="px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[11px] font-black uppercase flex items-center space-x-1">
-                                <Sliders className="w-3 h-3 mr-1 text-purple-300" />
-                                <span>🛑 Cap Limit Reached</span>
-                              </span>
                             ) : isPending ? (
                               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[11px] font-black uppercase flex items-center space-x-1">
-                                <Clock className="w-3 h-3 mr-1" />
+                                <Clock className="w-3 h-3" />
                                 <span>Pending Admin Review</span>
                               </span>
                             ) : isRejected ? (
                               <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40 text-[11px] font-black uppercase flex items-center space-x-1">
-                                <XCircle className="w-3 h-3 mr-1" />
+                                <XCircle className="w-3 h-3" />
                                 <span>Rejected by Admin</span>
                               </span>
                             ) : (
@@ -728,29 +556,14 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                               </span>
                             )}
 
-                            {/* Billing Model Badge */}
-                            <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold flex items-center space-x-1">
-                              {ad.billingModel === 'cpm' ? (
-                                <>
-                                  <Eye className="w-3 h-3" />
-                                  <span>CPM (PKR {ad.cpmRatePkr || 150}/1k)</span>
-                                </>
-                              ) : ad.billingModel === 'cpc' ? (
-                                <>
-                                  <MousePointerClick className="w-3 h-3" />
-                                  <span>CPC (PKR {ad.cpcRatePkr || 15}/click)</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Clock className="w-3 h-3" />
-                                  <span>Fixed Run ({ad.durationDisplay || '24h'})</span>
-                                </>
-                              )}
-                            </span>
-
                             {/* Placement Chip */}
                             <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-semibold">
                               {getPlacementDisplayName(ad.placement)}
+                            </span>
+
+                            {/* Duration Chip */}
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">
+                              ⏱️ {ad.durationDisplay || '24 Hours'}
                             </span>
                           </div>
 
@@ -760,7 +573,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1">
                             <span>Target Pages: <strong className="text-slate-200">{ad.targetPages.map(getPageDisplayName).join(', ')}</strong></span>
                             <span>•</span>
-                            <span>Total Budget: <strong className="text-emerald-400 font-mono">PKR {(ad.campaignCostPkr || 0).toLocaleString()}</strong></span>
+                            <span>Fee: <strong className="text-emerald-400 font-mono">PKR {(ad.campaignCostPkr || 0).toLocaleString()}</strong></span>
                             <span>•</span>
                             <span>Submitted: <strong>{ad.createdAt}</strong></span>
                           </div>
@@ -771,7 +584,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                       <div className="flex flex-col sm:flex-row items-end md:items-center gap-3 w-full md:w-auto justify-between md:justify-end">
                         
                         {/* Live Counter (if running) */}
-                        {isRunning && ad.scheduledEndAt && ad.billingModel === 'duration' && (
+                        {isRunning && ad.scheduledEndAt && (
                           <div className="text-right p-2.5 bg-slate-950/70 border border-slate-800 rounded-xl">
                             <div className="text-[10px] text-slate-400 uppercase font-bold">Time Remaining</div>
                             <div className="text-xs font-black text-emerald-400 font-mono">
@@ -779,21 +592,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                             </div>
                             <div className="text-[10px] text-slate-500">Ends: {ad.scheduledEndAt}</div>
                           </div>
-                        )}
-
-                        {/* Top-up Budget Button for CPM/CPC */}
-                        {(ad.billingModel === 'cpm' || ad.billingModel === 'cpc') && (
-                          <button
-                            onClick={() => {
-                              setTopUpModalAd(ad);
-                              setTopUpAmountInput(1000);
-                            }}
-                            className="px-3 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
-                            title="Add more budget to this campaign"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Add Budget</span>
-                          </button>
                         )}
 
                         <div className="flex items-center space-x-2">
@@ -828,37 +626,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                         </div>
                       </div>
                     </div>
-
-                    {/* CPM / CPC Budget Utilization Ledger Bar */}
-                    {(ad.billingModel === 'cpm' || ad.billingModel === 'cpc') && (
-                      <div className="p-3 bg-slate-950/80 border border-slate-800/90 rounded-xl space-y-2 text-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center space-x-4">
-                            <span className="text-slate-400 font-medium">Budget Limit: <strong className="text-white font-mono">PKR {budgetLimit.toLocaleString()}</strong></span>
-                            <span className="text-slate-400 font-medium">Spent: <strong className="text-amber-400 font-mono">PKR {Math.round(budgetSpent).toLocaleString()}</strong></span>
-                            <span className="text-slate-400 font-medium">Remaining: <strong className="text-emerald-400 font-mono">PKR {Math.round(budgetRemaining).toLocaleString()}</strong></span>
-                          </div>
-
-                          <div className="text-slate-400 text-[11px]">
-                            {ad.impressionLimit ? `Cap: ${ad.impressionLimit.toLocaleString()} views` : ad.clickLimit ? `Cap: ${ad.clickLimit.toLocaleString()} clicks` : 'No hard cap limit'}
-                          </div>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all rounded-full ${
-                              budgetPercent >= 100
-                                ? 'bg-rose-500'
-                                : budgetPercent >= 80
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
-                            }`}
-                            style={{ width: `${budgetPercent}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    )}
 
                     {/* REJECTION REASON ALERT (If Rejected) */}
                     {isRejected && (
@@ -994,12 +761,12 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                     onChange={(e) => setFormPlacement(e.target.value as AdPlacement)}
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    {safePlacementOptions.filter(p => p.isEnabled).map((opt) => (
+                    {campaignConfig.placementOptions.filter(p => p.isEnabled).map((opt) => (
                       <option key={opt.id} value={opt.id}>
                         {opt.name} ({opt.multiplier}x Multiplier) - {opt.description}
                       </option>
                     ))}
-                    {safePlacementOptions.filter(p => p.isEnabled).length === 0 && (
+                    {campaignConfig.placementOptions.filter(p => p.isEnabled).length === 0 && (
                       <>
                         <option value="top-header">Top Sticky Header Announcement (1.25x)</option>
                         <option value="feed-inline">Job Listings Feed Inline Card (1.00x)</option>
@@ -1162,243 +929,91 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 </div>
               </div>
 
-              {/* 4. Billing Model & Budget Configuration */}
+              {/* 4. Timeframe & Duration Selection */}
               <div className="space-y-3 bg-slate-950/70 border border-slate-800 p-4 rounded-2xl">
                 <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
                   <span className="flex items-center space-x-1.5">
-                    <Receipt className="w-4 h-4 text-emerald-400" />
-                    <span>Select Billing Model & Budgeting Strategy</span>
+                    <Clock className="w-4 h-4 text-emerald-400" />
+                    <span>Select Timeframe & Duration</span>
                   </span>
                   <span className="text-xs font-mono font-bold text-emerald-400">
-                    Model: {getBillingModelDisplayName(formBillingModel)}
+                    Duration: {costCalculation.durationDisplay}
                   </span>
                 </label>
 
-                {/* Billing Model Radio / Tabs */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {(billingConfig.durationEnabled ?? billingConfig.allowDurationBilling ?? true) && (
-                    <button
-                      type="button"
-                      onClick={() => setFormBillingModel('duration')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        formBillingModel === 'duration'
-                          ? 'bg-emerald-500/20 border-emerald-500/80 text-white shadow-md shadow-emerald-500/10'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black">⏱️ Fixed Duration</span>
-                        {formBillingModel === 'duration' && <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />}
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-1">Pay flat rate per hour, day, week, or month.</p>
-                    </button>
-                  )}
-
-                  {(billingConfig.cpmEnabled ?? billingConfig.allowCpmBilling ?? true) && (
-                    <button
-                      type="button"
-                      onClick={() => setFormBillingModel('cpm')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        formBillingModel === 'cpm'
-                          ? 'bg-emerald-500/20 border-emerald-500/80 text-white shadow-md shadow-emerald-500/10'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black">👁️ CPM (Impressions)</span>
-                        {formBillingModel === 'cpm' && <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />}
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-1">PKR {billingConfig.cpmRatePkr || 150} / 1,000 views. Deducted as served.</p>
-                    </button>
-                  )}
-
-                  {(billingConfig.cpcEnabled ?? billingConfig.allowCpcBilling ?? true) && (
-                    <button
-                      type="button"
-                      onClick={() => setFormBillingModel('cpc')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        formBillingModel === 'cpc'
-                          ? 'bg-emerald-500/20 border-emerald-500/80 text-white shadow-md shadow-emerald-500/10'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black">🖱️ CPC (Cost Per Click)</span>
-                        {formBillingModel === 'cpc' && <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />}
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-1">PKR {billingConfig.cpcRatePkr || 15} / valid click. Pay only for engagement.</p>
-                    </button>
-                  )}
-                </div>
-
-                {/* Sub-section: IF DURATION BASED */}
-                {formBillingModel === 'duration' && (
-                  <div className="space-y-3 pt-2 border-t border-slate-800">
-                    <div className="text-[11px] font-bold text-slate-400">Select Campaign Duration Package:</div>
-                    
-                    {/* Preset Duration Buttons from Admin Config */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                      {enabledDurationPresets.map((dur) => {
-                        const isChosen = selectedDurationId === dur.id;
-                        const priceBadge = (typeof dur.fixedPriceOverridePkr === 'number' && dur.fixedPriceOverridePkr > 0)
-                          ? `PKR ${dur.fixedPriceOverridePkr.toLocaleString()}`
-                          : (typeof dur.discountPercent === 'number' && dur.discountPercent > 0)
-                          ? `${dur.discountPercent}% OFF`
-                          : null;
-
-                        return (
-                          <button
-                            key={dur.id}
-                            type="button"
-                            onClick={() => setSelectedDurationId(dur.id)}
-                            className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative ${
-                              isChosen
-                                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-500/20'
-                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                            }`}
-                          >
-                            {(dur.badge || priceBadge) && (
-                              <span className={`absolute -top-2 right-2 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
-                                isChosen ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500 text-slate-950'
-                              }`}>
-                                {dur.badge || priceBadge}
-                              </span>
-                            )}
-                            <div className="text-xs font-bold">{dur.label}</div>
-                            <div className={`text-[10px] ${isChosen ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                              {dur.subLabel || `${dur.value} ${dur.unit}`}
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                      {/* Custom option */}
+                {/* Preset Duration Buttons from Admin Config */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {campaignConfig.durationPresets.filter(d => d.isEnabled).map((dur) => {
+                    const isChosen = selectedDurationId === dur.id;
+                    return (
                       <button
+                        key={dur.id}
                         type="button"
-                        onClick={() => setSelectedDurationId('custom')}
-                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                          selectedDurationId === 'custom'
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
+                        onClick={() => setSelectedDurationId(dur.id)}
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer relative ${
+                          isChosen
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-500/20'
                             : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
                         }`}
                       >
-                        <div className="text-xs font-bold">Custom Duration</div>
-                        <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                          Configurable
+                        {dur.badge && (
+                          <span className={`absolute -top-2 right-2 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
+                            isChosen ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500 text-slate-950'
+                          }`}>
+                            {dur.badge}
+                          </span>
+                        )}
+                        <div className="text-xs font-bold">{dur.label}</div>
+                        <div className={`text-[10px] ${isChosen ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                          {dur.subLabel || `${dur.value} ${dur.unit}`}
                         </div>
                       </button>
+                    );
+                  })}
+
+                  {/* Custom option */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDurationId('custom')}
+                    className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                      selectedDurationId === 'custom'
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-emerald-400 text-slate-950 font-black shadow-md'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className="text-xs font-bold">Custom Duration</div>
+                    <div className={`text-[10px] ${selectedDurationId === 'custom' ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                      Configurable
                     </div>
+                  </button>
+                </div>
 
-                    {/* Custom duration inputs if selected */}
-                    {selectedDurationId === 'custom' && (
-                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                        <div>
-                          <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
-                          <input
-                            type="number"
-                            min="1"
-                            max={campaignConfig.formRules.maxCampaignDays || 365}
-                            value={customDurationValue}
-                            onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
-                          <select
-                            value={customDurationUnit}
-                            onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                          >
-                            <option value="hours">Hours (Flash)</option>
-                            <option value="days">Days (24h blocks)</option>
-                            <option value="weeks">Weeks (7-day cycles)</option>
-                            <option value="months">Months (30-day blocks)</option>
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Sub-section: IF CPM OR CPC BASED */}
-                {(formBillingModel === 'cpm' || formBillingModel === 'cpc') && (
-                  <div className="space-y-4 pt-2 border-t border-slate-800">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-300">
-                          Campaign Initial Budget Limit (PKR) *
-                        </label>
-                        <input
-                          type="number"
-                          min={billingConfig.minCampaignBudgetPkr || 500}
-                          max={billingConfig.maxCampaignBudgetPkr || 500000}
-                          step="100"
-                          value={formBudgetLimit}
-                          onChange={(e) => setFormBudgetLimit(Math.max(0, parseInt(e.target.value) || 0))}
-                          className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm font-mono font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                        <div className="text-[10px] text-slate-500">
-                          Min: PKR {(billingConfig.minCampaignBudgetPkr || 500).toLocaleString()} • Max: PKR {(billingConfig.maxCampaignBudgetPkr || 500000).toLocaleString()}
-                        </div>
-                      </div>
-
-                      {formBillingModel === 'cpm' ? (
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-300">
-                            Hard Impression Cap Limit (Optional)
-                          </label>
-                          <input
-                            type="number"
-                            min="1000"
-                            step="1000"
-                            placeholder="e.g. 50000 (leave empty for budget cap)"
-                            value={formImpressionLimit}
-                            onChange={(e) => setFormImpressionLimit(e.target.value)}
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                          />
-                          <div className="text-[10px] text-slate-500">
-                            Stop campaign automatically when this view count is reached
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-300">
-                            Hard Click Cap Limit (Optional)
-                          </label>
-                          <input
-                            type="number"
-                            min="10"
-                            step="10"
-                            placeholder="e.g. 500 (leave empty for budget cap)"
-                            value={formClickLimit}
-                            onChange={(e) => setFormClickLimit(e.target.value)}
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
-                          />
-                          <div className="text-[10px] text-slate-500">
-                            Stop campaign automatically when this click count is reached
-                          </div>
-                        </div>
-                      )}
+                {/* Custom duration inputs if selected */}
+                {selectedDurationId === 'custom' && (
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                    <div>
+                      <label className="text-[11px] text-slate-400 font-bold">Duration Value</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={campaignConfig.formRules.maxCampaignDays || 365}
+                        value={customDurationValue}
+                        onChange={(e) => setCustomDurationValue(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                      />
                     </div>
-
-                    {/* Projections Callout */}
-                    <div className="p-3.5 bg-slate-900/90 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
-                      <div>
-                        <span className="text-slate-400">Estimated Delivery: </span>
-                        {formBillingModel === 'cpm' ? (
-                          <strong className="text-emerald-400 font-mono">
-                            ~{Math.round((formBudgetLimit / (billingConfig.cpmRatePkr || 150)) * 1000).toLocaleString()} Ad Impressions
-                          </strong>
-                        ) : (
-                          <strong className="text-emerald-400 font-mono">
-                            ~{Math.floor(formBudgetLimit / (billingConfig.cpcRatePkr || 15)).toLocaleString()} Valid Clicks
-                          </strong>
-                        )}
-                      </div>
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
-                        Auto-pauses at budget exhaustion
-                      </span>
+                    <div>
+                      <label className="text-[11px] text-slate-400 font-bold">Time Unit</label>
+                      <select
+                        value={customDurationUnit}
+                        onChange={(e) => setCustomDurationUnit(e.target.value as AdDurationUnit)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                      >
+                        <option value="hours">Hours (Flash)</option>
+                        <option value="days">Days (24h blocks)</option>
+                        <option value="weeks">Weeks (7-day cycles)</option>
+                        <option value="months">Months (30-day blocks)</option>
+                      </select>
                     </div>
                   </div>
                 )}
@@ -1511,9 +1126,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs text-emerald-300">
                     <span className="flex items-center space-x-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      <span>Wallet balance sufficient: <strong>PKR {totalCampaignPayablePkr.toLocaleString()}</strong> will be deducted.</span>
+                      <span>Wallet balance sufficient: <strong>PKR {costCalculation.totalCostPkr.toLocaleString()}</strong> will be deducted.</span>
                     </span>
-                    <span className="font-mono font-bold text-emerald-400">Balance after: PKR {(walletBalance - totalCampaignPayablePkr).toLocaleString()}</span>
+                    <span className="font-mono font-bold text-emerald-400">Balance after: PKR {(walletBalance - costCalculation.totalCostPkr).toLocaleString()}</span>
                   </div>
                 ) : (
                   <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between text-xs text-amber-300">
@@ -1545,7 +1160,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   <Send className="w-4 h-4" />
                   <span>
                     {isWalletSufficient 
-                      ? `Submit Campaign for Admin Approval (PKR ${totalCampaignPayablePkr.toLocaleString()})`
+                      ? `Submit Campaign for Admin Approval (PKR ${costCalculation.totalCostPkr.toLocaleString()})`
                       : `Deposit Funds to Submit Campaign (Deficit: PKR ${walletDeficit.toLocaleString()})`
                     }
                   </span>
@@ -1566,92 +1181,36 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   <span>Itemized Fee Calculation</span>
                 </span>
                 <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  {getBillingModelDisplayName(formBillingModel)}
+                  Live Rate Card
                 </span>
               </h3>
 
               <div className="space-y-2.5 text-xs text-slate-300">
-                {formBillingModel === 'duration' ? (
-                  <>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Duration ({costCalculation.durationDisplay}) Base Fee:</span>
-                      <span className="font-mono font-bold text-white">PKR {costCalculation.baseCost.toLocaleString()}</span>
-                    </div>
+                <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
+                  <span className="text-slate-400">Duration ({costCalculation.durationDisplay}) Base Fee:</span>
+                  <span className="font-mono font-bold text-white">PKR {costCalculation.baseCost.toLocaleString()}</span>
+                </div>
 
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Placement Multiplier ({getPlacementDisplayName(formPlacement)}):</span>
-                      <span className="font-mono font-bold text-indigo-300">{costCalculation.placementMultiplier}x</span>
-                    </div>
+                <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
+                  <span className="text-slate-400">Placement Multiplier ({getPlacementDisplayName(formPlacement)}):</span>
+                  <span className="font-mono font-bold text-indigo-300">{costCalculation.placementMultiplier}x</span>
+                </div>
 
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Page Distribution Multiplier ({formTargetPages.length} Pages):</span>
-                      <span className="font-mono font-bold text-amber-300">{costCalculation.pageMultiplier}x</span>
-                    </div>
+                <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
+                  <span className="text-slate-400">Page Distribution Multiplier ({formTargetPages.length} Pages):</span>
+                  <span className="font-mono font-bold text-amber-300">{costCalculation.pageMultiplier}x</span>
+                </div>
 
-                    {formType === 'sms' && (
-                      <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                        <span className="text-slate-400">SMS Contacts Dispatch Fee ({formSmsRecipientsCount} SMS):</span>
-                        <span className="font-mono font-bold text-purple-300">PKR {costCalculation.smsFee.toLocaleString()}</span>
-                      </div>
-                    )}
-
-                    {isFixedPrice && (
-                      <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                        <span className="text-emerald-400 font-medium">Preset Fixed Flat Rate:</span>
-                        <span className="font-mono font-bold text-emerald-300">PKR {finalCampaignCostPkr.toLocaleString()}</span>
-                      </div>
-                    )}
-
-                    {!isFixedPrice && discountPercentApplied > 0 && (
-                      <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                        <span className="text-teal-400 font-medium">Preset Discount ({discountPercentApplied}% OFF):</span>
-                        <span className="font-mono font-bold text-teal-300">-PKR {(rawCostCalculation.totalCostPkr - finalCampaignCostPkr).toLocaleString()}</span>
-                      </div>
-                    )}
-                  </>
-                ) : formBillingModel === 'cpm' ? (
-                  <>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Billing Model:</span>
-                      <span className="font-bold text-indigo-300">CPM (Cost Per 1,000 Views)</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">CPM Unit Rate:</span>
-                      <span className="font-mono font-bold text-emerald-300">PKR {(billingConfig.cpmRatePkr || 150).toLocaleString()} / 1k</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Initial Budget Allocated:</span>
-                      <span className="font-mono font-bold text-white">PKR {totalCampaignPayablePkr.toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Estimated Reach:</span>
-                      <span className="font-mono font-bold text-amber-300">~{Math.round((totalCampaignPayablePkr / (billingConfig.cpmRatePkr || 150)) * 1000).toLocaleString()} views</span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Billing Model:</span>
-                      <span className="font-bold text-indigo-300">CPC (Cost Per Click)</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">CPC Unit Rate:</span>
-                      <span className="font-mono font-bold text-emerald-300">PKR {(billingConfig.cpcRatePkr || 15).toLocaleString()} / click</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Initial Budget Allocated:</span>
-                      <span className="font-mono font-bold text-white">PKR {totalCampaignPayablePkr.toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
-                      <span className="text-slate-400">Estimated Clicks:</span>
-                      <span className="font-mono font-bold text-amber-300">~{Math.floor(totalCampaignPayablePkr / (billingConfig.cpcRatePkr || 15)).toLocaleString()} clicks</span>
-                    </div>
-                  </>
+                {formType === 'sms' && (
+                  <div className="flex items-center justify-between py-1.5 border-b border-slate-800/80">
+                    <span className="text-slate-400">SMS Contacts Dispatch Fee ({formSmsRecipientsCount} SMS):</span>
+                    <span className="font-mono font-bold text-purple-300">PKR {costCalculation.smsFee.toLocaleString()}</span>
+                  </div>
                 )}
 
                 <div className="flex items-center justify-between pt-2 text-sm font-black text-white">
-                  <span className="text-emerald-400">Total Campaign Payable:</span>
-                  <span className="font-mono text-xl text-emerald-400">PKR {totalCampaignPayablePkr.toLocaleString()}</span>
+                  <span className="text-emerald-400">Total Campaign Fee:</span>
+                  <span className="font-mono text-xl text-emerald-400">PKR {costCalculation.totalCostPkr.toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -1988,98 +1547,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 Close Preview
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL: TOP UP / RECHARGE CAMPAIGN BUDGET */}
-      {/* ========================================================================= */}
-      {topUpModalAd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 relative">
-            <button
-              onClick={() => setTopUpModalAd(null)}
-              className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
-            >
-              <XCircle className="w-5 h-5" />
-            </button>
-
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2 text-emerald-400 text-xs font-bold uppercase">
-                <Plus className="w-4 h-4" />
-                <span>Recharge Campaign Budget</span>
-              </div>
-              <h3 className="text-lg font-black text-white">{topUpModalAd.title}</h3>
-              <p className="text-xs text-slate-400">
-                Billing Model: <strong className="text-emerald-400">{getBillingModelDisplayName(topUpModalAd.billingModel)}</strong>
-              </p>
-            </div>
-
-            {/* Current Ledger summary */}
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-3 gap-2 text-center text-xs">
-              <div>
-                <div className="text-[10px] text-slate-500">Current Limit</div>
-                <div className="font-bold font-mono text-white">PKR {(topUpModalAd.budgetLimit || topUpModalAd.campaignCostPkr || 0).toLocaleString()}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-500">Spent</div>
-                <div className="font-bold font-mono text-amber-400">PKR {Math.round(topUpModalAd.budgetSpent || 0).toLocaleString()}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-500">Remaining</div>
-                <div className="font-bold font-mono text-emerald-400">PKR {Math.round(topUpModalAd.budgetRemaining ?? Math.max(0, (topUpModalAd.budgetLimit || topUpModalAd.campaignCostPkr || 0) - (topUpModalAd.budgetSpent || 0))).toLocaleString()}</div>
-              </div>
-            </div>
-
-            <form onSubmit={handleTopUpBudgetSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Amount to Add to Campaign Budget (PKR)</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[1000, 2500, 5000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setTopUpAmountInput(amt)}
-                      className={`py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        topUpAmountInput === amt
-                          ? 'bg-emerald-500 border-emerald-400 text-slate-950 font-black'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      +PKR {amt.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Custom Top-up Amount (PKR)</label>
-                <input
-                  type="number"
-                  min={billingConfig.minCampaignBudgetPkr || 500}
-                  step="100"
-                  value={topUpAmountInput}
-                  onChange={(e) => setTopUpAmountInput(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <div className="text-[10px] text-slate-500">
-                  Deducted immediately from your advertising wallet balance (PKR {walletBalance.toLocaleString()} available)
-                </div>
-              </div>
-
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300">
-                New Campaign Budget will be: <strong>PKR {((topUpModalAd.budgetLimit || topUpModalAd.campaignCostPkr || 0) + topUpAmountInput).toLocaleString()}</strong>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm rounded-2xl shadow-xl shadow-emerald-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
-              >
-                <Check className="w-4 h-4" />
-                <span>Confirm & Add PKR {topUpAmountInput.toLocaleString()}</span>
-              </button>
-            </form>
           </div>
         </div>
       )}

@@ -27,7 +27,6 @@ export function getResolvedApiBase(): string {
   const isBrowser = typeof window !== 'undefined';
   const hostname = isBrowser ? window.location.hostname : '';
   const isVercel = Boolean(isBrowser && (hostname.endsWith('.vercel.app') || hostname.includes('vercel.app')));
-  const isRender = Boolean(isBrowser && (hostname.endsWith('.onrender.com') || hostname.includes('onrender.com')));
   const isLocal = Boolean(
     isBrowser &&
     (hostname === 'localhost' ||
@@ -38,8 +37,8 @@ export function getResolvedApiBase(): string {
      hostname.includes('localhost'))
   );
 
-  // 2. Production Vercel or Render deployment where frontend is hosted separately
-  if (isVercel || isRender) {
+  // 2. Production Vercel deployment where frontend is hosted statically on Vercel
+  if (isVercel) {
     const runtimeUrl = isBrowser ? (localStorage.getItem('hybrid_backend_api_url') || '') : '';
     if (runtimeUrl.trim()) {
       const stripped = runtimeUrl.trim().replace(/\/+$/, '').replace(/\/api\/?$/, '');
@@ -73,13 +72,7 @@ function getAuthHeader(): Record<string, string> {
 
 export async function safeFetchJson<T = any>(url: string, init?: RequestInit): Promise<T> {
   try {
-    const res = await fetch(url, {
-      cache: 'no-store',
-      ...init,
-      headers: {
-        ...(init?.headers || {})
-      }
-    });
+    const res = await fetch(url, init);
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       const text = await res.text();
@@ -279,32 +272,6 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify({ ids })
       });
-    },
-    async restoreExpired(id: string) {
-      return safeFetchJson(`${API_BASE}/jobs/restore-expired/${id}`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async bulkRestoreExpired(ids: string[]) {
-      return safeFetchJson(`${API_BASE}/jobs/bulk-restore-expired`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ ids })
-      });
-    },
-    async permanentDelete(id: string) {
-      return safeFetchJson(`${API_BASE}/jobs/permanent/${id}`, {
-        method: 'DELETE',
-        headers: getAuthHeader()
-      });
-    },
-    async bulkUpdateLocation(jobIds: string[], locationData: { region?: string; province?: string; city?: string; district?: string }) {
-      return safeFetchJson(`${API_BASE}/jobs/bulk-update-location`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ jobIds, locationData })
-      });
     }
   },
 
@@ -464,20 +431,6 @@ export const api = {
         body: JSON.stringify({ sourceIds })
       });
     },
-    async moveSourceToGroup(sourceId: string, targetGroupId?: string | null) {
-      return safeFetchJson(`${API_BASE}/scraper/sources/${sourceId}/move-group`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ targetGroupId })
-      });
-    },
-    async bulkMoveSourcesToGroup(sourceIds: string[], targetGroupId?: string | null) {
-      return safeFetchJson(`${API_BASE}/scraper/sources/bulk-move-group`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ sourceIds, targetGroupId })
-      });
-    },
     async runGroup(id: string) {
       return safeFetchJson(`${API_BASE}/scraper/groups/${id}/run`, {
         method: 'POST',
@@ -508,51 +461,6 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
       });
-    },
-    async getActiveStatus() {
-      return safeFetchJson(`${API_BASE}/scraper/active-status`, { headers: getAuthHeader() });
-    },
-    async pause() {
-      return safeFetchJson(`${API_BASE}/scraper/pause`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async resume() {
-      return safeFetchJson(`${API_BASE}/scraper/resume`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async stop() {
-      return safeFetchJson(`${API_BASE}/scraper/stop`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async reset() {
-      return safeFetchJson(`${API_BASE}/scraper/reset`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
-    },
-    async getExpirySettings() {
-      return safeFetchJson<{ success: boolean; settings: { offsetDays: number } }>(`${API_BASE}/scraper/expiry-settings`, {
-        headers: getAuthHeader()
-      });
-    },
-    async updateExpirySettings(settings: { offsetDays: number }) {
-      return safeFetchJson<{ success: boolean; settings: { offsetDays: number }; message?: string }>(`${API_BASE}/scraper/expiry-settings`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(settings)
-      });
-    },
-    async scanExpiry() {
-      return safeFetchJson<{ success: boolean; expiredCount: number; expiredJobIds: string[]; message?: string }>(`${API_BASE}/scraper/scan-expiry`, {
-        method: 'POST',
-        headers: getAuthHeader()
-      });
     }
   },
 
@@ -570,45 +478,11 @@ export const api = {
     }
   },
 
-  // --- TRANSACTIONS & FINANCIAL LEDGER ---
+  // --- TRANSACTIONS ---
   transactions: {
     async getAll(userId?: string) {
       const qs = userId ? `?userId=${userId}` : '';
       return safeFetchJson(`${API_BASE}/transactions${qs}`);
-    },
-    async getWalletBalance(userId?: string) {
-      const qs = userId ? `?userId=${userId}` : '';
-      return safeFetchJson<{ success: boolean; wallet?: any; message?: string }>(`${API_BASE}/transactions/wallet/balance${qs}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async requestWithdrawal(data: { amount: number; paymentMethod: string; senderPhoneOrAccount: string; senderName: string; proofNote?: string; userId?: string }) {
-      return safeFetchJson<{ success: boolean; message?: string; transaction?: any; case?: any }>(`${API_BASE}/transactions/withdraw`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async processWithdrawal(id: string, data: { action: 'approve' | 'reject'; payoutRef?: string; proofSlipUrl?: string; note?: string; reason?: string }) {
-      return safeFetchJson<{ success: boolean; message?: string; transaction?: any }>(`${API_BASE}/transactions/${id}/withdrawal-process`, {
-        method: 'PATCH',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async walletDebit(data: { userId: string; amount: number; type?: string; description?: string; meta?: any }) {
-      return safeFetchJson<{ success: boolean; newBalance?: number; transaction?: any; message?: string }>(`${API_BASE}/transactions/wallet/debit`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async walletCredit(data: { userId: string; amount: number; type?: string; description?: string; meta?: any }) {
-      return safeFetchJson<{ success: boolean; newBalance?: number; transaction?: any; message?: string }>(`${API_BASE}/transactions/wallet/credit`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
     },
     async submit(txData: any) {
       return safeFetchJson(`${API_BASE}/transactions`, {
@@ -622,174 +496,6 @@ export const api = {
         method: 'PATCH',
         headers: getAuthHeader(),
         body: JSON.stringify({ action, note, reason })
-      });
-    }
-  },
-
-  // --- USERS, WALLETS, SAVED JOBS & DOCUMENTS ---
-  users: {
-    async getAll() {
-      return safeFetchJson<{ success: boolean; users: any[] }>(`${API_BASE}/users`, {
-        headers: getAuthHeader()
-      });
-    },
-    async update(id: string, updates: any) {
-      return safeFetchJson<{ success: boolean; user?: any; message?: string }>(`${API_BASE}/users/${id}`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(updates)
-      });
-    },
-    async getWallet(userId: string) {
-      return safeFetchJson<{ success: boolean; wallet?: any }>(`${API_BASE}/users/${userId}/wallet`, {
-        headers: getAuthHeader()
-      });
-    },
-    async getSavedJobs(userId?: string) {
-      const qs = userId ? `?userId=${userId}` : '';
-      return safeFetchJson<{ success: boolean; savedJobs: any[] }>(`${API_BASE}/users/saved-jobs${qs}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async toggleSavedJob(userId: string, job: any) {
-      return safeFetchJson<{ success: boolean; saved: boolean; count: number }>(`${API_BASE}/users/saved-jobs/toggle`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ userId, job })
-      });
-    },
-    async getJobAlerts(userId?: string) {
-      const qs = userId ? `?userId=${userId}` : '';
-      return safeFetchJson<{ success: boolean; alerts: any[] }>(`${API_BASE}/users/job-alerts${qs}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async createJobAlert(data: any) {
-      return safeFetchJson<{ success: boolean; alert?: any; message?: string }>(`${API_BASE}/users/job-alerts`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async deleteJobAlert(id: string, userId?: string) {
-      const qs = userId ? `?userId=${userId}` : '';
-      return safeFetchJson<{ success: boolean; message?: string }>(`${API_BASE}/users/job-alerts/${id}${qs}`, {
-        method: 'DELETE',
-        headers: getAuthHeader()
-      });
-    },
-    async getDocuments(userId: string) {
-      return safeFetchJson<{ success: boolean; documents: any[] }>(`${API_BASE}/users/documents?userId=${userId}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async uploadDocument(data: any) {
-      return safeFetchJson<{ success: boolean; document?: any; message?: string }>(`${API_BASE}/users/documents`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async deleteDocument(id: string, userId: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(`${API_BASE}/users/documents/${id}?userId=${userId}`, {
-        method: 'DELETE',
-        headers: getAuthHeader()
-      });
-    }
-  },
-
-  // --- UNIVERSAL CASES & SUBMISSIONS ---
-  cases: {
-    async getAll(filters?: { type?: string; status?: string; userId?: string }) {
-      const q = new URLSearchParams();
-      if (filters?.type) q.append('type', filters.type);
-      if (filters?.status) q.append('status', filters.status);
-      if (filters?.userId) q.append('userId', filters.userId);
-      return safeFetchJson<{ success: boolean; cases: any[] }>(`${API_BASE}/cases?${q.toString()}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async getById(id: string) {
-      return safeFetchJson<{ success: boolean; case?: any }>(`${API_BASE}/cases/${id}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async create(data: any) {
-      return safeFetchJson<{ success: boolean; case?: any }>(`${API_BASE}/cases`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async updateStatus(id: string, data: { status: string; note?: string; actor?: string; role?: string }) {
-      return safeFetchJson<{ success: boolean; case?: any }>(`${API_BASE}/cases/${id}/status`, {
-        method: 'PATCH',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async addTimeline(id: string, data: { actor: string; role: string; action: string; note: string }) {
-      return safeFetchJson<{ success: boolean; case?: any }>(`${API_BASE}/cases/${id}/timeline`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async requestCorrection(id: string, data: { correctionNotes: string; actor?: string; role?: string }) {
-      return safeFetchJson<{ success: boolean; case?: any; message?: string }>(`${API_BASE}/cases/${id}/request-correction`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async submitDispute(id: string, data: { disputeNotes: string; actor?: string; role?: string }) {
-      return safeFetchJson<{ success: boolean; case?: any; message?: string }>(`${API_BASE}/cases/${id}/dispute`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async resolveDispute(id: string, data: { resolutionNotes: string; actor?: string; role?: string; newStatus?: string }) {
-      return safeFetchJson<{ success: boolean; case?: any; message?: string }>(`${API_BASE}/cases/${id}/resolve-dispute`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    }
-  },
-
-  // --- SUPPORT TICKETS ---
-  support: {
-    async getAll(userId?: string) {
-      const qs = userId ? `?userId=${userId}` : '';
-      return safeFetchJson<{ success: boolean; tickets: any[] }>(`${API_BASE}/support${qs}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async getById(id: string) {
-      return safeFetchJson<{ success: boolean; ticket?: any }>(`${API_BASE}/support/${id}`, {
-        headers: getAuthHeader()
-      });
-    },
-    async create(data: { userId?: string; userName?: string; userEmail?: string; subject: string; category?: string; priority?: string; message: string }) {
-      return safeFetchJson<{ success: boolean; ticket?: any }>(`${API_BASE}/support`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async addMessage(id: string, data: { senderId: string; senderName: string; senderRole: string; message: string; attachments?: string[] }) {
-      return safeFetchJson<{ success: boolean; ticket?: any }>(`${API_BASE}/support/${id}/messages`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data)
-      });
-    },
-    async updateStatus(id: string, status: string) {
-      return safeFetchJson<{ success: boolean; ticket?: any }>(`${API_BASE}/support/${id}/status`, {
-        method: 'PATCH',
-        headers: getAuthHeader(),
-        body: JSON.stringify({ status })
       });
     }
   },
@@ -855,160 +561,8 @@ export const api = {
         body: JSON.stringify(flags)
       });
     }
-  },
-
-  // --- SITE SETTINGS (LANDING, CAMPAIGNS, WHATSAPP) ---
-  settings: {
-    async getLanding() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/landing`);
-    },
-    async updateLanding(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/landing`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    },
-    async getCampaigns() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/campaigns`);
-    },
-    async updateCampaigns(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/campaigns`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    },
-    async getWhatsApp() {
-      return safeFetchJson<{ success: boolean; config: any }>(`${API_BASE}/settings/whatsapp`);
-    },
-    async updateWhatsApp(config: any) {
-      return safeFetchJson<{ success: boolean; config: any; message?: string }>(`${API_BASE}/settings/whatsapp`, {
-        method: 'PUT',
-        headers: getAuthHeader(),
-        body: JSON.stringify(config)
-      });
-    }
-  },
-
-  // --- NOTIFICATIONS & MANDATORY ACTIONS ---
-  notifications: {
-    async getActive(params?: { userId?: string; role?: string; plan?: string; membershipStatus?: string }) {
-      const q = new URLSearchParams();
-      if (params?.userId) q.append('userId', params.userId);
-      if (params?.role) q.append('role', params.role);
-      if (params?.plan) q.append('plan', params.plan);
-      if (params?.membershipStatus) q.append('membershipStatus', params.membershipStatus);
-
-      return safeFetchJson<{ success: boolean; notifications: any[] }>(
-        `${API_BASE}/notifications?${q.toString()}`,
-        { headers: getAuthHeader() }
-      );
-    },
-    async getForUser(params?: { userId?: string; role?: string; plan?: string; membershipStatus?: string }) {
-      return this.getActive(params);
-    },
-    async getAdminAll() {
-      return safeFetchJson<{ success: boolean; notifications: any[] }>(
-        `${API_BASE}/notifications/admin/all`,
-        { headers: getAuthHeader() }
-      );
-    },
-    async create(data: any) {
-      return safeFetchJson<{ success: boolean; notification?: any; message?: string }>(
-        `${API_BASE}/notifications/admin`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify(data)
-        }
-      );
-    },
-    async update(id: string, updates: any) {
-      return safeFetchJson<{ success: boolean; notification?: any; message?: string }>(
-        `${API_BASE}/notifications/admin/${id}`,
-        {
-          method: 'PUT',
-          headers: getAuthHeader(),
-          body: JSON.stringify(updates)
-        }
-      );
-    },
-    async delete(id: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/admin/${id}`,
-        {
-          method: 'DELETE',
-          headers: getAuthHeader()
-        }
-      );
-    },
-    async markRead(id: string, userId?: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/${id}/read`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId })
-        }
-      );
-    },
-    async markAllRead(userId?: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/read-all`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId })
-        }
-      );
-    },
-    async dismiss(id: string, userId?: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/${id}/dismiss`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId })
-        }
-      );
-    },
-    async completeMandatory(id: string, userIdOrMetadata?: any, maybeMetadata?: any) {
-      let userId: string | undefined;
-      let metadata: any;
-      if (typeof userIdOrMetadata === 'string') {
-        userId = userIdOrMetadata;
-        metadata = maybeMetadata;
-      } else {
-        metadata = userIdOrMetadata;
-      }
-      return safeFetchJson<{ success: boolean; message?: string; policyVersion?: string }>(
-        `${API_BASE}/notifications/${id}/complete-mandatory`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ userId, metadata })
-        }
-      );
-    },
-    async overrideMandatory(id: string, targetUserId: string) {
-      return safeFetchJson<{ success: boolean; message?: string }>(
-        `${API_BASE}/notifications/admin/${id}/override-mandatory`,
-        {
-          method: 'POST',
-          headers: getAuthHeader(),
-          body: JSON.stringify({ targetUserId })
-        }
-      );
-    },
-    async checkRestrictions(userId: string, action: string = 'post_job') {
-      return safeFetchJson<{ success: boolean; restricted: boolean; reason?: string; notification?: any }>(
-        `${API_BASE}/notifications/user/${userId}/restrictions?action=${action}`
-      );
-    }
   }
 };
-
 
 export function setRuntimeBackendUrl(url: string): void {
   if (typeof window !== 'undefined') {

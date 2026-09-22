@@ -2,7 +2,9 @@ import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
   getScraperGroupsCollection,
-  isMongoConfigured
+  isMongoConfigured,
+  withMongoTimeout,
+  resetMongoClient
 } from '../mongodb';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
 
@@ -110,7 +112,11 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperSourcesCollection();
-        const docs = await coll.find({}, { projection: { _id: 0 } }).toArray();
+        const docs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } }).toArray(),
+          15000,
+          'getConfigs'
+        );
         if (docs && docs.length > 0) {
           let hasMissingStatus = false;
           const normalized = docs.map((s: any) => {
@@ -153,7 +159,7 @@ export class ScraperRepository {
                 healthStatus: clean.healthStatus || 'healthy'
               };
             });
-            await coll.insertMany(cleanDocs);
+            await withMongoTimeout(coll.insertMany(cleanDocs), 15000, 'seedConfigs');
             console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
             this.cachedSources = cleanDocs;
             return cleanDocs;
@@ -162,7 +168,7 @@ export class ScraperRepository {
           }
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_sources:', err.message);
+        console.warn('[ScraperRepository] Notice reading scraper_sources from MongoDB, serving cached sources:', err?.message || err);
       }
     }
 
@@ -182,10 +188,10 @@ export class ScraperRepository {
         for (const cfg of configs) {
           if (!cfg || !cfg.id) continue;
           const { _id, ...clean } = cfg;
-          await coll.replaceOne({ id: clean.id }, clean, { upsert: true });
+          await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error saving scraper_sources:', err.message);
+        console.warn('[ScraperRepository] Notice saving scraper_sources to MongoDB:', err?.message || err);
       }
     }
   }
@@ -197,17 +203,21 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperRunsCollection();
-        const runs = await coll.find({}, { projection: { _id: 0 } })
-          .sort({ startedAt: -1, timestamp: -1 })
-          .limit(100)
-          .toArray();
+        const runs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } })
+            .sort({ startedAt: -1, timestamp: -1 })
+            .limit(100)
+            .toArray(),
+          15000,
+          'getRuns'
+        );
 
         if (runs && runs.length > 0) {
           this.cachedRuns = runs;
           return runs;
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_runs:', err.message);
+        console.warn('[ScraperRepository] Notice reading scraper_runs from MongoDB, serving cached runs:', err?.message || err);
       }
     }
 
@@ -228,9 +238,9 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperRunsCollection();
-        await coll.insertOne(clean);
+        await withMongoTimeout(coll.insertOne(clean), 10000, 'addRun');
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error adding to scraper_runs:', err.message);
+        console.warn('[ScraperRepository] Notice adding to scraper_runs in MongoDB:', err?.message || err);
       }
     }
 
@@ -272,10 +282,10 @@ export class ScraperRepository {
         if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
 
         if (Object.keys(updateOps).length > 0) {
-          await coll.updateOne({ id: sourceId }, updateOps);
+          await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
         }
       } catch (err: any) {
-        console.error(`[ScraperRepository] MongoDB error updating source stats for "${sourceId}":`, err.message);
+        console.warn(`[ScraperRepository] Notice updating source stats for "${sourceId}" in MongoDB:`, err?.message || err);
       }
     }
 
@@ -306,7 +316,11 @@ export class ScraperRepository {
     if (isMongoConfigured()) {
       try {
         const coll = await getScraperGroupsCollection();
-        const docs = await coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray();
+        const docs = await withMongoTimeout(
+          coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray(),
+          15000,
+          'getGroups'
+        );
         if (docs && docs.length > 0) {
           this.cachedGroups = docs as ScraperSourceGroup[];
           return docs as ScraperSourceGroup[];
@@ -315,13 +329,13 @@ export class ScraperRepository {
         // Auto-seed default groups if empty
         const defaults = getDefaultGroups();
         if (defaults.length > 0) {
-          await coll.insertMany(defaults);
+          await withMongoTimeout(coll.insertMany(defaults), 15000, 'seedGroups');
           console.log(`[ScraperRepository] Seeded ${defaults.length} default source groups into MongoDB.`);
           this.cachedGroups = defaults;
           return defaults;
         }
       } catch (err: any) {
-        console.error('[ScraperRepository] MongoDB error reading scraper_groups:', err.message);
+        console.warn('[ScraperRepository] Notice reading scraper_groups from MongoDB, serving cached groups:', err?.message || err);
       }
     }
     return this.cachedGroups;
@@ -488,54 +502,4 @@ export class ScraperRepository {
     }
     return null;
   }
-
-  private static cachedExpiryOffsetDays: number = 1;
-
-  /**
-   * Retrieves the configured portal expiry offset in days (0, 1, or 2, default: 1).
-   */
-  static async getExpirySettings(): Promise<{ offsetDays: number }> {
-    if (isMongoConfigured()) {
-      try {
-        const db = await (await import('../mongodb')).getMongoDb();
-        const doc = await db.collection('scraper_settings').findOne({ id: 'portal_expiry_config' });
-        if (doc && typeof doc.offsetDays === 'number') {
-          this.cachedExpiryOffsetDays = Math.max(0, Math.min(2, doc.offsetDays));
-        }
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading expiry settings:', err.message);
-      }
-    }
-    return { offsetDays: this.cachedExpiryOffsetDays };
-  }
-
-  /**
-   * Updates the portal expiry offset (0, 1, or 2 days).
-   */
-  static async updateExpirySettings(settings: { offsetDays: number }): Promise<{ offsetDays: number }> {
-    const safeOffset = Math.max(0, Math.min(2, Number(settings.offsetDays) || 0));
-    this.cachedExpiryOffsetDays = safeOffset;
-
-    if (isMongoConfigured()) {
-      try {
-        const db = await (await import('../mongodb')).getMongoDb();
-        await db.collection('scraper_settings').updateOne(
-          { id: 'portal_expiry_config' },
-          {
-            $set: {
-              id: 'portal_expiry_config',
-              offsetDays: safeOffset,
-              updatedAt: new Date().toISOString()
-            }
-          },
-          { upsert: true }
-        );
-      } catch (err: any) {
-        console.error('[ScraperRepository] Error saving expiry settings:', err.message);
-      }
-    }
-
-    return { offsetDays: safeOffset };
-  }
 }
-

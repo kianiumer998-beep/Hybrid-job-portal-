@@ -2708,19 +2708,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
         };
 
-        const handleBulkDelete = () => {
+        const handleBulkDelete = async () => {
           if (selectedPendingIds.length === 0) return;
           if (confirm(`Permanently delete ${selectedPendingIds.length} selected pending postings from queue?`)) {
-            if (onBulkDeleteJobs) {
-              onBulkDeleteJobs(selectedPendingIds);
-            } else if (onBulkRejectPendingJobs) {
-              onBulkRejectPendingJobs(selectedPendingIds, 'Admin deleted from queue');
+            const duplicatePendingIdsSet = new Set<string>();
+            pendingClusters.forEach(c => {
+              c.items.slice(1).forEach(item => duplicatePendingIdsSet.add(item.id));
+            });
+            pendingJobs.forEach(pJob => {
+              if ((pJob as any).isDuplicate || (pJob as any).duplicateOfJobId || (pJob as any).duplicateWarning) {
+                duplicatePendingIdsSet.add(pJob.id);
+              }
+            });
+
+            const areAllSelectedDuplicates = selectedPendingIds.length > 0 &&
+              selectedPendingIds.every(id => duplicatePendingIdsSet.has(id));
+
+            if (areAllSelectedDuplicates) {
+              try {
+                const res = await api.jobs.bulkDeleteDuplicates(selectedPendingIds);
+                if (res?.success) {
+                  if (onReloadJobs) {
+                    await onReloadJobs();
+                  }
+                }
+              } catch (err) {
+                console.error('Error bulk deleting duplicate jobs from queue:', err);
+              } finally {
+                setSelectedPendingIds([]);
+              }
             } else {
-              selectedPendingIds.forEach(id => {
-                if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
-              });
+              if (onBulkDeleteJobs) {
+                onBulkDeleteJobs(selectedPendingIds);
+              } else if (onBulkRejectPendingJobs) {
+                onBulkRejectPendingJobs(selectedPendingIds, 'Admin deleted from queue');
+              } else {
+                selectedPendingIds.forEach(id => {
+                  if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
+                });
+              }
+              setSelectedPendingIds([]);
             }
-            setSelectedPendingIds([]);
           }
         };
 

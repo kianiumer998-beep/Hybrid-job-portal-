@@ -2721,32 +2721,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }
             });
 
-            const areAllSelectedDuplicates = selectedPendingIds.length > 0 &&
-              selectedPendingIds.every(id => duplicatePendingIdsSet.has(id));
+            const duplicateIds = selectedPendingIds.filter(id => duplicatePendingIdsSet.has(id));
+            const normalIds = selectedPendingIds.filter(id => !duplicatePendingIdsSet.has(id));
 
-            if (areAllSelectedDuplicates) {
-              try {
-                const res = await api.jobs.bulkDeleteDuplicates(selectedPendingIds);
-                if (res?.success) {
-                  if (onReloadJobs) {
-                    await onReloadJobs();
-                  }
+            try {
+              if (duplicateIds.length > 0) {
+                await api.jobs.bulkDeleteDuplicates(duplicateIds);
+              }
+
+              if (normalIds.length > 0) {
+                if (onBulkDeleteJobs) {
+                  await onBulkDeleteJobs(normalIds);
+                } else if (onBulkRejectPendingJobs) {
+                  onBulkRejectPendingJobs(normalIds, 'Admin deleted from queue');
+                } else {
+                  normalIds.forEach(id => {
+                    if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
+                  });
                 }
-              } catch (err) {
-                console.error('Error bulk deleting duplicate jobs from queue:', err);
-              } finally {
-                setSelectedPendingIds([]);
               }
-            } else {
-              if (onBulkDeleteJobs) {
-                onBulkDeleteJobs(selectedPendingIds);
-              } else if (onBulkRejectPendingJobs) {
-                onBulkRejectPendingJobs(selectedPendingIds, 'Admin deleted from queue');
-              } else {
-                selectedPendingIds.forEach(id => {
-                  if (onRejectJob) onRejectJob(id, 'Admin deleted from queue');
-                });
+
+              if (onReloadJobs) {
+                await onReloadJobs();
               }
+            } catch (err) {
+              console.error('Error bulk deleting pending jobs from queue:', err);
+            } finally {
               setSelectedPendingIds([]);
             }
           }

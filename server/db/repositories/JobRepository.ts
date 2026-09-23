@@ -3,7 +3,8 @@ import {
   getPendingJobsCollection,
   normalizeMongoJob,
   isMongoConfigured,
-  executeWithMongoRetry
+  executeWithMongoRetry,
+  withMongoTimeout
 } from '../mongodb';
 import { Database } from '../database';
 import { generateJobSlug } from '../../utils/slugify';
@@ -423,15 +424,30 @@ export class JobRepository {
   /**
    * Retrieves pending scraper / user jobs directly from MongoDB pending_jobs.
    */
-  static async getPending(): Promise<any[]> {
-    assertMongoAvailable();
-    const pendingColl = await getPendingJobsCollection();
-    const docs = await pendingColl
-      .find({ status: { $ne: 'Rejected' } })
-      .sort({ createdAt: -1 })
-      .toArray();
+  static async getPending(filter?: { limit?: number; lightweight?: boolean }): Promise<any[]> {
+    if (!isMongoConfigured()) {
+      return Database.getPendingJobs();
+    }
+    try {
+      assertMongoAvailable();
+      const pendingColl = await getPendingJobsCollection();
+      let cursor = pendingColl
+        .find({ status: { $ne: 'Rejected' } })
+        .sort({ createdAt: -1 });
 
-    return docs.map(normalizeMongoJob);
+      if (filter?.limit && filter.limit > 0) {
+        cursor = cursor.limit(filter.limit);
+      }
+      const docs = await withMongoTimeout(cursor.toArray(), 4000, 'getPending');
+
+      return docs.map(normalizeMongoJob);
+    } catch (err) {
+      const local = Database.getPendingJobs();
+      if (Array.isArray(local)) {
+        return local;
+      }
+      throw err;
+    }
   }
 
   /**

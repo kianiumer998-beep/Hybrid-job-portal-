@@ -442,6 +442,33 @@ export const api = {
         body: JSON.stringify(options)
       });
     },
+    async getActiveRun() {
+      return safeFetchJson(`${API_BASE}/scraper/active-run`, { headers: getAuthHeader() });
+    },
+    async pauseActiveRun() {
+      return safeFetchJson(`${API_BASE}/scraper/active-run/pause`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async resumeActiveRun() {
+      return safeFetchJson(`${API_BASE}/scraper/active-run/resume`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async stopActiveRun() {
+      return safeFetchJson(`${API_BASE}/scraper/active-run/stop`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
+    async resetActiveRun() {
+      return safeFetchJson(`${API_BASE}/scraper/active-run/reset`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+    },
     async getRuns() {
       return safeFetchJson(`${API_BASE}/scraper/runs`, { headers: getAuthHeader() });
     },

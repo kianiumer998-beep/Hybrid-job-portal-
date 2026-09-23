@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { generateJobSlug } from '../db/database';
+import { Database, generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdmin } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
@@ -61,10 +61,12 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
     if (!isMongoConfigured()) {
-      return res.status(503).json({
-        success: false,
-        errorType: 'DatabaseUnavailable',
-        message: 'MongoDB is unavailable or not configured. Cannot obtain pending queue data.'
+      const fallbackPending = Database.getPendingJobs();
+      return res.status(200).json({
+        success: true,
+        pendingJobs: fallbackPending,
+        jobs: fallbackPending,
+        fallback: true
       });
     }
 
@@ -72,15 +74,26 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
     return res.status(200).json({ success: true, pendingJobs: pending, jobs: pending });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);
-    const isTransient = isTransientMongoError(err) ||
-      String(err?.message || '').toLowerCase().includes('mongo') ||
-      String(err?.name || '').toLowerCase().includes('mongo');
-    const statusCode = isTransient ? 503 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      errorType: isTransient ? 'TransientDatabaseError' : 'DatabaseError',
-      message: err?.message || 'Error fetching pending jobs from database'
-    });
+    try {
+      const fallbackPending = Database.getPendingJobs();
+      return res.status(200).json({
+        success: true,
+        pendingJobs: fallbackPending,
+        jobs: fallbackPending,
+        fallback: true,
+        notice: 'Loaded from persistence fallback'
+      });
+    } catch {
+      const isTransient = isTransientMongoError(err) ||
+        String(err?.message || '').toLowerCase().includes('mongo') ||
+        String(err?.name || '').toLowerCase().includes('mongo');
+      const statusCode = isTransient ? 503 : 500;
+      return res.status(statusCode).json({
+        success: false,
+        errorType: isTransient ? 'TransientDatabaseError' : 'DatabaseError',
+        message: err?.message || 'Error fetching pending jobs from database'
+      });
+    }
   }
 });
 

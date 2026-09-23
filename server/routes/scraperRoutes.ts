@@ -1,6 +1,14 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
-import { executeScraperWithWizard, ScraperRunOptions } from '../services/scraperEngine';
+import {
+  executeScraperWithWizard,
+  ScraperRunOptions,
+  getActiveRunStatus,
+  pauseActiveRun,
+  resumeActiveRun,
+  stopActiveRun,
+  resetActiveRun
+} from '../services/scraperEngine';
 import { requireAdmin } from '../auth/authManager';
 import { ScraperRepository, AuditRepository } from '../db/repositories';
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
@@ -183,6 +191,52 @@ scraperRouter.post('/run', requireAdmin, async (req, res) => {
   } catch (err: any) {
     console.error('Error in /api/scraper/run:', err);
     res.status(500).json({ success: false, message: err.message || 'Error executing scraper run' });
+  }
+});
+
+// 6a. Active Scraper Run Monitoring & Controls (Admin Only)
+scraperRouter.get('/active-run', requireAdmin, (req, res) => {
+  try {
+    const status = getActiveRunStatus();
+    res.json({ success: true, activeRun: status });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error fetching active run status' });
+  }
+});
+
+scraperRouter.post('/active-run/pause', requireAdmin, (req, res) => {
+  try {
+    const paused = pauseActiveRun();
+    res.json({ success: true, paused, activeRun: getActiveRunStatus() });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error pausing active run' });
+  }
+});
+
+scraperRouter.post('/active-run/resume', requireAdmin, (req, res) => {
+  try {
+    const resumed = resumeActiveRun();
+    res.json({ success: true, resumed, activeRun: getActiveRunStatus() });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error resuming active run' });
+  }
+});
+
+scraperRouter.post('/active-run/stop', requireAdmin, (req, res) => {
+  try {
+    const stopped = stopActiveRun();
+    res.json({ success: true, stopped, activeRun: getActiveRunStatus() });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error stopping active run' });
+  }
+});
+
+scraperRouter.post('/active-run/reset', requireAdmin, (req, res) => {
+  try {
+    const status = resetActiveRun();
+    res.json({ success: true, activeRun: status });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error resetting active run' });
   }
 });
 

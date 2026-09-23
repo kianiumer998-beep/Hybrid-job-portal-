@@ -152,6 +152,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
   // Execution State
   const [isScrapingActive, setIsScrapingActive] = useState(false);
+  const [activeRunStatus, setActiveRunStatus] = useState<any>(null);
   const [scrapeScanType, setScrapeScanType] = useState<'full' | 'quick'>('full');
   const [autoPublishTrusted, setAutoPublishTrusted] = useState(false);
   const [selectedSingleSourceId, setSelectedSingleSourceId] = useState('');
@@ -648,6 +649,80 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } finally {
       setIsScrapingActive(false);
       setRunProgressMessage('');
+    }
+  };
+
+  // Active Scraper Run Polling Effect
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    let isCancelled = false;
+
+    const pollStatus = async () => {
+      try {
+        const res = await api.scraper.getActiveRun();
+        if (!isCancelled && res?.success && res?.activeRun) {
+          setActiveRunStatus(res.activeRun);
+          if (res.activeRun.isActive) {
+            setIsScrapingActive(true);
+          } else if (isScrapingActive && !res.activeRun.isActive) {
+            setIsScrapingActive(false);
+          }
+        }
+      } catch {
+        // Silently ignore polling transient errors
+      }
+    };
+
+    if (isScrapingActive || activeRunStatus?.isActive) {
+      pollStatus();
+      timer = setInterval(pollStatus, 1000);
+    }
+
+    return () => {
+      isCancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [isScrapingActive, activeRunStatus?.isActive]);
+
+  const handlePauseScraper = async () => {
+    try {
+      const res = await api.scraper.pauseActiveRun();
+      if (res?.activeRun) setActiveRunStatus(res.activeRun);
+      logMessage('Crawler execution paused by administrator.');
+    } catch (e: any) {
+      logMessage(`Pause notice: ${e.message}`);
+    }
+  };
+
+  const handleResumeScraper = async () => {
+    try {
+      const res = await api.scraper.resumeActiveRun();
+      if (res?.activeRun) setActiveRunStatus(res.activeRun);
+      logMessage('Crawler execution resumed.');
+    } catch (e: any) {
+      logMessage(`Resume notice: ${e.message}`);
+    }
+  };
+
+  const handleStopScraper = async () => {
+    try {
+      const res = await api.scraper.stopActiveRun();
+      if (res?.activeRun) setActiveRunStatus(res.activeRun);
+      setIsScrapingActive(false);
+      logMessage('Crawler execution stopped by administrator.');
+    } catch (e: any) {
+      logMessage(`Stop notice: ${e.message}`);
+    }
+  };
+
+  const handleResetScraper = async () => {
+    try {
+      const res = await api.scraper.resetActiveRun();
+      if (res?.activeRun) setActiveRunStatus(res.activeRun);
+      setIsScrapingActive(false);
+      logMessage('Active crawler status reset.');
+    } catch (e: any) {
+      logMessage(`Reset notice: ${e.message}`);
     }
   };
 
@@ -1527,6 +1602,127 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
           </div>
 
+          {/* Live Active Scraper Progress & Control Panel in Overview */}
+          {(isScrapingActive || activeRunStatus?.isActive) && (
+            <div className="bg-slate-900 border-2 border-amber-500/50 rounded-2xl p-5 shadow-2xl space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2.5 bg-amber-500/20 text-amber-300 rounded-xl">
+                    <RotateCcw className={`w-5 h-5 ${activeRunStatus?.isPaused ? '' : 'animate-spin'}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-sm font-bold text-white">
+                        Live Scraper Execution Active
+                      </h4>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        activeRunStatus?.isPaused
+                          ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      }`}>
+                        {activeRunStatus?.isPaused ? 'PAUSED' : 'CRAWLING'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {activeRunStatus?.currentSource
+                        ? `Scraping: ${activeRunStatus.currentSource.name} (${activeRunStatus.completedSources + 1}/${activeRunStatus.totalSources})`
+                        : runProgressMessage || 'Processing target portals...'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Controls: Pause / Resume / Stop / Reset */}
+                <div className="flex items-center space-x-2">
+                  {activeRunStatus?.isPaused ? (
+                    <button
+                      type="button"
+                      onClick={handleResumeScraper}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer shadow"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>Resume</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handlePauseScraper}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer shadow"
+                    >
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Pause</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleStopScraper}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer shadow"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                    <span>Stop</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetScraper}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer border border-slate-700"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sources Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-slate-400">
+                    Sources progress: {activeRunStatus?.completedSources || 0} / {activeRunStatus?.totalSources || 0}
+                  </span>
+                  <span className="text-amber-300 font-bold">{activeRunStatus?.runProgress || 0}%</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                  <div
+                    className="bg-gradient-to-r from-amber-500 to-emerald-500 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${activeRunStatus?.runProgress || 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Live Metric Counters */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 pt-1">
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Found</span>
+                  <span className="text-base font-bold text-white">{activeRunStatus?.totalFound || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">New</span>
+                  <span className="text-base font-bold text-emerald-300">{activeRunStatus?.totalNew || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Duplicates</span>
+                  <span className="text-base font-bold text-amber-300">{activeRunStatus?.totalDuplicates || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Pending</span>
+                  <span className="text-base font-bold text-cyan-300">{activeRunStatus?.totalPending || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Published</span>
+                  <span className="text-base font-bold text-indigo-300">{activeRunStatus?.totalPublished || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Failed</span>
+                  <span className="text-base font-bold text-rose-300">{activeRunStatus?.totalFailedSources || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Remaining</span>
+                  <span className="text-base font-bold text-slate-300">{activeRunStatus?.remainingSources || 0}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 6 Core Metric Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {/* 1. Jobs Found */}
@@ -2283,6 +2479,127 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Live Active Scraper Progress & Control Panel */}
+          {(isScrapingActive || activeRunStatus?.isActive) && (
+            <div className="bg-slate-900 border-2 border-amber-500/50 rounded-2xl p-5 shadow-2xl space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2.5 bg-amber-500/20 text-amber-300 rounded-xl">
+                    <RotateCcw className={`w-5 h-5 ${activeRunStatus?.isPaused ? '' : 'animate-spin'}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-sm font-bold text-white">
+                        Live Scraper Execution Active
+                      </h4>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        activeRunStatus?.isPaused
+                          ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      }`}>
+                        {activeRunStatus?.isPaused ? 'PAUSED' : 'CRAWLING'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {activeRunStatus?.currentSource
+                        ? `Scraping: ${activeRunStatus.currentSource.name} (${activeRunStatus.completedSources + 1}/${activeRunStatus.totalSources})`
+                        : runProgressMessage || 'Processing target portals...'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Controls: Pause / Resume / Stop / Reset */}
+                <div className="flex items-center space-x-2">
+                  {activeRunStatus?.isPaused ? (
+                    <button
+                      type="button"
+                      onClick={handleResumeScraper}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer shadow"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>Resume</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handlePauseScraper}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer shadow"
+                    >
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Pause</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleStopScraper}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer shadow"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                    <span>Stop</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetScraper}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer border border-slate-700"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sources Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-slate-400">
+                    Sources progress: {activeRunStatus?.completedSources || 0} / {activeRunStatus?.totalSources || 0}
+                  </span>
+                  <span className="text-amber-300 font-bold">{activeRunStatus?.runProgress || 0}%</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                  <div
+                    className="bg-gradient-to-r from-amber-500 to-emerald-500 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${activeRunStatus?.runProgress || 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Live Metric Counters */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 pt-1">
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Found</span>
+                  <span className="text-base font-bold text-white">{activeRunStatus?.totalFound || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">New</span>
+                  <span className="text-base font-bold text-emerald-300">{activeRunStatus?.totalNew || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Duplicates</span>
+                  <span className="text-base font-bold text-amber-300">{activeRunStatus?.totalDuplicates || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Pending</span>
+                  <span className="text-base font-bold text-cyan-300">{activeRunStatus?.totalPending || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Published</span>
+                  <span className="text-base font-bold text-indigo-300">{activeRunStatus?.totalPublished || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Failed</span>
+                  <span className="text-base font-bold text-rose-300">{activeRunStatus?.totalFailedSources || 0}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Remaining</span>
+                  <span className="text-base font-bold text-slate-300">{activeRunStatus?.remainingSources || 0}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Quick Action Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">

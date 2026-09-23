@@ -16,6 +16,110 @@ export interface ScraperRunOptions {
   autoPublishTrusted?: boolean;
 }
 
+export interface ActiveRunStatus {
+  isActive: boolean;
+  isPaused: boolean;
+  runId?: string;
+  mode?: string;
+  totalSources: number;
+  completedSources: number;
+  remainingSources: number;
+  currentSource?: {
+    id: string;
+    name: string;
+    url: string;
+    index: number;
+  };
+  totalFound: number;
+  totalNew: number;
+  totalDuplicates: number;
+  totalPending: number;
+  totalPublished: number;
+  totalFailedSources: number;
+  currentError?: string;
+  runProgress: number;
+  startTime?: string;
+  lastUpdated?: string;
+}
+
+let activeRunState: ActiveRunStatus = {
+  isActive: false,
+  isPaused: false,
+  totalSources: 0,
+  completedSources: 0,
+  remainingSources: 0,
+  totalFound: 0,
+  totalNew: 0,
+  totalDuplicates: 0,
+  totalPending: 0,
+  totalPublished: 0,
+  totalFailedSources: 0,
+  runProgress: 0
+};
+
+let shouldStopActiveRun = false;
+let pauseResolver: (() => void) | null = null;
+let pausePromise: Promise<void> | null = null;
+
+export function getActiveRunStatus(): ActiveRunStatus {
+  return { ...activeRunState };
+}
+
+export function pauseActiveRun(): boolean {
+  if (!activeRunState.isActive || activeRunState.isPaused) return false;
+  activeRunState.isPaused = true;
+  pausePromise = new Promise((resolve) => {
+    pauseResolver = resolve;
+  });
+  return true;
+}
+
+export function resumeActiveRun(): boolean {
+  if (!activeRunState.isActive || !activeRunState.isPaused) return false;
+  activeRunState.isPaused = false;
+  if (pauseResolver) {
+    pauseResolver();
+    pauseResolver = null;
+    pausePromise = null;
+  }
+  return true;
+}
+
+export function stopActiveRun(): boolean {
+  if (!activeRunState.isActive) return false;
+  shouldStopActiveRun = true;
+  if (activeRunState.isPaused && pauseResolver) {
+    pauseResolver();
+    pauseResolver = null;
+    pausePromise = null;
+  }
+  return true;
+}
+
+export function resetActiveRun(): ActiveRunStatus {
+  shouldStopActiveRun = false;
+  if (pauseResolver) {
+    pauseResolver();
+    pauseResolver = null;
+    pausePromise = null;
+  }
+  activeRunState = {
+    isActive: false,
+    isPaused: false,
+    totalSources: 0,
+    completedSources: 0,
+    remainingSources: 0,
+    totalFound: 0,
+    totalNew: 0,
+    totalDuplicates: 0,
+    totalPending: 0,
+    totalPublished: 0,
+    totalFailedSources: 0,
+    runProgress: 0
+  };
+  return { ...activeRunState };
+}
+
 export interface ScraperRunSummary {
   runId: string;
   startTime: string;
@@ -23,7 +127,11 @@ export interface ScraperRunSummary {
   totalFound: number;
   totalNew: number;
   totalDuplicates: number;
+  totalPending: number;
+  totalPublished: number;
   totalFailedSources: number;
+  totalFailedToSave?: number;
+  failedToSaveErrors?: Array<{ title: string; error: string }>;
   pagesAttempted: number;
   pagesSuccessful: number;
   jobsAccepted: number;
@@ -59,7 +167,10 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
     totalFound: 0,
     totalNew: 0,
     totalDuplicates: 0,
+    totalPending: 0,
+    totalPublished: 0,
     totalFailedSources: 0,
+    totalFailedToSave: 0,
     pagesAttempted: 0,
     pagesSuccessful: 0,
     jobsAccepted: 0,
@@ -122,6 +233,33 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
   }
 
+  // Initialize active-run live state
+  shouldStopActiveRun = false;
+  if (pauseResolver) {
+    pauseResolver();
+    pauseResolver = null;
+    pausePromise = null;
+  }
+
+  activeRunState = {
+    isActive: true,
+    isPaused: false,
+    runId,
+    mode: options.mode,
+    totalSources: targets.length,
+    completedSources: 0,
+    remainingSources: targets.length,
+    totalFound: 0,
+    totalNew: 0,
+    totalDuplicates: 0,
+    totalPending: 0,
+    totalPublished: 0,
+    totalFailedSources: 0,
+    runProgress: 0,
+    startTime: startTime.toISOString(),
+    lastUpdated: startTime.toISOString()
+  };
+
   let existingLiveJobs: any[] = [];
   let existingPendingJobs: any[] = [];
   try {
@@ -144,6 +282,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
   const uniqueJobs: any[] = [];
   const publishedJobs: any[] = [];
   const pendingJobs: any[] = [];
+  const failedToSaveErrors: Array<{ title: string; error: string; isDuplicate: boolean }> = [];
   let failedCount = 0;
   let totalPagesAttempted = 0;
   let totalPagesSuccessful = 0;
@@ -151,7 +290,30 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
   const sourcesStats: ScraperRunSummary['sourcesStats'] = [];
 
-  for (const target of targets) {
+  for (let targetIdx = 0; targetIdx < targets.length; targetIdx++) {
+    if (shouldStopActiveRun) {
+      console.log(`[Scraper Engine] Active scraper run ${runId} stopped by user request.`);
+      break;
+    }
+
+    if (activeRunState.isPaused && pausePromise) {
+      console.log(`[Scraper Engine] Active scraper run ${runId} paused. Awaiting resume...`);
+      await pausePromise;
+      if (shouldStopActiveRun) break;
+    }
+
+    const target = targets[targetIdx];
+    activeRunState.currentSource = {
+      id: target.id,
+      name: target.name,
+      url: target.url || '',
+      index: targetIdx + 1
+    };
+    activeRunState.completedSources = targetIdx;
+    activeRunState.remainingSources = targets.length - targetIdx;
+    activeRunState.runProgress = Math.round((targetIdx / targets.length) * 100);
+    activeRunState.lastUpdated = new Date().toISOString();
+
     const effectiveUrl = target.url || (target as any).portalUrl || (target as any).pdfUrl || '';
     target.url = effectiveUrl;
     const sourceRunStart = new Date().toISOString();
@@ -322,35 +484,58 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
 
         harvestedJobs.push(standardizedJob);
+        activeRunState.totalFound++;
 
         if (dupCheck.isDuplicate) {
           sourceDup++;
           duplicateJobs.push(standardizedJob);
-          // Duplicates are NEVER published live. Saved to pending queue with flag
+          activeRunState.totalDuplicates++;
+
+          // Duplicates are NEVER published live. Saved to pending queue with duplicate flags
           try {
             await JobRepository.addPending(standardizedJob);
+            pendingJobs.push(standardizedJob);
+            activeRunState.totalPending++;
           } catch (pErr: any) {
-            console.warn(`[Scraper Engine] Notice saving duplicate pending job (${pErr?.message}):`, standardizedJob.title);
+            console.error(`[Scraper Engine] Failed saving duplicate pending job (${standardizedJob.title}):`, pErr?.message || pErr);
+            failedToSaveErrors.push({
+              title: standardizedJob.title,
+              error: pErr?.message || String(pErr),
+              isDuplicate: true
+            });
           }
           combinedExisting.push(standardizedJob);
         } else {
           sourceNew++;
           uniqueJobs.push(standardizedJob);
+          activeRunState.totalNew++;
 
           if (standardizedJob.status === 'Approved') {
             try {
               await JobRepository.create(standardizedJob);
+              publishedJobs.push(standardizedJob);
+              activeRunState.totalPublished++;
             } catch (cErr: any) {
-              console.warn(`[Scraper Engine] Notice saving approved job (${cErr?.message}):`, standardizedJob.title);
+              console.error(`[Scraper Engine] Failed saving approved job (${standardizedJob.title}):`, cErr?.message || cErr);
+              failedToSaveErrors.push({
+                title: standardizedJob.title,
+                error: cErr?.message || String(cErr),
+                isDuplicate: false
+              });
             }
-            publishedJobs.push(standardizedJob);
           } else {
             try {
               await JobRepository.addPending(standardizedJob);
+              pendingJobs.push(standardizedJob);
+              activeRunState.totalPending++;
             } catch (pErr: any) {
-              console.warn(`[Scraper Engine] Notice saving pending job (${pErr?.message}):`, standardizedJob.title);
+              console.error(`[Scraper Engine] Failed saving pending job (${standardizedJob.title}):`, pErr?.message || pErr);
+              failedToSaveErrors.push({
+                title: standardizedJob.title,
+                error: pErr?.message || String(pErr),
+                isDuplicate: false
+              });
             }
-            pendingJobs.push(standardizedJob);
           }
           combinedExisting.push(standardizedJob);
         }
@@ -388,6 +573,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       failedCount++;
       sourceFailed = true;
       sourceError = err.message || 'Scraping target failed';
+      activeRunState.totalFailedSources++;
+      activeRunState.currentError = sourceError;
       console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${err?.message || err}`);
 
       const errLower = sourceError.toLowerCase();
@@ -451,6 +638,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     }
   }
 
+  // Mark active run state complete
+  activeRunState.isActive = false;
+  activeRunState.isPaused = false;
+  activeRunState.completedSources = targets.length;
+  activeRunState.remainingSources = 0;
+  activeRunState.runProgress = 100;
+  activeRunState.lastUpdated = new Date().toISOString();
+
   const endTime = new Date();
   const duration = endTime.getTime() - startTime.getTime();
 
@@ -494,7 +689,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     totalFound: harvestedJobs.length,
     totalNew: uniqueJobs.length,
     totalDuplicates: duplicateJobs.length,
+    totalPending: pendingJobs.length,
+    totalPublished: publishedJobs.length,
     totalFailedSources: failedCount,
+    totalFailedToSave: failedToSaveErrors.length,
+    failedToSaveErrors: failedToSaveErrors.length > 0 ? failedToSaveErrors : undefined,
     pagesAttempted: totalPagesAttempted,
     pagesSuccessful: totalPagesSuccessful,
     jobsAccepted: uniqueJobs.length,

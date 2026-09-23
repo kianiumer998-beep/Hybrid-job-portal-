@@ -21,10 +21,14 @@ import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
   const app = express();
-  // Ensure the development server runs on port 3000 as required by the runtime environment and avoids port 8080 collision with internal proxy
-  const PORT = (process.env.NODE_ENV === 'production' && process.env.PORT && process.env.PORT !== '8080')
+  // Port configuration:
+  // - In AI Studio preview environment, an internal Nginx proxy listens on NGINX_PORT (8080) and forwards to DEFAULT_APP_PORT (3000).
+  // - In cloud deployments (Render, Heroku, Cloud Run, AWS, Railway, etc.), NGINX_PORT is not set and the platform provides PORT.
+  // - If environment provides a valid PORT without a local reverse proxy collision, honor it.
+  const isAistudioProxy = Boolean(process.env.NGINX_PORT && process.env.PORT === process.env.NGINX_PORT);
+  const PORT = (!isAistudioProxy && process.env.PORT)
     ? parseInt(process.env.PORT, 10)
-    : 3000;
+    : parseInt(process.env.DEFAULT_APP_PORT || '3000', 10);
 
   // Basic security headers
   app.use((req, res, next) => {
@@ -131,8 +135,16 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Hybrid Job & CV Portal production server running on http://0.0.0.0:${PORT}`);
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Server Error] Port ${PORT} is already in use (EADDRINUSE). A process is already listening on this port.`);
+    } else {
+      console.error('[Server Error]', err);
+    }
   });
 }
 

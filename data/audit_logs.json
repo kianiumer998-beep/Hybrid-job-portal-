@@ -1,5 +1,102 @@
 [
   {
+    "id": "log-1790154927015-74jd",
+    "timestamp": "2026-09-23T09:15:27.015Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "User Login",
+    "target": "admin@jobportal.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790154842839-tabs",
+    "timestamp": "2026-09-23T09:14:02.839Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "User Login",
+    "target": "admin@jobportal.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790154773059-ghn8",
+    "timestamp": "2026-09-23T09:12:53.059Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "User Login",
+    "target": "admin@jobportal.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790154645044-ieca",
+    "timestamp": "2026-09-23T09:10:45.044Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "User Login",
+    "target": "admin@jobportal.com",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790154533131-rxje",
+    "timestamp": "2026-09-23T09:08:53.131Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Scraper Source Group Executed",
+    "target": "Testing Services (6 sources)",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790154533130-2q5x",
+    "timestamp": "2026-09-23T09:08:53.130Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "6 Source Portals (1 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "complete",
+      "totalFound": 1,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 1,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1790154302953-97dl",
+    "timestamp": "2026-09-23T09:05:02.953Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790154236390-d8ro",
+    "timestamp": "2026-09-23T09:03:56.390Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Scraper Source Group Executed",
+    "target": "Sindh (39 sources)",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790154236389-0cxo",
+    "timestamp": "2026-09-23T09:03:56.389Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "39 Source Portals (7 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "complete",
+      "totalFound": 7,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 7,
+      "failedSources": 0
+    }
+  },
+  {
     "id": "log-1790098891856-58nn",
     "timestamp": "2026-09-22T17:41:31.856Z",
     "user": "Administrator",

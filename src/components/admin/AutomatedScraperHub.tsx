@@ -216,12 +216,23 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const fetchPendingQueue = useCallback(async () => {
     try {
       const res = await api.jobs.getPendingQueue();
+      if (res?.isDatabaseUnavailable || res?.errorType === 'TransientDatabaseError' || res?.errorType === 'DatabaseUnavailable') {
+        setStatusMessage({
+          text: res.message || 'Authoritative database (MongoDB) is temporarily unavailable. Operations paused to maintain data integrity.',
+          type: 'error'
+        });
+        return;
+      }
       const list = res?.pendingJobs || res?.jobs;
       if (res?.success && Array.isArray(list)) {
         setLocalPendingJobs(list);
       }
     } catch (err: any) {
       console.error('Error fetching pending queue:', err);
+      setStatusMessage({
+        text: `Authoritative pending database unavailable: ${err.message || 'Network error'}`,
+        type: 'error'
+      });
     }
     if (onReloadJobs) {
       await onReloadJobs();
@@ -264,9 +275,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       // 5. Fetch Pending Jobs Queue
       const pendingRes = await api.jobs.getPendingQueue();
-      const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
-      if (pendingRes?.success && Array.isArray(pendingList)) {
-        setLocalPendingJobs(pendingList);
+      if (pendingRes?.isDatabaseUnavailable || pendingRes?.errorType === 'TransientDatabaseError' || pendingRes?.errorType === 'DatabaseUnavailable') {
+        setStatusMessage({
+          text: pendingRes.message || 'Authoritative database (MongoDB) is temporarily unavailable.',
+          type: 'error'
+        });
+      } else {
+        const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
+        if (pendingRes?.success && Array.isArray(pendingList)) {
+          setLocalPendingJobs(pendingList);
+        }
       }
     } catch (err: any) {
       console.error('Error fetching live scraper data:', err);

@@ -1,5 +1,145 @@
 [
   {
+    "id": "log-1790159102871-r96h",
+    "timestamp": "2026-09-23T10:25:02.871Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Scraper Source Group Executed",
+    "target": "Education (29 sources)",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790159102870-tvki",
+    "timestamp": "2026-09-23T10:25:02.870Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "29 Source Portals (6 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "complete",
+      "totalFound": 6,
+      "published": 0,
+      "pending": 6,
+      "duplicates": 5,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1790159094539-mgb3",
+    "timestamp": "2026-09-23T10:24:54.539Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Scraper Source Group Executed",
+    "target": "Education (29 sources)",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790159094538-khuv",
+    "timestamp": "2026-09-23T10:24:54.538Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "29 Source Portals (6 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "complete",
+      "totalFound": 6,
+      "published": 0,
+      "pending": 6,
+      "duplicates": 5,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1790158799275-cayq",
+    "timestamp": "2026-09-23T10:19:59.275Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790157089304-ee0b",
+    "timestamp": "2026-09-23T09:51:29.304Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Keep Original + Delete Duplicates Processed",
+    "target": "0 duplicates removed while original preserved (438 failed)",
+    "status": "Warning"
+  },
+  {
+    "id": "log-1790156913094-w5ok",
+    "timestamp": "2026-09-23T09:48:33.094Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790155178914-lnep",
+    "timestamp": "2026-09-23T09:19:38.914Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Scraper Source Group Executed",
+    "target": "Testing Services (6 sources)",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790155178913-kivi",
+    "timestamp": "2026-09-23T09:19:38.913Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "6 Source Portals (1 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "complete",
+      "totalFound": 1,
+      "published": 0,
+      "pending": 1,
+      "duplicates": 1,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1790155164480-y1zv",
+    "timestamp": "2026-09-23T09:19:24.480Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Scraper Source Group Executed",
+    "target": "Testing Services (6 sources)",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790155164479-b3qp",
+    "timestamp": "2026-09-23T09:19:24.479Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "6 Source Portals (1 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "complete",
+      "totalFound": 1,
+      "published": 0,
+      "pending": 1,
+      "duplicates": 1,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1790154998637-u6rs",
+    "timestamp": "2026-09-23T09:16:38.637Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
     "id": "log-1790154927015-74jd",
     "timestamp": "2026-09-23T09:15:27.015Z",
     "user": "Super Administrator",

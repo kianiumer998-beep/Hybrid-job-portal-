@@ -428,26 +428,18 @@ export class JobRepository {
     if (!isMongoConfigured()) {
       return Database.getPendingJobs();
     }
-    try {
-      assertMongoAvailable();
-      const pendingColl = await getPendingJobsCollection();
-      let cursor = pendingColl
-        .find({ status: { $ne: 'Rejected' } })
-        .sort({ createdAt: -1 });
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    let cursor = pendingColl
+      .find({ status: { $ne: 'Rejected' } })
+      .sort({ createdAt: -1 });
 
-      if (filter?.limit && filter.limit > 0) {
-        cursor = cursor.limit(filter.limit);
-      }
-      const docs = await withMongoTimeout(cursor.toArray(), 4000, 'getPending');
-
-      return docs.map(normalizeMongoJob);
-    } catch (err) {
-      const local = Database.getPendingJobs();
-      if (Array.isArray(local)) {
-        return local;
-      }
-      throw err;
+    if (filter?.limit && filter.limit > 0) {
+      cursor = cursor.limit(filter.limit);
     }
+    const docs = await withMongoTimeout(cursor.toArray(), 30000, 'getPending');
+
+    return docs.map(normalizeMongoJob);
   }
 
   /**
@@ -488,6 +480,9 @@ export class JobRepository {
    * 2. Sets status to 'Approved' and inserts/upserts into live jobs.
    */
   static async approvePending(id: string): Promise<any | null> {
+    if (!isMongoConfigured()) {
+      return Database.approvePendingJob(id);
+    }
     assertMongoAvailable();
     const pendingColl = await getPendingJobsCollection();
     const jobsColl = await getJobsCollection();
@@ -522,6 +517,9 @@ export class JobRepository {
    * Rejects a pending job in MongoDB.
    */
   static async rejectPending(id: string, reason?: string): Promise<boolean> {
+    if (!isMongoConfigured()) {
+      return Database.rejectPendingJob(id, reason);
+    }
     assertMongoAvailable();
     const pendingColl = await getPendingJobsCollection();
 
@@ -551,6 +549,28 @@ export class JobRepository {
     errors: { id: string; error: string }[];
     approvedJobs: any[];
   }> {
+    if (!isMongoConfigured()) {
+      const approvedJobs: any[] = [];
+      const errors: { id: string; error: string }[] = [];
+      for (const id of ids) {
+        try {
+          const approved = Database.approvePendingJob(id);
+          if (approved) {
+            approvedJobs.push(approved);
+          } else {
+            errors.push({ id, error: `Pending job with ID "${id}" could not be found or processed.` });
+          }
+        } catch (err: any) {
+          errors.push({ id, error: err.message || `Error approving job "${id}".` });
+        }
+      }
+      return {
+        successCount: approvedJobs.length,
+        failureCount: errors.length,
+        errors,
+        approvedJobs
+      };
+    }
     assertMongoAvailable();
     const approvedJobs: any[] = [];
     const errors: { id: string; error: string }[] = [];
@@ -586,6 +606,27 @@ export class JobRepository {
     failureCount: number;
     errors: { id: string; error: string }[];
   }> {
+    if (!isMongoConfigured()) {
+      let successCount = 0;
+      const errors: { id: string; error: string }[] = [];
+      for (const id of ids) {
+        try {
+          const rejected = Database.rejectPendingJob(id, reason);
+          if (rejected) {
+            successCount++;
+          } else {
+            errors.push({ id, error: `Pending job with ID "${id}" could not be found or marked rejected.` });
+          }
+        } catch (err: any) {
+          errors.push({ id, error: err.message || `Error rejecting job "${id}".` });
+        }
+      }
+      return {
+        successCount,
+        failureCount: errors.length,
+        errors
+      };
+    }
     assertMongoAvailable();
     let successCount = 0;
     const errors: { id: string; error: string }[] = [];
@@ -619,6 +660,48 @@ export class JobRepository {
     failureCount: number;
     errors: { id: string; error: string }[];
   }> {
+    if (!isMongoConfigured()) {
+      const pending = Database.getPendingJobs();
+      let successCount = 0;
+      const errors: { id: string; error: string }[] = [];
+      const idsSet = new Set(ids);
+      const remaining: any[] = [];
+
+      for (const job of pending) {
+        if (idsSet.has(job.id)) {
+          const isDuplicate = Boolean(
+            job.isDuplicate === true ||
+            job.duplicateOfJobId ||
+            job.duplicateMatchedJob ||
+            job.duplicateWarning ||
+            job.duplicateScore ||
+            job.duplicateMatchReason ||
+            job.duplicateCategory ||
+            (typeof job.description === 'string' && job.description.toLowerCase().includes('duplicate'))
+          );
+
+          if (!isDuplicate) {
+            errors.push({ id: job.id, error: `Job "${job.id}" is not marked as a duplicate in local queue. Deletion blocked to preserve original.` });
+            remaining.push(job);
+            continue;
+          }
+
+          successCount++;
+        } else {
+          remaining.push(job);
+        }
+      }
+
+      for (const id of ids) {
+        if (!pending.some((j: any) => j.id === id)) {
+          errors.push({ id, error: `Duplicate job with ID "${id}" was not found in pending queue.` });
+        }
+      }
+
+      Database.savePendingJobs(remaining);
+      return { successCount, failureCount: errors.length, errors };
+    }
+
     assertMongoAvailable();
     const pendingColl = await getPendingJobsCollection();
     let successCount = 0;
@@ -636,7 +719,11 @@ export class JobRepository {
           doc.isDuplicate === true ||
           doc.duplicateOfJobId ||
           doc.duplicateMatchedJob ||
-          doc.duplicateWarning
+          doc.duplicateWarning ||
+          doc.duplicateScore ||
+          doc.duplicateMatchReason ||
+          doc.duplicateCategory ||
+          (typeof doc.description === 'string' && doc.description.toLowerCase().includes('duplicate'))
         );
 
         if (!isDuplicate) {
@@ -673,6 +760,55 @@ export class JobRepository {
     failureCount: number;
     errors: { id: string; error: string }[];
   }> {
+    if (!isMongoConfigured()) {
+      const pending = Database.getPendingJobs();
+      let successCount = 0;
+      const errors: { id: string; error: string }[] = [];
+      const idsSet = new Set(duplicateIds);
+      const remaining: any[] = [];
+
+      for (const job of pending) {
+        if (idsSet.has(job.id)) {
+          const isDuplicate = Boolean(
+            job.isDuplicate === true ||
+            job.duplicateOfJobId ||
+            job.duplicateMatchedJob ||
+            job.duplicateWarning ||
+            job.duplicateScore ||
+            job.duplicateMatchReason ||
+            job.duplicateCategory ||
+            (typeof job.description === 'string' && job.description.toLowerCase().includes('duplicate'))
+          );
+
+          if (!isDuplicate) {
+            errors.push({ id: job.id, error: `Job "${job.id}" is not verified as a duplicate in local queue. Operation blocked to protect original.` });
+            remaining.push(job);
+            continue;
+          }
+
+          const originalId = job.duplicateOfJobId || job.duplicateMatchedJob?.id;
+          if (originalId && originalId === job.id) {
+            errors.push({ id: job.id, error: `Target duplicate ID is identical to original ID (${job.id}). Operation blocked to preserve original.` });
+            remaining.push(job);
+            continue;
+          }
+
+          successCount++;
+        } else {
+          remaining.push(job);
+        }
+      }
+
+      for (const id of duplicateIds) {
+        if (!pending.some((j: any) => j.id === id)) {
+          errors.push({ id, error: `Duplicate job "${id}" was not found in pending queue.` });
+        }
+      }
+
+      Database.savePendingJobs(remaining);
+      return { successCount, failureCount: errors.length, errors };
+    }
+
     assertMongoAvailable();
     const pendingColl = await getPendingJobsCollection();
     let successCount = 0;
@@ -690,7 +826,11 @@ export class JobRepository {
           dupDoc.isDuplicate === true ||
           dupDoc.duplicateOfJobId ||
           dupDoc.duplicateMatchedJob ||
-          dupDoc.duplicateWarning
+          dupDoc.duplicateWarning ||
+          dupDoc.duplicateScore ||
+          dupDoc.duplicateMatchReason ||
+          dupDoc.duplicateCategory ||
+          (typeof dupDoc.description === 'string' && dupDoc.description.toLowerCase().includes('duplicate'))
         );
 
         if (!isDuplicate) {
@@ -735,6 +875,72 @@ export class JobRepository {
     failureCount: number;
     errors: { id: string; error: string }[];
   }> {
+    if (!isMongoConfigured()) {
+      const pending = Database.getPendingJobs();
+      let successCount = 0;
+      const errors: { id: string; error: string }[] = [];
+      const remainingPending: any[] = [];
+      const idsSet = new Set(duplicateIds);
+
+      for (const dupJob of pending) {
+        if (idsSet.has(dupJob.id)) {
+          const isDuplicate = Boolean(
+            dupJob.isDuplicate === true ||
+            dupJob.duplicateOfJobId ||
+            dupJob.duplicateMatchedJob ||
+            dupJob.duplicateWarning ||
+            dupJob.duplicateScore ||
+            dupJob.duplicateMatchReason ||
+            dupJob.duplicateCategory ||
+            (typeof dupJob.description === 'string' && dupJob.description.toLowerCase().includes('duplicate'))
+          );
+
+          if (!isDuplicate) {
+            errors.push({ id: dupJob.id, error: `Job "${dupJob.id}" is not a duplicate. Cannot overwrite original.` });
+            remainingPending.push(dupJob);
+            continue;
+          }
+
+          const originalId = dupJob.duplicateOfJobId || dupJob.duplicateMatchedJob?.id;
+          if (!originalId) {
+            errors.push({ id: dupJob.id, error: `No original job linked to duplicate "${dupJob.id}". Cannot overwrite.` });
+            remainingPending.push(dupJob);
+            continue;
+          }
+
+          const originalJob = Database.getJobById(originalId);
+          if (!originalJob) {
+            errors.push({ id: dupJob.id, error: `Linked original job "${originalId}" was not found in live listings.` });
+            remainingPending.push(dupJob);
+            continue;
+          }
+
+          const now = new Date().toISOString();
+          const { id: _ignoredId, isDuplicate: _ignoredDup, duplicateOfJobId: _ignoredDupOf, ...replacementData } = dupJob;
+          Database.updateJob(originalId, {
+            ...originalJob,
+            ...replacementData,
+            id: originalId,
+            updatedAt: now,
+            status: 'Approved',
+            isDuplicate: false
+          });
+          successCount++;
+        } else {
+          remainingPending.push(dupJob);
+        }
+      }
+
+      for (const id of duplicateIds) {
+        if (!pending.some((j: any) => j.id === id)) {
+          errors.push({ id, error: `Duplicate job "${id}" was not found in pending queue.` });
+        }
+      }
+
+      Database.savePendingJobs(remainingPending);
+      return { successCount, failureCount: errors.length, errors };
+    }
+
     assertMongoAvailable();
     const pendingColl = await getPendingJobsCollection();
     const jobsColl = await getJobsCollection();
@@ -753,7 +959,11 @@ export class JobRepository {
           dupDoc.isDuplicate === true ||
           dupDoc.duplicateOfJobId ||
           dupDoc.duplicateMatchedJob ||
-          dupDoc.duplicateWarning
+          dupDoc.duplicateWarning ||
+          dupDoc.duplicateScore ||
+          dupDoc.duplicateMatchReason ||
+          dupDoc.duplicateCategory ||
+          (typeof dupDoc.description === 'string' && dupDoc.description.toLowerCase().includes('duplicate'))
         );
 
         if (!isDuplicate) {

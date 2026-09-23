@@ -416,6 +416,8 @@ export default function App() {
       const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
       if (pendingRes && pendingRes.success && Array.isArray(pendingList)) {
         setPendingJobs(pendingList);
+      } else if (pendingRes?.isDatabaseUnavailable || pendingRes?.errorType === 'TransientDatabaseError' || pendingRes?.errorType === 'DatabaseUnavailable') {
+        console.warn('[App] Authoritative pending queue is temporarily unavailable:', pendingRes?.message);
       } else if (Array.isArray(pendingRes)) {
         setPendingJobs(pendingRes);
       } else {

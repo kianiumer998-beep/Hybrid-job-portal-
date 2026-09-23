@@ -66,34 +66,34 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
         success: true,
         pendingJobs: fallbackPending,
         jobs: fallbackPending,
+        dataSource: 'local_fallback',
         fallback: true
       });
     }
 
     const pending = await withMongoRetry(() => JobRepository.getPending());
-    return res.status(200).json({ success: true, pendingJobs: pending, jobs: pending });
+    return res.status(200).json({
+      success: true,
+      pendingJobs: pending,
+      jobs: pending,
+      dataSource: 'mongodb',
+      count: pending.length
+    });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);
-    try {
-      const fallbackPending = Database.getPendingJobs();
-      return res.status(200).json({
-        success: true,
-        pendingJobs: fallbackPending,
-        jobs: fallbackPending,
-        fallback: true,
-        notice: 'Loaded from persistence fallback'
-      });
-    } catch {
-      const isTransient = isTransientMongoError(err) ||
-        String(err?.message || '').toLowerCase().includes('mongo') ||
-        String(err?.name || '').toLowerCase().includes('mongo');
-      const statusCode = isTransient ? 503 : 500;
-      return res.status(statusCode).json({
-        success: false,
-        errorType: isTransient ? 'TransientDatabaseError' : 'DatabaseError',
-        message: err?.message || 'Error fetching pending jobs from database'
-      });
-    }
+    const isTransient = isTransientMongoError(err) ||
+      String(err?.message || '').toLowerCase().includes('mongo') ||
+      String(err?.name || '').toLowerCase().includes('mongo') ||
+      String(err?.message || '').toLowerCase().includes('timeout');
+    const statusCode = isTransient ? 503 : 500;
+    return res.status(statusCode).json({
+      success: false,
+      errorType: isTransient ? 'TransientDatabaseError' : 'DatabaseError',
+      isDatabaseUnavailable: true,
+      message: `Authoritative pending database (MongoDB) is temporarily unavailable: ${err?.message || 'Database error'}. Pending queue mutations are paused to protect consistency.`,
+      pendingJobs: [],
+      jobs: []
+    });
   }
 });
 
@@ -473,7 +473,12 @@ jobRouter.post('/bulk-delete-duplicates', requireAdmin, async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-delete-duplicates:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error deleting duplicate jobs' });
+    const isDbUnavailable = isTransientMongoError(err) || String(err?.message || '').toLowerCase().includes('mongo');
+    res.status(isDbUnavailable ? 503 : 500).json({
+      success: false,
+      errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'Error',
+      message: err.message || 'Error deleting duplicate jobs'
+    });
   }
 });
 jobRouter.post('/duplicates/bulk-delete', requireAdmin, async (req, res) => {
@@ -498,7 +503,12 @@ jobRouter.post('/duplicates/bulk-delete', requireAdmin, async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/duplicates/bulk-delete:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error deleting duplicate jobs' });
+    const isDbUnavailable = isTransientMongoError(err) || String(err?.message || '').toLowerCase().includes('mongo');
+    res.status(isDbUnavailable ? 503 : 500).json({
+      success: false,
+      errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'Error',
+      message: err.message || 'Error deleting duplicate jobs'
+    });
   }
 });
 
@@ -525,7 +535,12 @@ jobRouter.post('/keep-original-delete-duplicates', requireAdmin, async (req, res
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/keep-original-delete-duplicates:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error processing keep original' });
+    const isDbUnavailable = isTransientMongoError(err) || String(err?.message || '').toLowerCase().includes('mongo');
+    res.status(isDbUnavailable ? 503 : 500).json({
+      success: false,
+      errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'Error',
+      message: err.message || 'Error processing keep original'
+    });
   }
 });
 jobRouter.post('/duplicates/keep-original', requireAdmin, async (req, res) => {
@@ -550,7 +565,12 @@ jobRouter.post('/duplicates/keep-original', requireAdmin, async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/duplicates/keep-original:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error processing keep original' });
+    const isDbUnavailable = isTransientMongoError(err) || String(err?.message || '').toLowerCase().includes('mongo');
+    res.status(isDbUnavailable ? 503 : 500).json({
+      success: false,
+      errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'Error',
+      message: err.message || 'Error processing keep original'
+    });
   }
 });
 
@@ -577,7 +597,12 @@ jobRouter.post('/overwrite-original', requireAdmin, async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/overwrite-original:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error overwriting original with duplicate' });
+    const isDbUnavailable = isTransientMongoError(err) || String(err?.message || '').toLowerCase().includes('mongo');
+    res.status(isDbUnavailable ? 503 : 500).json({
+      success: false,
+      errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'Error',
+      message: err.message || 'Error overwriting original with duplicate'
+    });
   }
 });
 jobRouter.post('/duplicates/overwrite-original', requireAdmin, async (req, res) => {
@@ -602,7 +627,12 @@ jobRouter.post('/duplicates/overwrite-original', requireAdmin, async (req, res) 
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/duplicates/overwrite-original:', err);
-    res.status(500).json({ success: false, message: err.message || 'Error overwriting original with duplicate' });
+    const isDbUnavailable = isTransientMongoError(err) || String(err?.message || '').toLowerCase().includes('mongo');
+    res.status(isDbUnavailable ? 503 : 500).json({
+      success: false,
+      errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'Error',
+      message: err.message || 'Error overwriting original with duplicate'
+    });
   }
 });
 

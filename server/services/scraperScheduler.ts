@@ -68,49 +68,56 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
     for (let i = 0; i < updatedSources.length; i++) {
       const src = updatedSources[i];
-      const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
-      if (!isActive) continue;
-
-      const intervalMs = parseIntervalToMs(src.interval);
-      let nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
-
-      // Initialize nextRunAt if not set
-      if (!nextRunMs || isNaN(nextRunMs)) {
-        nextRunMs = now + intervalMs;
-        updatedSources[i] = {
-          ...src,
-          nextRunAt: new Date(nextRunMs).toISOString()
-        };
-        hasUpdates = true;
-        continue;
-      }
-
-      // Check if source is due
-      if (now >= nextRunMs) {
-        console.log(`[Scheduler Engine] Source "${src.name}" (${src.id}) is due for scrape (Interval: ${src.interval || '24h'}).`);
-        triggered.push(src.id);
-
-        try {
-          const runResult = await executeScraperWithWizard({
-            mode: 'since_last',
-            sourceId: src.id,
-            autoPublishTrusted: src.autoApprove && featureFlags.enableScraperAutoApprove
-          });
-
-          console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
-        } catch (srcErr: any) {
-          console.log(`[Scheduler Engine] Source "${src.name}" tick notice: ${srcErr?.message || srcErr}`);
+      try {
+        const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
+        if (!isActive) {
+          // Source is paused, disabled, or inactive
+          continue;
         }
 
-        // Schedule next run
-        const completedNow = new Date();
-        updatedSources[i] = {
-          ...updatedSources[i],
-          lastRunAt: completedNow.toISOString(),
-          lastCompletedAt: completedNow.toISOString(),
-          nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
-        };
-        hasUpdates = true;
+        const intervalMs = parseIntervalToMs(src.interval);
+        let nextRunMs = src.nextRunAt ? new Date(src.nextRunAt).getTime() : 0;
+
+        // Initialize nextRunAt if not set
+        if (!nextRunMs || isNaN(nextRunMs)) {
+          nextRunMs = now + intervalMs;
+          updatedSources[i] = {
+            ...src,
+            nextRunAt: new Date(nextRunMs).toISOString()
+          };
+          hasUpdates = true;
+          continue;
+        }
+
+        // Check if source is due
+        if (now >= nextRunMs) {
+          console.log(`[Scheduler Engine] Source "${src.name}" (${src.id}) is due for scrape (Interval: ${src.interval || '24h'}).`);
+          triggered.push(src.id);
+
+          try {
+            const runResult = await executeScraperWithWizard({
+              mode: 'since_last',
+              sourceId: src.id,
+              autoPublishTrusted: src.autoApprove && featureFlags.enableScraperAutoApprove
+            });
+
+            console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
+          } catch (srcErr: any) {
+            console.log(`[Scheduler Engine] Source "${src.name}" execution notice: ${srcErr?.message || srcErr}. Scheduler continuing with other due sources.`);
+          }
+
+          // Schedule next run regardless of single source outcome
+          const completedNow = new Date();
+          updatedSources[i] = {
+            ...updatedSources[i],
+            lastRunAt: completedNow.toISOString(),
+            lastCompletedAt: completedNow.toISOString(),
+            nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
+          };
+          hasUpdates = true;
+        }
+      } catch (sourceLoopErr: any) {
+        console.warn(`[Scheduler Engine] Notice processing source "${src.name}" during tick:`, sourceLoopErr?.message || sourceLoopErr);
       }
     }
 

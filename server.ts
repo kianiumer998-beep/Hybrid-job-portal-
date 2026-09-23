@@ -21,7 +21,10 @@ import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  // Ensure the development server runs on port 3000 as required by the runtime environment and avoids port 8080 collision with internal proxy
+  const PORT = (process.env.NODE_ENV === 'production' && process.env.PORT && process.env.PORT !== '8080')
+    ? parseInt(process.env.PORT, 10)
+    : 3000;
 
   // Basic security headers
   app.use((req, res, next) => {

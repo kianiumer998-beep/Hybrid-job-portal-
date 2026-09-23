@@ -3,6 +3,7 @@ import {
   getScraperRunsCollection,
   getScraperGroupsCollection,
   isMongoConfigured,
+  isMongoAvailable,
   resetMongoClient
 } from '../mongodb';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
@@ -272,6 +273,10 @@ export class ScraperRepository {
     return clean;
   }
 
+  static isDatabaseHealthy(): boolean {
+    return isMongoConfigured() && isMongoAvailable();
+  }
+
   /**
    * Updates health stats, counts, and run timestamps for a scraper source in MongoDB scraper_sources collection.
    */
@@ -281,7 +286,7 @@ export class ScraperRepository {
     lastCompletedAt?: string;
     lastRunId?: string;
     scrapedCountIncrement?: number;
-    healthStatus?: 'Healthy' | 'Jobs Found' | 'No Jobs' | '404' | '403' | 'Timeout' | 'Invalid PDF' | 'HTML' | 'Fetch Error' | 'Disabled' | string;
+    healthStatus?: 'Healthy' | 'Jobs Found' | 'No Jobs' | '404' | '403' | 'Timeout' | 'Invalid PDF' | 'HTML' | 'Fetch Error' | 'Database Error' | 'Disabled' | string;
     lastErrorMessage?: string;
     lastHttpStatus?: number;
   }): Promise<void> {

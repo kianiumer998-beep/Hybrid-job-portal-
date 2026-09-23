@@ -177,6 +177,7 @@ export interface Job {
   isNewspaperAd?: boolean;
   newspaperName?: string; // e.g., 'Daily Jang', 'Dawn', 'The Express Tribune', 'The News', 'Nawa-i-Waqt', 'Gulf News'
   clippingImageUrl?: string;
+  mediaUrl?: string;
   newspaperDate?: string;
 
   // PDF Consolidated Gazette Scraping Extensions (FPSC, WAPDA, PPSC, NTS)
@@ -189,6 +190,7 @@ export interface Job {
   challanFee?: string; // e.g. 'Rs. 300/- for BPS-16/17 (Payable at NBP)'
   ageRelaxationNote?: string; // e.g. '22-30 years plus 5 years general age relaxation'
   pdfParserEngine?: 'pdfplumber' | 'PyPDF2' | 'OCR-PyTesseract' | 'Camelot-Table-Extractor';
+  extractedText?: string;
 
   // Hybrid Extraction & Duplicate Detection & Override Attributes
   extractionSourceType?: 'pdf_gazette' | 'web_html' | 'hybrid_feed';

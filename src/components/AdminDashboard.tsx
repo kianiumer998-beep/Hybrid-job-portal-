@@ -2741,8 +2741,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </p>
               </div>
 
-              {/* DUPLICATE CHECK TRIGGER BUTTON */}
+              {/* ACTION BUTTONS */}
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (onReloadJobs) {
+                      await onReloadJobs();
+                    }
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all cursor-pointer flex items-center space-x-1.5"
+                  title="Refresh authoritative pending jobs from database"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh Queue</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setIsPendingDuplicateModalOpen(true)}

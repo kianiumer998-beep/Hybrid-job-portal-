@@ -396,6 +396,7 @@ export default function App() {
   // Pending Jobs Queue for Admin Verification (Single Backend Source of Truth via /api/jobs/queue/pending)
   const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(true);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   // Fetch jobs from backend Single Source of Truth
   const loadBackendJobs = useCallback(async () => {
@@ -405,26 +406,40 @@ export default function App() {
         api.jobs.getPendingQueue()
       ]);
 
+      let errorDetected = false;
+      let errorDesc = '';
+
       if (liveRes && liveRes.success && Array.isArray(liveRes.jobs)) {
         setJobs(liveRes.jobs);
+      } else if (liveRes?.isDatabaseUnavailable || liveRes?.errorType === 'TransientDatabaseError' || liveRes?.errorType === 'DatabaseUnavailable') {
+        errorDetected = true;
+        errorDesc = liveRes.message || 'Authoritative database is temporarily unavailable.';
+        console.warn('[App] Live jobs database temporarily unavailable:', liveRes?.message);
+        // Preserve existing jobs - DO NOT overwrite with empty array
       } else if (Array.isArray(liveRes)) {
         setJobs(liveRes);
-      } else {
-        setJobs([]);
       }
 
       const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
       if (pendingRes && pendingRes.success && Array.isArray(pendingList)) {
         setPendingJobs(pendingList);
       } else if (pendingRes?.isDatabaseUnavailable || pendingRes?.errorType === 'TransientDatabaseError' || pendingRes?.errorType === 'DatabaseUnavailable') {
+        errorDetected = true;
+        errorDesc = errorDesc || pendingRes.message || 'Authoritative pending database (MongoDB) is temporarily unavailable.';
         console.warn('[App] Authoritative pending queue is temporarily unavailable:', pendingRes?.message);
+        // Preserve existing pendingJobs - DO NOT overwrite with empty array
       } else if (Array.isArray(pendingRes)) {
         setPendingJobs(pendingRes);
-      } else {
-        setPendingJobs([]);
       }
-    } catch (err) {
+
+      if (errorDetected) {
+        setDbError(errorDesc);
+      } else {
+        setDbError(null);
+      }
+    } catch (err: any) {
       console.error('[App] Failed to load jobs from backend /api/jobs:', err);
+      setDbError(err?.message || 'Network error communicating with database');
     } finally {
       setIsLoadingJobs(false);
     }
@@ -1073,12 +1088,15 @@ export default function App() {
   const handleApproveJob = async (jobId: string) => {
     try {
       const res = await api.jobs.approvePending(jobId);
-      await loadBackendJobs();
       if (res && res.success) {
         alert(`Job "${res.job?.title || 'Job'}" is now LIVE on the public portal!`);
+      } else {
+        alert(`Approval notice: ${res?.message || 'Failed to approve job. Database may be temporarily unavailable.'}`);
       }
-    } catch (err) {
+      await loadBackendJobs();
+    } catch (err: any) {
       console.error('Error approving job on backend:', err);
+      alert(`Approval error: ${err?.message || 'Database error occurred during approval.'}`);
       await loadBackendJobs();
     }
   };
@@ -1182,10 +1200,21 @@ export default function App() {
 
   const handleBulkApprovePendingJobs = async (jobIds: string[]) => {
     try {
-      await api.jobs.bulkApprove(jobIds);
+      const res = await api.jobs.bulkApprove(jobIds);
+      if (res && res.success) {
+        if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
+          const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('\n');
+          alert(`Approved ${res.successCount} job(s), but ${res.failureCount} failed:\n${errDetails}`);
+        } else {
+          alert(`Successfully approved ${res.successCount || jobIds.length} job(s) to live listings!`);
+        }
+      } else {
+        alert(`Bulk approval notice: ${res?.message || 'Failed to approve selected jobs.'}`);
+      }
       await loadBackendJobs();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error bulk approving pending jobs on backend:', err);
+      alert(`Bulk approval error: ${err?.message || 'Database error occurred during bulk approval.'}`);
       await loadBackendJobs();
     }
   };

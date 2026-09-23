@@ -89,4 +89,30 @@ export class AdRepository {
     this.update(id, { impressions: (ad.impressions || 0) + 1 });
     return true;
   }
+
+  static async getAllAsync(filters?: { status?: string; placement?: string }): Promise<AdvertisementRecord[]> {
+    return this.getAll(filters);
+  }
+
+  static async createAsync(adData: Partial<AdvertisementRecord>): Promise<AdvertisementRecord> {
+    return this.create(adData);
+  }
+
+  static async updateAsync(id: string, updates: Partial<AdvertisementRecord>): Promise<AdvertisementRecord | null> {
+    return this.update(id, updates);
+  }
+
+  static async deleteAsync(id: string): Promise<boolean> {
+    return this.delete(id);
+  }
+
+  static async trackClickAsync(id: string, _options?: any): Promise<AdvertisementRecord | null> {
+    this.recordClick(id);
+    return this.getById(id);
+  }
+
+  static async trackImpressionAsync(id: string, _options?: any): Promise<AdvertisementRecord | null> {
+    this.recordImpression(id);
+    return this.getById(id);
+  }
 }

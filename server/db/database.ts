@@ -668,4 +668,107 @@ export class Database {
   static saveSeoConfig(config: any): void {
     safeWriteJson('seo_config.json', config);
   }
+
+  // --- USER SAVED JOBS ---
+  static getSavedJobs(userId: string): any[] {
+    const all = safeReadJson<Record<string, any[]>>('saved_jobs.json', {});
+    return all[userId] || [];
+  }
+
+  static toggleSavedJob(userId: string, job: any): { saved: boolean; count: number } {
+    const all = safeReadJson<Record<string, any[]>>('saved_jobs.json', {});
+    let userSaved = all[userId] || [];
+    const existsIndex = userSaved.findIndex(j => j.id === job.id);
+    let saved = false;
+    if (existsIndex >= 0) {
+      userSaved.splice(existsIndex, 1);
+      saved = false;
+    } else {
+      userSaved.unshift(job);
+      saved = true;
+    }
+    all[userId] = userSaved;
+    safeWriteJson('saved_jobs.json', all);
+    return { saved, count: userSaved.length };
+  }
+
+  // --- USER JOB ALERTS ---
+  static getJobAlerts(userId: string): any[] {
+    const all = safeReadJson<Record<string, any[]>>('job_alerts.json', {});
+    return all[userId] || [];
+  }
+
+  static addJobAlert(alertOrUserId: any, alertData?: any): any {
+    const all = safeReadJson<Record<string, any[]>>('job_alerts.json', {});
+    const alert = alertData ? { ...alertData, userId: alertOrUserId } : alertOrUserId;
+    const userId = alert.userId || 'guest';
+    const userAlerts = all[userId] || [];
+    const newAlert = {
+      id: alert.id || `alert-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      ...alert
+    };
+    userAlerts.unshift(newAlert);
+    all[userId] = userAlerts;
+    safeWriteJson('job_alerts.json', all);
+    return newAlert;
+  }
+
+  static deleteJobAlert(alertId: string, userId?: string): boolean {
+    const all = safeReadJson<Record<string, any[]>>('job_alerts.json', {});
+    if (userId && all[userId]) {
+      const initialLen = all[userId].length;
+      all[userId] = all[userId].filter(a => a.id !== alertId);
+      safeWriteJson('job_alerts.json', all);
+      return all[userId].length !== initialLen;
+    }
+    let found = false;
+    for (const uId of Object.keys(all)) {
+      const initialLen = all[uId].length;
+      all[uId] = all[uId].filter(a => a.id !== alertId);
+      if (all[uId].length !== initialLen) found = true;
+    }
+    if (found) safeWriteJson('job_alerts.json', all);
+    return found;
+  }
+
+  // --- USER DOCUMENTS ---
+  static getUserDocuments(userId: string): any[] {
+    const all = safeReadJson<Record<string, any[]>>('user_documents.json', {});
+    return all[userId] || [];
+  }
+
+  static addUserDocument(docOrUserId: any, docData?: any): any {
+    const all = safeReadJson<Record<string, any[]>>('user_documents.json', {});
+    const doc = docData ? { ...docData, userId: docOrUserId } : docOrUserId;
+    const userId = doc.userId || 'guest';
+    const userDocs = all[userId] || [];
+    const newDoc = {
+      id: doc.id || `doc-${Date.now()}`,
+      uploadedAt: new Date().toISOString(),
+      ...doc
+    };
+    userDocs.unshift(newDoc);
+    all[userId] = userDocs;
+    safeWriteJson('user_documents.json', all);
+    return newDoc;
+  }
+
+  static deleteUserDocument(docId: string, userId?: string): boolean {
+    const all = safeReadJson<Record<string, any[]>>('user_documents.json', {});
+    if (userId && all[userId]) {
+      const initialLen = all[userId].length;
+      all[userId] = all[userId].filter(d => d.id !== docId);
+      safeWriteJson('user_documents.json', all);
+      return all[userId].length !== initialLen;
+    }
+    let found = false;
+    for (const uId of Object.keys(all)) {
+      const initialLen = all[uId].length;
+      all[uId] = all[uId].filter(d => d.id !== docId);
+      if (all[uId].length !== initialLen) found = true;
+    }
+    if (found) safeWriteJson('user_documents.json', all);
+    return found;
+  }
 }

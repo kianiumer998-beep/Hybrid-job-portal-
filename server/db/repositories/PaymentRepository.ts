@@ -67,4 +67,15 @@ export class PaymentRepository {
     Database.saveTransactions(txs);
     return tx;
   }
+
+  static async getUserWalletAsync(userId: string): Promise<any> {
+    const user = Database.getUserById(userId);
+    const balance = Number(user?.walletBalance || 0);
+    const txs = this.getAll(userId);
+    return {
+      userId,
+      balance,
+      transactions: txs
+    };
+  }
 }

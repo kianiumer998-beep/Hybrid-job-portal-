@@ -633,8 +633,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const executeScraperRun = async (options: { targetSourceIds: string[]; label: string }) => {
     if (isScrapingActive) return;
     setIsScrapingActive(true);
+    setActiveStep('run');
     setRunProgressMessage(`Starting crawler across ${options.label}...`);
     logMessage(`Started run for ${options.label}`);
+
+    // Fetch initial active run state immediately
+    api.scraper.getActiveRun().then(res => {
+      if (res?.success && res?.activeRun) {
+        setActiveRunStatus(res.activeRun);
+      }
+    }).catch(() => {});
 
     try {
       const payload: any = {
@@ -654,9 +662,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           text: `Scraper finished! Discovered ${found} jobs (${approved} approved, ${duplicates} duplicates).`,
           type: 'success'
         });
-
-        if (onReloadJobs) await onReloadJobs();
-        await fetchLiveScraperData();
       } else {
         logMessage(`Run warning: ${res?.message || 'Check server logs'}`);
         setStatusMessage({ text: res?.message || 'Scraper execution finished with notices.', type: 'error' });
@@ -667,6 +672,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } finally {
       setIsScrapingActive(false);
       setRunProgressMessage('');
+      if (onReloadJobs) await onReloadJobs();
+      await fetchLiveScraperData();
+      await fetchPendingQueue();
     }
   };
 
@@ -1133,8 +1141,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     const targetGroup = sourceGroups.find(g => g.id === groupId);
     if (!targetGroup) return;
     setIsScrapingActive(true);
+    setActiveStep('run');
     setRunProgressMessage(`Running group "${targetGroup.name}" (${targetGroup.sourceIds.length} sources)...`);
     logMessage(`Starting group run: ${targetGroup.name} (${targetGroup.sourceIds.length} sources)`);
+
+    // Fetch initial active run state immediately
+    api.scraper.getActiveRun().then(res => {
+      if (res?.success && res?.activeRun) {
+        setActiveRunStatus(res.activeRun);
+      }
+    }).catch(() => {});
 
     try {
       const res = await api.scraper.runGroup(groupId);
@@ -1143,9 +1159,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           text: `Group "${targetGroup.name}" scraped! Found ${res.totalFound || 0} jobs, ${res.duplicatesFound || 0} duplicates.`,
           type: 'success'
         });
-        if (onReloadJobs) await onReloadJobs();
-        await fetchLiveScraperData();
-        await fetchPendingQueue();
       } else {
         setStatusMessage({ text: res?.message || 'Error running group scraper.', type: 'error' });
       }
@@ -1154,6 +1167,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } finally {
       setIsScrapingActive(false);
       setRunProgressMessage('');
+      if (onReloadJobs) await onReloadJobs();
+      await fetchLiveScraperData();
+      await fetchPendingQueue();
     }
   };
 
@@ -1163,10 +1179,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const handleRetrySources = async (targetSourceIds?: string[], retryAllFailed?: boolean) => {
     if (isScrapingActive) return;
     setIsScrapingActive(true);
+    setActiveStep('run');
     const count = targetSourceIds?.length || 0;
     const label = retryAllFailed ? 'All Failed Sources' : `${count} Selected Source(s)`;
     setRunProgressMessage(`Retrying ${label} via real scraper engine...`);
     logMessage(`[RETRY] Launching real scraper engine for ${label}`);
+
+    // Fetch initial active run state immediately
+    api.scraper.getActiveRun().then(res => {
+      if (res?.success && res?.activeRun) {
+        setActiveRunStatus(res.activeRun);
+      }
+    }).catch(() => {});
 
     try {
       const res = await api.scraper.retrySources(targetSourceIds, retryAllFailed);
@@ -1176,9 +1200,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           text: `Retry completed! Harvested ${res.totalFound || 0} jobs across ${res.retriedCount || count} retried sources.`,
           type: 'success'
         });
-        if (onReloadJobs) await onReloadJobs();
-        await fetchLiveScraperData();
-        await fetchPendingQueue();
       } else {
         setStatusMessage({ text: res?.message || 'Retry completed with notice.', type: 'error' });
       }
@@ -1187,6 +1208,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } finally {
       setIsScrapingActive(false);
       setRunProgressMessage('');
+      if (onReloadJobs) await onReloadJobs();
+      await fetchLiveScraperData();
+      await fetchPendingQueue();
     }
   };
 
@@ -1233,6 +1257,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         }
         setSelectedReviewIds([]);
         await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
       } else {
         setStatusMessage({ text: res?.message || 'Failed to approve selected jobs.', type: 'error' });
       }
@@ -1263,6 +1288,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         }
         setSelectedReviewIds([]);
         await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
       } else {
         setStatusMessage({ text: res?.message || 'Failed to reject selected jobs.', type: 'error' });
       }
@@ -1293,6 +1319,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         }
         setSelectedReviewIds([]);
         await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
       } else {
         setStatusMessage({ text: res?.message || 'Failed to delete duplicate jobs.', type: 'error' });
       }
@@ -1324,6 +1351,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         }
         if (!singleId) setSelectedReviewIds([]);
         await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
       } else {
         setStatusMessage({ text: res?.message || 'Failed to keep original jobs.', type: 'error' });
       }
@@ -1355,6 +1383,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         }
         if (!singleId) setSelectedReviewIds([]);
         await fetchPendingQueue();
+        if (onReloadJobs) await onReloadJobs();
       } else {
         setStatusMessage({ text: res?.message || 'Failed to overwrite original jobs.', type: 'error' });
       }
@@ -3278,6 +3307,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                 if (res?.success) {
                                   setStatusMessage({ text: 'Duplicate job removed from MongoDB.', type: 'success' });
                                   await fetchPendingQueue();
+                                  if (onReloadJobs) await onReloadJobs();
                                 }
                               } catch (err: any) {
                                 setStatusMessage({ text: `Delete error: ${err.message}`, type: 'error' });
@@ -3302,6 +3332,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                               if (res?.success) {
                                 setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
                                 await fetchPendingQueue();
+                                if (onReloadJobs) await onReloadJobs();
                               }
                             } catch (err: any) {
                               setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
@@ -3326,6 +3357,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                             if (res?.success) {
                               setStatusMessage({ text: `Rejected "${job.title}".`, type: 'info' });
                               await fetchPendingQueue();
+                              if (onReloadJobs) await onReloadJobs();
                             }
                           } catch (err: any) {
                             setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });

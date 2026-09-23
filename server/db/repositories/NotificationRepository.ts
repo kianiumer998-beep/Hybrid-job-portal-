@@ -29,11 +29,11 @@ export class NotificationRepository {
     return list;
   }
 
-  static create(data: Partial<NotificationRecord>): NotificationRecord {
+  static create(data: Partial<NotificationRecord> | any, _author?: string): NotificationRecord {
     const record: NotificationRecord = {
       id: data.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       title: data.title || 'System Notification',
-      message: data.message || '',
+      message: data.message || data.body || data.plainText || '',
       type: data.type || 'info',
       channel: data.channel || 'in-app',
       isRead: data.isRead ?? false,
@@ -45,6 +45,10 @@ export class NotificationRepository {
       inMemoryNotifications = inMemoryNotifications.slice(0, 500);
     }
     return record;
+  }
+
+  static checkUserRestricted(_userId: string, _target?: string): { restricted: boolean; reason?: string; notification?: any } {
+    return { restricted: false };
   }
 
   static markAsRead(id: string): boolean {

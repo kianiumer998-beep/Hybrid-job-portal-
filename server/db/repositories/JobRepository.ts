@@ -1195,4 +1195,191 @@ export class JobRepository {
       errors: []
     };
   }
+
+  /**
+   * Retrieves jobs matching an array of IDs from either jobs or pending_jobs collection.
+   */
+  static async getJobsByIds(ids: string[]): Promise<any[]> {
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    if (!isMongoConfigured()) {
+      const all = [...Database.getJobs(), ...Database.getPendingJobs()];
+      return all.filter(j => ids.includes(j.id));
+    }
+    assertMongoAvailable();
+    const jobsColl = await getJobsCollection();
+    const pendingColl = await getPendingJobsCollection();
+
+    const [liveDocs, pendingDocs] = await Promise.all([
+      jobsColl.find({ id: { $in: ids } }).toArray(),
+      pendingColl.find({ id: { $in: ids } }).toArray()
+    ]);
+
+    const map = new Map<string, any>();
+    for (const doc of pendingDocs) {
+      map.set(doc.id, normalizeMongoJob(doc));
+    }
+    for (const doc of liveDocs) {
+      map.set(doc.id, normalizeMongoJob(doc));
+    }
+
+    return Array.from(map.values());
+  }
+
+  /**
+   * Bulk deletes jobs with classification of source types for audit logging.
+   */
+  static async bulkDeleteWithClassification(ids: string[]): Promise<{
+    deletedCount: number;
+    scrapedCount: number;
+    userPostedCount: number;
+    adminCreatedCount: number;
+    unknownCount: number;
+    userPostedJobs: any[];
+  }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { deletedCount: 0, scrapedCount: 0, userPostedCount: 0, adminCreatedCount: 0, unknownCount: 0, userPostedJobs: [] };
+    }
+
+    const matchedJobs = await this.getJobsByIds(ids);
+    const userPostedJobs: any[] = [];
+    let scrapedCount = 0;
+    let userPostedCount = 0;
+    let adminCreatedCount = 0;
+    let unknownCount = 0;
+
+    for (const job of matchedJobs) {
+      const isScraped = Boolean(
+        job.sourceUrl ||
+        job.sourceWebsite ||
+        job.isScraped ||
+        job.ingestionMethod === 'scraper' ||
+        job.ingestionMethod === 'pdf' ||
+        job.scrapedFrom
+      );
+
+      if (isScraped) {
+        scrapedCount++;
+      } else if (job.submittedByUserId) {
+        userPostedCount++;
+        userPostedJobs.push(job);
+      } else if (job.createdByAdmin || job.postedByRole === 'admin') {
+        adminCreatedCount++;
+      } else {
+        unknownCount++;
+      }
+    }
+
+    const deletedCount = await this.bulkDelete(ids);
+
+    return {
+      deletedCount,
+      scrapedCount,
+      userPostedCount,
+      adminCreatedCount,
+      unknownCount,
+      userPostedJobs
+    };
+  }
+
+  /**
+   * Bulk rejects pending jobs with classification.
+   */
+  static async bulkRejectPendingWithClassification(ids: string[], reason?: string): Promise<{
+    successCount: number;
+    failureCount: number;
+    errors: { id: string; error: string }[];
+    rejectedCount: number;
+    scrapedCount: number;
+    userPostedCount: number;
+    adminCreatedCount: number;
+    unknownCount: number;
+    userPostedJobs: any[];
+  }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return {
+        successCount: 0,
+        failureCount: 0,
+        errors: [],
+        rejectedCount: 0,
+        scrapedCount: 0,
+        userPostedCount: 0,
+        adminCreatedCount: 0,
+        unknownCount: 0,
+        userPostedJobs: []
+      };
+    }
+
+    const matchedJobs = await this.getJobsByIds(ids);
+    const userPostedJobs: any[] = [];
+    let scrapedCount = 0;
+    let userPostedCount = 0;
+    let adminCreatedCount = 0;
+    let unknownCount = 0;
+
+    for (const job of matchedJobs) {
+      const isScraped = Boolean(
+        job.sourceUrl ||
+        job.sourceWebsite ||
+        job.isScraped ||
+        job.ingestionMethod === 'scraper' ||
+        job.ingestionMethod === 'pdf' ||
+        job.scrapedFrom
+      );
+
+      if (isScraped) {
+        scrapedCount++;
+      } else if (job.submittedByUserId) {
+        userPostedCount++;
+        userPostedJobs.push(job);
+      } else if (job.createdByAdmin || job.postedByRole === 'admin') {
+        adminCreatedCount++;
+      } else {
+        unknownCount++;
+      }
+    }
+
+    const res = await this.bulkRejectPending(ids, reason);
+
+    return {
+      successCount: res.successCount,
+      failureCount: res.failureCount,
+      errors: res.errors,
+      rejectedCount: res.successCount,
+      scrapedCount,
+      userPostedCount,
+      adminCreatedCount,
+      unknownCount,
+      userPostedJobs
+    };
+  }
+
+  /**
+   * Marks a job or set of jobs as non-job in database.
+   */
+  static async bulkMarkNonJob(ids: string[], reason?: string): Promise<{ successCount: number; modifiedCount: number }> {
+    if (!Array.isArray(ids) || ids.length === 0) return { successCount: 0, modifiedCount: 0 };
+    if (!isMongoConfigured()) return { successCount: 0, modifiedCount: 0 };
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const res = await pendingColl.updateMany(
+      { id: { $in: ids } },
+      { $set: { isNonJob: true, status: 'Rejected', rejectionReason: reason || 'Marked as Non-Job announcement', updatedAt: new Date().toISOString() } }
+    );
+    return { successCount: res.modifiedCount || 0, modifiedCount: res.modifiedCount || 0 };
+  }
+
+  /**
+   * Converts a non-job or pending item back to job format.
+   */
+  static async convertToJob(id: string, updates: any = {}): Promise<any | null> {
+    if (!isMongoConfigured()) return null;
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const res = await pendingColl.findOneAndUpdate(
+      { id },
+      { $set: { ...updates, isNonJob: false, status: 'Pending', updatedAt: new Date().toISOString() } },
+      { returnDocument: 'after' }
+    );
+    return res ? normalizeMongoJob(res) : null;
+  }
 }

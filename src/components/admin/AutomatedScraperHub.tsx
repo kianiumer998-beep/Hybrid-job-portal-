@@ -2279,6 +2279,142 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </button>
           </div>
 
+          {/* Last Scrape Pull Summary Card */}
+          {(() => {
+            const latestRun = liveRuns.length > 0 ? liveRuns[0] : null;
+            const runStatus = latestRun ? deriveRunStatus(latestRun) : null;
+            const durationStr = latestRun?.executionTimeMs !== undefined
+              ? latestRun.executionTimeMs >= 1000
+                ? `${(latestRun.executionTimeMs / 1000).toFixed(1)}s`
+                : `${latestRun.executionTimeMs}ms`
+              : null;
+            const totalTargets = latestRun ? (latestRun.targetsScraped ?? latestRun.sourcesStats?.length ?? 0) : 0;
+            const failedCount = latestRun ? (latestRun.failedSources ?? latestRun.totalFailedSources ?? (latestRun.sourcesStats ? latestRun.sourcesStats.filter(s => s.failed).length : 0)) : 0;
+            const successCount = latestRun ? (latestRun.sourcesStats ? latestRun.sourcesStats.filter(s => !s.failed).length : Math.max(0, totalTargets - failedCount)) : 0;
+
+            return (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+                      <RotateCcw className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h4 className="text-sm font-bold text-white">Last Scrape Pull</h4>
+                        {runStatus && (
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              runStatus === 'Completed'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : runStatus === 'Partial'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}
+                          >
+                            {runStatus}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        {latestRun
+                          ? `Executed on ${latestRun.startedAt ? new Date(latestRun.startedAt).toLocaleString() : latestRun.timestamp ? new Date(latestRun.timestamp).toLocaleString() : 'Recent'}`
+                          : 'Overview of latest scraper batch execution'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {latestRun && (
+                    <button
+                      type="button"
+                      onClick={() => setInspectingRun(latestRun)}
+                      className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 self-start sm:self-auto"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View Details</span>
+                    </button>
+                  )}
+                </div>
+
+                {!latestRun ? (
+                  <div className="p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800/60">
+                    No scraper run history available yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Meta Strip */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                      <span>Run ID: <strong className="font-mono text-indigo-300">{latestRun.runId || latestRun.id}</strong></span>
+                      {latestRun.mode && (
+                        <span>• Mode: <strong className="text-slate-300 capitalize">{latestRun.mode.replace(/_/g, ' ')}</strong></span>
+                      )}
+                      {latestRun.completedAt && (
+                        <span>• Completed: <strong className="text-slate-300">{new Date(latestRun.completedAt).toLocaleTimeString()}</strong></span>
+                      )}
+                      {durationStr && (
+                        <span>• Duration: <strong className="text-indigo-300">{durationStr}</strong></span>
+                      )}
+                    </div>
+
+                    {/* 6 Metric Blocks */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Found</span>
+                        <span className="text-base font-black text-indigo-300 mt-0.5 block">{latestRun.totalFound || 0}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Published</span>
+                        <span className="text-base font-black text-emerald-400 mt-0.5 block">
+                          {latestRun.newPublished ?? latestRun.approvedCount ?? latestRun.jobsAccepted ?? 0}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider block">Pending</span>
+                        <span className="text-base font-black text-amber-300 mt-0.5 block">
+                          {latestRun.newPending ?? latestRun.pendingCount ?? 0}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-purple-400 font-bold uppercase tracking-wider block">Duplicates</span>
+                        <span className="text-base font-black text-purple-300 mt-0.5 block">
+                          {latestRun.duplicatesFlagged ?? latestRun.totalDuplicates ?? 0}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider block">Failed Sources</span>
+                        <span className="text-base font-black text-rose-400 mt-0.5 block">
+                          {failedCount}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Sources</span>
+                        <span className="text-base font-black text-slate-200 mt-0.5 block">
+                          {totalTargets}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Source Health Breakdown */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-xs">
+                      <span className="text-slate-400 font-semibold">Source Portals Health Summary:</span>
+                      <div className="flex items-center space-x-3">
+                        <span className="inline-flex items-center space-x-1.5 text-emerald-400 font-bold">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{successCount} Successful</span>
+                        </span>
+                        <span className="text-slate-600">•</span>
+                        <span className="inline-flex items-center space-x-1.5 text-rose-400 font-bold">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          <span>{failedCount} Failed</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Recent Runs Table (Real backend scraper runs only) */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
             <div className="flex items-center justify-between">

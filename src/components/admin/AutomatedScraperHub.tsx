@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Globe,
   Play,
@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
+import { AdminJobDetailModal } from '../AdminJobDetailModal';
 
 export interface SourceGroup {
   id: string;
@@ -162,6 +163,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
   // Execution State
   const [isScrapingActive, setIsScrapingActive] = useState(false);
+  const isScraperRequestInFlightRef = useRef(false);
   const [activeRunStatus, setActiveRunStatus] = useState<any>(null);
   const [scrapeScanType, setScrapeScanType] = useState<'full' | 'quick'>('full');
   const [autoPublishTrusted, setAutoPublishTrusted] = useState(false);
@@ -195,8 +197,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [newSourceKeywords, setNewSourceKeywords] = useState('');
   const [newSourceAutoApprove, setNewSourceAutoApprove] = useState(false);
 
-  // Inspect Run Modal State
+  // Inspect Run / Job Modal State
   const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
+  const [inspectingJob, setInspectingJob] = useState<Job | null>(null);
 
   // Global Settings State
   const [globalInterval, setGlobalInterval] = useState('24h');
@@ -642,6 +645,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Core execution function
   const executeScraperRun = async (options: { targetSourceIds: string[]; label: string }) => {
     if (isScrapingActive) return;
+    isScraperRequestInFlightRef.current = true;
     setIsScrapingActive(true);
     setActiveStep('run');
     setRunProgressMessage(`Starting crawler across ${options.label}...`);
@@ -680,6 +684,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       logMessage(`Run error: ${err.message || 'Network error'}`);
       setStatusMessage({ text: `Scraper run error: ${err.message || 'Network error'}`, type: 'error' });
     } finally {
+      isScraperRequestInFlightRef.current = false;
       setIsScrapingActive(false);
       setRunProgressMessage('');
       if (onReloadJobs) await onReloadJobs();
@@ -700,7 +705,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           setActiveRunStatus(res.activeRun);
           if (res.activeRun.isActive) {
             setIsScrapingActive(true);
-          } else if (isScrapingActive && !res.activeRun.isActive) {
+          } else if (isScrapingActive && !res.activeRun.isActive && !isScraperRequestInFlightRef.current) {
             setIsScrapingActive(false);
           }
         }
@@ -1150,6 +1155,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     if (isScrapingActive) return;
     const targetGroup = sourceGroups.find(g => g.id === groupId);
     if (!targetGroup) return;
+    isScraperRequestInFlightRef.current = true;
     setIsScrapingActive(true);
     setActiveStep('run');
     setRunProgressMessage(`Running group "${targetGroup.name}" (${targetGroup.sourceIds.length} sources)...`);
@@ -1175,6 +1181,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } catch (err: any) {
       setStatusMessage({ text: `Run group error: ${err.message}`, type: 'error' });
     } finally {
+      isScraperRequestInFlightRef.current = false;
       setIsScrapingActive(false);
       setRunProgressMessage('');
       if (onReloadJobs) await onReloadJobs();
@@ -1188,6 +1195,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // -------------------------------------------------------------
   const handleRetrySources = async (targetSourceIds?: string[], retryAllFailed?: boolean) => {
     if (isScrapingActive) return;
+    isScraperRequestInFlightRef.current = true;
     setIsScrapingActive(true);
     setActiveStep('run');
     const count = targetSourceIds?.length || 0;
@@ -1216,6 +1224,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     } catch (err: any) {
       setStatusMessage({ text: `Retry error: ${err.message || 'Network error'}`, type: 'error' });
     } finally {
+      isScraperRequestInFlightRef.current = false;
       setIsScrapingActive(false);
       setRunProgressMessage('');
       if (onReloadJobs) await onReloadJobs();
@@ -3345,6 +3354,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setInspectingJob(job)}
+                        className="px-3 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/50 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer"
+                        title="View Full Job Details"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Details</span>
+                      </button>
+
                       {isDup ? (
                         <>
                           <button
@@ -4123,6 +4142,49 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* MODAL: INSPECT SCRAPED JOB DETAILS & ACTIONS                 */}
+      {/* ============================================================= */}
+      {inspectingJob && (
+        <AdminJobDetailModal
+          job={inspectingJob}
+          users={[]}
+          onClose={() => setInspectingJob(null)}
+          onApproveJob={async (id) => {
+            try {
+              if (onApproveJob) {
+                await onApproveJob(id);
+              } else {
+                await api.jobs.bulkApprove([id]);
+              }
+              setStatusMessage({ text: `Approved "${inspectingJob.title}" to live listings!`, type: 'success' });
+              await fetchPendingQueue();
+              if (onReloadJobs) await onReloadJobs();
+            } catch (err: any) {
+              setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
+            } finally {
+              setInspectingJob(null);
+            }
+          }}
+          onRejectJob={async (id, reason) => {
+            try {
+              if (onRejectJob) {
+                await onRejectJob(id, reason);
+              } else {
+                await api.jobs.bulkReject([id], reason || 'Rejected from Scraper Review');
+              }
+              setStatusMessage({ text: `Rejected "${inspectingJob.title}".`, type: 'info' });
+              await fetchPendingQueue();
+              if (onReloadJobs) await onReloadJobs();
+            } catch (err: any) {
+              setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
+            } finally {
+              setInspectingJob(null);
+            }
+          }}
+        />
       )}
     </div>
   );

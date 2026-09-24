@@ -5,7 +5,7 @@ let cachedDb: Db | null = null;
 let clientPromise: Promise<MongoClient> | null = null;
 let lastConnectFailureTime = 0;
 let lastConnectError: Error | null = null;
-const CONNECT_COOLDOWN_MS = 30000; // 30-second cooldown before attempting reconnect after failure
+const CONNECT_COOLDOWN_MS = 3000; // 3-second minimal cooldown before retrying after unexpected disconnect
 let hasLoggedFallbackNotice = false;
 
 export function isMongoAvailable(): boolean {
@@ -81,12 +81,12 @@ export async function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
     const uri = getMongoUri();
     const client = new MongoClient(uri, {
-      maxPoolSize: 50,
-      minPoolSize: 2,
+      maxPoolSize: 25,
+      minPoolSize: 1,
       maxIdleTimeMS: 60000,
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 5000,
-      socketTimeoutMS: 20000,
+      serverSelectionTimeoutMS: 15000,
+      connectTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
       retryWrites: true,
       retryReads: true
     });

@@ -424,22 +424,49 @@ export class JobRepository {
   /**
    * Retrieves pending scraper / user jobs directly from MongoDB pending_jobs.
    */
-  static async getPending(filter?: { limit?: number; lightweight?: boolean }): Promise<any[]> {
+  static async getPending(filter?: { page?: number; limit?: number; lightweight?: boolean }): Promise<any[]> {
     if (!isMongoConfigured()) {
-      return Database.getPendingJobs();
+      const fallback = Database.getPendingJobs();
+      Object.defineProperty(fallback, 'total', { value: fallback.length, enumerable: true });
+      Object.defineProperty(fallback, 'page', { value: 1, enumerable: true });
+      Object.defineProperty(fallback, 'limit', { value: fallback.length || 200, enumerable: true });
+      Object.defineProperty(fallback, 'totalPages', { value: 1, enumerable: true });
+      Object.defineProperty(fallback, 'pendingJobs', { value: fallback, enumerable: true });
+      return fallback;
     }
+
     assertMongoAvailable();
     const pendingColl = await getPendingJobsCollection();
-    let cursor = pendingColl
-      .find({ status: { $ne: 'Rejected' } })
-      .sort({ createdAt: -1 });
 
-    if (filter?.limit && filter.limit > 0) {
-      cursor = cursor.limit(filter.limit);
-    }
-    const docs = await withMongoTimeout(cursor.toArray(), 30000, 'getPending');
+    const page = Math.max(1, parseInt(String(filter?.page || 1), 10) || 1);
+    const rawLimit = parseInt(String(filter?.limit || 200), 10) || 200;
+    const limit = Math.min(200, Math.max(1, rawLimit));
+    const skip = (page - 1) * limit;
 
-    return docs.map(normalizeMongoJob);
+    const query = { status: 'Pending' };
+
+    const total = await withMongoTimeout(pendingColl.countDocuments(query), 30000, 'getPendingCount');
+    const docs = await withMongoTimeout(
+      pendingColl
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray(),
+      30000,
+      'getPendingDocs'
+    );
+
+    const normalized = docs.map(normalizeMongoJob);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    Object.defineProperty(normalized, 'total', { value: total, enumerable: true });
+    Object.defineProperty(normalized, 'page', { value: page, enumerable: true });
+    Object.defineProperty(normalized, 'limit', { value: limit, enumerable: true });
+    Object.defineProperty(normalized, 'totalPages', { value: totalPages, enumerable: true });
+    Object.defineProperty(normalized, 'pendingJobs', { value: normalized, enumerable: true });
+
+    return normalized;
   }
 
   /**

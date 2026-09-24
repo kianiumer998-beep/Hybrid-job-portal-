@@ -1,5 +1,239 @@
 [
   {
+    "id": "log-1790229435456-ho4b",
+    "timestamp": "2026-09-24T05:57:15.456Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790229418629-rcn3",
+    "timestamp": "2026-09-24T05:56:58.629Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228941629-na0f",
+    "timestamp": "2026-09-24T05:49:01.629Z",
+    "user": "Super Administrator",
+    "role": "Admin",
+    "action": "Keep Original + Delete Duplicates Processed",
+    "target": "199 duplicates removed while original preserved (0 failed)",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228754519-3bsh",
+    "timestamp": "2026-09-24T05:45:54.519Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228683835-x586",
+    "timestamp": "2026-09-24T05:44:43.835Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228668508-ejid",
+    "timestamp": "2026-09-24T05:44:28.508Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228636345-2gbm",
+    "timestamp": "2026-09-24T05:43:56.345Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228624479-rt1g",
+    "timestamp": "2026-09-24T05:43:44.479Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228591322-prv5",
+    "timestamp": "2026-09-24T05:43:11.323Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228576855-5ocd",
+    "timestamp": "2026-09-24T05:42:56.855Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228510434-l5b6",
+    "timestamp": "2026-09-24T05:41:50.434Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228490006-8iru",
+    "timestamp": "2026-09-24T05:41:30.006Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228475744-jva2",
+    "timestamp": "2026-09-24T05:41:15.744Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228453155-5w31",
+    "timestamp": "2026-09-24T05:40:53.155Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228420582-8zzh",
+    "timestamp": "2026-09-24T05:40:20.582Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228368724-ktpl",
+    "timestamp": "2026-09-24T05:39:28.724Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228324046-ngts",
+    "timestamp": "2026-09-24T05:38:44.046Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228310006-v5lf",
+    "timestamp": "2026-09-24T05:38:30.006Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228242615-hd4x",
+    "timestamp": "2026-09-24T05:37:22.615Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228172481-opnb",
+    "timestamp": "2026-09-24T05:36:12.481Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790228151639-s8od",
+    "timestamp": "2026-09-24T05:35:51.639Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790227496718-t0b5",
+    "timestamp": "2026-09-24T05:24:56.718Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790227461967-jig2",
+    "timestamp": "2026-09-24T05:24:21.967Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790227418980-cqw1",
+    "timestamp": "2026-09-24T05:23:38.980Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790227415726-6igg",
+    "timestamp": "2026-09-24T05:23:35.726Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
+    "id": "log-1790227412252-lsty",
+    "timestamp": "2026-09-24T05:23:32.252Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
     "id": "log-1790159102871-r96h",
     "timestamp": "2026-09-23T10:25:02.871Z",
     "user": "Super Administrator",

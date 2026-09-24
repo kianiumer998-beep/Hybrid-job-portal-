@@ -60,6 +60,10 @@ jobRouter.get('/', async (req, res) => {
 jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+    const rawLimit = parseInt(String(req.query.limit || '200'), 10) || 200;
+    const limit = Math.min(200, Math.max(1, rawLimit));
+
     if (!isMongoConfigured()) {
       const fallbackPending = Database.getPendingJobs();
       return res.status(200).json({
@@ -67,17 +71,32 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
         pendingJobs: fallbackPending,
         jobs: fallbackPending,
         dataSource: 'local_fallback',
-        fallback: true
+        fallback: true,
+        count: fallbackPending.length,
+        total: fallbackPending.length,
+        page: 1,
+        limit: fallbackPending.length || 200,
+        totalPages: 1
       });
     }
 
-    const pending = await withMongoRetry(() => JobRepository.getPending());
+    const pendingResult = await withMongoRetry(() => JobRepository.getPending({ page, limit }));
+    const pendingJobsList = Array.isArray(pendingResult) ? pendingResult : ((pendingResult as any).pendingJobs || []);
+    const total = (pendingResult as any).total ?? pendingJobsList.length;
+    const currentPage = (pendingResult as any).page ?? page;
+    const currentLimit = (pendingResult as any).limit ?? limit;
+    const totalPages = (pendingResult as any).totalPages ?? (Math.ceil(total / currentLimit) || 1);
+
     return res.status(200).json({
       success: true,
-      pendingJobs: pending,
-      jobs: pending,
+      pendingJobs: pendingJobsList,
+      jobs: pendingJobsList,
       dataSource: 'mongodb',
-      count: pending.length
+      count: pendingJobsList.length,
+      total,
+      page: currentPage,
+      limit: currentLimit,
+      totalPages
     });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/queue/pending:', err);

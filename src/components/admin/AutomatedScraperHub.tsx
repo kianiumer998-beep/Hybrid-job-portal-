@@ -98,6 +98,11 @@ interface AutomatedScraperHubProps {
   setScraperSources?: React.Dispatch<React.SetStateAction<any[]>>;
   jobs: Job[];
   pendingJobs: Job[];
+  pendingTotal?: number;
+  pendingPage?: number;
+  pendingLimit?: number;
+  pendingTotalPages?: number;
+  onPendingPageChange?: (newPage: number, newLimit?: number) => void;
   onAddJob: (job: Job) => void;
   onBulkAddJobs?: (jobs: Job[]) => void;
   onReloadJobs?: () => Promise<void>;
@@ -117,6 +122,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   setScraperSources: propsSetSources,
   jobs,
   pendingJobs,
+  pendingTotal,
+  pendingPage = 1,
+  pendingLimit = 100,
+  pendingTotalPages = 1,
+  onPendingPageChange,
   onAddJob,
   onBulkAddJobs,
   onReloadJobs,
@@ -215,7 +225,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // -------------------------------------------------------------
   const fetchPendingQueue = useCallback(async () => {
     try {
-      const res = await api.jobs.getPendingQueue();
+      const res = await api.jobs.getPendingQueue({ page: pendingPage, limit: pendingLimit });
       if (res?.isDatabaseUnavailable || res?.errorType === 'TransientDatabaseError' || res?.errorType === 'DatabaseUnavailable') {
         setStatusMessage({
           text: res.message || 'Authoritative database (MongoDB) is temporarily unavailable. Operations paused to maintain data integrity.',
@@ -237,7 +247,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     if (onReloadJobs) {
       await onReloadJobs();
     }
-  }, [onReloadJobs]);
+  }, [onReloadJobs, pendingPage, pendingLimit]);
 
   const fetchLiveScraperData = useCallback(async () => {
     setIsLoadingLive(true);
@@ -274,7 +284,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       }
 
       // 5. Fetch Pending Jobs Queue
-      const pendingRes = await api.jobs.getPendingQueue();
+      const pendingRes = await api.jobs.getPendingQueue({ page: pendingPage, limit: pendingLimit });
       if (pendingRes?.isDatabaseUnavailable || pendingRes?.errorType === 'TransientDatabaseError' || pendingRes?.errorType === 'DatabaseUnavailable') {
         setStatusMessage({
           text: pendingRes.message || 'Authoritative database (MongoDB) is temporarily unavailable.',
@@ -338,7 +348,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
     // Also include live jobs and pending count
     const approvedJobsCount = jobs.filter(j => j.status === 'Approved').length;
-    const pendingJobsCount = pendingJobs.length;
+    const pendingJobsCount = pendingTotal !== undefined ? pendingTotal : pendingJobs.length;
 
     return {
       totalFound: totalFound > 0 ? totalFound : (approvedJobsCount + pendingJobsCount),
@@ -1469,7 +1479,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     { id: 'sources', stepNumber: '2. Sources', label: 'Sources', sub: 'All sources in 1 table', icon: Globe, count: sourcesList.length },
     { id: 'run', stepNumber: '3. Run Scraper', label: 'Run Scraper', sub: 'Run All / Selected / Now', icon: Play, count: null },
     { id: 'history', stepNumber: '4. History', label: 'History', sub: 'Real backend scraper runs', icon: Clock, count: liveRuns.length || null },
-    { id: 'review', stepNumber: '5. Duplicates & Review', label: 'Duplicates & Review', sub: 'Pending & duplicate jobs', icon: CheckCircle2, count: pendingJobs.length || null },
+    { id: 'review', stepNumber: '5. Duplicates & Review', label: 'Duplicates & Review', sub: 'Pending & duplicate jobs', icon: CheckCircle2, count: (pendingTotal ?? pendingJobs.length) || null },
     { id: 'settings', stepNumber: '6. Settings', label: 'Settings', sub: 'Interval, depth, rules', icon: Settings, count: null }
   ];
 
@@ -3205,6 +3215,68 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   {type === 'all' ? `All (${effectivePendingList.length})` : type === 'pending' ? `Pending Only (${pendingOnlyCount})` : `Duplicates Only (${duplicateCount})`}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* PENDING QUEUE PAGINATION CONTROLS */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-2xl text-xs text-slate-300 shadow-inner">
+            <div className="flex items-center space-x-2 font-bold">
+              <Clock className="w-4 h-4 text-amber-400" />
+              <span>Pending Jobs:</span>
+              <span className="text-amber-400 font-mono text-sm font-bold">{(pendingTotal ?? pendingJobs.length).toLocaleString()}</span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-slate-400 font-medium">Rows:</span>
+              <div className="flex items-center space-x-1 bg-slate-950 border border-slate-800 p-0.5 rounded-xl">
+                {[50, 100, 200].map(size => (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => {
+                      setSelectedReviewIds([]);
+                      if (onPendingPageChange) onPendingPageChange(1, size);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      (pendingLimit ?? 100) === size
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    [{size}]
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <span className="text-slate-400 font-medium">
+                Page <strong className="text-white font-mono">{pendingPage ?? 1}</strong> of <strong className="text-white font-mono">{pendingTotalPages ?? 1}</strong>
+              </span>
+              <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  disabled={(pendingPage ?? 1) <= 1}
+                  onClick={() => {
+                    setSelectedReviewIds([]);
+                    if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  [Previous]
+                </button>
+                <button
+                  type="button"
+                  disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
+                  onClick={() => {
+                    setSelectedReviewIds([]);
+                    if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  [Next]
+                </button>
+              </div>
             </div>
           </div>
 

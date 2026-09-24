@@ -139,6 +139,11 @@ import {
 interface AdminDashboardProps {
   jobs: Job[];
   pendingJobs: Job[];
+  pendingTotal?: number;
+  pendingPage?: number;
+  pendingLimit?: number;
+  pendingTotalPages?: number;
+  onPendingPageChange?: (newPage: number, newLimit?: number) => void;
   subscribers: Subscriber[];
   users: UserAccount[];
   chatMessages: ChatMessage[];
@@ -210,6 +215,11 @@ interface AdminDashboardProps {
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   jobs,
   pendingJobs,
+  pendingTotal,
+  pendingPage = 1,
+  pendingLimit = 100,
+  pendingTotalPages = 1,
+  onPendingPageChange,
   subscribers,
   users,
   chatMessages,
@@ -2733,7 +2743,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Clock className="w-5 h-5 text-amber-400" />
                   <span>Pending Job Approvals Queue</span>
                   <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-3 py-0.5 rounded-full border border-amber-500/30">
-                    {pendingJobs.length} Pending
+                    {(pendingTotal ?? pendingJobs.length).toLocaleString()} Pending
                   </span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -2873,7 +2883,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 <div className="text-[11px]">
-                  Showing {filteredPending.length} of {pendingJobs.length} queue items
+                  Showing {filteredPending.length} of {(pendingTotal ?? pendingJobs.length).toLocaleString()} queue items (Page {pendingPage ?? 1} of {pendingTotalPages ?? 1})
+                </div>
+              </div>
+            </div>
+
+            {/* PENDING QUEUE PAGINATION CONTROLS */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-950/90 border border-slate-800 rounded-2xl text-xs text-slate-300 shadow-inner">
+              <div className="flex items-center space-x-2 font-bold">
+                <Clock className="w-4 h-4 text-amber-400" />
+                <span>Pending Jobs:</span>
+                <span className="text-amber-400 font-mono text-sm font-bold">{(pendingTotal ?? pendingJobs.length).toLocaleString()}</span>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <span className="text-slate-400 font-medium">Rows:</span>
+                <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 p-0.5 rounded-xl">
+                  {[50, 100, 200].map(size => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPendingIds([]);
+                        if (onPendingPageChange) onPendingPageChange(1, size);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                        (pendingLimit ?? 100) === size
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      [{size}]
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <span className="text-slate-400 font-medium">
+                  Page <strong className="text-white font-mono">{pendingPage ?? 1}</strong> of <strong className="text-white font-mono">{pendingTotalPages ?? 1}</strong>
+                </span>
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    disabled={(pendingPage ?? 1) <= 1}
+                    onClick={() => {
+                      setSelectedPendingIds([]);
+                      if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                  >
+                    [Previous]
+                  </button>
+                  <button
+                    type="button"
+                    disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
+                    onClick={() => {
+                      setSelectedPendingIds([]);
+                      if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                  >
+                    [Next]
+                  </button>
                 </div>
               </div>
             </div>
@@ -3069,6 +3141,68 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 })}
               </div>
             )}
+
+            {/* BOTTOM PENDING QUEUE PAGINATION CONTROLS */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-950/90 border border-slate-800 rounded-2xl text-xs text-slate-300 shadow-inner mt-4">
+              <div className="flex items-center space-x-2 font-bold">
+                <Clock className="w-4 h-4 text-amber-400" />
+                <span>Pending Jobs:</span>
+                <span className="text-amber-400 font-mono text-sm font-bold">{(pendingTotal ?? pendingJobs.length).toLocaleString()}</span>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <span className="text-slate-400 font-medium">Rows:</span>
+                <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 p-0.5 rounded-xl">
+                  {[50, 100, 200].map(size => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPendingIds([]);
+                        if (onPendingPageChange) onPendingPageChange(1, size);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                        (pendingLimit ?? 100) === size
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      [{size}]
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <span className="text-slate-400 font-medium">
+                  Page <strong className="text-white font-mono">{pendingPage ?? 1}</strong> of <strong className="text-white font-mono">{pendingTotalPages ?? 1}</strong>
+                </span>
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    disabled={(pendingPage ?? 1) <= 1}
+                    onClick={() => {
+                      setSelectedPendingIds([]);
+                      if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) - 1, pendingLimit);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                  >
+                    [Previous]
+                  </button>
+                  <button
+                    type="button"
+                    disabled={(pendingPage ?? 1) >= (pendingTotalPages ?? 1)}
+                    onClick={() => {
+                      setSelectedPendingIds([]);
+                      if (onPendingPageChange) onPendingPageChange((pendingPage ?? 1) + 1, pendingLimit);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 font-bold text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                  >
+                    [Next]
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         );
       })()}
@@ -3752,6 +3886,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setScraperSources={setScraperSources}
           jobs={jobs}
           pendingJobs={pendingJobs}
+          pendingTotal={pendingTotal}
+          pendingPage={pendingPage}
+          pendingLimit={pendingLimit}
+          pendingTotalPages={pendingTotalPages}
+          onPendingPageChange={onPendingPageChange}
           onAddJob={onAddJob}
           onBulkAddJobs={onBulkAddJobs}
           onReloadJobs={onReloadJobs}

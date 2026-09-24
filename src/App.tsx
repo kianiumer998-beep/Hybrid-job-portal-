@@ -395,15 +395,21 @@ export default function App() {
 
   // Pending Jobs Queue for Admin Verification (Single Backend Source of Truth via /api/jobs/queue/pending)
   const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
+  const [pendingTotal, setPendingTotal] = useState<number>(0);
+  const [pendingPage, setPendingPage] = useState<number>(1);
+  const [pendingLimit, setPendingLimit] = useState<number>(100);
+  const [pendingTotalPages, setPendingTotalPages] = useState<number>(1);
   const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(true);
   const [dbError, setDbError] = useState<string | null>(null);
 
   // Fetch jobs from backend Single Source of Truth
-  const loadBackendJobs = useCallback(async () => {
+  const loadBackendJobs = useCallback(async (targetPage?: number, targetLimit?: number) => {
+    const pageToFetch = targetPage ?? pendingPage;
+    const limitToFetch = targetLimit ?? pendingLimit;
     try {
       const [liveRes, pendingRes] = await Promise.all([
         api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
-        api.jobs.getPendingQueue()
+        api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch })
       ]);
 
       let errorDetected = false;
@@ -422,7 +428,15 @@ export default function App() {
 
       const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
       if (pendingRes && pendingRes.success && Array.isArray(pendingList)) {
+        // If current page becomes empty (e.g. after deleting/approving items) and we were on page > 1, safely move to previous available page
+        if (pendingList.length === 0 && pageToFetch > 1 && (pendingRes.total || 0) > 0) {
+          return loadBackendJobs(pageToFetch - 1, limitToFetch);
+        }
         setPendingJobs(pendingList);
+        if (typeof pendingRes.total === 'number') setPendingTotal(pendingRes.total);
+        if (typeof pendingRes.page === 'number') setPendingPage(pendingRes.page);
+        if (typeof pendingRes.limit === 'number') setPendingLimit(pendingRes.limit);
+        if (typeof pendingRes.totalPages === 'number') setPendingTotalPages(pendingRes.totalPages);
       } else if (pendingRes?.isDatabaseUnavailable || pendingRes?.errorType === 'TransientDatabaseError' || pendingRes?.errorType === 'DatabaseUnavailable') {
         errorDetected = true;
         errorDesc = errorDesc || pendingRes.message || 'Authoritative pending database (MongoDB) is temporarily unavailable.';
@@ -443,7 +457,16 @@ export default function App() {
     } finally {
       setIsLoadingJobs(false);
     }
-  }, []);
+  }, [pendingPage, pendingLimit]);
+
+  const handlePendingPageChange = useCallback(async (newPage: number, newLimit?: number) => {
+    const limitToUse = newLimit ?? pendingLimit;
+    if (newLimit && newLimit !== pendingLimit) {
+      setPendingLimit(newLimit);
+    }
+    setPendingPage(newPage);
+    await loadBackendJobs(newPage, limitToUse);
+  }, [loadBackendJobs, pendingLimit]);
 
   useEffect(() => {
     // Purge deprecated browser-specific localStorage jobs keys so they never pollute
@@ -1581,6 +1604,11 @@ export default function App() {
           <AdminDashboard
             jobs={jobs.filter(j => j.status !== 'Pending')}
             pendingJobs={pendingJobs}
+            pendingTotal={pendingTotal}
+            pendingPage={pendingPage}
+            pendingLimit={pendingLimit}
+            pendingTotalPages={pendingTotalPages}
+            onPendingPageChange={handlePendingPageChange}
             subscribers={subscribers}
             users={users}
             chatMessages={chatMessages}

@@ -229,8 +229,12 @@ export const api = {
         headers: getAuthHeader()
       });
     },
-    async getPendingQueue() {
-      return safeFetchJson(`${API_BASE}/jobs/queue/pending`, {
+    async getPendingQueue(params?: { page?: number; limit?: number }) {
+      const queryObj: Record<string, string> = {};
+      if (params?.page) queryObj.page = String(params.page);
+      if (params?.limit) queryObj.limit = String(params.limit);
+      const qs = new URLSearchParams(queryObj).toString();
+      return safeFetchJson(`${API_BASE}/jobs/queue/pending${qs ? `?${qs}` : ''}`, {
         headers: getAuthHeader()
       });
     },

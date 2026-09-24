@@ -45,11 +45,22 @@ import { isScrapedJob } from '../../utils/jobValidation';
  * Displays read-only suggestion insights for scraped pending/review jobs.
  * DOES NOT modify, save, or persist any job fields.
  * ============================================================================ */
-const JobSuggestionBadge: React.FC<{ job: Job }> = ({ job }) => {
+const JobSuggestionBadge: React.FC<{ job: Job; onConfirmLocation?: (updatedJob: Job) => void }> = ({ job, onConfirmLocation }) => {
+  const [isSaving, setIsSaving] = useState(false);
+  const [justConfirmed, setJustConfirmed] = useState(false);
+
   try {
     if (!isScrapedJob(job)) return null;
     const suggestion = suggestJobMetadata(job);
     if (!suggestion || !suggestion.isScrapedJob) return null;
+
+    const isConfirmed = Boolean(
+      justConfirmed ||
+      job.isLocationConfirmed ||
+      job.isManuallyCorrected ||
+      job.metadata?.isLocationConfirmed ||
+      job.metadata?.isManuallyCorrected
+    );
 
     const confidenceColor =
       suggestion.confidence === 'HIGH'
@@ -59,6 +70,43 @@ const JobSuggestionBadge: React.FC<{ job: Job }> = ({ job }) => {
         : suggestion.confidence === 'LOW'
         ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
         : 'bg-slate-800 text-slate-400 border-slate-700';
+
+    const handleConfirm = async () => {
+      setIsSaving(true);
+      const now = new Date().toISOString();
+      const updated: Job = {
+        ...job,
+        region: suggestion.suggestedRegion || job.region,
+        province: suggestion.suggestedProvince !== undefined ? suggestion.suggestedProvince : job.province,
+        city: suggestion.suggestedCity !== undefined ? suggestion.suggestedCity : job.city,
+        district: suggestion.suggestedDistrict !== undefined ? suggestion.suggestedDistrict : job.district,
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        metadata: {
+          ...(job.metadata || {}),
+          isLocationConfirmed: true,
+          locationConfirmedAt: now,
+          isManuallyCorrected: true,
+          manuallyCorrectedAt: now,
+          confirmedBy: 'Admin User'
+        }
+      };
+
+      try {
+        if (onConfirmLocation) {
+          onConfirmLocation(updated);
+        } else {
+          await api.jobs.update(job.id, updated);
+        }
+        setJustConfirmed(true);
+      } catch (e) {
+        console.error('Failed to confirm location badge:', e);
+      } finally {
+        setIsSaving(false);
+      }
+    };
 
     return (
       <div className="mt-2.5 p-3 bg-slate-950/90 border border-slate-800 rounded-xl space-y-2 text-xs text-slate-300 shadow-inner">
@@ -72,12 +120,27 @@ const JobSuggestionBadge: React.FC<{ job: Job }> = ({ job }) => {
             </span>
           </div>
 
-          {suggestion.hasConflict && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
-              <AlertTriangle className="w-3 h-3 text-rose-400" />
-              <span>Location Conflict</span>
-            </span>
-          )}
+          <div className="flex items-center space-x-1.5">
+            {isConfirmed ? (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                ✅ Location Protected
+              </span>
+            ) : !suggestion.hasConflict ? (
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleConfirm}
+                className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/30 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSaving ? 'Saving...' : '🎯 Confirm Location'}
+              </button>
+            ) : (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
+                <AlertTriangle className="w-3 h-3 text-rose-400" />
+                <span>Location Conflict</span>
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Suggested Location & Category Hierarchy */}

@@ -115,7 +115,23 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
 
   const handleSingleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveJob(formData);
+    const now = new Date().toISOString();
+    const updatedJob: Job = {
+      ...formData,
+      isManuallyCorrected: true,
+      manuallyCorrectedAt: now,
+      isLocationConfirmed: true,
+      locationConfirmedAt: now,
+      metadata: {
+        ...(formData.metadata || {}),
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        confirmedBy: 'Admin User'
+      }
+    };
+    onSaveJob(updatedJob);
     onClose();
   };
 
@@ -126,7 +142,23 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       alert(`Cannot approve job yet! Missing required factual fields: ${missing.join(', ')}. Please fill in these details before publishing.`);
       return;
     }
-    const approvedJob = { ...formData, status: 'Approved' as JobStatus };
+    const now = new Date().toISOString();
+    const approvedJob: Job = {
+      ...formData,
+      status: 'Approved' as JobStatus,
+      isManuallyCorrected: true,
+      manuallyCorrectedAt: now,
+      isLocationConfirmed: true,
+      locationConfirmedAt: now,
+      metadata: {
+        ...(formData.metadata || {}),
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        confirmedBy: 'Admin User'
+      }
+    };
     if (onSaveAndApproveJob) {
       onSaveAndApproveJob(approvedJob);
     } else {
@@ -145,6 +177,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return;
     }
 
+    const now = new Date().toISOString();
     const updated = selectedJobs.map(j => {
       const updatedJob = { ...j };
       if (bulkFields.applyCategory) updatedJob.jobCategory = bulkFields.jobCategory;
@@ -153,9 +186,22 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
         updatedJob.isGovtJob = true;
       }
       if (bulkFields.applyStatus) updatedJob.status = bulkFields.status;
-      if (bulkFields.applyRegion) updatedJob.region = bulkFields.region;
-      if (bulkFields.applyProvince) updatedJob.province = bulkFields.province;
-      if (bulkFields.applyCity) updatedJob.city = bulkFields.city;
+      if (bulkFields.applyRegion || bulkFields.applyProvince || bulkFields.applyCity) {
+        if (bulkFields.applyRegion) updatedJob.region = bulkFields.region;
+        if (bulkFields.applyProvince) updatedJob.province = bulkFields.province;
+        if (bulkFields.applyCity) updatedJob.city = bulkFields.city;
+        updatedJob.isManuallyCorrected = true;
+        updatedJob.manuallyCorrectedAt = now;
+        updatedJob.isLocationConfirmed = true;
+        updatedJob.locationConfirmedAt = now;
+        updatedJob.metadata = {
+          ...(updatedJob.metadata || {}),
+          isManuallyCorrected: true,
+          manuallyCorrectedAt: now,
+          isLocationConfirmed: true,
+          locationConfirmedAt: now
+        };
+      }
       if (bulkFields.applyJobType) updatedJob.jobType = bulkFields.jobType;
       if (bulkFields.applyDeadline) updatedJob.deadlineDate = bulkFields.deadlineDate;
       if (bulkFields.applyFeatured) updatedJob.featured = bulkFields.featured;

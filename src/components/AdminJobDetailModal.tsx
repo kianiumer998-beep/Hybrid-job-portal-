@@ -3,6 +3,7 @@ import { Job, UserAccount, JobPostingFeeLog } from '../types/job';
 import { X, Building2, MapPin, DollarSign, Clock, CheckCircle2, AlertCircle, Sparkles, User, ShieldCheck, Tag, FileText, Check, Ban, Edit3, AlertTriangle } from 'lucide-react';
 import { isScrapedJob } from '../utils/jobValidation';
 import { suggestJobMetadata, JobSuggestionResult } from '../utils/jobSuggestionEngine';
+import { api } from '../services/api';
 
 interface AdminJobDetailModalProps {
   job: Job | null;
@@ -29,10 +30,16 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 }) => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [isConfirmingLocation, setIsConfirmingLocation] = useState(false);
+  const [confirmedNotice, setConfirmedNotice] = useState<string | null>(null);
 
   if (!job) return null;
 
-  // Safely compute auto-detection suggestions for scraped jobs (read-only display)
+  const isLocationConfirmed = Boolean(
+    job.isLocationConfirmed || job.isManuallyCorrected || job.metadata?.isLocationConfirmed || job.metadata?.isManuallyCorrected
+  );
+
+  // Safely compute auto-detection suggestions for scraped jobs (read-only display & optional confirm)
   let suggestion: JobSuggestionResult | null = null;
   const isScraped = isScrapedJob(job);
   if (isScraped) {
@@ -43,6 +50,45 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
       suggestion = null;
     }
   }
+
+  const handleConfirmLocation = async () => {
+    if (!job || !suggestion) return;
+    setIsConfirmingLocation(true);
+    const now = new Date().toISOString();
+
+    const updatedJob: Job = {
+      ...job,
+      region: suggestion.suggestedRegion || job.region,
+      province: suggestion.suggestedProvince !== undefined ? suggestion.suggestedProvince : job.province,
+      city: suggestion.suggestedCity !== undefined ? suggestion.suggestedCity : job.city,
+      district: suggestion.suggestedDistrict !== undefined ? suggestion.suggestedDistrict : job.district,
+      isLocationConfirmed: true,
+      locationConfirmedAt: now,
+      isManuallyCorrected: true,
+      manuallyCorrectedAt: now,
+      metadata: {
+        ...(job.metadata || {}),
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        confirmedBy: 'Admin User'
+      }
+    };
+
+    try {
+      if (onEditJob) {
+        onEditJob(updatedJob);
+      } else {
+        await api.jobs.update(job.id, updatedJob);
+      }
+      setConfirmedNotice('Location confirmed & protected from scraper overwrites!');
+    } catch (err: any) {
+      console.error('Failed to confirm location:', err);
+    } finally {
+      setIsConfirmingLocation(false);
+    }
+  };
 
   // Find user who posted the job
   const posterUser = (users || []).find(u => u && u.id === job.submittedByUserId) || {
@@ -235,6 +281,47 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Location Confirmation Action / Protected Status Badge */}
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                {isLocationConfirmed ? (
+                  <div className="w-full p-2.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
+                    <div className="flex items-center space-x-2 font-bold">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Location Confirmed & Protected from Scraper Overwrites</span>
+                    </div>
+                    <span className="text-[11px] text-emerald-300 font-mono">
+                      {job.region}{job.province ? ` → ${job.province}` : ''}{job.city ? ` → ${job.city}` : ''}
+                    </span>
+                  </div>
+                ) : !suggestion.hasConflict ? (
+                  <div className="w-full flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-xs text-slate-400 font-medium">
+                      Review detected location metadata for confirmation:
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isConfirmingLocation}
+                      onClick={handleConfirmLocation}
+                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 text-xs flex items-center space-x-1.5 cursor-pointer transition-all disabled:opacity-50"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>{isConfirmingLocation ? 'Saving Confirmation...' : 'Confirm Suggested Location'}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-full text-xs text-rose-300 italic flex items-center space-x-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>Location conflict present. Please use "Edit Job Details" below to manually review and set the correct location.</span>
+                  </div>
+                )}
+
+                {confirmedNotice && (
+                  <div className="w-full text-xs text-emerald-400 font-bold font-mono">
+                    ✅ {confirmedNotice}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

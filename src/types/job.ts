@@ -207,6 +207,20 @@ export interface Job {
   duplicateDetectedAt?: string;
   applicationType?: 'internal' | 'external' | 'both';
   externalApplyUrl?: string;
+
+  // Admin Controlled Location Confirmation & Scraper Protection Attributes
+  isLocationConfirmed?: boolean;
+  locationConfirmedAt?: string;
+  isManuallyCorrected?: boolean;
+  manuallyCorrectedAt?: string;
+  metadata?: {
+    isLocationConfirmed?: boolean;
+    locationConfirmedAt?: string;
+    isManuallyCorrected?: boolean;
+    manuallyCorrectedAt?: string;
+    confirmedBy?: string;
+    [key: string]: any;
+  };
 }
 
 export interface ChatMessage {

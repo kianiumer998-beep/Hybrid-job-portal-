@@ -252,6 +252,50 @@ export class JobRepository {
   }
 
   /**
+   * Helper to preserve admin confirmed or manually corrected location metadata
+   * if the job in the database was already confirmed or corrected by an admin.
+   */
+  static applyLocationProtection(incomingDoc: any, existingDoc: any): any {
+    if (!existingDoc) return incomingDoc;
+
+    const isAlreadyProtected =
+      existingDoc.isLocationConfirmed === true ||
+      existingDoc.isManuallyCorrected === true ||
+      existingDoc.metadata?.isLocationConfirmed === true ||
+      existingDoc.metadata?.isManuallyCorrected === true;
+
+    if (!isAlreadyProtected) return incomingDoc;
+
+    const isIncomingExplicitConfirmation =
+      incomingDoc.isLocationConfirmed === true ||
+      incomingDoc.isManuallyCorrected === true ||
+      incomingDoc.metadata?.isLocationConfirmed === true ||
+      incomingDoc.metadata?.isManuallyCorrected === true;
+
+    if (isIncomingExplicitConfirmation) {
+      return incomingDoc;
+    }
+
+    return {
+      ...incomingDoc,
+      region: existingDoc.region || incomingDoc.region,
+      province: existingDoc.province || incomingDoc.province,
+      city: existingDoc.city || incomingDoc.city,
+      district: existingDoc.district || incomingDoc.district,
+      isLocationConfirmed: existingDoc.isLocationConfirmed ?? true,
+      locationConfirmedAt: existingDoc.locationConfirmedAt,
+      isManuallyCorrected: existingDoc.isManuallyCorrected ?? true,
+      manuallyCorrectedAt: existingDoc.manuallyCorrectedAt,
+      metadata: {
+        ...(incomingDoc.metadata || {}),
+        ...(existingDoc.metadata || {}),
+        isLocationConfirmed: existingDoc.metadata?.isLocationConfirmed ?? existingDoc.isLocationConfirmed ?? true,
+        isManuallyCorrected: existingDoc.metadata?.isManuallyCorrected ?? existingDoc.isManuallyCorrected ?? true
+      }
+    };
+  }
+
+  /**
    * Creates a new live job directly in MongoDB.
    */
   static async create(jobData: any): Promise<any> {
@@ -262,7 +306,8 @@ export class JobRepository {
     const slug = jobData.slug || generateJobSlug(jobData.title, jobData.city, id);
     const now = new Date().toISOString();
 
-    const newJob: any = {
+    const existingDoc = await jobsColl.findOne({ id });
+    let newJob: any = {
       ...jobData,
       id,
       slug,
@@ -271,6 +316,10 @@ export class JobRepository {
       updatedAt: now,
       applicationsCount: typeof jobData.applicationsCount === 'number' ? jobData.applicationsCount : 0
     };
+
+    if (existingDoc) {
+      newJob = JobRepository.applyLocationProtection(newJob, existingDoc);
+    }
 
     const normalized = normalizeMongoJob(newJob);
     await jobsColl.updateOne({ id }, { $set: normalized }, { upsert: true });
@@ -286,28 +335,36 @@ export class JobRepository {
     const pendingColl = await getPendingJobsCollection();
 
     // Prevent overriding MongoDB's immutable _id
-    const safeUpdates = { ...updates };
+    let safeUpdates = { ...updates };
     delete safeUpdates._id;
     safeUpdates.updatedAt = new Date().toISOString();
 
-    const updatedLive = await jobsColl.findOneAndUpdate(
-      { id },
-      { $set: safeUpdates },
-      { returnDocument: 'after' }
-    );
-
-    if (updatedLive) {
-      return normalizeMongoJob(updatedLive);
+    const existingLive = await jobsColl.findOne({ id });
+    if (existingLive) {
+      safeUpdates = JobRepository.applyLocationProtection(safeUpdates, existingLive);
+      const updatedLive = await jobsColl.findOneAndUpdate(
+        { id },
+        { $set: safeUpdates },
+        { returnDocument: 'after' }
+      );
+      if (updatedLive) {
+        return normalizeMongoJob(updatedLive);
+      }
     }
 
     // Fallback: check pending jobs collection
-    const updatedPending = await pendingColl.findOneAndUpdate(
-      { id },
-      { $set: safeUpdates },
-      { returnDocument: 'after' }
-    );
+    const existingPending = await pendingColl.findOne({ id });
+    if (existingPending) {
+      safeUpdates = JobRepository.applyLocationProtection(safeUpdates, existingPending);
+      const updatedPending = await pendingColl.findOneAndUpdate(
+        { id },
+        { $set: safeUpdates },
+        { returnDocument: 'after' }
+      );
+      return updatedPending ? normalizeMongoJob(updatedPending) : null;
+    }
 
-    return updatedPending ? normalizeMongoJob(updatedPending) : null;
+    return null;
   }
 
   /**
@@ -480,7 +537,8 @@ export class JobRepository {
     const slug = jobData.slug || generateJobSlug(jobData.title, jobData.city, id);
     const now = new Date().toISOString();
 
-    const newPending = normalizeMongoJob({
+    const existingPending = await pendingColl.findOne({ id });
+    let pendingDoc: any = {
       ...jobData,
       id,
       slug,
@@ -488,7 +546,13 @@ export class JobRepository {
       createdAt: jobData.createdAt || now,
       updatedAt: now,
       applicationsCount: 0
-    });
+    };
+
+    if (existingPending) {
+      pendingDoc = JobRepository.applyLocationProtection(pendingDoc, existingPending);
+    }
+
+    const newPending = normalizeMongoJob(pendingDoc);
 
     await pendingColl.updateOne({ id }, { $set: newPending }, { upsert: true });
     return newPending;

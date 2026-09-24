@@ -36,6 +36,7 @@ import {
 import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
 import { AdminJobDetailModal } from '../AdminJobDetailModal';
+import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
 
 export interface SourceGroup {
   id: string;
@@ -200,6 +201,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Inspect Run / Job Modal State
   const [inspectingRun, setInspectingRun] = useState<ScraperRunRecord | null>(null);
   const [inspectingJob, setInspectingJob] = useState<Job | null>(null);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
 
   // Global Settings State
   const [globalInterval, setGlobalInterval] = useState('24h');
@@ -4152,6 +4154,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           job={inspectingJob}
           users={[]}
           onClose={() => setInspectingJob(null)}
+          onEditJob={(jobToEdit) => {
+            setEditingJob(jobToEdit);
+            setInspectingJob(null);
+          }}
           onApproveJob={async (id) => {
             try {
               if (onApproveJob) {
@@ -4182,6 +4188,33 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               setStatusMessage({ text: `Reject error: ${err.message}`, type: 'error' });
             } finally {
               setInspectingJob(null);
+            }
+          }}
+        />
+      )}
+
+      {/* ============================================================= */}
+      {/* MODAL: QUICK EDIT SCRAPED / LIVE JOB                         */}
+      {/* ============================================================= */}
+      {editingJob && (
+        <AdminQuickEditJobModal
+          isOpen={!!editingJob}
+          job={editingJob}
+          onClose={() => setEditingJob(null)}
+          onSaveJob={async (updatedJob) => {
+            try {
+              const res = await api.jobs.update(updatedJob.id, updatedJob);
+              if (res && (res as any).success === false) {
+                setStatusMessage({ text: `Update error: ${(res as any).message || 'Failed to update job'}`, type: 'error' });
+              } else {
+                setStatusMessage({ text: `Successfully saved edits for "${updatedJob.title}"`, type: 'success' });
+                await fetchPendingQueue();
+                if (onReloadJobs) await onReloadJobs();
+              }
+            } catch (err: any) {
+              setStatusMessage({ text: `Update error: ${err.message}`, type: 'error' });
+            } finally {
+              setEditingJob(null);
             }
           }}
         />

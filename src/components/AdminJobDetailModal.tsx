@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Job, UserAccount, JobPostingFeeLog } from '../types/job';
-import { X, Building2, MapPin, DollarSign, Clock, CheckCircle2, AlertCircle, Sparkles, User, ShieldCheck, Tag, FileText, Check, Ban } from 'lucide-react';
+import { X, Building2, MapPin, DollarSign, Clock, CheckCircle2, AlertCircle, Sparkles, User, ShieldCheck, Tag, FileText, Check, Ban, Edit3 } from 'lucide-react';
 
 interface AdminJobDetailModalProps {
   job: Job | null;
@@ -11,6 +11,7 @@ interface AdminJobDetailModalProps {
   onRejectJob?: (jobId: string, reason: string) => void;
   onSuspendJob?: (jobId: string, reason?: string) => void;
   onViewUserProfile?: (user: UserAccount) => void;
+  onEditJob?: (job: Job) => void;
 }
 
 export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
@@ -21,7 +22,8 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   onApproveJob,
   onRejectJob,
   onSuspendJob,
-  onViewUserProfile
+  onViewUserProfile,
+  onEditJob
 }) => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
@@ -268,6 +270,20 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
           </button>
 
           <div className="flex items-center space-x-2">
+            {onEditJob && (
+              <button
+                type="button"
+                onClick={() => {
+                  onEditJob(job);
+                  onClose();
+                }}
+                className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold text-xs border border-amber-500/30 cursor-pointer flex items-center space-x-1 transition-colors"
+              >
+                <Edit3 className="w-4 h-4" />
+                <span>Edit Job Details</span>
+              </button>
+            )}
+
             {onSuspendJob && !isJobSuspended && (
               <button
                 onClick={() => {

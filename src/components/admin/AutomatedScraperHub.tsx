@@ -37,6 +37,100 @@ import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
 import { api } from '../../services/api';
 import { AdminJobDetailModal } from '../AdminJobDetailModal';
 import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
+import { suggestJobMetadata } from '../../utils/jobSuggestionEngine';
+import { isScrapedJob } from '../../utils/jobValidation';
+
+/* ============================================================================
+ * INFORMATIONAL AUTO-DETECTION SUGGESTION BADGE
+ * Displays read-only suggestion insights for scraped pending/review jobs.
+ * DOES NOT modify, save, or persist any job fields.
+ * ============================================================================ */
+const JobSuggestionBadge: React.FC<{ job: Job }> = ({ job }) => {
+  try {
+    if (!isScrapedJob(job)) return null;
+    const suggestion = suggestJobMetadata(job);
+    if (!suggestion || !suggestion.isScrapedJob) return null;
+
+    const confidenceColor =
+      suggestion.confidence === 'HIGH'
+        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+        : suggestion.confidence === 'MEDIUM'
+        ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+        : suggestion.confidence === 'LOW'
+        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+        : 'bg-slate-800 text-slate-400 border-slate-700';
+
+    return (
+      <div className="mt-2.5 p-3 bg-slate-950/90 border border-slate-800 rounded-xl space-y-2 text-xs text-slate-300 shadow-inner">
+        <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-800/80 pb-2">
+          <div className="flex items-center space-x-2">
+            <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 flex items-center space-x-1">
+              <span>🤖 Scraper Auto-Detection</span>
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${confidenceColor}`}>
+              {suggestion.confidence} Confidence
+            </span>
+          </div>
+
+          {suggestion.hasConflict && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
+              <AlertTriangle className="w-3 h-3 text-rose-400" />
+              <span>Location Conflict</span>
+            </span>
+          )}
+        </div>
+
+        {/* Suggested Location & Category Hierarchy */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+          <div>
+            <span className="text-slate-500 font-semibold">Suggested Location: </span>
+            <span className="font-bold text-white">
+              {suggestion.suggestedRegion}
+              {suggestion.suggestedProvince ? ` → ${suggestion.suggestedProvince}` : ''}
+              {suggestion.suggestedCity ? ` → ${suggestion.suggestedCity}` : ''}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-slate-500 font-semibold">Suggested Category: </span>
+            <span className="font-bold text-white">
+              {suggestion.suggestedCategory}
+              {suggestion.suggestedGovtCategory ? ` (${suggestion.suggestedGovtCategory})` : ''}
+            </span>
+          </div>
+        </div>
+
+        {/* Conflict Warning Details if Conflict Present */}
+        {suggestion.hasConflict && suggestion.conflictDetails && (
+          <div className="p-2 rounded-lg bg-rose-950/40 border border-rose-800/50 text-[11px] text-rose-300 space-y-0.5">
+            <span className="font-bold flex items-center space-x-1 text-rose-400">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Conflict Notice:</span>
+            </span>
+            <p className="text-[11px] text-rose-200/90 leading-tight">
+              {suggestion.conflictDetails}
+            </p>
+          </div>
+        )}
+
+        {/* Missing Fields Indicators */}
+        {suggestion.missingFields && suggestion.missingFields.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="text-[10px] font-bold text-amber-400">Missing Data:</span>
+            {suggestion.missingFields.map((field, idx) => (
+              <span key={idx} className="px-2 py-0.5 rounded-md bg-amber-950/40 border border-amber-800/40 text-[10px] font-medium text-amber-300">
+                {field}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  } catch (err) {
+    // Non-destructive fallback: return null if suggestion calculation fails
+    return null;
+  }
+};
 
 export interface SourceGroup {
   id: string;
@@ -3352,6 +3446,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                             Notice: A job with a very similar title and employer already exists in active listings.
                           </p>
                         )}
+
+                        {/* INFORMATIONAL READ-ONLY SCAPED JOB AUTO-DETECTION BADGE */}
+                        <JobSuggestionBadge job={job} />
                       </div>
                     </div>
 

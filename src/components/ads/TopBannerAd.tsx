@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Advertisement, AdTargetPage } from '../../types/ad';
+import { 
+  Advertisement, 
+  AdTargetPage, 
+  BannerDimensionSettings, 
+  DEFAULT_BANNER_DIMENSIONS,
+  BannerAppearanceSettings,
+  DEFAULT_BANNER_APPEARANCE,
+  BannerBehaviorSettings,
+  DEFAULT_BANNER_BEHAVIOR
+} from '../../types/ad';
 import { 
   X, 
   Sparkles, 
@@ -21,6 +30,9 @@ interface TopBannerAdProps {
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   autoPlayIntervalMs?: number;
   showDemoCardIfEmpty?: boolean;
+  bannerDimensions?: BannerDimensionSettings;
+  bannerAppearance?: BannerAppearanceSettings;
+  bannerBehavior?: BannerBehaviorSettings;
 }
 
 export const TopBannerAd: React.FC<TopBannerAdProps> = ({
@@ -29,7 +41,10 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   onAdClick,
   onNavigateTab,
   autoPlayIntervalMs = 6000,
-  showDemoCardIfEmpty = true
+  showDemoCardIfEmpty = true,
+  bannerDimensions = DEFAULT_BANNER_DIMENSIONS,
+  bannerAppearance = DEFAULT_BANNER_APPEARANCE,
+  bannerBehavior = DEFAULT_BANNER_BEHAVIOR
 }) => {
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -80,15 +95,19 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const activeBanner = activeBannerList[safeIndex];
 
   // Auto-play timer
+  const isAutoRotate = bannerBehavior?.autoRotate !== false;
+  const effectiveInterval = (bannerBehavior?.rotationIntervalSeconds ?? 6) * 1000;
+  const isPauseOnHover = bannerBehavior?.pauseOnHover !== false;
+
   useEffect(() => {
-    if (activeCount <= 1 || isPaused) return;
+    if (activeCount <= 1 || !isAutoRotate || (isPauseOnHover && isPaused)) return;
 
     const timer = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % activeCount);
-    }, autoPlayIntervalMs);
+    }, effectiveInterval);
 
     return () => clearInterval(timer);
-  }, [activeCount, isPaused, autoPlayIntervalMs]);
+  }, [activeCount, isPaused, isAutoRotate, isPauseOnHover, effectiveInterval]);
 
   if (!activeBanner) return null;
 
@@ -181,46 +200,59 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
   const isDemo = activeBanner.id === 'demo-your-ad-here';
 
+  const containerStyle: React.CSSProperties = {
+    maxWidth: bannerDimensions?.desktopWidth && bannerDimensions.desktopWidth !== '100%' ? bannerDimensions.desktopWidth : undefined,
+    minHeight: bannerDimensions?.desktopHeight && bannerDimensions.desktopHeight !== 'auto' ? bannerDimensions.desktopHeight : undefined,
+  };
+
   return (
     <div
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       onClick={handleAction}
-      className={`relative w-full ${style.bg} border-b ${style.border} px-4 py-2.5 sm:py-3 transition-all duration-300 cursor-pointer group z-30 shadow-lg`}
+      style={containerStyle}
+      className={`relative w-full ${style.bg} border-b ${style.border} px-4 py-2.5 sm:py-3 transition-all duration-300 cursor-pointer group z-30 shadow-lg mx-auto`}
     >
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-white">
         
         {/* Left Side: Thumbnail / Icon + Headline + Body */}
         <div className="flex items-center space-x-3 w-full sm:w-auto overflow-hidden">
-          {activeBanner.imageUrl ? (
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden flex-shrink-0 border border-white/20 shadow-md">
-              <img
-                src={activeBanner.imageUrl}
-                alt={activeBanner.title}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                referrerPolicy="no-referrer"
-              />
-            </div>
-          ) : (
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ${
-              isDemo ? 'bg-amber-500/30 border border-amber-400 text-amber-300' : 'bg-white/10 text-emerald-400'
-            }`}>
-              {isDemo ? (
-                <Crown className="w-5 h-5 animate-pulse text-amber-300" />
-              ) : (
-                <Megaphone className="w-4 h-4 animate-bounce" />
-              )}
-            </div>
+          {bannerAppearance?.showBannerImage !== false && (
+            activeBanner.imageUrl ? (
+              <div className={`rounded-xl overflow-hidden flex-shrink-0 border border-white/20 shadow-md ${
+                bannerAppearance?.imageSizePreset === 'small' ? 'w-8 h-8' :
+                bannerAppearance?.imageSizePreset === 'large' ? 'w-14 h-14' : 'w-10 h-10 sm:w-12 sm:h-12'
+              }`}>
+                <img
+                  src={activeBanner.imageUrl}
+                  alt={activeBanner.title}
+                  className={`w-full h-full group-hover:scale-105 transition-transform duration-300 ${
+                    bannerAppearance?.imageFit === 'contain' ? 'object-contain' : 'object-cover'
+                  }`}
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            ) : (
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md ${
+                isDemo ? 'bg-amber-500/30 border border-amber-400 text-amber-300' : 'bg-white/10 text-emerald-400'
+              }`}>
+                {isDemo ? (
+                  <Crown className="w-5 h-5 animate-pulse text-amber-300" />
+                ) : (
+                  <Megaphone className="w-4 h-4 animate-bounce" />
+                )}
+              </div>
+            )
           )}
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center space-x-2 flex-wrap">
-              {activeBanner.badgeText && (
+              {bannerAppearance?.showBadge !== false && activeBanner.badgeText && (
                 <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full border ${style.badge}`}>
                   {activeBanner.badgeText}
                 </span>
               )}
-              {isDemo && (
+              {bannerAppearance?.showBadge !== false && isDemo && (
                 <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                   Demo Card
                 </span>
@@ -241,44 +273,53 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
         <div className="flex items-center space-x-2.5 flex-shrink-0 self-end sm:self-auto">
           {activeCount > 1 && (
             <div className="flex items-center space-x-1.5 mr-1" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                onClick={handlePrev}
-                className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
-                title="Previous Announcement"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
+              {bannerBehavior?.showNavigationArrows !== false && (
+                <button
+                  type="button"
+                  onClick={handlePrev}
+                  className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
+                  title="Previous Announcement"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+              )}
 
               {/* Dots */}
-              <div className="flex items-center space-x-1">
-                {activeBannerList.map((_, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setCurrentIndex(idx)}
-                    className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                      idx === safeIndex ? 'w-4 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
-                    }`}
-                  />
-                ))}
-              </div>
+              {bannerBehavior?.showNavigationDots !== false && (
+                <div className="flex items-center space-x-1">
+                  {activeBannerList.map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setCurrentIndex(idx)}
+                      className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                        idx === safeIndex ? 'w-4 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
 
-              <button
-                type="button"
-                onClick={handleNext}
-                className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
-                title="Next Announcement"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+              {bannerBehavior?.showNavigationArrows !== false && (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="p-1 rounded-lg bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white transition-all cursor-pointer"
+                  title="Next Announcement"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
 
-          {activeBanner.ctaText && (
+          {bannerAppearance?.showCtaButton !== false && activeBanner.ctaText && (
             <button
               onClick={handleAction}
-              className={`px-3.5 py-1.5 rounded-xl font-black text-xs shadow-md transition-all flex items-center space-x-1.5 active:scale-95 cursor-pointer ${style.button}`}
+              className={`rounded-xl font-black text-xs shadow-md transition-all flex items-center space-x-1.5 active:scale-95 cursor-pointer ${style.button} ${
+                bannerAppearance?.ctaSizePreset === 'small' ? 'px-2.5 py-1 text-[11px]' :
+                bannerAppearance?.ctaSizePreset === 'large' ? 'px-4 py-2 text-xs' : 'px-3.5 py-1.5'
+              }`}
             >
               <span>{activeBanner.ctaText}</span>
               {activeBanner.ctaUrl?.startsWith('http') ? (
@@ -289,7 +330,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
             </button>
           )}
 
-          {activeBanner.dismissable && (
+          {bannerAppearance?.showDismissButton !== false && bannerBehavior?.allowDismiss !== false && activeBanner.dismissable && (
             <button
               onClick={handleDismiss}
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"

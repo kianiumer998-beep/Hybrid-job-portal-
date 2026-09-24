@@ -9,9 +9,19 @@ import {
   AdType,
   PopupDisplaySettings,
   FeedInlineAdSettings,
+  BannerDimensionSettings,
+  BannerAppearanceSettings,
+  BannerBehaviorSettings,
+  PopupAppearanceSettings,
+  FeedCardAppearanceSettings,
   PromoDiscountBanner,
   JobPostingFeeSettings,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+  DEFAULT_BANNER_DIMENSIONS,
+  DEFAULT_BANNER_APPEARANCE,
+  DEFAULT_BANNER_BEHAVIOR,
+  DEFAULT_POPUP_APPEARANCE,
+  DEFAULT_FEED_CARD_APPEARANCE,
   isPageScheduledActive,
   getPageDisplayName,
   getPlacementDisplayName
@@ -71,12 +81,17 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
     ...config,
     popupSettings: config.popupSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupSettings,
     feedInlineSettings: config.feedInlineSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedInlineSettings,
+    bannerDimensions: config.bannerDimensions || DEFAULT_BANNER_DIMENSIONS,
+    bannerAppearance: config.bannerAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerAppearance,
+    bannerBehavior: config.bannerBehavior || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.bannerBehavior,
+    popupAppearance: config.popupAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.popupAppearance,
+    feedCardAppearance: config.feedCardAppearance || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.feedCardAppearance,
     promoBanners: config.promoBanners || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.promoBanners,
     jobPostingFeeSettings: config.jobPostingFeeSettings || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.jobPostingFeeSettings
   }));
 
   const [activeTab, setActiveTab] = useState<
-    'popup-modes' | 'feed-positioning' | 'placements' | 'promo-banners' | 'job-fees' | 'pages' | 'durations' | 'rules'
+    'popup-modes' | 'feed-positioning' | 'banner-dimensions' | 'banner-appearance' | 'placements' | 'promo-banners' | 'job-fees' | 'rules'
   >('popup-modes');
 
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
@@ -98,13 +113,13 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   // Save changes handler
   const handleSave = () => {
     onSaveConfig(localConfig);
-    setSaveSuccessMessage('All campaign settings, placement rules, and popup modes saved successfully!');
+    setSaveSuccessMessage('All campaign settings, placement rules, and appearance modes saved successfully!');
     setTimeout(() => setSaveSuccessMessage(null), 3500);
   };
 
-  // Reset handler
+  // Global reset handler
   const handleReset = () => {
-    if (window.confirm('Reset all popup queue settings, feed positions, placement rates, and promotional discount banners to platform defaults?')) {
+    if (window.confirm('Reset all campaign settings to platform defaults?')) {
       setLocalConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
       onSaveConfig(DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG);
       if (onResetDefaults) onResetDefaults();
@@ -126,6 +141,25 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
     }));
   };
 
+  const handleUpdatePopupAppearance = (updates: Partial<PopupAppearanceSettings>) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      popupAppearance: {
+        ...(prev.popupAppearance || DEFAULT_POPUP_APPEARANCE),
+        ...updates
+      }
+    }));
+  };
+
+  const handleRestorePopupAppearanceDefault = () => {
+    setLocalConfig(prev => ({
+      ...prev,
+      popupAppearance: { ...DEFAULT_POPUP_APPEARANCE }
+    }));
+    setSaveSuccessMessage('Popup lightbox appearance restored to defaults!');
+    setTimeout(() => setSaveSuccessMessage(null), 3000);
+  };
+
   // -------------------------------------------------------------
   // FEED INLINE SETTINGS HANDLERS
   // -------------------------------------------------------------
@@ -137,6 +171,25 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         ...updates
       }
     }));
+  };
+
+  const handleUpdateFeedCardAppearance = (updates: Partial<FeedCardAppearanceSettings>) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      feedCardAppearance: {
+        ...(prev.feedCardAppearance || DEFAULT_FEED_CARD_APPEARANCE),
+        ...updates
+      }
+    }));
+  };
+
+  const handleRestoreFeedCardAppearanceDefault = () => {
+    setLocalConfig(prev => ({
+      ...prev,
+      feedCardAppearance: { ...DEFAULT_FEED_CARD_APPEARANCE }
+    }));
+    setSaveSuccessMessage('Inline feed card appearance restored to defaults!');
+    setTimeout(() => setSaveSuccessMessage(null), 3000);
   };
 
   const handleAddCustomIndex = (indexNum: number) => {
@@ -156,52 +209,90 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
   };
 
   // -------------------------------------------------------------
-  // PLACEMENT OPTION HANDLERS
+  // BANNER DIMENSION HANDLERS
   // -------------------------------------------------------------
-  const handleUpdatePlacement = (placementId: AdPlacement, updates: Partial<CampaignPlacementOption>) => {
+  const handleUpdateBannerDimensions = (updates: Partial<BannerDimensionSettings>) => {
     setLocalConfig(prev => ({
       ...prev,
-      placementOptions: prev.placementOptions.map(p =>
-        p.id === placementId ? { ...p, ...updates } : p
-      )
+      bannerDimensions: {
+        ...(prev.bannerDimensions || DEFAULT_BANNER_DIMENSIONS),
+        ...updates
+      }
     }));
+  };
+
+  const handleRestoreBannerDimensionsDefault = () => {
+    setLocalConfig(prev => ({
+      ...prev,
+      bannerDimensions: { ...DEFAULT_BANNER_DIMENSIONS }
+    }));
+    setSaveSuccessMessage('Banner dimensions restored to default working values (100% x auto)!');
+    setTimeout(() => setSaveSuccessMessage(null), 3500);
+  };
+
+  // -------------------------------------------------------------
+  // BANNER APPEARANCE & BEHAVIOR HANDLERS
+  // -------------------------------------------------------------
+  const handleUpdateBannerAppearance = (updates: Partial<BannerAppearanceSettings>) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      bannerAppearance: {
+        ...(prev.bannerAppearance || DEFAULT_BANNER_APPEARANCE),
+        ...updates
+      }
+    }));
+  };
+
+  const handleUpdateBannerBehavior = (updates: Partial<BannerBehaviorSettings>) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      bannerBehavior: {
+        ...(prev.bannerBehavior || DEFAULT_BANNER_BEHAVIOR),
+        ...updates
+      }
+    }));
+  };
+
+  const handleRestoreBannerAppearanceDefault = () => {
+    setLocalConfig(prev => ({
+      ...prev,
+      bannerAppearance: { ...DEFAULT_BANNER_APPEARANCE },
+      bannerBehavior: { ...DEFAULT_BANNER_BEHAVIOR }
+    }));
+    setSaveSuccessMessage('Banner appearance & behavior restored to defaults!');
+    setTimeout(() => setSaveSuccessMessage(null), 3000);
   };
 
   // -------------------------------------------------------------
   // PROMO DISCOUNT BANNERS HANDLERS
   // -------------------------------------------------------------
-  const handleTogglePromoBanner = (promoId: string) => {
+  const handleTogglePromoBanner = (id: string) => {
     setLocalConfig(prev => ({
       ...prev,
-      promoBanners: prev.promoBanners.map(p =>
-        p.id === promoId ? { ...p, isEnabled: !p.isEnabled } : p
-      )
+      promoBanners: prev.promoBanners.map(b => b.id === id ? { ...b, isEnabled: !b.isEnabled } : b)
     }));
   };
 
-  const handleDeletePromoBanner = (promoId: string) => {
+  const handleDeletePromoBanner = (id: string) => {
     setLocalConfig(prev => ({
       ...prev,
-      promoBanners: prev.promoBanners.filter(p => p.id !== promoId)
+      promoBanners: prev.promoBanners.filter(b => b.id !== id)
     }));
   };
 
-  const handleCreatePromoBanner = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPromoTitle.trim()) return;
-
+  const handleCreatePromoBanner = () => {
     const newBanner: PromoDiscountBanner = {
-      id: 'promo-' + Date.now(),
+      id: `promo-custom-${Date.now()}`,
       isEnabled: true,
-      title: newPromoTitle.trim(),
-      description: newPromoDesc.trim(),
-      discountPercent: Number(newPromoDiscount) || 50,
-      badgeText: newPromoBadge.trim() || '🔥 SPECIAL OFFER',
-      promoCode: newPromoCode.trim() || undefined,
+      title: newPromoTitle,
+      description: newPromoDesc,
+      discountPercent: newPromoDiscount,
+      badgeText: newPromoBadge,
+      promoCode: newPromoCode,
       targetPlacement: newPromoPlacement,
       validUntil: newPromoValidUntil,
       bgGradient: newPromoGradient,
-      ctaText: 'Claim Discount Slot',
+      ctaText: 'Claim Discount Now',
       ctaUrl: '#dashboard'
     };
 
@@ -211,6 +302,18 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
     }));
 
     setIsAddPromoOpen(false);
+    setSaveSuccessMessage(`Created promo banner "${newPromoTitle}"! Click Save All to make permanent.`);
+    setTimeout(() => setSaveSuccessMessage(null), 3500);
+  };
+
+  // -------------------------------------------------------------
+  // PLACEMENT OPTION HANDLERS
+  // -------------------------------------------------------------
+  const handleUpdatePlacement = (id: AdPlacement, updates: Partial<CampaignPlacementOption>) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      placementOptions: prev.placementOptions.map(p => p.id === id ? { ...p, ...updates } : p)
+    }));
   };
 
   // -------------------------------------------------------------
@@ -244,7 +347,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <h2 className="text-xl font-black text-white">Campaign & Placement Engine</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Configure Centered Popup Lightbox queue modes, Job Feed Inline Card frequencies, All 6 Ad Placements, 100% Free overrides, and Promotional Discount Banners.
+            Configure Centered Popup Lightbox queue modes, Job Feed Inline Card frequencies, All 6 Ad Placements, 100% Free overrides, Banner Dimensions, and Promotional Discount Banners.
           </p>
         </div>
 
@@ -274,9 +377,6 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>{saveSuccessMessage}</span>
           </div>
-          <button onClick={() => setSaveSuccessMessage(null)} className="text-emerald-400 hover:text-white">
-            <X className="w-4 h-4" />
-          </button>
         </div>
       )}
 
@@ -285,6 +385,8 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
         {[
           { id: 'popup-modes', label: 'Centered Popup Lightbox', icon: Sparkles, badge: localConfig.popupSettings.displayMode },
           { id: 'feed-positioning', label: 'Job Feed Inline Frequency', icon: Layers, badge: `${localConfig.feedInlineSettings.customIndices.length} slots` },
+          { id: 'banner-dimensions', label: 'Banner Dimensions', icon: Sliders, badge: 'Custom Sizes' },
+          { id: 'banner-appearance', label: 'Banner Styling & Rotation', icon: Eye, badge: 'Appearance' },
           { id: 'placements', label: 'All 6 Placement Models', icon: Layout, badge: 'Full Control' },
           { id: 'promo-banners', label: 'Promotional Discount Banners', icon: Percent, badge: `${localConfig.promoBanners.filter(b => b.isEnabled).length} active` },
           { id: 'job-fees', label: 'Job Posting Fee Override', icon: DollarSign, badge: localConfig.jobPostingFeeSettings?.isFreeAll ? '100% FREE' : 'Custom' },
@@ -317,7 +419,7 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
       </div>
 
       {/* ========================================================= */}
-      {/* 1. CENTERED POPUP LIGHTBOX QUEUE & LAYOUTS TAB           */}
+      {/* 1. CENTERED POPUP LIGHTBOX QUEUE & APPEARANCE TAB        */}
       {/* ========================================================= */}
       {activeTab === 'popup-modes' && (
         <div className="space-y-6">
@@ -343,181 +445,153 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
                     : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
                 }`}
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
-                      Recommended
-                    </span>
-                    <input
-                      type="radio"
-                      checked={localConfig.popupSettings.displayMode === 'sequential'}
-                      onChange={() => handleUpdatePopupSettings({ displayMode: 'sequential' })}
-                      className="accent-amber-500"
-                    />
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black text-amber-400 uppercase tracking-wider">Sequential Queue</span>
+                    <Radio className={`w-4 h-4 ${localConfig.popupSettings.displayMode === 'sequential' ? 'text-amber-400' : 'text-slate-600'}`} />
                   </div>
-                  <h4 className="text-sm font-black text-white">Sequential Queue (1-by-1 On Cross)</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Shows 1st popup modal first. When visitor clicks <strong className="text-amber-400">X (Close)</strong>, the 2nd popup appears right away, continuing through all active queued sponsor announcements!
+                  <h4 className="text-sm font-bold text-white mb-1">One-By-One On Dismiss</h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    When candidate closes popup 1, popup 2 smoothly transitions after 0.8 seconds.
                   </p>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] font-bold text-amber-400 flex items-center space-x-1">
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Unlimited Queue Support</span>
                 </div>
               </div>
 
-              {/* Option 2: Stacked Dual Modal (Simultaneous Top & Bottom) */}
+              {/* Option 2: Stacked Dual Popups */}
               <div
                 onClick={() => handleUpdatePopupSettings({ displayMode: 'stacked_dual' })}
                 className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
                   localConfig.popupSettings.displayMode === 'stacked_dual'
-                    ? 'bg-indigo-500/10 border-indigo-500 shadow-lg shadow-indigo-500/10'
+                    ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10'
                     : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
                 }`}
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
-                      Dual Simultaneous
-                    </span>
-                    <input
-                      type="radio"
-                      checked={localConfig.popupSettings.displayMode === 'stacked_dual'}
-                      onChange={() => handleUpdatePopupSettings({ displayMode: 'stacked_dual' })}
-                      className="accent-indigo-500"
-                    />
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black text-amber-400 uppercase tracking-wider">Stacked Dual Grid</span>
+                    <Radio className={`w-4 h-4 ${localConfig.popupSettings.displayMode === 'stacked_dual' ? 'text-amber-400' : 'text-slate-600'}`} />
                   </div>
-                  <h4 className="text-sm font-black text-white">Stacked Dual (Top & Bottom on Screen)</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Shows 2 separate popup announcement cards simultaneously on screen (Top and Bottom or Side-by-Side) so both campaigns gain instant visitor eyeballs at once.
+                  <h4 className="text-sm font-bold text-white mb-1">Two Side-By-Side Popups</h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Displays top 2 matching popup sponsors side-by-side in a split grid.
                   </p>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] font-bold text-indigo-300 flex items-center space-x-1">
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Dual Multi-Sponsor View</span>
                 </div>
               </div>
 
-              {/* Option 3: Single High-Priority Modal */}
+              {/* Option 3: Single Priority Popup Only */}
               <div
                 onClick={() => handleUpdatePopupSettings({ displayMode: 'single' })}
                 className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
                   localConfig.popupSettings.displayMode === 'single'
-                    ? 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10'
+                    ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10'
                     : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
                 }`}
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
-                      Single Modal
-                    </span>
-                    <input
-                      type="radio"
-                      checked={localConfig.popupSettings.displayMode === 'single'}
-                      onChange={() => handleUpdatePopupSettings({ displayMode: 'single' })}
-                      className="accent-emerald-500"
-                    />
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black text-amber-400 uppercase tracking-wider">Single Priority</span>
+                    <Radio className={`w-4 h-4 ${localConfig.popupSettings.displayMode === 'single' ? 'text-amber-400' : 'text-slate-600'}`} />
                   </div>
-                  <h4 className="text-sm font-black text-white">Single Exclusive Focus Modal</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Displays only the single highest-priority active popup per session. No subsequent popups appear upon closing.
+                  <h4 className="text-sm font-bold text-white mb-1">Highest Priority Only</h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Only shows 1 top priority popup. No queue when dismissed.
                   </p>
                 </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] font-bold text-emerald-400 flex items-center space-x-1">
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Exclusive Slot Focus</span>
-                </div>
               </div>
             </div>
 
-            {/* Fine-Tuning Sliders & Queue Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-800">
-              
-              {/* Max Popups Queue Limit */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-300">
-                    Maximum Sequential Popups Allowed:
-                  </label>
-                  <span className="text-xs font-mono font-bold text-amber-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                    {localConfig.popupSettings.allowUnlimitedQueue ? 'Unlimited (All Active)' : `${localConfig.popupSettings.maxPopupsPerVisit} Popups`}
-                  </span>
+            {/* Popup Appearance Controls */}
+            <div className="pt-6 border-t border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-black text-white flex items-center space-x-2">
+                    <Eye className="w-4 h-4 text-amber-400" />
+                    <span>Popup Lightbox Appearance & Entry Delay</span>
+                  </h4>
+                  <p className="text-xs text-slate-400">Configure modal width, overlay backdrop tint, entry delay, and close button.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRestorePopupAppearanceDefault}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3 h-3 text-amber-400" />
+                  <span>Restore Default</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Popup Width Preset */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Popup Modal Width</label>
+                  <select
+                    value={localConfig.popupAppearance?.popupWidthPreset || 'standard'}
+                    onChange={(e) => handleUpdatePopupAppearance({ popupWidthPreset: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
+                  >
+                    <option value="compact">Compact (Max 480px)</option>
+                    <option value="standard">Standard (Max 600px)</option>
+                    <option value="wide">Wide (Max 768px)</option>
+                  </select>
                 </div>
 
-                <div className="flex items-center space-x-3">
-                  <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={localConfig.popupSettings.allowUnlimitedQueue}
-                      onChange={(e) => handleUpdatePopupSettings({ allowUnlimitedQueue: e.target.checked })}
-                      className="rounded accent-amber-500"
-                    />
-                    <span>Allow Unlimited Queue (All active sponsor popups shown in sequence)</span>
-                  </label>
+                {/* Overlay Backdrop Opacity */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Overlay Backdrop Opacity</label>
+                  <select
+                    value={localConfig.popupAppearance?.overlayOpacityPreset || 'standard'}
+                    onChange={(e) => handleUpdatePopupAppearance({ overlayOpacityPreset: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
+                  >
+                    <option value="light">Light Tint (60% Opacity)</option>
+                    <option value="standard">Standard Dark (80% Opacity)</option>
+                    <option value="dark">Heavy Dark (95% Opacity)</option>
+                  </select>
                 </div>
 
-                {!localConfig.popupSettings.allowUnlimitedQueue && (
-                  <div className="pt-2">
+                {/* Initial Display Delay */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Initial Entry Delay</label>
+                  <div className="flex items-center space-x-2">
                     <input
-                      type="range"
-                      min="1"
+                      type="number"
+                      min="0"
                       max="10"
-                      step="1"
-                      value={localConfig.popupSettings.maxPopupsPerVisit}
-                      onChange={(e) => handleUpdatePopupSettings({ maxPopupsPerVisit: Number(e.target.value) })}
-                      className="w-full accent-amber-500"
+                      step="0.5"
+                      value={localConfig.popupAppearance?.initialDisplayDelaySeconds ?? 1}
+                      onChange={(e) => handleUpdatePopupAppearance({ initialDisplayDelaySeconds: parseFloat(e.target.value) || 0 })}
+                      className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono font-bold focus:outline-none focus:border-amber-500"
                     />
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>1 (Single)</span>
-                      <span>2 (Dual)</span>
-                      <span>3 (Triple)</span>
-                      <span>5</span>
-                      <span>10 Max</span>
-                    </div>
+                    <span className="text-xs text-slate-400 font-bold">sec</span>
                   </div>
-                )}
-              </div>
-
-              {/* Delay between sequential popups */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-300">
-                    Delay Between Sequential Popups:
-                  </label>
-                  <span className="text-xs font-mono font-bold text-teal-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                    {localConfig.popupSettings.delayBetweenPopupsSec} Seconds
-                  </span>
                 </div>
 
-                <input
-                  type="range"
-                  min="0.2"
-                  max="3.0"
-                  step="0.1"
-                  value={localConfig.popupSettings.delayBetweenPopupsSec}
-                  onChange={(e) => handleUpdatePopupSettings({ delayBetweenPopupsSec: Number(e.target.value) })}
-                  className="w-full accent-teal-500"
-                />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                  <span>0.2s (Instant)</span>
-                  <span>0.8s (Smooth)</span>
-                  <span>1.5s (Comfortable)</span>
-                  <span>3.0s (Relaxed)</span>
+                {/* Close Button Visibility */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Show Close (X) Button</label>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] font-bold text-slate-400">
+                      {localConfig.popupAppearance?.showCloseButton !== false ? 'VISIBLE' : 'HIDDEN'}
+                    </span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={localConfig.popupAppearance?.showCloseButton !== false}
+                        onChange={(e) => handleUpdatePopupAppearance({ showCloseButton: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500" />
+                    </label>
+                  </div>
                 </div>
               </div>
-
             </div>
-
           </div>
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* 2. JOB FEED INLINE CARD FREQUENCY TAB                     */}
+      {/* 2. JOB FEED INLINE FREQUENCY & CARD STYLING TAB            */}
       {/* ========================================================= */}
       {activeTab === 'feed-positioning' && (
         <div className="space-y-6">
@@ -525,461 +599,574 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <div>
               <div className="flex items-center space-x-2">
                 <Layers className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-lg font-black text-white">Job Listing Feed Inline Card Frequency</h3>
+                <h3 className="text-lg font-black text-white">Job Feed Inline Sponsored Card Frequency</h3>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Control exactly after how many job cards inline sponsored banner cards appear in the feed.
+                Control exact job listing slot positions where sponsored cards are inserted.
               </p>
             </div>
 
-            {/* Mode Selector */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              
-              {/* Cadence Mode (Every N Jobs) */}
-              <div
-                onClick={() => handleUpdateFeedInlineSettings({ insertionMode: 'cadence' })}
-                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                  localConfig.feedInlineSettings.insertionMode === 'cadence'
-                    ? 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10'
-                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
-                      Regular Cadence
-                    </span>
-                    <input
-                      type="radio"
-                      checked={localConfig.feedInlineSettings.insertionMode === 'cadence'}
-                      onChange={() => handleUpdateFeedInlineSettings({ insertionMode: 'cadence' })}
-                      className="accent-emerald-500"
-                    />
-                  </div>
-                  <h4 className="text-sm font-black text-white">Repeat Every N Job Cards (e.g. Every 2 or 3 Jobs)</h4>
-                  <p className="text-xs text-slate-300">
-                    Inserts an inline card predictably across the entire feed (e.g. after card #3, #6, #9, #12...).
-                  </p>
-                </div>
+            {/* Custom Indices Slots */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-300">
+                Custom Feed Index Slots (e.g., after 2nd job, after 5th job, after 8th job)
+              </label>
 
-                {localConfig.feedInlineSettings.insertionMode === 'cadence' && (
-                  <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
-                    <label className="text-xs font-bold text-slate-300">Insert Ad After Every:</label>
-                    <div className="flex items-center space-x-2">
-                      {[2, 3, 4, 5, 6].map((num) => (
-                        <button
-                          key={num}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleUpdateFeedInlineSettings({ repeatEveryNJobs: num });
-                          }}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                            localConfig.feedInlineSettings.repeatEveryNJobs === num
-                              ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
-                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                          }`}
-                        >
-                          {num} Jobs
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Custom Indices Mode (e.g. After 2nd, 5th, 8th job) */}
-              <div
-                onClick={() => handleUpdateFeedInlineSettings({ insertionMode: 'custom_indices' })}
-                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                  localConfig.feedInlineSettings.insertionMode === 'custom_indices'
-                    ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10'
-                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
-                      Custom Manual Slots
-                    </span>
-                    <input
-                      type="radio"
-                      checked={localConfig.feedInlineSettings.insertionMode === 'custom_indices'}
-                      onChange={() => handleUpdateFeedInlineSettings({ insertionMode: 'custom_indices' })}
-                      className="accent-amber-500"
-                    />
-                  </div>
-                  <h4 className="text-sm font-black text-white">Manual Selected Positions (e.g. After #2, #5, #8)</h4>
-                  <p className="text-xs text-slate-300">
-                    Specify exact positions where you want ads placed. Perfect for highlighting top tier slots without clutter.
-                  </p>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] font-bold text-amber-400 flex items-center space-x-1">
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Precision Slot Control</span>
-                </div>
-              </div>
-
-            </div>
-
-            {/* Custom Indices List & Quick Adder */}
-            {localConfig.feedInlineSettings.insertionMode === 'custom_indices' && (
-              <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h5 className="text-xs font-black text-white uppercase tracking-wider">Active Manual Insertion Positions:</h5>
-                    <p className="text-[11px] text-slate-400">An ad will be placed immediately following each selected job position number.</p>
-                  </div>
-
-                  {/* Quick Preset Buttons */}
-                  <div className="flex items-center space-x-1.5 text-xs">
-                    <span className="text-slate-500 text-[10px] font-semibold">Presets:</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {(localConfig.feedInlineSettings.customIndices || []).map((idxNum) => (
+                  <div key={idxNum} className="px-3 py-1.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center space-x-2">
+                    <span>Slot {idxNum}</span>
                     <button
                       type="button"
-                      onClick={() => handleUpdateFeedInlineSettings({ customIndices: [2, 5, 8] })}
-                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono font-bold cursor-pointer"
+                      onClick={() => handleRemoveCustomIndex(idxNum)}
+                      className="p-0.5 rounded-full hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
                     >
-                      [2, 5, 8]
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateFeedInlineSettings({ customIndices: [3, 7, 12] })}
-                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono font-bold cursor-pointer"
-                    >
-                      [3, 7, 12]
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateFeedInlineSettings({ customIndices: [1, 4, 8, 12] })}
-                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono font-bold cursor-pointer"
-                    >
-                      [1, 4, 8, 12]
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                </div>
+                ))}
 
-                {/* Chips of Active Indices */}
-                <div className="flex flex-wrap gap-2 items-center">
-                  {localConfig.feedInlineSettings.customIndices.map((idxNum) => (
-                    <div
-                      key={idxNum}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center space-x-2"
-                    >
-                      <span>After Job #{idxNum}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCustomIndex(idxNum)}
-                        className="text-amber-400 hover:text-white cursor-pointer"
-                        title="Remove position"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-
-                  {/* Add Number Input */}
-                  <div className="flex items-center space-x-1.5">
-                    <input
-                      type="number"
-                      min="1"
-                      max="30"
-                      placeholder="Card #"
-                      value={quickIndexInput}
-                      onChange={(e) => setQuickIndexInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const val = parseInt(quickIndexInput, 10);
-                          if (!isNaN(val)) {
-                            handleAddCustomIndex(val);
-                            setQuickIndexInput('');
-                          }
-                        }
-                      }}
-                      className="w-20 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 font-mono"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const val = parseInt(quickIndexInput, 10);
-                        if (!isNaN(val)) {
-                          handleAddCustomIndex(val);
-                          setQuickIndexInput('');
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all cursor-pointer"
-                    >
-                      + Add
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-            )}
-
-            {/* General Feed Settings */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-800">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Max Ads Rendered Per Feed Page:</label>
                 <div className="flex items-center space-x-2">
-                  {[1, 2, 3, 4, 5].map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      onClick={() => handleUpdateFeedInlineSettings({ maxAdsPerPage: count })}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        localConfig.feedInlineSettings.maxAdsPerPage === count
-                          ? 'bg-indigo-500 text-white font-black'
-                          : 'bg-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {count} {count === 1 ? 'Ad' : 'Ads'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Rotate Multiple Sponsor Ads:</label>
-                <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer pt-1">
                   <input
-                    type="checkbox"
-                    checked={localConfig.feedInlineSettings.rotateMultipleAds}
-                    onChange={(e) => handleUpdateFeedInlineSettings({ rotateMultipleAds: e.target.checked })}
-                    className="rounded accent-emerald-500"
+                    type="number"
+                    min="1"
+                    placeholder="Index #"
+                    value={quickIndexInput}
+                    onChange={(e) => setQuickIndexInput(e.target.value)}
+                    className="w-24 bg-slate-950 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-emerald-500"
                   />
-                  <span>Rotate different active campaigns across positions instead of repeating the same ad</span>
-                </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddCustomIndex(parseInt(quickIndexInput));
+                      setQuickIndexInput('');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Slot</span>
+                  </button>
+                </div>
               </div>
             </div>
 
+            {/* Feed Card Appearance Controls */}
+            <div className="pt-6 border-t border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-black text-white flex items-center space-x-2">
+                    <Eye className="w-4 h-4 text-emerald-400" />
+                    <span>Inline Feed Card Styling & Appearance</span>
+                  </h4>
+                  <p className="text-xs text-slate-400">Customize corner radius, padding, graphic positioning, and CTA button placement.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRestoreFeedCardAppearanceDefault}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3 h-3 text-emerald-400" />
+                  <span>Restore Default</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Border Radius */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Border Radius</label>
+                  <select
+                    value={localConfig.feedCardAppearance?.borderRadiusPreset || '3xl'}
+                    onChange={(e) => handleUpdateFeedCardAppearance({ borderRadiusPreset: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="none">Square (0px)</option>
+                    <option value="md">Rounded Medium (12px)</option>
+                    <option value="xl">Rounded Large (20px)</option>
+                    <option value="3xl">Extra Rounded (24px - Default)</option>
+                  </select>
+                </div>
+
+                {/* Padding Preset */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Card Padding</label>
+                  <select
+                    value={localConfig.feedCardAppearance?.paddingPreset || 'standard'}
+                    onChange={(e) => handleUpdateFeedCardAppearance({ paddingPreset: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="compact">Compact Padding</option>
+                    <option value="standard">Standard Padding</option>
+                    <option value="spacious">Spacious Padding</option>
+                  </select>
+                </div>
+
+                {/* Image Position */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Image Position</label>
+                  <select
+                    value={localConfig.feedCardAppearance?.imagePosition || 'left'}
+                    onChange={(e) => handleUpdateFeedCardAppearance({ imagePosition: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="left">Left Side (Standard)</option>
+                    <option value="right">Right Side</option>
+                  </select>
+                </div>
+
+                {/* CTA Alignment */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">CTA Alignment</label>
+                  <select
+                    value={localConfig.feedCardAppearance?.ctaAlignment || 'right'}
+                    onChange={(e) => handleUpdateFeedCardAppearance({ ctaAlignment: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="right">Right Aligned (Default)</option>
+                    <option value="center">Center Aligned</option>
+                    <option value="left">Left Aligned</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* 3. ALL 6 PLACEMENT MODELS FULL MANAGEMENT TAB             */}
+      {/* 3. BANNER DIMENSIONS TAB                                  */}
+      {/* ========================================================= */}
+      {activeTab === 'banner-dimensions' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <Sliders className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-lg font-black text-white">Top Announcement & Ad Banner Dimensions</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Adjust max-width and min-height bounds across desktop and mobile screens.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRestoreBannerDimensionsDefault}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center space-x-1.5 shrink-0"
+              >
+                <RefreshCw className="w-4 h-4 text-indigo-400" />
+                <span>Restore Default</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {/* Desktop Dimensions */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
+                  <Layout className="w-4 h-4 text-indigo-400" />
+                  <span>Desktop Screen Dimensions</span>
+                </h4>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Desktop Max-Width</label>
+                    <input
+                      type="text"
+                      value={localConfig.bannerDimensions?.desktopWidth || '100%'}
+                      onChange={(e) => handleUpdateBannerDimensions({ desktopWidth: e.target.value })}
+                      placeholder="e.g. 100%, 1280px, 728px"
+                      className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3.5 py-2 font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Desktop Min-Height</label>
+                    <input
+                      type="text"
+                      value={localConfig.bannerDimensions?.desktopHeight || 'auto'}
+                      onChange={(e) => handleUpdateBannerDimensions({ desktopHeight: e.target.value })}
+                      placeholder="e.g. auto, 120px, 90px"
+                      className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3.5 py-2 font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Mobile Dimensions */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider flex items-center space-x-2">
+                  <Smartphone className="w-4 h-4 text-cyan-400" />
+                  <span>Mobile Screen Dimensions</span>
+                </h4>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Mobile Max-Width</label>
+                    <input
+                      type="text"
+                      value={localConfig.bannerDimensions?.mobileWidth || '100%'}
+                      onChange={(e) => handleUpdateBannerDimensions({ mobileWidth: e.target.value })}
+                      placeholder="e.g. 100%, 360px, 320px"
+                      className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3.5 py-2 font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Mobile Min-Height</label>
+                    <input
+                      type="text"
+                      value={localConfig.bannerDimensions?.mobileHeight || 'auto'}
+                      onChange={(e) => handleUpdateBannerDimensions({ mobileHeight: e.target.value })}
+                      placeholder="e.g. auto, 100px, 50px"
+                      className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3.5 py-2 font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 4. BANNER STYLING & ROTATION TAB                          */}
+      {/* ========================================================= */}
+      {activeTab === 'banner-appearance' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <Eye className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-lg font-black text-white">Top Header Announcement Banner Appearance & Rotation</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Customize image visibility, button sizes, auto-rotation interval, pause on hover, navigation controls, and dismiss options.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRestoreBannerAppearanceDefault}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all cursor-pointer flex items-center space-x-1.5"
+              >
+                <RefreshCw className="w-4 h-4 text-indigo-400" />
+                <span>Restore Default</span>
+              </button>
+            </div>
+
+            {/* Appearance Toggles Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Show Image */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                <div className="text-xs font-bold text-white">Show Banner Graphic / Image</div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {localConfig.bannerAppearance?.showBannerImage !== false ? 'SHOW IMAGE' : 'HIDE IMAGE'}
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localConfig.bannerAppearance?.showBannerImage !== false}
+                      onChange={(e) => handleUpdateBannerAppearance({ showBannerImage: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                  </label>
+                </div>
+              </div>
+
+              {/* Show CTA Button */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                <div className="text-xs font-bold text-white">Show CTA Action Button</div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {localConfig.bannerAppearance?.showCtaButton !== false ? 'SHOW BUTTON' : 'HIDE BUTTON'}
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localConfig.bannerAppearance?.showCtaButton !== false}
+                      onChange={(e) => handleUpdateBannerAppearance({ showCtaButton: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                  </label>
+                </div>
+              </div>
+
+              {/* Show Badge */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                <div className="text-xs font-bold text-white">Show Badge Label</div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {localConfig.bannerAppearance?.showBadge !== false ? 'SHOW BADGE' : 'HIDE BADGE'}
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localConfig.bannerAppearance?.showBadge !== false}
+                      onChange={(e) => handleUpdateBannerAppearance({ showBadge: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                  </label>
+                </div>
+              </div>
+
+              {/* Show Dismiss (X) */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                <div className="text-xs font-bold text-white">Allow Dismiss (X) Button</div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {localConfig.bannerAppearance?.showDismissButton !== false ? 'DISMISS ON' : 'DISMISS OFF'}
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localConfig.bannerAppearance?.showDismissButton !== false}
+                      onChange={(e) => handleUpdateBannerAppearance({ showDismissButton: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Behavior & Rotation Controls */}
+            <div className="pt-4 border-t border-slate-800 space-y-4">
+              <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider">Rotation & Behavior Options</h4>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Auto Rotate */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                  <div className="text-xs font-bold text-white">Auto-Rotate Multiple Banners</div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] font-bold text-slate-400">
+                      {localConfig.bannerBehavior?.autoRotate !== false ? 'AUTO-ROTATE ON' : 'AUTO-ROTATE OFF'}
+                    </span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={localConfig.bannerBehavior?.autoRotate !== false}
+                        onChange={(e) => handleUpdateBannerBehavior({ autoRotate: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Rotation Interval */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block">Rotation Interval</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="2"
+                      max="30"
+                      value={localConfig.bannerBehavior?.rotationIntervalSeconds ?? 6}
+                      onChange={(e) => handleUpdateBannerBehavior({ rotationIntervalSeconds: parseInt(e.target.value) || 6 })}
+                      className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-mono font-bold focus:outline-none focus:border-indigo-500"
+                    />
+                    <span className="text-xs text-slate-400 font-bold">sec</span>
+                  </div>
+                </div>
+
+                {/* Pause on Hover */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                  <div className="text-xs font-bold text-white">Pause Rotation on Hover</div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] font-bold text-slate-400">
+                      {localConfig.bannerBehavior?.pauseOnHover !== false ? 'PAUSE ON HOVER' : 'CONTINUE ROTATION'}
+                    </span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={localConfig.bannerBehavior?.pauseOnHover !== false}
+                        onChange={(e) => handleUpdateBannerBehavior({ pauseOnHover: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Navigation Arrows */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                  <div className="text-xs font-bold text-white">Show Navigation Arrows</div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] font-bold text-slate-400">
+                      {localConfig.bannerBehavior?.showNavigationArrows !== false ? 'ARROWS ON' : 'ARROWS OFF'}
+                    </span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={localConfig.bannerBehavior?.showNavigationArrows !== false}
+                        onChange={(e) => handleUpdateBannerBehavior({ showNavigationArrows: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 5. ALL 6 PLACEMENT MODELS TAB                             */}
       {/* ========================================================= */}
       {activeTab === 'placements' && (
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
             <div>
               <div className="flex items-center space-x-2">
-                <Layout className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-lg font-black text-white">All 6 Placement Models & Fee Overrides</h3>
+                <Layout className="w-5 h-5 text-teal-400" />
+                <h3 className="text-lg font-black text-white">All 6 Placement Models & Pricing Multipliers</h3>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Manage all 6 ad formats: Top Sticky Header, Native Job Feed Card, Centered Popup Modal, Floating Toast Alert, Sidebar Filter Widget, and Direct SMS Text Broadcast.
+                Configure rate multipliers, 100% Free overrides, or flat fees across all placement options.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {localConfig.placementOptions.map((placement) => {
-                const isFree = !!placement.isFreeOverride;
-
-                return (
-                  <div
-                    key={placement.id}
-                    className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
-                      placement.isEnabled
-                        ? isFree
-                          ? 'bg-emerald-950/20 border-emerald-500/40 shadow-emerald-500/5'
-                          : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
-                        : 'bg-slate-950/40 border-slate-800/60 opacity-60'
-                    }`}
-                  >
-                    <div className="space-y-3">
-                      
-                      {/* Top Header of Card */}
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
-                          placement.isEnabled ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-slate-800 text-slate-500 border-slate-700'
-                        }`}>
-                          {placement.type}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {localConfig.placementOptions.map((placement) => (
+                <div key={placement.id} className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-white text-sm">{placement.name}</span>
+                      {placement.badge && (
+                        <span className="text-[10px] px-2 py-0.5 rounded font-black bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                          {placement.badge}
                         </span>
-
-                        <div className="flex items-center space-x-2">
-                          <label className="text-[11px] font-bold text-slate-400 cursor-pointer flex items-center space-x-1">
-                            <span>{placement.isEnabled ? 'Active' : 'Disabled'}</span>
-                            <input
-                              type="checkbox"
-                              checked={placement.isEnabled}
-                              onChange={(e) => handleUpdatePlacement(placement.id, { isEnabled: e.target.checked })}
-                              className="rounded accent-emerald-500"
-                            />
-                          </label>
-                        </div>
-                      </div>
-
-                      <h4 className="text-sm font-black text-white">{placement.name}</h4>
-                      <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
-                        {placement.description}
-                      </p>
-
-                      {/* 100% Free Toggle */}
-                      <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                        <label className="flex items-center justify-between text-xs cursor-pointer">
-                          <span className="font-bold text-slate-300 flex items-center space-x-1">
-                            <Percent className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>100% Free Placement:</span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={isFree}
-                            onChange={(e) => handleUpdatePlacement(placement.id, { isFreeOverride: e.target.checked })}
-                            className="rounded accent-emerald-500"
-                          />
-                        </label>
-                        {isFree && (
-                          <div className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded">
-                            ✓ Advertisers can book this placement at 0 PKR fee!
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Rate Multiplier / Flat Override */}
-                      {!isFree && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-400 font-medium">Pricing Multiplier:</span>
-                            <span className="font-mono font-bold text-amber-400">{placement.multiplier}x</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0.5"
-                            max="3.0"
-                            step="0.1"
-                            value={placement.multiplier}
-                            onChange={(e) => handleUpdatePlacement(placement.id, { multiplier: Number(e.target.value) })}
-                            className="w-full accent-amber-500"
-                          />
-                        </div>
                       )}
-
                     </div>
 
-                    {/* Footer concurrent slots */}
-                    <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-                      <span>Max Concurrent Slots:</span>
-                      <span className="font-mono font-bold text-slate-200">
-                        {placement.maxConcurrentSlots || 2} Slots
-                      </span>
-                    </div>
-
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={placement.isEnabled}
+                        onChange={(e) => handleUpdatePlacement(placement.id, { isEnabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500" />
+                    </label>
                   </div>
-                );
-              })}
-            </div>
 
+                  <p className="text-xs text-slate-400">{placement.description}</p>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Pricing Multiplier</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.5"
+                        value={placement.multiplier}
+                        onChange={(e) => handleUpdatePlacement(placement.id, { multiplier: parseFloat(e.target.value) || 1 })}
+                        className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-1.5 font-mono focus:outline-none focus:border-teal-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">100% Free Override</label>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdatePlacement(placement.id, { isFreeOverride: !placement.isFreeOverride })}
+                        className={`w-full py-1.5 rounded-xl text-xs font-bold border transition-colors ${
+                          placement.isFreeOverride
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+                        }`}
+                      >
+                        {placement.isFreeOverride ? 'FREE PLACEMENT' : 'STANDARD FEE'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* 4. PROMOTIONAL DISCOUNT & PERCENTAGE-OFF BANNERS TAB      */}
+      {/* 6. PROMOTIONAL DISCOUNT BANNERS TAB                      */}
       {/* ========================================================= */}
       {activeTab === 'promo-banners' && (
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <div className="flex items-center space-x-2">
-                  <Percent className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-lg font-black text-white">Promotional Discount & Percentage-Off Banners</h3>
+                  <Percent className="w-5 h-5 text-rose-400" />
+                  <h3 className="text-lg font-black text-white">Promotional Discount Banners</h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  Broadcast site-wide flash discounts (e.g. 50% OFF, 100% Free Week) to drive ad campaign bookings.
+                  Manage active promotional discount headers shown above checkout forms.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() => setIsAddPromoOpen(true)}
-                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black transition-all cursor-pointer flex items-center space-x-1.5 self-start sm:self-auto"
+                className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-black shadow-lg shadow-rose-500/20 transition-all cursor-pointer flex items-center space-x-1.5 shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 <span>Create Promo Banner</span>
               </button>
             </div>
 
-            {/* List of Active & Inactive Promo Banners */}
             <div className="space-y-4">
-              {localConfig.promoBanners.map((promo) => (
-                <div
-                  key={promo.id}
-                  className={`p-5 rounded-2xl border transition-all ${
-                    promo.isEnabled
-                      ? 'bg-slate-950/80 border-slate-800 shadow-lg'
-                      : 'bg-slate-950/40 border-slate-800/60 opacity-60'
-                  }`}
-                >
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    
-                    {/* Left: Info */}
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-gradient-to-r ${promo.bgGradient || 'from-amber-600 to-rose-600'} text-white shadow`}>
-                          {promo.badgeText}
-                        </span>
-
-                        <span className="text-xs font-bold text-amber-400 font-mono">
-                          {promo.discountPercent}% Discount
-                        </span>
-
-                        {promo.promoCode && (
-                          <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                            Code: {promo.promoCode}
-                          </span>
-                        )}
-
-                        {promo.validUntil && (
-                          <span className="text-[11px] text-slate-500 font-mono">
-                            Valid until: {promo.validUntil}
-                          </span>
-                        )}
-                      </div>
-
-                      <h4 className="text-base font-black text-white">{promo.title}</h4>
-                      <p className="text-xs text-slate-300">{promo.description}</p>
+              {localConfig.promoBanners.map((banner) => (
+                <div key={banner.id} className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-black text-white">{banner.title}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                        {banner.badgeText}
+                      </span>
                     </div>
-
-                    {/* Right: Toggle & Actions */}
-                    <div className="flex items-center space-x-3 self-end lg:self-auto">
-                      <button
-                        type="button"
-                        onClick={() => handleTogglePromoBanner(promo.id)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
-                          promo.isEnabled
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                            : 'bg-slate-800 text-slate-400 border border-slate-700'
-                        }`}
-                      >
-                        {promo.isEnabled ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
-                        <span>{promo.isEnabled ? 'Active on Portal' : 'Inactive'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePromoBanner(promo.id)}
-                        className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 transition-all cursor-pointer"
-                        title="Delete promo banner"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                    <p className="text-xs text-slate-400">{banner.description}</p>
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      Code: <code className="text-rose-400">{banner.promoCode || 'NONE'}</code> • Valid until: {banner.validUntil || 'Indefinite'}
                     </div>
+                  </div>
 
+                  <div className="flex items-center space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePromoBanner(banner.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${
+                        banner.isEnabled
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {banner.isEnabled ? 'ACTIVE' : 'PAUSED'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePromoBanner(banner.id)}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
-
           </div>
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* 5. JOB POSTING FEE OVERRIDE & 1-CLICK FREE TAB            */}
+      {/* 7. JOB POSTING FEE OVERRIDE TAB                          */}
       {/* ========================================================= */}
       {activeTab === 'job-fees' && (
         <div className="space-y-6">
@@ -987,257 +1174,178 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
             <div>
               <div className="flex items-center space-x-2">
                 <DollarSign className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-lg font-black text-white">Job Posting Fee Override & Free Publishing</h3>
+                <h3 className="text-lg font-black text-white">Job Posting Fee Override & Free Campaign Policies</h3>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Make job postings 100% Free for employers or adjust custom fee tiers and global discount rates.
+                Configure standard employer posting fees, global discounts, or toggle 100% Free posting.
               </p>
             </div>
 
-            {/* 1-Click 100% Free Job Postings Big Switch */}
-            <div className={`p-6 rounded-3xl border-2 transition-all ${
-              localConfig.jobPostingFeeSettings?.isFreeAll
-                ? 'bg-emerald-950/30 border-emerald-500 shadow-xl shadow-emerald-500/10'
-                : 'bg-slate-950/80 border-slate-800'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-black text-xs border border-emerald-500/30">
-                      ⚡ 1-Click Master Control
-                    </span>
-                  </div>
-                  <h4 className="text-base font-black text-white">Make All Job Postings 100% Free (0 PKR)</h4>
-                  <p className="text-xs text-slate-300 max-w-xl">
-                    When enabled, all employers can publish unlimited verified job openings completely free with zero invoice barriers.
-                  </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {/* Free All Toggle */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4">
+                <div>
+                  <h4 className="text-xs font-black text-white uppercase tracking-wider">100% Free Job Postings for All</h4>
+                  <p className="text-xs text-slate-400 mt-1">Bypass all publishing fees for employers.</p>
                 </div>
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-xs font-bold text-slate-300">
+                    {localConfig.jobPostingFeeSettings?.isFreeAll ? 'FREE POSTINGS ACTIVE' : 'STANDARD FEES ACTIVE'}
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localConfig.jobPostingFeeSettings?.isFreeAll || false}
+                      onChange={(e) => handleUpdateJobPostingFeeSettings({ isFreeAll: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
+                  </label>
+                </div>
+              </div>
 
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={localConfig.jobPostingFeeSettings?.isFreeAll || false}
-                    onChange={(e) => handleUpdateJobPostingFeeSettings({ isFreeAll: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-14 h-8 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
+              {/* Standard Fee Input */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <h4 className="text-xs font-black text-white uppercase tracking-wider">Standard Job Posting Fee (PKR)</h4>
+                <input
+                  type="number"
+                  min="0"
+                  step="50"
+                  value={localConfig.jobPostingFeeSettings?.customStandardFeePkr ?? 500}
+                  onChange={(e) => handleUpdateJobPostingFeeSettings({ customStandardFeePkr: parseInt(e.target.value) || 0 })}
+                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3.5 py-2.5 font-mono focus:outline-none focus:border-emerald-500"
+                />
               </div>
             </div>
-
-            {/* Custom Standard Rate & Discount Sliders */}
-            {!localConfig.jobPostingFeeSettings?.isFreeAll && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-800">
-                
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-300">
-                    Standard Job Posting Base Fee (PKR):
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-bold text-slate-500">PKR</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="50"
-                      value={localConfig.jobPostingFeeSettings?.customStandardFeePkr || 500}
-                      onChange={(e) => handleUpdateJobPostingFeeSettings({ customStandardFeePkr: Number(e.target.value) })}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-bold text-white font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-300">
-                      Global Job Posting Discount:
-                    </label>
-                    <span className="text-xs font-mono font-bold text-emerald-400">
-                      {localConfig.jobPostingFeeSettings?.globalDiscountPercent || 0}% OFF
-                    </span>
-                  </div>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="5"
-                    value={localConfig.jobPostingFeeSettings?.globalDiscountPercent || 0}
-                    onChange={(e) => handleUpdateJobPostingFeeSettings({ globalDiscountPercent: Number(e.target.value) })}
-                    className="w-full accent-emerald-500"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span>0% (Standard)</span>
-                    <span>25%</span>
-                    <span>50% (Half Price)</span>
-                    <span>100% (Free)</span>
-                  </div>
-                </div>
-
-              </div>
-            )}
-
           </div>
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* 6. POLICY RULES TAB                                       */}
+      {/* 8. POLICY RULES TAB                                       */}
       {/* ========================================================= */}
       {activeTab === 'rules' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
-          <div>
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-5 h-5 text-teal-400" />
-              <h3 className="text-lg font-black text-white">Campaign Submission Policies</h3>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Global requirements and verification policies enforced on user submitted campaigns.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            {[
-              {
-                id: 'requireAdminApproval',
-                label: 'Require Admin Approval Before Publishing',
-                desc: 'User campaigns enter pending queue until an admin approves creative & payment.'
-              },
-              {
-                id: 'allowCustomDateRange',
-                label: 'Allow Flexible Date Range Booking',
-                desc: 'Let advertisers select exact start and end calendar dates for their campaign.'
-              },
-              {
-                id: 'adminFreeCampaignBypass',
-                label: 'Admin Manual Campaigns Exempt From Fees (100% Free Admin Ads)',
-                desc: 'Allows portal admins to create and publish official announcements with 0 cost.'
-              },
-              {
-                id: 'requireImage',
-                label: 'Require Creative Image / Banner Graphic',
-                desc: 'Enforce mandatory banner graphic upload for all visual placements.'
-              }
-            ].map((rule) => {
-              const isChecked = !!(localConfig.formRules as any)[rule.id];
-              return (
-                <div
-                  key={rule.id}
-                  className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex items-start justify-between gap-4"
-                >
-                  <div className="space-y-1">
-                    <h5 className="text-xs font-bold text-white">{rule.label}</h5>
-                    <p className="text-[11px] text-slate-400">{rule.desc}</p>
-                  </div>
-
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={(e) => {
-                      setLocalConfig(prev => ({
-                        ...prev,
-                        formRules: {
-                          ...prev.formRules,
-                          [rule.id]: e.target.checked
-                        }
-                      }));
-                    }}
-                    className="mt-1 rounded accent-emerald-500"
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* MODAL: CREATE PROMOTIONAL DISCOUNT BANNER                 */}
-      {/* ========================================================= */}
-      {isAddPromoOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between">
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+            <div>
               <div className="flex items-center space-x-2">
-                <Percent className="w-5 h-5 text-amber-400" />
-                <h3 className="text-base font-black text-white">Create Promotional Discount Banner</h3>
+                <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-lg font-black text-white">Campaign & Submission Form Policy Rules</h3>
               </div>
-              <button onClick={() => setIsAddPromoOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
+              <p className="text-xs text-slate-400 mt-1">
+                Configure mandatory approval rules and bypass options for advertising submissions.
+              </p>
             </div>
 
-            <form onSubmit={handleCreatePromoBanner} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Banner Headline Title:</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-white">Require Admin Review & Approval</div>
+                  <div className="text-[10px] text-slate-400">All submitted campaigns require manual approval</div>
+                </div>
                 <input
-                  type="text"
-                  required
-                  value={newPromoTitle}
-                  onChange={(e) => setNewPromoTitle(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
+                  type="checkbox"
+                  checked={localConfig.formRules.requireAdminApproval}
+                  onChange={(e) => setLocalConfig(prev => ({ ...prev, formRules: { ...prev.formRules, requireAdminApproval: e.target.checked } }))}
+                  className="w-4 h-4 text-emerald-500 rounded cursor-pointer"
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Description Subtitle:</label>
-                <textarea
-                  rows={2}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-white">Admin 100% Free Bypass</div>
+                  <div className="text-[10px] text-slate-400">Admins can create campaigns at 0 PKR</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={localConfig.formRules.adminFreeCampaignBypass}
+                  onChange={(e) => setLocalConfig(prev => ({ ...prev, formRules: { ...prev.formRules, adminFreeCampaignBypass: e.target.checked } }))}
+                  className="w-4 h-4 text-emerald-500 rounded cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE PROMO BANNER MODAL */}
+      {isAddPromoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-black text-white flex items-center space-x-2">
+                <Percent className="w-4 h-4 text-rose-400" />
+                <span>Create Promotional Discount Banner</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddPromoOpen(false)}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Banner Title</label>
+                <input
+                  type="text"
+                  value={newPromoTitle}
+                  onChange={(e) => setNewPromoTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Banner Description</label>
+                <input
+                  type="text"
                   value={newPromoDesc}
                   onChange={(e) => setNewPromoDesc(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Discount %:</label>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Discount %</label>
                   <input
                     type="number"
-                    min="5"
-                    max="100"
                     value={newPromoDiscount}
-                    onChange={(e) => setNewPromoDiscount(Number(e.target.value))}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono"
+                    onChange={(e) => setNewPromoDiscount(parseInt(e.target.value) || 0)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Promo Code:</label>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Promo Code</label>
                   <input
                     type="text"
                     value={newPromoCode}
                     onChange={(e) => setNewPromoCode(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono"
                   />
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-300">Badge Text:</label>
-                <input
-                  type="text"
-                  value={newPromoBadge}
-                  onChange={(e) => setNewPromoBadge(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
-                />
-              </div>
-
-              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAddPromoOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/20"
-                >
-                  Publish Promo Banner
-                </button>
-              </div>
-            </form>
+            <div className="pt-3 border-t border-slate-800 flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setIsAddPromoOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreatePromoBanner}
+                className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-black"
+              >
+                Add Banner
+              </button>
+            </div>
           </div>
         </div>
       )}

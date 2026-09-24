@@ -83,6 +83,102 @@ export interface FeedInlineAdSettings {
   rotateMultipleAds: boolean; // Rotate through different active feed ads
 }
 
+export interface BannerDimensionSettings {
+  desktopWidth: string;  // e.g. "100%", "1280px", "728px"
+  desktopHeight: string; // e.g. "auto", "192px", "60px"
+  mobileWidth: string;   // e.g. "100%", "360px", "320px"
+  mobileHeight: string;  // e.g. "auto", "176px", "50px"
+}
+
+export const DEFAULT_BANNER_DIMENSIONS: BannerDimensionSettings = {
+  desktopWidth: '100%',
+  desktopHeight: 'auto',
+  mobileWidth: '100%',
+  mobileHeight: 'auto'
+};
+
+export interface BannerAppearanceSettings {
+  borderRadiusPreset?: 'none' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | 'full';
+  paddingPreset?: 'compact' | 'standard' | 'spacious';
+  showBannerImage?: boolean;
+  imageSizePreset?: 'small' | 'medium' | 'large';
+  imageFit?: 'cover' | 'contain';
+  imagePosition?: 'left' | 'right' | 'top';
+  showCtaButton?: boolean;
+  ctaSizePreset?: 'small' | 'medium' | 'large';
+  ctaAlignment?: 'left' | 'center' | 'right';
+  textAlignment?: 'left' | 'center' | 'right';
+  showBadge?: boolean;
+  showDismissButton?: boolean;
+}
+
+export const DEFAULT_BANNER_APPEARANCE: BannerAppearanceSettings = {
+  borderRadiusPreset: '3xl',
+  paddingPreset: 'standard',
+  showBannerImage: true,
+  imageSizePreset: 'medium',
+  imageFit: 'cover',
+  imagePosition: 'left',
+  showCtaButton: true,
+  ctaSizePreset: 'medium',
+  ctaAlignment: 'right',
+  textAlignment: 'left',
+  showBadge: true,
+  showDismissButton: true
+};
+
+export interface BannerBehaviorSettings {
+  autoRotate?: boolean;
+  rotationIntervalSeconds?: number;
+  pauseOnHover?: boolean;
+  showNavigationArrows?: boolean;
+  showNavigationDots?: boolean;
+  allowDismiss?: boolean;
+}
+
+export const DEFAULT_BANNER_BEHAVIOR: BannerBehaviorSettings = {
+  autoRotate: true,
+  rotationIntervalSeconds: 6,
+  pauseOnHover: true,
+  showNavigationArrows: true,
+  showNavigationDots: true,
+  allowDismiss: true
+};
+
+export interface PopupAppearanceSettings {
+  popupWidthPreset?: 'compact' | 'standard' | 'wide';
+  popupMaxHeightPreset?: 'standard' | 'tall' | 'fullscreen';
+  overlayOpacityPreset?: 'light' | 'standard' | 'dark';
+  showCloseButton?: boolean;
+  initialDisplayDelaySeconds?: number;
+}
+
+export const DEFAULT_POPUP_APPEARANCE: PopupAppearanceSettings = {
+  popupWidthPreset: 'standard',
+  popupMaxHeightPreset: 'standard',
+  overlayOpacityPreset: 'standard',
+  showCloseButton: true,
+  initialDisplayDelaySeconds: 1
+};
+
+export interface FeedCardAppearanceSettings {
+  cardSizePreset?: 'compact' | 'standard' | 'large';
+  imageSizePreset?: 'small' | 'medium' | 'large';
+  imagePosition?: 'left' | 'right' | 'top';
+  ctaAlignment?: 'left' | 'center' | 'right';
+  borderRadiusPreset?: 'none' | 'md' | 'xl' | '3xl';
+  paddingPreset?: 'compact' | 'standard' | 'spacious';
+}
+
+export const DEFAULT_FEED_CARD_APPEARANCE: FeedCardAppearanceSettings = {
+  cardSizePreset: 'standard',
+  imageSizePreset: 'medium',
+  imagePosition: 'left',
+  ctaAlignment: 'right',
+  borderRadiusPreset: '3xl',
+  paddingPreset: 'standard'
+};
+
 export interface PromoDiscountBanner {
   id: string;
   isEnabled: boolean;
@@ -128,6 +224,11 @@ export interface CampaignCustomizationConfig {
   ctaPresets: { label: string; defaultUrl?: string }[];
   popupSettings: PopupDisplaySettings;
   feedInlineSettings: FeedInlineAdSettings;
+  bannerDimensions?: BannerDimensionSettings;
+  bannerAppearance?: BannerAppearanceSettings;
+  bannerBehavior?: BannerBehaviorSettings;
+  popupAppearance?: PopupAppearanceSettings;
+  feedCardAppearance?: FeedCardAppearanceSettings;
   promoBanners: PromoDiscountBanner[];
   jobPostingFeeSettings?: JobPostingFeeSettings;
   formRules: {
@@ -468,6 +569,11 @@ export const DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG: CampaignCustomizationConfig 
     maxAdsPerPage: 3,
     rotateMultipleAds: true
   },
+  bannerDimensions: DEFAULT_BANNER_DIMENSIONS,
+  bannerAppearance: DEFAULT_BANNER_APPEARANCE,
+  bannerBehavior: DEFAULT_BANNER_BEHAVIOR,
+  popupAppearance: DEFAULT_POPUP_APPEARANCE,
+  feedCardAppearance: DEFAULT_FEED_CARD_APPEARANCE,
   promoBanners: DEFAULT_PROMO_BANNERS,
   jobPostingFeeSettings: {
     isFreeAll: false,

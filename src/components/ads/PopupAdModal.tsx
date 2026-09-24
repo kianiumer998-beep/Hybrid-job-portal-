@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Advertisement, AdTargetPage, PopupDisplaySettings } from '../../types/ad';
+import { Advertisement, AdTargetPage, PopupDisplaySettings, PopupAppearanceSettings, DEFAULT_POPUP_APPEARANCE } from '../../types/ad';
 import { X, Sparkles, ExternalLink, ArrowRight, ShieldCheck, CheckCircle2, Layers, ChevronRight } from 'lucide-react';
 
 interface PopupAdModalProps {
   ads: Advertisement[];
   currentPage: AdTargetPage;
   popupSettings?: PopupDisplaySettings;
+  popupAppearance?: PopupAppearanceSettings;
   onAdClick: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
@@ -22,6 +23,7 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   ads,
   currentPage,
   popupSettings = DEFAULT_POPUP_SETTINGS,
+  popupAppearance = DEFAULT_POPUP_APPEARANCE,
   onAdClick,
   onNavigateTab
 }) => {
@@ -61,9 +63,10 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
       setDualClosedAdIds([]);
 
       // Initial entry delay for comfortable reading
+      const initialDelayMs = (popupAppearance?.initialDisplayDelaySeconds ?? 1) * 1000;
       const timer = setTimeout(() => {
         setIsOpen(true);
-      }, 1000);
+      }, initialDelayMs);
 
       return () => clearTimeout(timer);
     } else {
@@ -309,21 +312,27 @@ export const PopupAdModal: React.FC<PopupAdModalProps> = ({
   const currentStep = currentQueueIndex + 1;
   const totalSteps = popupQueue.length;
 
+  const overlayClass = popupAppearance?.overlayOpacityPreset === 'light' ? 'bg-slate-950/60' : popupAppearance?.overlayOpacityPreset === 'dark' ? 'bg-slate-950/95' : 'bg-slate-950/80';
+  const widthClass = popupAppearance?.popupWidthPreset === 'compact' ? 'max-w-md' : popupAppearance?.popupWidthPreset === 'wide' ? 'max-w-2xl' : 'max-w-xl';
+  const showCloseBtn = popupAppearance?.showCloseButton !== false;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto animate-fadeIn">
-      <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl transition-all">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${overlayClass} backdrop-blur-md overflow-y-auto animate-fadeIn`}>
+      <div className={`relative w-full ${widthClass} bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl transition-all`}>
         
         {/* Ambient Top Glow */}
         <div className={`absolute -right-20 -top-20 w-60 h-60 ${style.glow} rounded-full blur-3xl pointer-events-none`} />
 
         {/* Close Button (Trigger next in queue if sequential) */}
-        <button
-          onClick={() => handleCloseCurrent(activePopup.id)}
-          className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-slate-950/70 hover:bg-slate-950 text-slate-400 hover:text-white border border-white/10 flex items-center justify-center transition-all cursor-pointer backdrop-blur-sm"
-          title={isMultiQueue && currentStep < totalSteps ? "Close & view next announcement" : "Close announcement"}
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {showCloseBtn && (
+          <button
+            onClick={() => handleCloseCurrent(activePopup.id)}
+            className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-slate-950/70 hover:bg-slate-950 text-slate-400 hover:text-white border border-white/10 flex items-center justify-center transition-all cursor-pointer backdrop-blur-sm"
+            title={isMultiQueue && currentStep < totalSteps ? "Close & view next announcement" : "Close announcement"}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Header Banner Image */}
         {activePopup.imageUrl && (

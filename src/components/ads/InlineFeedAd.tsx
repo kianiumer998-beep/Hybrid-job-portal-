@@ -1,17 +1,21 @@
 import React from 'react';
-import { Advertisement } from '../../types/ad';
+import { Advertisement, BannerDimensionSettings, DEFAULT_BANNER_DIMENSIONS, FeedCardAppearanceSettings, DEFAULT_FEED_CARD_APPEARANCE } from '../../types/ad';
 import { Sparkles, ExternalLink, ArrowRight, CheckCircle2, ShieldCheck, Megaphone } from 'lucide-react';
 
 interface InlineFeedAdProps {
   ad: Advertisement;
   onAdClick: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  bannerDimensions?: BannerDimensionSettings;
+  feedCardAppearance?: FeedCardAppearanceSettings;
 }
 
 export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
   ad,
   onAdClick,
-  onNavigateTab
+  onNavigateTab,
+  bannerDimensions = DEFAULT_BANNER_DIMENSIONS,
+  feedCardAppearance = DEFAULT_FEED_CARD_APPEARANCE
 }) => {
   const handleAction = () => {
     onAdClick(ad);
@@ -54,15 +58,26 @@ export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
   const gradient = themeGradients[ad.theme] || themeGradients.emerald;
   const btnStyle = buttonThemes[ad.theme] || buttonThemes.emerald;
 
+  const containerStyle: React.CSSProperties = {
+    maxWidth: bannerDimensions?.desktopWidth && bannerDimensions.desktopWidth !== '100%' ? bannerDimensions.desktopWidth : undefined,
+    minHeight: bannerDimensions?.desktopHeight && bannerDimensions.desktopHeight !== 'auto' ? bannerDimensions.desktopHeight : undefined,
+  };
+
+  const radiusClass = feedCardAppearance?.borderRadiusPreset === 'none' ? 'rounded-none' : feedCardAppearance?.borderRadiusPreset === 'md' ? 'rounded-md' : feedCardAppearance?.borderRadiusPreset === 'xl' ? 'rounded-xl' : 'rounded-3xl';
+  const paddingClass = feedCardAppearance?.paddingPreset === 'compact' ? 'p-4 sm:p-5' : feedCardAppearance?.paddingPreset === 'spacious' ? 'p-8 sm:p-10' : 'p-6 sm:p-7';
+  const directionClass = feedCardAppearance?.imagePosition === 'right' ? 'lg:flex-row-reverse' : 'lg:flex-row';
+  const ctaAlignClass = feedCardAppearance?.ctaAlignment === 'left' ? 'justify-start' : feedCardAppearance?.ctaAlignment === 'center' ? 'justify-center' : 'justify-end';
+
   return (
     <div
       onClick={handleAction}
-      className={`group relative col-span-1 md:col-span-2 lg:col-span-3 bg-gradient-to-r ${gradient} border rounded-3xl p-6 sm:p-7 shadow-2xl transition-all duration-300 cursor-pointer overflow-hidden my-2`}
+      style={containerStyle}
+      className={`group relative col-span-1 md:col-span-2 lg:col-span-3 bg-gradient-to-r ${gradient} border ${radiusClass} ${paddingClass} shadow-2xl transition-all duration-300 cursor-pointer overflow-hidden my-2 mx-auto w-full`}
     >
       {/* Background Glow */}
       <div className="absolute -right-20 -top-20 w-60 h-60 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-6">
+      <div className={`relative z-10 flex flex-col ${directionClass} items-center justify-between gap-6`}>
         
         {/* Banner Image / Graphic (if present) */}
         {ad.imageUrl && (
@@ -107,7 +122,7 @@ export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
         </div>
 
         {/* Call to Action Button */}
-        <div className="flex-shrink-0 w-full lg:w-auto flex justify-end">
+        <div className={`flex-shrink-0 w-full lg:w-auto flex ${ctaAlignClass}`}>
           <button
             onClick={handleAction}
             className={`w-full sm:w-auto px-7 py-3.5 rounded-2xl font-black text-sm shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95 cursor-pointer ${btnStyle}`}

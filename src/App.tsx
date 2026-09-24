@@ -1569,6 +1569,9 @@ export default function App() {
         currentPage={activeTab}
         onAdClick={handleAdClick}
         onNavigateTab={setActiveTab}
+        bannerDimensions={campaignConfig.bannerDimensions}
+        bannerAppearance={campaignConfig.bannerAppearance}
+        bannerBehavior={campaignConfig.bannerBehavior}
       />
 
       {/* Navigation Header */}
@@ -1866,6 +1869,8 @@ export default function App() {
                             onPostsPerPageChange={handlePostsPerPageChange}
                             ads={advertisements}
                             feedInlineSettings={campaignConfig.feedInlineSettings}
+                            bannerDimensions={campaignConfig.bannerDimensions}
+                            feedCardAppearance={campaignConfig.feedCardAppearance}
                             onAdClick={handleAdClick}
                             onNavigateTab={setActiveTab}
                           />
@@ -2066,6 +2071,7 @@ export default function App() {
           ads={advertisements}
           currentPage={activeTab}
           popupSettings={campaignConfig.popupSettings}
+          popupAppearance={campaignConfig.popupAppearance}
           onAdClick={handleAdClick}
           onNavigateTab={setActiveTab}
         />

@@ -23,7 +23,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Job } from '../types/job';
-import { Advertisement, FeedInlineAdSettings } from '../types/ad';
+import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardAppearanceSettings } from '../types/ad';
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
@@ -40,6 +40,8 @@ interface JobListingsProps {
   onPostsPerPageChange?: (postsPerPage: number) => void;
   ads?: Advertisement[];
   feedInlineSettings?: FeedInlineAdSettings;
+  bannerDimensions?: BannerDimensionSettings;
+  feedCardAppearance?: FeedCardAppearanceSettings;
   onAdClick?: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
@@ -57,6 +59,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
   onPostsPerPageChange,
   ads = [],
   feedInlineSettings,
+  bannerDimensions,
+  feedCardAppearance,
   onAdClick,
   onNavigateTab
 }) => {
@@ -488,6 +492,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 ad={feedAdToRender}
                 onAdClick={onAdClick || (() => {})}
                 onNavigateTab={onNavigateTab}
+                bannerDimensions={bannerDimensions}
+                feedCardAppearance={feedCardAppearance}
               />
             )}
           </React.Fragment>

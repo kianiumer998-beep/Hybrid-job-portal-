@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Job, UserAccount, JobPostingFeeLog } from '../types/job';
-import { X, Building2, MapPin, DollarSign, Clock, CheckCircle2, AlertCircle, Sparkles, User, ShieldCheck, Tag, FileText, Check, Ban, Edit3 } from 'lucide-react';
+import { X, Building2, MapPin, DollarSign, Clock, CheckCircle2, AlertCircle, Sparkles, User, ShieldCheck, Tag, FileText, Check, Ban, Edit3, AlertTriangle } from 'lucide-react';
+import { isScrapedJob } from '../utils/jobValidation';
+import { suggestJobMetadata, JobSuggestionResult } from '../utils/jobSuggestionEngine';
 
 interface AdminJobDetailModalProps {
   job: Job | null;
@@ -29,6 +31,18 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   const [showRejectInput, setShowRejectInput] = useState(false);
 
   if (!job) return null;
+
+  // Safely compute auto-detection suggestions for scraped jobs (read-only display)
+  let suggestion: JobSuggestionResult | null = null;
+  const isScraped = isScrapedJob(job);
+  if (isScraped) {
+    try {
+      suggestion = suggestJobMetadata(job);
+    } catch (err) {
+      console.error('Error calculating job suggestion metadata:', err);
+      suggestion = null;
+    }
+  }
 
   // Find user who posted the job
   const posterUser = (users || []).find(u => u && u.id === job.submittedByUserId) || {
@@ -135,6 +149,92 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* SCRAPED JOB AUTO-DETECTION INTELLIGENCE (READ-ONLY) */}
+          {isScraped && suggestion && (
+            <div className="p-4 bg-slate-950 border border-purple-500/30 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-slate-800">
+                <div className="flex items-center space-x-2 text-xs font-bold text-purple-300">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>Auto-Detection Intelligence (Read-Only)</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-slate-400 font-semibold">Confidence:</span>
+                  <span className={`px-2.5 py-0.5 rounded text-xs font-bold border ${
+                    suggestion.confidence === 'HIGH'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : suggestion.confidence === 'MEDIUM'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}>
+                    {suggestion.confidence}
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid of Suggestions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-slate-400 block text-[11px] uppercase font-bold tracking-wider">Suggested Location</span>
+                  <div className="flex flex-wrap items-center gap-1.5 font-bold text-slate-200">
+                    <span className="text-purple-300">Region: {suggestion.suggestedRegion}</span>
+                    {suggestion.suggestedProvince && (
+                      <>
+                        <span className="text-slate-500">•</span>
+                        <span className="text-indigo-300">Province: {suggestion.suggestedProvince}</span>
+                      </>
+                    )}
+                    {suggestion.suggestedCity && (
+                      <>
+                        <span className="text-slate-500">•</span>
+                        <span className="text-emerald-300">City: {suggestion.suggestedCity}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-slate-400 block text-[11px] uppercase font-bold tracking-wider">Suggested Category</span>
+                  <div className="flex flex-wrap items-center gap-1.5 font-bold text-slate-200">
+                    <span className="text-emerald-300">{suggestion.suggestedCategory}</span>
+                    {suggestion.suggestedGovtCategory && (
+                      <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px]">
+                        Govt Category: {suggestion.suggestedGovtCategory}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Conflict Alert Box */}
+              {suggestion.hasConflict && suggestion.conflictDetails && (
+                <div className="p-3 bg-rose-950/40 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-bold block text-rose-200">Location Conflict Detected:</strong>
+                    <span>{suggestion.conflictDetails}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Missing Fields List */}
+              {suggestion.missingFields && suggestion.missingFields.length > 0 && (
+                <div className="p-3 bg-amber-950/30 border border-amber-500/30 rounded-xl text-xs space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-amber-300 font-bold">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Missing Data Signals ({suggestion.missingFields.length}):</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestion.missingFields.map((field, idx) => (
+                      <span key={idx} className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium">
+                        ⚠️ {field}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

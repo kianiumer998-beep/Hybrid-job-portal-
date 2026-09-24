@@ -15,6 +15,8 @@ export interface JobSuggestionResult {
   suggestedProvince?: string;
   suggestedCity?: string;
   suggestedDistrict?: string;
+  existingLocationStr?: string;
+  suggestedLocationStr?: string;
   suggestedCategory: string;
   suggestedGovtCategory?: 'Federal' | 'Provincial' | 'Defense' | 'Healthcare' | 'Education' | 'Public Sector';
   confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
@@ -475,6 +477,39 @@ export function suggestJobMetadata(job: Partial<Job> | null | undefined): JobSug
     reasons.push('Insufficient location signals; region set to Pakistan');
   }
 
+  // Check for Conflict with Existing Confirmed / Manually-Corrected Location
+  const isProtected = Boolean(
+    job.isLocationConfirmed ||
+    job.isManuallyCorrected ||
+    job.metadata?.isLocationConfirmed ||
+    job.metadata?.isManuallyCorrected
+  );
+
+  const existingParts = [job.region || 'Pakistan', job.province?.trim(), job.city?.trim(), job.district?.trim()].filter(Boolean);
+  const existingLocationStr = existingParts.length > 0 ? existingParts.join(' / ') : 'Unspecified';
+
+  const suggestedParts = ['Pakistan', suggestedProvince?.trim(), suggestedCity?.trim(), job.district?.trim()].filter(Boolean);
+  const suggestedLocationStr = suggestedParts.length > 0 ? suggestedParts.join(' / ') : 'Unspecified';
+
+  if (isProtected) {
+    let protectionConflict = false;
+    if (job.region && job.region !== 'Pakistan') {
+      protectionConflict = true;
+    }
+    if (suggestedProvince && job.province && suggestedProvince.trim().toLowerCase() !== job.province.trim().toLowerCase()) {
+      protectionConflict = true;
+    }
+    if (suggestedCity && job.city && suggestedCity.trim().toLowerCase() !== job.city.trim().toLowerCase()) {
+      protectionConflict = true;
+    }
+
+    if (protectionConflict) {
+      hasConflict = true;
+      conflictDetails = `Confirmed existing location (${existingLocationStr}) conflicts with new scraped location (${suggestedLocationStr}). Admin decision required.`;
+      reasons.push(`LOCATION CONFLICT: Confirmed location (${existingLocationStr}) differs from scraped location (${suggestedLocationStr})`);
+    }
+  }
+
   // Category Extraction
   const { suggestedCategory, suggestedGovtCategory } = extractCategory(job, combinedBodyText, suggestedProvince, sourceJurisdiction, companyText, titleText, reasons);
 
@@ -490,6 +525,8 @@ export function suggestJobMetadata(job: Partial<Job> | null | undefined): JobSug
     suggestedProvince,
     suggestedCity,
     suggestedDistrict: job.district,
+    existingLocationStr,
+    suggestedLocationStr,
     suggestedCategory,
     suggestedGovtCategory,
     confidence,
@@ -513,6 +550,12 @@ function buildInternationalResult(
 ): JobSuggestionResult {
   const { suggestedCategory } = extractCategory(job, combinedBodyText, undefined, null, (job.company || '').toLowerCase(), (job.title || '').toLowerCase(), reasons);
 
+  const existingParts = [job.region, job.province?.trim(), job.city?.trim(), job.district?.trim()].filter(Boolean);
+  const existingLocationStr = existingParts.length > 0 ? existingParts.join(' / ') : 'Unspecified';
+
+  const suggestedParts = [region, (province || job.province)?.trim(), (city || job.city)?.trim(), job.district?.trim()].filter(Boolean);
+  const suggestedLocationStr = suggestedParts.length > 0 ? suggestedParts.join(' / ') : 'Unspecified';
+
   return {
     isScrapedJob: isScraped,
     detectedLocation: {
@@ -523,6 +566,8 @@ function buildInternationalResult(
     suggestedRegion: region,
     suggestedProvince: province || job.province,
     suggestedCity: city || job.city,
+    existingLocationStr,
+    suggestedLocationStr,
     suggestedCategory,
     confidence: 'HIGH',
     hasConflict: false,

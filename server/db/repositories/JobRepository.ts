@@ -402,28 +402,47 @@ export class JobRepository {
     let updated = 0;
     const now = new Date().toISOString();
 
-    const operations = jobsList
-      .filter((j) => j && j.title)
-      .map((j) => {
-        const id = j.id || generateJobId();
-        const slug = j.slug || generateJobSlug(j.title, j.city, id);
-        const doc = normalizeMongoJob({
-          ...j,
-          id,
-          slug,
-          status: autoApprove ? 'Approved' : 'Pending',
-          createdAt: j.createdAt || now,
-          updatedAt: now
-        });
+    const validJobs = jobsList.filter((j) => j && j.title);
+    const existingIds = validJobs.map((j) => j.id).filter(Boolean);
 
-        return {
-          updateOne: {
-            filter: { id },
-            update: { $set: doc },
-            upsert: true
-          }
-        };
-      });
+    // Fetch existing documents for this batch only to protect confirmed/manual locations
+    const existingDocsMap = new Map<string, any>();
+    if (existingIds.length > 0) {
+      const existingDocs = await coll.find({ id: { $in: existingIds } }).toArray();
+      for (const doc of existingDocs) {
+        if (doc && doc.id) {
+          existingDocsMap.set(doc.id, doc);
+        }
+      }
+    }
+
+    const operations = validJobs.map((j) => {
+      const id = j.id || generateJobId();
+      const slug = j.slug || generateJobSlug(j.title, j.city, id);
+      let rawDoc: any = {
+        ...j,
+        id,
+        slug,
+        status: autoApprove ? 'Approved' : 'Pending',
+        createdAt: j.createdAt || now,
+        updatedAt: now
+      };
+
+      const existingDoc = existingDocsMap.get(id);
+      if (existingDoc) {
+        rawDoc = JobRepository.applyLocationProtection(rawDoc, existingDoc);
+      }
+
+      const doc = normalizeMongoJob(rawDoc);
+
+      return {
+        updateOne: {
+          filter: { id },
+          update: { $set: doc },
+          upsert: true
+        }
+      };
+    });
 
     if (operations.length > 0) {
       const res = await coll.bulkWrite(operations, { ordered: false });

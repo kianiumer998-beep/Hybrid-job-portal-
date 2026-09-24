@@ -90,6 +90,82 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
     }
   };
 
+  const handleKeepExistingLocation = async () => {
+    if (!job) return;
+    setIsConfirmingLocation(true);
+    const now = new Date().toISOString();
+
+    const updatedJob: Job = {
+      ...job,
+      isLocationConfirmed: true,
+      locationConfirmedAt: now,
+      isManuallyCorrected: true,
+      manuallyCorrectedAt: now,
+      metadata: {
+        ...(job.metadata || {}),
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        confirmedBy: 'Admin User',
+        locationConflictResolved: true
+      }
+    };
+
+    try {
+      if (onEditJob) {
+        onEditJob(updatedJob);
+      } else {
+        await api.jobs.update(job.id, updatedJob);
+      }
+      setConfirmedNotice('Existing location kept & confirmed as permanent!');
+    } catch (err: any) {
+      console.error('Failed to keep existing location:', err);
+    } finally {
+      setIsConfirmingLocation(false);
+    }
+  };
+
+  const handleUseNewScrapedLocation = async () => {
+    if (!job || !suggestion) return;
+    setIsConfirmingLocation(true);
+    const now = new Date().toISOString();
+
+    const updatedJob: Job = {
+      ...job,
+      region: suggestion.suggestedRegion || job.region,
+      province: suggestion.suggestedProvince !== undefined ? suggestion.suggestedProvince : job.province,
+      city: suggestion.suggestedCity !== undefined ? suggestion.suggestedCity : job.city,
+      district: suggestion.suggestedDistrict !== undefined ? suggestion.suggestedDistrict : job.district,
+      isLocationConfirmed: true,
+      locationConfirmedAt: now,
+      isManuallyCorrected: true,
+      manuallyCorrectedAt: now,
+      metadata: {
+        ...(job.metadata || {}),
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        confirmedBy: 'Admin User',
+        locationConflictResolved: true
+      }
+    };
+
+    try {
+      if (onEditJob) {
+        onEditJob(updatedJob);
+      } else {
+        await api.jobs.update(job.id, updatedJob);
+      }
+      setConfirmedNotice('New scraped location applied & confirmed!');
+    } catch (err: any) {
+      console.error('Failed to apply new scraped location:', err);
+    } finally {
+      setIsConfirmingLocation(false);
+    }
+  };
+
   // Find user who posted the job
   const posterUser = (users || []).find(u => u && u.id === job.submittedByUserId) || {
     id: job.submittedByUserId || 'user-unknown',
@@ -254,13 +330,63 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Conflict Alert Box */}
-              {suggestion.hasConflict && suggestion.conflictDetails && (
-                <div className="p-3 bg-rose-950/40 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-start space-x-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="font-bold block text-rose-200">Location Conflict Detected:</strong>
-                    <span>{suggestion.conflictDetails}</span>
+              {/* Conflict Alert Box with Direct Resolution Actions */}
+              {suggestion.hasConflict && (
+                <div className="p-3.5 bg-rose-950/60 border border-rose-500/50 rounded-2xl text-xs space-y-3 shadow-lg">
+                  <div className="flex items-center space-x-2 text-rose-300 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span className="uppercase tracking-wider font-mono">⚠️ Location Conflict Review</span>
+                  </div>
+
+                  {suggestion.conflictDetails && (
+                    <p className="text-rose-200/90 text-xs leading-relaxed">
+                      {suggestion.conflictDetails}
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                    <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1">
+                      <span className="text-slate-400 font-bold block text-[10px] uppercase tracking-wider">Existing Location:</span>
+                      <span className="text-emerald-300 font-bold font-mono">
+                        {suggestion.existingLocationStr || `${job.region}${job.province ? ` / ${job.province}` : ''}${job.city ? ` / ${job.city}` : ''}`}
+                      </span>
+                    </div>
+                    <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1">
+                      <span className="text-slate-400 font-bold block text-[10px] uppercase tracking-wider">New Scraped Location:</span>
+                      <span className="text-amber-300 font-bold font-mono">
+                        {suggestion.suggestedLocationStr || `${suggestion.suggestedRegion}${suggestion.suggestedProvince ? ` / ${suggestion.suggestedProvince}` : ''}${suggestion.suggestedCity ? ` / ${suggestion.suggestedCity}` : ''}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-rose-900/50">
+                    <button
+                      type="button"
+                      disabled={isConfirmingLocation}
+                      onClick={handleKeepExistingLocation}
+                      className="px-3.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 border border-emerald-500/40 rounded-xl font-bold transition-all cursor-pointer text-xs disabled:opacity-50"
+                    >
+                      🛡️ KEEP EXISTING
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isConfirmingLocation}
+                      onClick={handleUseNewScrapedLocation}
+                      className="px-3.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 hover:text-slate-950 text-amber-300 border border-amber-500/40 rounded-xl font-bold transition-all cursor-pointer text-xs disabled:opacity-50"
+                    >
+                      🎯 USE NEW SCRAPED LOCATION
+                    </button>
+
+                    {onEditJob && (
+                      <button
+                        type="button"
+                        onClick={() => onEditJob(job)}
+                        className="px-3.5 py-1.5 bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/40 rounded-xl font-bold transition-all cursor-pointer text-xs"
+                      >
+                        ✏️ REVIEW / EDIT
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

@@ -45,7 +45,7 @@ import { isScrapedJob } from '../../utils/jobValidation';
  * Displays read-only suggestion insights for scraped pending/review jobs.
  * DOES NOT modify, save, or persist any job fields.
  * ============================================================================ */
-const JobSuggestionBadge: React.FC<{ job: Job; onConfirmLocation?: (updatedJob: Job) => void }> = ({ job, onConfirmLocation }) => {
+const JobSuggestionBadge: React.FC<{ job: Job; onConfirmLocation?: (updatedJob: Job) => void; onEditJob?: (job: Job) => void }> = ({ job, onConfirmLocation, onEditJob }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [justConfirmed, setJustConfirmed] = useState(false);
 
@@ -108,6 +108,78 @@ const JobSuggestionBadge: React.FC<{ job: Job; onConfirmLocation?: (updatedJob: 
       }
     };
 
+    const handleKeepExisting = async () => {
+      setIsSaving(true);
+      const now = new Date().toISOString();
+      const updated: Job = {
+        ...job,
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        metadata: {
+          ...(job.metadata || {}),
+          isLocationConfirmed: true,
+          locationConfirmedAt: now,
+          isManuallyCorrected: true,
+          manuallyCorrectedAt: now,
+          confirmedBy: 'Admin User',
+          locationConflictResolved: true
+        }
+      };
+
+      try {
+        if (onConfirmLocation) {
+          onConfirmLocation(updated);
+        } else {
+          await api.jobs.update(job.id, updated);
+        }
+        setJustConfirmed(true);
+      } catch (e) {
+        console.error('Failed to keep existing location:', e);
+      } finally {
+        setIsSaving(false);
+      }
+    };
+
+    const handleUseNewScraped = async () => {
+      setIsSaving(true);
+      const now = new Date().toISOString();
+      const updated: Job = {
+        ...job,
+        region: suggestion.suggestedRegion || job.region,
+        province: suggestion.suggestedProvince !== undefined ? suggestion.suggestedProvince : job.province,
+        city: suggestion.suggestedCity !== undefined ? suggestion.suggestedCity : job.city,
+        district: suggestion.suggestedDistrict !== undefined ? suggestion.suggestedDistrict : job.district,
+        isLocationConfirmed: true,
+        locationConfirmedAt: now,
+        isManuallyCorrected: true,
+        manuallyCorrectedAt: now,
+        metadata: {
+          ...(job.metadata || {}),
+          isLocationConfirmed: true,
+          locationConfirmedAt: now,
+          isManuallyCorrected: true,
+          manuallyCorrectedAt: now,
+          confirmedBy: 'Admin User',
+          locationConflictResolved: true
+        }
+      };
+
+      try {
+        if (onConfirmLocation) {
+          onConfirmLocation(updated);
+        } else {
+          await api.jobs.update(job.id, updated);
+        }
+        setJustConfirmed(true);
+      } catch (e) {
+        console.error('Failed to apply new scraped location:', e);
+      } finally {
+        setIsSaving(false);
+      }
+    };
+
     return (
       <div className="mt-2.5 p-3 bg-slate-950/90 border border-slate-800 rounded-xl space-y-2 text-xs text-slate-300 shadow-inner">
         <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-800/80 pb-2">
@@ -163,16 +235,57 @@ const JobSuggestionBadge: React.FC<{ job: Job; onConfirmLocation?: (updatedJob: 
           </div>
         </div>
 
-        {/* Conflict Warning Details if Conflict Present */}
-        {suggestion.hasConflict && suggestion.conflictDetails && (
-          <div className="p-2 rounded-lg bg-rose-950/40 border border-rose-800/50 text-[11px] text-rose-300 space-y-0.5">
-            <span className="font-bold flex items-center space-x-1 text-rose-400">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Conflict Notice:</span>
-            </span>
-            <p className="text-[11px] text-rose-200/90 leading-tight">
-              {suggestion.conflictDetails}
-            </p>
+        {/* Conflict Warning Details & Actions if Conflict Present */}
+        {suggestion.hasConflict && (
+          <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-[11px] text-rose-300 space-y-2">
+            <div className="font-bold flex items-center space-x-1.5 text-rose-300">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              <span>Location Conflict Review Required:</span>
+            </div>
+            {suggestion.conflictDetails && (
+              <p className="text-[11px] text-rose-200/90 leading-tight">
+                {suggestion.conflictDetails}
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] font-mono">
+              <div className="p-1.5 bg-slate-900/90 rounded border border-slate-800">
+                <span className="text-slate-400 block font-bold">Existing:</span>
+                <span className="text-emerald-300 font-bold">{suggestion.existingLocationStr || `${job.region}${job.province ? ` / ${job.province}` : ''}${job.city ? ` / ${job.city}` : ''}`}</span>
+              </div>
+              <div className="p-1.5 bg-slate-900/90 rounded border border-slate-800">
+                <span className="text-slate-400 block font-bold">New Scraped:</span>
+                <span className="text-amber-300 font-bold">{suggestion.suggestedLocationStr || `${suggestion.suggestedRegion}${suggestion.suggestedProvince ? ` / ${suggestion.suggestedProvince}` : ''}${suggestion.suggestedCity ? ` / ${suggestion.suggestedCity}` : ''}`}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-rose-900/50">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleKeepExisting}
+                className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50"
+              >
+                🛡️ KEEP EXISTING
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleUseNewScraped}
+                className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500 hover:text-slate-950 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50"
+              >
+                🎯 USE NEW SCRAPED LOCATION
+              </button>
+              {onEditJob && (
+                <button
+                  type="button"
+                  onClick={() => onEditJob(job)}
+                  className="px-2.5 py-1 rounded bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-bold transition-all cursor-pointer"
+                >
+                  ✏️ REVIEW / EDIT
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -313,7 +426,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [regionFilter, setRegionFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
   const [resultsTypeFilter, setResultsTypeFilter] = useState<'all' | 'Approved' | 'Pending' | 'Duplicate' | 'Error'>('all');
-  const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate'>('all');
+  const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'pending' | 'duplicate' | 'conflict'>('all');
 
   // Multi-Selection State for Sources
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -675,6 +788,17 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     return effectivePendingList.filter(j => (j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate')).length;
   }, [effectivePendingList]);
 
+  const locationConflictCount = useMemo(() => {
+    return effectivePendingList.filter(j => {
+      try {
+        const sugg = suggestJobMetadata(j);
+        return Boolean(sugg && sugg.hasConflict);
+      } catch {
+        return false;
+      }
+    }).length;
+  }, [effectivePendingList]);
+
   const selectedDuplicateCount = useMemo(() => {
     return effectivePendingList.filter(j => selectedReviewIds.includes(j.id) && ((j as any).isDuplicate || (j as any).duplicateWarning || j.description?.toLowerCase().includes('duplicate'))).length;
   }, [effectivePendingList, selectedReviewIds]);
@@ -687,6 +811,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       if (reviewTypeFilter === 'pending' && isDuplicate) return false;
       if (reviewTypeFilter === 'duplicate' && !isDuplicate) return false;
+      if (reviewTypeFilter === 'conflict') {
+        try {
+          const sugg = suggestJobMetadata(job);
+          if (!sugg || !sugg.hasConflict) return false;
+        } catch {
+          return false;
+        }
+      }
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -3368,8 +3500,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              {(['all', 'pending', 'duplicate'] as const).map(type => (
+            <div className="flex items-center space-x-2 flex-wrap gap-1">
+              {(['all', 'pending', 'duplicate', 'conflict'] as const).map(type => (
                 <button
                   key={type}
                   type="button"
@@ -3380,7 +3512,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                       : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
                   }`}
                 >
-                  {type === 'all' ? `All (${effectivePendingList.length})` : type === 'pending' ? `Pending Only (${pendingOnlyCount})` : `Duplicates Only (${duplicateCount})`}
+                  {type === 'all'
+                    ? `All (${effectivePendingList.length})`
+                    : type === 'pending'
+                    ? `Pending (${pendingOnlyCount})`
+                    : type === 'duplicate'
+                    ? `Duplicates (${duplicateCount})`
+                    : `⚠️ Conflicts (${locationConflictCount})`}
                 </button>
               ))}
             </div>

@@ -200,10 +200,32 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
   const isDemo = activeBanner.id === 'demo-your-ad-here';
 
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const targetWidth = isMobile
+    ? (bannerDimensions?.mobileWidth && bannerDimensions.mobileWidth !== '100%' ? bannerDimensions.mobileWidth : undefined)
+    : (bannerDimensions?.desktopWidth && bannerDimensions.desktopWidth !== '100%' ? bannerDimensions.desktopWidth : undefined);
+
+  const targetHeight = isMobile
+    ? (bannerDimensions?.mobileHeight && bannerDimensions.mobileHeight !== 'auto' ? bannerDimensions.mobileHeight : undefined)
+    : (bannerDimensions?.desktopHeight && bannerDimensions.desktopHeight !== 'auto' ? bannerDimensions.desktopHeight : undefined);
+
   const containerStyle: React.CSSProperties = {
-    maxWidth: bannerDimensions?.desktopWidth && bannerDimensions.desktopWidth !== '100%' ? bannerDimensions.desktopWidth : undefined,
-    minHeight: bannerDimensions?.desktopHeight && bannerDimensions.desktopHeight !== 'auto' ? bannerDimensions.desktopHeight : undefined,
+    maxWidth: targetWidth,
+    minHeight: targetHeight,
   };
+
+  const paddingClass = bannerAppearance?.paddingPreset === 'compact' ? 'px-3 py-1.5 sm:py-2' : bannerAppearance?.paddingPreset === 'spacious' ? 'px-6 py-4 sm:py-5' : 'px-4 py-2.5 sm:py-3';
+  const radiusClass = bannerAppearance?.borderRadiusPreset === 'none' ? 'rounded-none' : bannerAppearance?.borderRadiusPreset === 'sm' ? 'rounded-sm' : bannerAppearance?.borderRadiusPreset === 'md' ? 'rounded-md' : bannerAppearance?.borderRadiusPreset === 'lg' ? 'rounded-lg' : bannerAppearance?.borderRadiusPreset === 'xl' ? 'rounded-xl' : bannerAppearance?.borderRadiusPreset === '2xl' ? 'rounded-2xl' : bannerAppearance?.borderRadiusPreset === 'full' ? 'rounded-full' : 'rounded-none';
+  const imgPosClass = bannerAppearance?.imagePosition === 'right' ? 'flex-row-reverse space-x-reverse' : bannerAppearance?.imagePosition === 'top' ? 'flex-col space-y-2' : 'flex-row';
+  const textAlignClass = bannerAppearance?.textAlignment === 'center' ? 'text-center' : bannerAppearance?.textAlignment === 'right' ? 'text-right' : 'text-left';
+  const ctaAlignClass = bannerAppearance?.ctaAlignment === 'left' ? 'justify-start' : bannerAppearance?.ctaAlignment === 'center' ? 'justify-center' : 'justify-end';
 
   return (
     <div
@@ -211,12 +233,12 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
       onMouseLeave={() => setIsPaused(false)}
       onClick={handleAction}
       style={containerStyle}
-      className={`relative w-full ${style.bg} border-b ${style.border} px-4 py-2.5 sm:py-3 transition-all duration-300 cursor-pointer group z-30 shadow-lg mx-auto`}
+      className={`relative w-full ${style.bg} border-b ${style.border} ${paddingClass} ${radiusClass} transition-all duration-300 cursor-pointer group z-30 shadow-lg mx-auto`}
     >
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-white">
         
         {/* Left Side: Thumbnail / Icon + Headline + Body */}
-        <div className="flex items-center space-x-3 w-full sm:w-auto overflow-hidden">
+        <div className={`flex items-center space-x-3 ${imgPosClass} w-full sm:w-auto overflow-hidden`}>
           {bannerAppearance?.showBannerImage !== false && (
             activeBanner.imageUrl ? (
               <div className={`rounded-xl overflow-hidden flex-shrink-0 border border-white/20 shadow-md ${
@@ -245,7 +267,7 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
             )
           )}
 
-          <div className="flex-1 min-w-0">
+          <div className={`flex-1 min-w-0 ${textAlignClass}`}>
             <div className="flex items-center space-x-2 flex-wrap">
               {bannerAppearance?.showBadge !== false && activeBanner.badgeText && (
                 <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full border ${style.badge}`}>

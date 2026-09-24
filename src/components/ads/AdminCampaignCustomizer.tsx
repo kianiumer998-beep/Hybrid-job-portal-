@@ -934,6 +934,65 @@ export const AdminCampaignCustomizer: React.FC<AdminCampaignCustomizerProps> = (
               </div>
             </div>
 
+            {/* Additional Styling & Alignment Selectors */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-800/80">
+              {/* Padding Preset */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="text-xs font-bold text-slate-300 block">Banner Padding</label>
+                <select
+                  value={localConfig.bannerAppearance?.paddingPreset || 'standard'}
+                  onChange={(e) => handleUpdateBannerAppearance({ paddingPreset: e.target.value as any })}
+                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="compact">Compact Padding</option>
+                  <option value="standard">Standard Padding (Default)</option>
+                  <option value="spacious">Spacious Padding</option>
+                </select>
+              </div>
+
+              {/* Image Position */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="text-xs font-bold text-slate-300 block">Image Position</label>
+                <select
+                  value={localConfig.bannerAppearance?.imagePosition || 'left'}
+                  onChange={(e) => handleUpdateBannerAppearance({ imagePosition: e.target.value as any })}
+                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="left">Left Side (Default)</option>
+                  <option value="right">Right Side</option>
+                  <option value="top">Top Stacked</option>
+                </select>
+              </div>
+
+              {/* Text Alignment */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="text-xs font-bold text-slate-300 block">Text Alignment</label>
+                <select
+                  value={localConfig.bannerAppearance?.textAlignment || 'left'}
+                  onChange={(e) => handleUpdateBannerAppearance({ textAlignment: e.target.value as any })}
+                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="left">Left Aligned (Default)</option>
+                  <option value="center">Center Aligned</option>
+                  <option value="right">Right Aligned</option>
+                </select>
+              </div>
+
+              {/* CTA Alignment */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <label className="text-xs font-bold text-slate-300 block">CTA Button Alignment</label>
+                <select
+                  value={localConfig.bannerAppearance?.ctaAlignment || 'right'}
+                  onChange={(e) => handleUpdateBannerAppearance({ ctaAlignment: e.target.value as any })}
+                  className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="right">Right Aligned (Default)</option>
+                  <option value="center">Center Aligned</option>
+                  <option value="left">Left Aligned</option>
+                </select>
+              </div>
+            </div>
+
             {/* Behavior & Rotation Controls */}
             <div className="pt-4 border-t border-slate-800 space-y-4">
               <h4 className="text-xs font-black text-slate-200 uppercase tracking-wider">Rotation & Behavior Options</h4>

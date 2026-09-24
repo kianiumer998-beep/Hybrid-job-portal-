@@ -58,15 +58,32 @@ export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
   const gradient = themeGradients[ad.theme] || themeGradients.emerald;
   const btnStyle = buttonThemes[ad.theme] || buttonThemes.emerald;
 
+  const [isMobile, setIsMobile] = React.useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+
+  React.useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const targetWidth = isMobile
+    ? (bannerDimensions?.mobileWidth && bannerDimensions.mobileWidth !== '100%' ? bannerDimensions.mobileWidth : undefined)
+    : (bannerDimensions?.desktopWidth && bannerDimensions.desktopWidth !== '100%' ? bannerDimensions.desktopWidth : undefined);
+
+  const targetHeight = isMobile
+    ? (bannerDimensions?.mobileHeight && bannerDimensions.mobileHeight !== 'auto' ? bannerDimensions.mobileHeight : undefined)
+    : (bannerDimensions?.desktopHeight && bannerDimensions.desktopHeight !== 'auto' ? bannerDimensions.desktopHeight : undefined);
+
   const containerStyle: React.CSSProperties = {
-    maxWidth: bannerDimensions?.desktopWidth && bannerDimensions.desktopWidth !== '100%' ? bannerDimensions.desktopWidth : undefined,
-    minHeight: bannerDimensions?.desktopHeight && bannerDimensions.desktopHeight !== 'auto' ? bannerDimensions.desktopHeight : undefined,
+    maxWidth: targetWidth,
+    minHeight: targetHeight,
   };
 
   const radiusClass = feedCardAppearance?.borderRadiusPreset === 'none' ? 'rounded-none' : feedCardAppearance?.borderRadiusPreset === 'md' ? 'rounded-md' : feedCardAppearance?.borderRadiusPreset === 'xl' ? 'rounded-xl' : 'rounded-3xl';
   const paddingClass = feedCardAppearance?.paddingPreset === 'compact' ? 'p-4 sm:p-5' : feedCardAppearance?.paddingPreset === 'spacious' ? 'p-8 sm:p-10' : 'p-6 sm:p-7';
-  const directionClass = feedCardAppearance?.imagePosition === 'right' ? 'lg:flex-row-reverse' : 'lg:flex-row';
+  const directionClass = feedCardAppearance?.imagePosition === 'right' ? 'lg:flex-row-reverse' : feedCardAppearance?.imagePosition === 'top' ? 'flex-col' : 'lg:flex-row';
   const ctaAlignClass = feedCardAppearance?.ctaAlignment === 'left' ? 'justify-start' : feedCardAppearance?.ctaAlignment === 'center' ? 'justify-center' : 'justify-end';
+  const imageSizeClass = feedCardAppearance?.imageSizePreset === 'small' ? 'w-full lg:w-48 h-32 sm:h-36' : feedCardAppearance?.imageSizePreset === 'large' ? 'w-full lg:w-96 h-52 sm:h-60' : 'w-full lg:w-72 h-44 sm:h-48';
 
   return (
     <div
@@ -81,7 +98,7 @@ export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
         
         {/* Banner Image / Graphic (if present) */}
         {ad.imageUrl && (
-          <div className="w-full lg:w-72 h-44 sm:h-48 rounded-2xl overflow-hidden flex-shrink-0 border border-white/10 shadow-xl group-hover:shadow-2xl transition-all">
+          <div className={`${imageSizeClass} rounded-2xl overflow-hidden flex-shrink-0 border border-white/10 shadow-xl group-hover:shadow-2xl transition-all`}>
             <img
               src={ad.imageUrl}
               alt={ad.title}

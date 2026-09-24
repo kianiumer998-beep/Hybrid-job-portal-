@@ -338,24 +338,48 @@ export interface ScraperSourceItem {
   [key: string]: any;
 }
 
+export interface ScraperSourceStat {
+  sourceId: string;
+  sourceName: string;
+  sourceUrl: string;
+  startedAt?: string;
+  completedAt?: string;
+  found?: number;
+  newCount?: number;
+  dupCount?: number;
+  pagesAttempted?: number;
+  pagesSuccessful?: number;
+  failed?: boolean;
+  error?: string;
+  lastSuccessfulScrapeAt?: string;
+}
+
 export interface ScraperRunRecord {
   id?: string;
   runId: string;
+  batchId?: string;
   timestamp?: string;
   startedAt?: string;
   completedAt?: string;
   mode?: string;
+  targetsScraped?: number;
   totalFound: number;
+  totalNew?: number;
   approvedCount?: number;
   jobsAccepted?: number;
+  newPublished?: number;
   pendingCount?: number;
+  newPending?: number;
   totalDuplicates?: number;
+  duplicatesFlagged?: number;
+  failedSources?: number;
   totalFailedSources?: number;
-  status: 'Completed' | 'Partial' | 'Failed';
+  status?: 'Completed' | 'Partial' | 'Failed';
   message?: string;
   sourceId?: string;
   sourceIds?: string[];
   executionTimeMs?: number;
+  sourcesStats?: ScraperSourceStat[];
   discoveredJobs?: Array<{
     title: string;
     company: string;
@@ -363,6 +387,17 @@ export interface ScraperRunRecord {
     status: 'Approved' | 'Pending' | 'Duplicate' | 'Error';
     reason?: string;
   }>;
+}
+
+export function deriveRunStatus(run: any): 'Completed' | 'Partial' | 'Failed' {
+  if (run?.status === 'Completed' || run?.status === 'Partial' || run?.status === 'Failed') {
+    return run.status;
+  }
+  const failed = run?.failedSources ?? run?.totalFailedSources ?? 0;
+  const total = run?.targetsScraped ?? run?.sourcesStats?.length ?? 1;
+  if (failed === 0) return 'Completed';
+  if (failed < total) return 'Partial';
+  return 'Failed';
 }
 
 interface AutomatedScraperHubProps {
@@ -1730,11 +1765,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       r.runId || r.id,
       r.startedAt || r.timestamp || '',
       r.totalFound || 0,
-      r.approvedCount || r.jobsAccepted || 0,
-      r.pendingCount || 0,
-      r.totalDuplicates || 0,
-      r.totalFailedSources || 0,
-      r.status || 'Completed',
+      r.approvedCount || r.jobsAccepted || r.newPublished || 0,
+      r.pendingCount || r.newPending || 0,
+      r.totalDuplicates || r.duplicatesFlagged || 0,
+      r.failedSources || r.totalFailedSources || 0,
+      deriveRunStatus(r),
       `"${(r.message || '').replace(/"/g, '""')}"`
     ]);
 
@@ -2319,17 +2354,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           {r.totalDuplicates || 0}
                         </td>
                         <td className="p-3 text-right">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              r.status === 'Completed'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : r.status === 'Partial'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            }`}
-                          >
-                            {r.status}
-                          </span>
+                          {(() => {
+                            const runStatus = deriveRunStatus(r);
+                            return (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  runStatus === 'Completed'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : runStatus === 'Partial'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                }`}
+                              >
+                                {runStatus}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -3885,17 +3925,22 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           {run.totalDuplicates || 0}
                         </td>
                         <td className="p-4 text-center">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              run.status === 'Completed'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : run.status === 'Partial'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            }`}
-                          >
-                            {run.status}
-                          </span>
+                          {(() => {
+                            const runStatus = deriveRunStatus(run);
+                            return (
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                  runStatus === 'Completed'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : runStatus === 'Partial'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                }`}
+                              >
+                                {runStatus}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="p-4 text-right">
                           <button
@@ -4384,65 +4429,257 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       {/* ============================================================= */}
       {/* MODAL: INSPECT RUN DETAILS                                    */}
       {/* ============================================================= */}
-      {inspectingRun && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-white">
-                  Run Details: <span className="font-mono text-indigo-400">{inspectingRun.runId || inspectingRun.id}</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Started at {inspectingRun.startedAt || inspectingRun.timestamp || 'Unknown'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInspectingRun(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {inspectingRun && (() => {
+        const runStatus = deriveRunStatus(inspectingRun);
+        const durationStr = inspectingRun.executionTimeMs !== undefined
+          ? inspectingRun.executionTimeMs >= 1000
+            ? `${(inspectingRun.executionTimeMs / 1000).toFixed(1)}s`
+            : `${inspectingRun.executionTimeMs}ms`
+          : null;
+        const totalSourcesCount = inspectingRun.targetsScraped ?? inspectingRun.sourcesStats?.length ?? 0;
+        const publishedCount = inspectingRun.newPublished ?? inspectingRun.approvedCount ?? inspectingRun.jobsAccepted ?? 0;
+        const pendingCount = inspectingRun.newPending ?? inspectingRun.pendingCount ?? 0;
+        const dupCount = inspectingRun.duplicatesFlagged ?? inspectingRun.totalDuplicates ?? 0;
+        const failedSourcesCount = inspectingRun.failedSources ?? inspectingRun.totalFailedSources ?? 0;
+        const statsList = inspectingRun.sourcesStats || [];
 
-            <div className="grid grid-cols-4 gap-3 text-center">
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold block">Total Discovered</span>
-                <span className="text-base font-black text-indigo-400 mt-0.5 block">{inspectingRun.totalFound || 0}</span>
-              </div>
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold block">Approved</span>
-                <span className="text-base font-black text-emerald-400 mt-0.5 block">{inspectingRun.approvedCount || inspectingRun.jobsAccepted || 0}</span>
-              </div>
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold block">Duplicates</span>
-                <span className="text-base font-black text-purple-400 mt-0.5 block">{inspectingRun.totalDuplicates || 0}</span>
-              </div>
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-bold block">Status</span>
-                <span className="text-xs font-black text-white mt-1 block">{inspectingRun.status}</span>
-              </div>
-            </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+              {/* Header */}
+              <div className="p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/40 shrink-0">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2 flex-wrap gap-1.5">
+                    <Clock className="w-5 h-5 text-indigo-400" />
+                    <h3 className="text-base font-bold text-white">
+                      Scraper Run Details
+                    </h3>
+                    <span className="font-mono text-xs px-2.5 py-0.5 rounded-md bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-bold">
+                      {inspectingRun.runId || inspectingRun.id}
+                    </span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        runStatus === 'Completed'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : runStatus === 'Partial'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      }`}
+                    >
+                      {runStatus}
+                    </span>
+                    {inspectingRun.mode && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 capitalize border border-slate-700">
+                        {inspectingRun.mode.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs text-slate-400 flex-wrap gap-y-1 pt-0.5">
+                    <span>Started: <strong className="text-slate-300">{inspectingRun.startedAt ? new Date(inspectingRun.startedAt).toLocaleString() : inspectingRun.timestamp ? new Date(inspectingRun.timestamp).toLocaleString() : 'N/A'}</strong></span>
+                    {inspectingRun.completedAt && (
+                      <span>• Completed: <strong className="text-slate-300">{new Date(inspectingRun.completedAt).toLocaleString()}</strong></span>
+                    )}
+                    {durationStr && (
+                      <span>• Duration: <strong className="text-indigo-300">{durationStr}</strong></span>
+                    )}
+                  </div>
+                </div>
 
-            <div className="space-y-1 text-xs">
-              <span className="font-bold text-slate-300">Run Summary Message:</span>
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 font-mono text-[11px] text-slate-400">
-                {inspectingRun.message || 'No additional log messages recorded for this execution.'}
+                <button
+                  type="button"
+                  onClick={() => setInspectingRun(null)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            </div>
 
-            <div className="pt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setInspectingRun(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold"
-              >
-                Close
-              </button>
+              {/* Scrollable Body */}
+              <div className="p-5 overflow-y-auto space-y-5 flex-1 min-h-0 text-xs">
+                {/* 6 High-Level Metric Counter Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Found</span>
+                    <span className="text-lg font-black text-indigo-300 mt-0.5 block">{inspectingRun.totalFound || 0}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                    <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">New Published</span>
+                    <span className="text-lg font-black text-emerald-400 mt-0.5 block">{publishedCount}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                    <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider block">New Pending</span>
+                    <span className="text-lg font-black text-amber-300 mt-0.5 block">{pendingCount}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                    <span className="text-[10px] text-purple-400 font-bold uppercase tracking-wider block">Duplicates</span>
+                    <span className="text-lg font-black text-purple-300 mt-0.5 block">{dupCount}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                    <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider block">Failed Sources</span>
+                    <span className="text-lg font-black text-rose-400 mt-0.5 block">{failedSourcesCount}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Sources</span>
+                    <span className="text-lg font-black text-slate-200 mt-0.5 block">{totalSourcesCount}</span>
+                  </div>
+                </div>
+
+                {/* Per-Source Results Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <h4 className="text-xs font-bold text-white flex items-center space-x-2 uppercase tracking-wider">
+                      <Globe className="w-4 h-4 text-indigo-400" />
+                      <span>Per-Source Results Breakdown ({statsList.length})</span>
+                    </h4>
+                  </div>
+
+                  {statsList.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-950/60 rounded-xl border border-slate-800 text-slate-400 space-y-1">
+                      <Globe className="w-7 h-7 text-slate-600 mx-auto mb-1" />
+                      <div className="font-semibold text-slate-300">No per-source details available for this run.</div>
+                      <p className="text-[11px] text-slate-500">
+                        This execution record contains summary metrics only.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/70">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800">
+                            <tr>
+                              <th className="p-3">Source Portal</th>
+                              <th className="p-3 text-center">Status</th>
+                              <th className="p-3 text-center">Found</th>
+                              <th className="p-3 text-center">New</th>
+                              <th className="p-3 text-center">Dup</th>
+                              <th className="p-3 text-center">Pages</th>
+                              <th className="p-3">Execution Time</th>
+                              <th className="p-3">Diagnostics / Error</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                            {statsList.map((st, sIdx) => {
+                              const isFailed = Boolean(st.failed);
+
+                              return (
+                                <tr key={st.sourceId || sIdx} className="hover:bg-slate-800/30 transition-all">
+                                  {/* Source Name & URL */}
+                                  <td className="p-3 min-w-[180px]">
+                                    <div className="font-bold text-white">{st.sourceName || st.sourceId}</div>
+                                    {st.sourceUrl && (
+                                      <a
+                                        href={st.sourceUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-indigo-400 hover:text-indigo-300 truncate max-w-[200px] block inline-flex items-center space-x-1 mt-0.5"
+                                      >
+                                        <span className="truncate">{st.sourceUrl}</span>
+                                        <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                                      </a>
+                                    )}
+                                  </td>
+
+                                  {/* Status */}
+                                  <td className="p-3 text-center">
+                                    <span
+                                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        isFailed
+                                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      }`}
+                                    >
+                                      {isFailed ? 'Failed' : 'Success'}
+                                    </span>
+                                  </td>
+
+                                  {/* Found */}
+                                  <td className="p-3 text-center font-bold text-white">
+                                    {st.found ?? 0}
+                                  </td>
+
+                                  {/* New */}
+                                  <td className="p-3 text-center font-bold text-emerald-400">
+                                    {st.newCount ?? 0}
+                                  </td>
+
+                                  {/* Dup */}
+                                  <td className="p-3 text-center font-bold text-purple-400">
+                                    {st.dupCount ?? 0}
+                                  </td>
+
+                                  {/* Pages Attempted / Successful */}
+                                  <td className="p-3 text-center font-mono text-[11px] text-slate-300">
+                                    <span>{st.pagesSuccessful ?? 0}</span>
+                                    <span className="text-slate-500"> / </span>
+                                    <span>{st.pagesAttempted ?? 0}</span>
+                                  </td>
+
+                                  {/* Execution Timing */}
+                                  <td className="p-3 text-[10px] text-slate-400 whitespace-nowrap">
+                                    <div>
+                                      <span>Started: </span>
+                                      <span className="text-slate-300">{st.startedAt ? new Date(st.startedAt).toLocaleTimeString() : 'N/A'}</span>
+                                    </div>
+                                    <div>
+                                      <span>Ended: </span>
+                                      <span className="text-slate-300">{st.completedAt ? new Date(st.completedAt).toLocaleTimeString() : 'N/A'}</span>
+                                    </div>
+                                    {st.lastSuccessfulScrapeAt && (
+                                      <div className="text-emerald-400/80">
+                                        <span>Last Success: </span>
+                                        <span>{new Date(st.lastSuccessfulScrapeAt).toLocaleDateString()}</span>
+                                      </div>
+                                    )}
+                                  </td>
+
+                                  {/* Error / Diagnostics */}
+                                  <td className="p-3 min-w-[180px]">
+                                    {isFailed ? (
+                                      <div className="p-2 rounded bg-rose-950/60 border border-rose-800/60 text-rose-300 font-mono text-[10px] leading-tight break-words">
+                                        {st.error || 'Source extraction failed'}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center space-x-1.5 text-emerald-400 text-[11px]">
+                                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                        <span>Extracted cleanly</span>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Summary Message */}
+                {inspectingRun.message && (
+                  <div className="space-y-1">
+                    <span className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">Run Summary Message:</span>
+                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 font-mono text-[11px] text-slate-300 leading-relaxed">
+                      {inspectingRun.message}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-slate-800 flex justify-end bg-slate-950/40 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setInspectingRun(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ============================================================= */}
       {/* MODAL: INSPECT SCRAPED JOB DETAILS & ACTIONS                 */}

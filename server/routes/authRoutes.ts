@@ -10,133 +10,16 @@ import {
 
 export const authRouter = Router();
 
-// 1. User Registration
-authRouter.post('/register', async (req, res) => {
-  try {
-    const { name, email, password, role, phone, companyName } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({ success: false, message: 'Name, email, and password are required.' });
-    }
-
-    const existing = await UserRepository.getByEmailAsync(email);
-    if (existing) {
-      return res.status(409).json({ success: false, message: 'An account with this email address already exists.' });
-    }
-
-    const { hash, salt } = hashPassword(password);
-
-    const ADMIN_ROLES = [
-      'Super Admin',
-      'Admin',
-      'Job Moderator',
-      'Scraper Manager',
-      'Payment Manager',
-      'Finance Manager',
-      'SEO Manager',
-      'Advertisement Manager'
-    ];
-
-    const requestedRole = (role || '').toString().trim();
-    const safeRegistrationRole = ADMIN_ROLES.includes(requestedRole) ? 'Job Seeker' : (requestedRole || 'Job Seeker');
-
-    const newUser = await UserRepository.createAsync({
-      name,
-      email: email.toLowerCase().trim(),
-      passwordHash: hash,
-      salt,
-      role: safeRegistrationRole,
-      phone: phone || '',
-      companyName: companyName || '',
-      plan: 'Free',
-      walletBalance: 0,
-      membershipStatus: 'Active',
-      autoRenew: false
-    });
-
-    const token = createToken({
-      userId: newUser.id,
-      email: newUser.email,
-      name: newUser.name,
-      role: newUser.role
-    });
-
-    // Sanitized user without sensitive credentials
-    const { passwordHash, salt: _, ...safeUser } = newUser;
-
-    AuditRepository.add({
-      user: safeUser.name,
-      role: safeUser.role,
-      action: 'User Registered',
-      target: safeUser.email,
-      status: 'Success'
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Account created successfully!',
-      token,
-      user: safeUser
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Internal registration error' });
-  }
-});
-
-// 2. User Login
-authRouter.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are required.' });
-    }
-
-    const user = await UserRepository.getByEmailAsync(email);
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
-    }
-
-    // Verify password hash or fallback to demo accounts
-    let isValid = false;
-    if (user.passwordHash && user.salt) {
-      isValid = verifyPassword(password, user.passwordHash, user.salt);
-    } else if (user.password) {
-      // Legacy plaintext check for mock accounts
-      isValid = user.password === password;
-    }
-
-    if (!isValid) {
-      return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
-    }
-
-    const token = createToken({
-      userId: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role
-    });
-
-    const { passwordHash, salt, password: _, ...safeUser } = user;
-
-    AuditRepository.add({
-      user: safeUser.name,
-      role: safeUser.role,
-      action: 'User Login',
-      target: safeUser.email,
-      status: 'Success'
-    });
-
-    res.json({
-      success: true,
-      message: 'Login successful!',
-      token,
-      user: safeUser
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Login error' });
-  }
-});
-
+const ADMIN_ROLES = [
+  'Super Admin',
+  'Admin',
+  'Job Moderator',
+  'Scraper Manager',
+  'Payment Manager',
+  'Finance Manager',
+  'SEO Manager',
+  'Advertisement Manager'
+];
 
 // In-memory brute-force protection / rate limiter for admin and auth endpoints
 const loginAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
@@ -183,7 +66,131 @@ function clearAttempts(ip: string) {
   loginAttempts.delete(ip);
 }
 
-// 3. Admin Login (Requires valid admin account credentials; verifies existing test admin 'admin123')
+// 1. User Registration (Public - Admin roles strictly blocked)
+authRouter.post('/register', async (req, res) => {
+  try {
+    const { name, email, password, role, phone, companyName } = req.body || {};
+
+    const cleanName = (name || '').toString().trim();
+    const cleanEmail = (email || '').toString().toLowerCase().trim();
+    const rawPassword = (password || '').toString();
+
+    if (!cleanName || !cleanEmail || !rawPassword) {
+      return res.status(400).json({ success: false, message: 'Name, email, and password are required.' });
+    }
+
+    if (rawPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+    }
+
+    const existing = await UserRepository.getByEmailAsync(cleanEmail);
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'An account with this email address already exists.' });
+    }
+
+    const { hash, salt } = hashPassword(rawPassword);
+
+    const requestedRole = (role || '').toString().trim();
+    const safeRegistrationRole = ADMIN_ROLES.includes(requestedRole) ? 'Job Seeker' : (requestedRole || 'Job Seeker');
+
+    const newUser = await UserRepository.createAsync({
+      name: cleanName,
+      email: cleanEmail,
+      passwordHash: hash,
+      salt,
+      role: safeRegistrationRole,
+      phone: (phone || '').toString().trim(),
+      companyName: (companyName || '').toString().trim(),
+      plan: 'Free',
+      walletBalance: 0,
+      membershipStatus: 'Active',
+      autoRenew: false
+    });
+
+    const token = createToken({
+      userId: newUser.id,
+      email: newUser.email,
+      name: newUser.name,
+      role: newUser.role
+    });
+
+    const { passwordHash, salt: _, password: _p, ...safeUser } = newUser;
+
+    AuditRepository.add({
+      user: safeUser.name,
+      role: safeUser.role,
+      action: 'User Registered',
+      target: safeUser.email,
+      status: 'Success'
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Account created successfully!',
+      token,
+      user: safeUser
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Internal registration error' });
+  }
+});
+
+// 2. User Login
+authRouter.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const cleanEmail = (email || '').toString().toLowerCase().trim();
+    const rawPassword = (password || '').toString();
+
+    if (!cleanEmail || !rawPassword) {
+      return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+
+    const user = await UserRepository.getByEmailAsync(cleanEmail);
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
+    }
+
+    let isValid = false;
+    if (user.passwordHash && user.salt) {
+      isValid = verifyPassword(rawPassword, user.passwordHash, user.salt);
+    } else if (user.password) {
+      isValid = user.password === rawPassword;
+    }
+
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
+    }
+
+    const token = createToken({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role
+    });
+
+    const { passwordHash, salt, password: _, ...safeUser } = user;
+
+    AuditRepository.add({
+      user: safeUser.name,
+      role: safeUser.role,
+      action: 'User Login',
+      target: safeUser.email,
+      status: 'Success'
+    });
+
+    res.json({
+      success: true,
+      message: 'Login successful!',
+      token,
+      user: safeUser
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Login error' });
+  }
+});
+
+// 3. Admin Login (Requires real administrative account email & password)
 authRouter.post('/admin-login', async (req, res) => {
   try {
     const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
@@ -195,28 +202,18 @@ authRouter.post('/admin-login', async (req, res) => {
       });
     }
 
-    const { email, password, passkey } = req.body;
-    const adminPassword = (password || passkey || '').toString().trim();
+    const { email, password, passkey } = req.body || {};
     const adminEmail = (email || 'admin@jobportal.com').toString().trim().toLowerCase();
+    const adminPassword = (password || passkey || '').toString();
 
     if (!adminPassword) {
-      return res.status(400).json({ success: false, message: 'Password is required.' });
+      return res.status(400).json({ success: false, message: 'Admin email and password are required.' });
     }
 
-    // Locate administrative account
+    // Locate administrative account in authoritative store
     const user = await UserRepository.getByEmailAsync(adminEmail);
-    const adminRoles = [
-      'Super Admin',
-      'Admin',
-      'Job Moderator',
-      'Scraper Manager',
-      'Payment Manager',
-      'Finance Manager',
-      'SEO Manager',
-      'Advertisement Manager'
-    ];
 
-    if (!user || !adminRoles.includes(user.role)) {
+    if (!user || !ADMIN_ROLES.includes(user.role)) {
       recordFailedAttempt(ip);
       return res.status(401).json({
         success: false,
@@ -224,17 +221,12 @@ authRouter.post('/admin-login', async (req, res) => {
       });
     }
 
-    // Verify password against stored hash or legacy verified password
+    // Verify password strictly against stored hash and salt
     let isValid = false;
     if (user.passwordHash && user.salt) {
       isValid = verifyPassword(adminPassword, user.passwordHash, user.salt);
     } else if (user.password) {
       isValid = user.password === adminPassword;
-    }
-
-    // Preserve existing test admin credentials (admin@jobportal.com / admin123)
-    if (!isValid && user.email === 'admin@jobportal.com' && adminPassword === 'admin123') {
-      isValid = true;
     }
 
     if (!isValid) {
@@ -245,7 +237,7 @@ authRouter.post('/admin-login', async (req, res) => {
       });
     }
 
-    // Successful login: reset rate limiter
+    // Successful login: reset brute-force counter
     clearAttempts(ip);
 
     const token = createToken({
@@ -277,7 +269,172 @@ authRouter.post('/admin-login', async (req, res) => {
   }
 });
 
-// 4. Current Authenticated User Session
+// 4. Change Password (Authenticated user - Admin or Member)
+authRouter.post('/change-password', requireAuth, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
+
+    const { currentPassword, newPassword } = req.body || {};
+    const rawCurrent = (currentPassword || '').toString();
+    const rawNew = (newPassword || '').toString();
+
+    if (!rawCurrent || !rawNew) {
+      return res.status(400).json({ success: false, message: 'Current password and new password are required.' });
+    }
+
+    if (rawNew.length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
+    }
+
+    const user = await UserRepository.getByIdAsync(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User record not found.' });
+    }
+
+    let isCurrentValid = false;
+    if (user.passwordHash && user.salt) {
+      isCurrentValid = verifyPassword(rawCurrent, user.passwordHash, user.salt);
+    } else if (user.password) {
+      isCurrentValid = user.password === rawCurrent;
+    }
+
+    if (!isCurrentValid) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
+    }
+
+    // Hash new password securely
+    const { hash: newHash, salt: newSalt } = hashPassword(rawNew);
+
+    const updatedUser = await UserRepository.updateAsync(user.id, {
+      passwordHash: newHash,
+      salt: newSalt,
+      password: null,
+      updatedAt: new Date().toISOString()
+    });
+
+    if (!updatedUser) {
+      return res.status(500).json({ success: false, message: 'Failed to update password.' });
+    }
+
+    // Generate a fresh signed token
+    const freshToken = createToken({
+      userId: updatedUser.id,
+      email: updatedUser.email,
+      name: updatedUser.name,
+      role: updatedUser.role,
+      permissions: updatedUser.permissions || (ADMIN_ROLES.includes(updatedUser.role) ? ['all'] : [])
+    }, ADMIN_ROLES.includes(updatedUser.role) ? 168 : 72);
+
+    AuditRepository.add({
+      user: updatedUser.name,
+      role: updatedUser.role,
+      action: 'Password Changed',
+      target: updatedUser.email,
+      status: 'Success'
+    });
+
+    const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = updatedUser;
+
+    return res.json({
+      success: true,
+      message: 'Password changed successfully.',
+      token: freshToken,
+      user: safeUser
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error updating password.' });
+  }
+});
+
+// 5. Admin Bootstrap (Controlled one-time bootstrap via environment key)
+authRouter.post('/admin-bootstrap', async (req, res) => {
+  try {
+    const isEnabled = process.env.ADMIN_BOOTSTRAP_ENABLED === 'true';
+    if (!isEnabled) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin bootstrap is disabled. Set ADMIN_BOOTSTRAP_ENABLED=true in environment variables to enable.'
+      });
+    }
+
+    const envKey = (process.env.ADMIN_BOOTSTRAP_KEY || '').trim();
+    if (!envKey) {
+      return res.status(403).json({
+        success: false,
+        message: 'ADMIN_BOOTSTRAP_KEY is not configured in server environment.'
+      });
+    }
+
+    const requestKey = (req.headers['x-bootstrap-key'] || req.body?.bootstrapKey || '').toString().trim();
+    if (requestKey !== envKey) {
+      return res.status(401).json({ success: false, message: 'Invalid bootstrap key.' });
+    }
+
+    const bootstrapEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL || req.body?.email || 'admin@jobportal.com').toString().trim().toLowerCase();
+    const bootstrapPassword = (process.env.ADMIN_BOOTSTRAP_PASSWORD || req.body?.password || '').toString().trim();
+    const bootstrapName = (process.env.ADMIN_BOOTSTRAP_NAME || req.body?.name || 'Super Administrator').toString().trim();
+
+    if (!bootstrapPassword || bootstrapPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid bootstrap password (min 6 characters) must be configured via ADMIN_BOOTSTRAP_PASSWORD or request body.'
+      });
+    }
+
+    const { hash, salt } = hashPassword(bootstrapPassword);
+
+    const existingAdmin = await UserRepository.getByEmailAsync(bootstrapEmail);
+
+    let finalAdmin: any;
+    if (existingAdmin) {
+      finalAdmin = await UserRepository.updateAsync(existingAdmin.id, {
+        name: bootstrapName || existingAdmin.name,
+        role: 'Super Admin',
+        passwordHash: hash,
+        salt,
+        password: null,
+        permissions: ['all'],
+        membershipStatus: 'Active',
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      finalAdmin = await UserRepository.createAsync({
+        name: bootstrapName,
+        email: bootstrapEmail,
+        role: 'Super Admin',
+        passwordHash: hash,
+        salt,
+        permissions: ['all'],
+        membershipStatus: 'Active',
+        plan: 'Premium',
+        walletBalance: 100000
+      });
+    }
+
+    AuditRepository.add({
+      user: 'System Bootstrap',
+      role: 'Super Admin',
+      action: 'Admin Account Bootstrapped',
+      target: bootstrapEmail,
+      status: 'Success'
+    });
+
+    const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = finalAdmin;
+
+    return res.json({
+      success: true,
+      message: 'Super Admin account successfully bootstrapped! Disable ADMIN_BOOTSTRAP_ENABLED in production.',
+      user: safeUser
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Bootstrap failed.' });
+  }
+});
+
+// 6. Current Authenticated User Session
 authRouter.get('/me', requireAuth, async (req: any, res) => {
   try {
     const user = await UserRepository.getByIdAsync(req.user.userId);
@@ -292,7 +449,7 @@ authRouter.get('/me', requireAuth, async (req: any, res) => {
   }
 });
 
-// 5. Logout
+// 7. Logout
 authRouter.post('/logout', (req: any, res) => {
   if (req.user) {
     AuditRepository.add({
@@ -305,4 +462,3 @@ authRouter.post('/logout', (req: any, res) => {
   }
   res.json({ success: true, message: 'Logged out successfully.' });
 });
-

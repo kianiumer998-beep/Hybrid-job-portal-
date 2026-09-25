@@ -105,77 +105,49 @@ export const api = {
         body: JSON.stringify(data)
       });
     },
-    async adminLogin(passkey: string) {
-      const trimmed = (passkey || '').trim();
-      let data: any = null;
+    async adminLogin(emailOrPassword: string, passwordArg?: string) {
+      let email = 'admin@jobportal.com';
+      let password = '';
 
-      try {
-        data = await safeFetchJson(`${getResolvedApiBase()}/auth/admin-login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ passkey: trimmed })
-        });
-      } catch (e: any) {
-        data = { success: false, message: e?.message || 'Failed to fetch' };
+      if (passwordArg !== undefined) {
+        email = (emailOrPassword || 'admin@jobportal.com').trim().toLowerCase();
+        password = passwordArg.toString();
+      } else {
+        password = (emailOrPassword || '').toString();
       }
+
+      const data = await safeFetchJson(`${getResolvedApiBase()}/auth/admin-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
 
       // If backend returned success with token
       if (data?.success && data?.token) {
         try {
           localStorage.setItem('hybrid_auth_token', data.token);
-          localStorage.setItem('hybrid_admin_dev_passkey', trimmed);
           if (data.user) {
             localStorage.setItem('hybrid_current_user', JSON.stringify(data.user));
           }
         } catch {}
-        return data;
       }
 
-      // Resilient Fallback for Incognito Mode, Offline, or Preview Redirects:
-      // If network failed ('Failed to fetch' / network error / non-JSON) but passkey is valid admin passkey ('admin123' or 'admin'):
-      const isNetworkIssue = !data || !data.success && (
-        !data.message ||
-        data.message.includes('fetch') ||
-        data.message.includes('Network error') ||
-        data.message.includes('non-JSON') ||
-        data.message.includes('Load failed')
-      );
-
-      if (isNetworkIssue && (trimmed === 'admin123' || trimmed === 'admin' || trimmed === 'superadmin')) {
-        const resilientUser = {
-          id: 'user-demo-admin-1',
-          name: 'Super Administrator',
-          email: 'admin@jobportal.com',
-          username: 'admin',
-          role: 'Super Admin',
-          permissions: ['all'],
-          plan: 'Premium',
-          walletBalance: 100000,
-          membershipStatus: 'Active',
-          createdAt: new Date().toISOString()
-        };
-        const resilientToken = `resilient-admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return data;
+    },
+    async changePassword(passwords: { currentPassword: string; newPassword: string }) {
+      const data = await safeFetchJson(`${getResolvedApiBase()}/auth/change-password`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(passwords)
+      });
+      if (data?.success && data?.token) {
         try {
-          localStorage.setItem('hybrid_auth_token', resilientToken);
-          localStorage.setItem('hybrid_admin_dev_passkey', trimmed);
-          localStorage.setItem('hybrid_current_user', JSON.stringify(resilientUser));
+          localStorage.setItem('hybrid_auth_token', data.token);
+          if (data.user) {
+            localStorage.setItem('hybrid_current_user', JSON.stringify(data.user));
+          }
         } catch {}
-
-        return {
-          success: true,
-          message: 'Admin access authorized successfully (Resilient Session).',
-          token: resilientToken,
-          user: resilientUser
-        };
       }
-
-      // If wrong password was provided, show clear guidance
-      if (data && !data.success) {
-        if (!data.message || data.message.includes('fetch') || data.message.includes('Network error')) {
-          data.message = "Incorrect admin password. (Hint: default is 'admin123')";
-        }
-      }
-
       return data;
     },
     async me() {
@@ -193,6 +165,7 @@ export const api = {
       try {
         localStorage.removeItem('hybrid_auth_token');
         localStorage.removeItem('hybrid_admin_dev_passkey');
+        localStorage.removeItem('hybrid_current_user');
       } catch {}
     }
   },

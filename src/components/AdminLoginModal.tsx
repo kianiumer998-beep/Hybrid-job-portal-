@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, KeyRound, AlertCircle, Loader2 } from 'lucide-react';
+import { X, ShieldCheck, Mail, KeyRound, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 
 interface AdminLoginModalProps {
@@ -13,17 +13,20 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   onClose,
   onLoginSuccess
 }) => {
+  const [email, setEmail] = useState('studio56.pk@gmail.com');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent, customPass?: string) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     if (e) e.preventDefault();
-    const passToTest = (customPass !== undefined ? customPass : password).trim();
-    if (!passToTest) {
-      setErrorMessage('Please enter an admin password.');
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
+      setErrorMessage('Please enter both admin email and password.');
       return;
     }
 
@@ -31,75 +34,18 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setErrorMessage(null);
 
     try {
-      // Call backend admin authentication endpoint
-      const result = await api.auth.adminLogin(passToTest);
-      if (result.success && result.token) {
+      // Authenticate directly against backend MongoDB admin credentials
+      const result = await api.auth.adminLogin(cleanEmail, cleanPassword);
+      if (result && result.success && result.token) {
         setErrorMessage(null);
         setPassword('');
         onLoginSuccess();
         onClose();
-        return;
+      } else {
+        setErrorMessage(result?.message || 'Invalid administrative credentials.');
       }
-
-      // Check if password matches default admin passkey for emergency/offline recovery
-      if (passToTest === 'admin123' || passToTest === 'admin' || passToTest === 'superadmin') {
-        const offlineAdmin = {
-          id: 'user-demo-admin-1',
-          name: 'Super Administrator',
-          email: 'admin@jobportal.com',
-          username: 'admin',
-          role: 'Super Admin',
-          permissions: ['all'],
-          plan: 'Premium',
-          walletBalance: 100000,
-          membershipStatus: 'Active',
-          createdAt: new Date().toISOString()
-        };
-        const offlineToken = `admin-token-${Date.now()}`;
-        try {
-          localStorage.setItem('hybrid_auth_token', offlineToken);
-          localStorage.setItem('hybrid_admin_dev_passkey', passToTest);
-          localStorage.setItem('hybrid_current_user', JSON.stringify(offlineAdmin));
-        } catch {}
-
-        setErrorMessage(null);
-        setPassword('');
-        onLoginSuccess();
-        onClose();
-        return;
-      }
-
-      setErrorMessage(result.message || "Incorrect admin password. (Hint: default is 'admin123')");
     } catch (err: any) {
-      // If error is network related and user entered default admin passkey
-      if (passToTest === 'admin123' || passToTest === 'admin' || passToTest === 'superadmin') {
-        const offlineAdmin = {
-          id: 'user-demo-admin-1',
-          name: 'Super Administrator',
-          email: 'admin@jobportal.com',
-          username: 'admin',
-          role: 'Super Admin',
-          permissions: ['all'],
-          plan: 'Premium',
-          walletBalance: 100000,
-          membershipStatus: 'Active',
-          createdAt: new Date().toISOString()
-        };
-        const offlineToken = `admin-token-${Date.now()}`;
-        try {
-          localStorage.setItem('hybrid_auth_token', offlineToken);
-          localStorage.setItem('hybrid_admin_dev_passkey', passToTest);
-          localStorage.setItem('hybrid_current_user', JSON.stringify(offlineAdmin));
-        } catch {}
-
-        setErrorMessage(null);
-        setPassword('');
-        onLoginSuccess();
-        onClose();
-        return;
-      }
-
-      setErrorMessage(err?.message || "Incorrect admin password. (Hint: default is 'admin123')");
+      setErrorMessage(err?.message || 'Failed to connect to authentication service.');
     } finally {
       setLoading(false);
     }
@@ -120,13 +66,30 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           <div className="w-14 h-14 bg-amber-500/10 text-amber-400 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/30">
             <ShieldCheck className="w-7 h-7" />
           </div>
-          <h3 className="text-xl font-black">Secret Portal Admin Panel</h3>
+          <h3 className="text-xl font-black">Portal Admin Access</h3>
           <p className="text-xs text-slate-400">
-            Enter administrative passkey to access system management.
+            Enter administrative credentials to access system management suite.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1">
+              Admin Email
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setErrorMessage(null); }}
+                placeholder="admin@jobportal.com"
+                className="w-full pl-9 pr-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-400 mb-1">
               Admin Password
@@ -154,28 +117,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             <span>Access Admin Dashboard</span>
           </button>
-
-          <div className="pt-2 border-t border-slate-800 text-center">
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => {
-                setPassword('admin123');
-                handleSubmit(null as any, 'admin123');
-              }}
-              className="text-xs text-amber-400 hover:text-amber-300 font-semibold underline underline-offset-4 cursor-pointer py-1"
-            >
-              ⚡ Quick Login with Default Passkey (admin123)
-            </button>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Browser & incognito mode compatible.
-            </p>
-          </div>
         </form>
 
       </div>

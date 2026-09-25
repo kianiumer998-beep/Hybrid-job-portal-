@@ -349,6 +349,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [commConfig, setCommConfig] = useState<CommunicationProviderConfig>(INITIAL_COMM_CONFIG);
 
+  // Admin Password Management State
+  const [adminCurrentPassword, setAdminCurrentPassword] = useState('');
+  const [adminNewPassword, setAdminNewPassword] = useState('');
+  const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
+  const [adminPasswordStatus, setAdminPasswordStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [adminPasswordLoading, setAdminPasswordLoading] = useState(false);
+
+  const handleAdminPasswordChangeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminPasswordStatus(null);
+
+    if (!adminCurrentPassword || !adminNewPassword || !adminConfirmPassword) {
+      setAdminPasswordStatus({ type: 'error', message: 'All fields are required.' });
+      return;
+    }
+
+    if (adminNewPassword !== adminConfirmPassword) {
+      setAdminPasswordStatus({ type: 'error', message: 'New password and confirmation do not match.' });
+      return;
+    }
+
+    if (adminNewPassword.length < 6) {
+      setAdminPasswordStatus({ type: 'error', message: 'New password must be at least 6 characters.' });
+      return;
+    }
+
+    setAdminPasswordLoading(true);
+    try {
+      const res = await api.auth.changePassword({
+        currentPassword: adminCurrentPassword,
+        newPassword: adminNewPassword
+      });
+
+      if (res && res.success) {
+        setAdminPasswordStatus({
+          type: 'success',
+          message: 'Admin password successfully updated and active session token renewed.'
+        });
+        setAdminCurrentPassword('');
+        setAdminNewPassword('');
+        setAdminConfirmPassword('');
+      } else {
+        setAdminPasswordStatus({
+          type: 'error',
+          message: res?.message || 'Failed to update admin password. Check current password.'
+        });
+      }
+    } catch (err: any) {
+      setAdminPasswordStatus({
+        type: 'error',
+        message: err?.message || 'Network error occurred while updating password.'
+      });
+    } finally {
+      setAdminPasswordLoading(false);
+    }
+  };
+
   const [kycRequests, setKycRequests] = useState<EmployerKycRequest[]>(() => {
     try {
       const saved = localStorage.getItem('career_pak_kyc_requests');
@@ -6152,6 +6209,91 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
             </div>
+          </div>
+
+          {/* ADMINISTRATOR PASSWORD & SECURITY MANAGEMENT */}
+          <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold flex items-center space-x-2 text-amber-400">
+                  <Key className="w-5 h-5 text-amber-400" />
+                  <span>Administrator Account & Password Security</span>
+                </h3>
+                <p className="text-xs text-slate-400 font-medium">Update your administrative credentials securely in the authoritative database.</p>
+              </div>
+              <span className="bg-amber-500/20 text-amber-300 text-xs font-bold px-3 py-1 rounded-full border border-amber-500/30">
+                Server-Authoritative
+              </span>
+            </div>
+
+            {adminPasswordStatus && (
+              <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-start space-x-2 ${
+                adminPasswordStatus.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                  : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+              }`}>
+                {adminPasswordStatus.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <span>{adminPasswordStatus.message}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAdminPasswordChangeSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminCurrentPassword}
+                  onChange={(e) => setAdminCurrentPassword(e.target.value)}
+                  placeholder="Enter current password..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  New Password (min 6 chars)
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminNewPassword}
+                  onChange={(e) => setAdminNewPassword(e.target.value)}
+                  placeholder="Enter new password..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminConfirmPassword}
+                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                  placeholder="Repeat new password..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="sm:col-span-3 flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={adminPasswordLoading}
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {adminPasswordLoading ? 'Updating Password...' : 'Save New Admin Password'}
+                </button>
+              </div>
+            </form>
           </div>
 
           {/* WHATSAPP SUPPORT WIDGET SETTINGS */}

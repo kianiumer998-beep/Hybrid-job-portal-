@@ -593,11 +593,24 @@ export default function App() {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       try {
+        localStorage.removeItem('hybrid_admin_dev_passkey');
         const token = localStorage.getItem('hybrid_auth_token');
-        const passkey = localStorage.getItem('hybrid_admin_dev_passkey');
         const userStr = localStorage.getItem('hybrid_current_user');
-        if (token && (passkey === 'admin123' || passkey === 'admin' || (userStr && userStr.includes('Admin')))) {
-          return true;
+        if (token && userStr) {
+          const u = JSON.parse(userStr);
+          const ADMIN_ROLES = [
+            'Super Admin',
+            'Admin',
+            'Job Moderator',
+            'Scraper Manager',
+            'Payment Manager',
+            'Finance Manager',
+            'SEO Manager',
+            'Advertisement Manager'
+          ];
+          if (u && ADMIN_ROLES.includes(u.role)) {
+            return true;
+          }
         }
       } catch {}
     }
@@ -1912,8 +1925,11 @@ export default function App() {
                 onSendMessageToAdmin={handleUserSendMessage}
                 onUpdateProfile={handleUpdateProfile}
                 onChangePassword={handleChangePassword}
-                onLogout={() => {
+                onLogout={async () => {
+                  await api.auth.logout();
                   setCurrentUser(null);
+                  setIsAdminLoggedIn(false);
+                  setShowAdminView(false);
                   setActiveTab('jobs');
                 }}
                 onOpenSubscriptionModal={() => setSubscriptionModalOpen(true)}

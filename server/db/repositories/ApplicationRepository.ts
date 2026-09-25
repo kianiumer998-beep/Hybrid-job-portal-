@@ -24,31 +24,27 @@ export class ApplicationRepository {
   /**
    * Asynchronously retrieves applications.
    * When MongoDB is configured, queries the authoritative "applications" collection.
+   * If MongoDB fails, it throws the real error to prevent serving stale local fallback data.
    */
   static async getAllAsync(filter: ApplicationFilter = {}): Promise<any[]> {
     if (isMongoConfigured()) {
-      try {
-        const db = await getMongoDb();
-        const coll = db.collection('applications');
-        const query: any = {};
-        if (filter.jobId) query.jobId = filter.jobId;
-        if (filter.applicantId) query.applicantId = filter.applicantId;
+      const db = await getMongoDb();
+      const coll = db.collection('applications');
+      const query: any = {};
+      if (filter.jobId) query.jobId = filter.jobId;
+      if (filter.applicantId) query.applicantId = filter.applicantId;
 
-        const docs = await coll.find(query).sort({ appliedAt: -1, createdAt: -1 }).toArray();
-        return (docs || []).map(doc => {
-          const { _id, ...safe } = doc;
-          return safe;
-        });
-      } catch (err) {
-        // Fallback to local database cache on genuine query/connection error
-        return ApplicationRepository.getAll(filter);
-      }
+      const docs = await coll.find(query).sort({ appliedAt: -1, createdAt: -1 }).toArray();
+      return (docs || []).map(doc => {
+        const { _id, ...safe } = doc;
+        return safe;
+      });
     }
     return ApplicationRepository.getAll(filter);
   }
 
   /**
-   * Synchronous fallback to get single application by ID.
+   * Synchronous fallback to get single application by ID (local development only).
    */
   static getById(id: string): any | null {
     const apps = Database.getApplications();
@@ -58,22 +54,19 @@ export class ApplicationRepository {
   /**
    * Asynchronously retrieves a single application by ID.
    * When MongoDB is configured, reads directly from "applications" collection.
+   * If MongoDB fails, it throws the real error to prevent serving stale local fallback data.
    */
   static async getByIdAsync(id: string): Promise<any | null> {
     if (!id) return null;
     if (isMongoConfigured()) {
-      try {
-        const db = await getMongoDb();
-        const coll = db.collection('applications');
-        const doc = await coll.findOne({ id });
-        if (doc) {
-          const { _id, ...safe } = doc;
-          return safe;
-        }
-        return null;
-      } catch (err) {
-        return ApplicationRepository.getById(id);
+      const db = await getMongoDb();
+      const coll = db.collection('applications');
+      const doc = await coll.findOne({ id });
+      if (doc) {
+        const { _id, ...safe } = doc;
+        return safe;
       }
+      return null;
     }
     return ApplicationRepository.getById(id);
   }

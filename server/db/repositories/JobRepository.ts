@@ -546,6 +546,145 @@ export class JobRepository {
   }
 
   /**
+   * Performs targeted candidate lookup across Live and Pending jobs collections
+   * based on exact identifiers (sourceJobId, URLs) and content signals (company, title tokens).
+   */
+  static async findDuplicateCandidates(candidateJob: any): Promise<any[]> {
+    if (!candidateJob || typeof candidateJob !== 'object') {
+      return [];
+    }
+
+    if (!isMongoConfigured()) {
+      const allLive = Database.getJobs();
+      const allPending = Database.getPendingJobs();
+      return [...allLive, ...allPending];
+    }
+
+    assertMongoAvailable();
+
+    const candidatePoolMap = new Map<string, any>();
+    const jobsColl = await getJobsCollection();
+    const pendingColl = await getPendingJobsCollection();
+
+    // 1. Gather exact identifier signals
+    const exactOrClauses: any[] = [];
+
+    const rawSourceJobId = candidateJob.sourceJobId ? String(candidateJob.sourceJobId).trim() : '';
+    if (rawSourceJobId) {
+      exactOrClauses.push({ sourceJobId: rawSourceJobId });
+    }
+
+    const urlCandidates: string[] = [];
+    if (candidateJob.sourceUrl) urlCandidates.push(String(candidateJob.sourceUrl).trim());
+    if (candidateJob.originalApplyUrl) urlCandidates.push(String(candidateJob.originalApplyUrl).trim());
+    if (candidateJob.applicationUrl) urlCandidates.push(String(candidateJob.applicationUrl).trim());
+
+    const distinctUrls = new Set<string>();
+    for (const u of urlCandidates) {
+      if (u && u.length > 5) {
+        distinctUrls.add(u);
+        try {
+          const parsed = new URL(u);
+          if (parsed.search) {
+            distinctUrls.add(`${parsed.origin}${parsed.pathname}`);
+          }
+          const strippedSlash = u.replace(/\/+$/, '');
+          if (strippedSlash) distinctUrls.add(strippedSlash);
+        } catch {
+          // ignore URL parsing errors
+        }
+      }
+    }
+
+    if (distinctUrls.size > 0) {
+      const urlList = Array.from(distinctUrls);
+      exactOrClauses.push(
+        { sourceUrl: { $in: urlList } },
+        { originalApplyUrl: { $in: urlList } },
+        { applicationUrl: { $in: urlList } }
+      );
+    }
+
+    if (exactOrClauses.length > 0) {
+      const exactQuery = { $or: exactOrClauses };
+      try {
+        const [liveExact, pendingExact] = await Promise.all([
+          jobsColl.find(exactQuery).limit(50).toArray(),
+          pendingColl.find(exactQuery).limit(50).toArray()
+        ]);
+        for (const doc of [...liveExact, ...pendingExact]) {
+          if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
+            candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
+          }
+        }
+      } catch (err: any) {
+        console.warn('[JobRepository] Notice querying exact duplicate candidates:', err?.message || err);
+      }
+    }
+
+    // 2. Content & Text Signal Queries (Compound & Targeted)
+    const company = typeof candidateJob.company === 'string' ? candidateJob.company.trim() : '';
+    const title = typeof candidateJob.title === 'string' ? candidateJob.title.trim() : '';
+
+    let companyRegex: RegExp | null = null;
+    if (company && company.length >= 2) {
+      const escapedCompany = company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      companyRegex = new RegExp(`^${escapedCompany}$`, 'i');
+    }
+
+    let titleTokenRegex: RegExp | null = null;
+    if (title && title.length >= 3) {
+      const titleTokens = title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w: string) => w.length >= 3 && !['jobs', 'hiring', 'vacancy', 'vacancies', 'required', 'position', 'posts', 'with', 'from', 'each', 'need', 'male', 'female'].includes(w));
+
+      if (titleTokens.length >= 2) {
+        const tokenLookaheads = titleTokens.slice(0, 3).map((t: string) => `(?=.*${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`).join('');
+        titleTokenRegex = new RegExp(tokenLookaheads, 'i');
+      } else if (titleTokens.length === 1 && titleTokens[0].length >= 4) {
+        titleTokenRegex = new RegExp(titleTokens[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      }
+    }
+
+    const contentQueries: Array<{ query: any; limit: number }> = [];
+
+    // Priority A: Compound Company + Title Match (Prevents crowding out of old jobs for large employers)
+    if (companyRegex && titleTokenRegex) {
+      contentQueries.push({ query: { company: companyRegex, title: titleTokenRegex }, limit: 35 });
+    }
+
+    // Priority B: Cross-Source Title Token Match (Always executed when title tokens exist to catch cross-portal duplicates)
+    if (titleTokenRegex) {
+      contentQueries.push({ query: { title: titleTokenRegex }, limit: 35 });
+    }
+
+    // Priority C: Company-Only Fallback (when title tokens are sparse)
+    if (companyRegex && !titleTokenRegex) {
+      contentQueries.push({ query: { company: companyRegex }, limit: 35 });
+    }
+
+    for (const { query, limit } of contentQueries) {
+      try {
+        const [liveDocs, pendingDocs] = await Promise.all([
+          jobsColl.find(query).sort({ createdAt: -1 }).limit(limit).toArray(),
+          pendingColl.find(query).sort({ createdAt: -1 }).limit(limit).toArray()
+        ]);
+        for (const doc of [...liveDocs, ...pendingDocs]) {
+          if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
+            candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
+          }
+        }
+      } catch (err: any) {
+        console.warn('[JobRepository] Notice querying content duplicate candidates:', err?.message || err);
+      }
+    }
+
+    return Array.from(candidatePoolMap.values());
+  }
+
+  /**
    * Adds a job into MongoDB pending_jobs collection.
    */
   static async addPending(jobData: any): Promise<any> {

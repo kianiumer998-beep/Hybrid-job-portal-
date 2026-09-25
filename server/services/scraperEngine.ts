@@ -260,23 +260,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     lastUpdated: startTime.toISOString()
   };
 
-  let existingLiveJobs: any[] = [];
-  let existingPendingJobs: any[] = [];
-  try {
-    const liveRes = await JobRepository.getAll({ limit: 1000 });
-    existingLiveJobs = liveRes.jobs || [];
-  } catch (e: any) {
-    console.warn('[Scraper Engine] Notice loading live jobs for deduplication:', e.message);
-  }
-
-  try {
-    existingPendingJobs = await JobRepository.getPending({ lightweight: true, limit: 1000 });
-  } catch (e: any) {
-    console.warn('[Scraper Engine] Notice loading pending jobs for deduplication:', e.message);
-  }
-
-  const combinedExisting = [...existingLiveJobs, ...existingPendingJobs];
-
   const harvestedJobs: any[] = [];
   const duplicateJobs: any[] = [];
   const uniqueJobs: any[] = [];
@@ -468,10 +451,18 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           status: (target.autoApprove && options.autoPublishTrusted) ? 'Approved' : 'Pending'
         };
 
-        // Multi-signal deduplication check
+        // Multi-signal targeted duplicate candidates lookup across Live + Pending MongoDB
+        let duplicateCandidates: any[] = [];
+        try {
+          duplicateCandidates = await JobRepository.findDuplicateCandidates(standardizedJob);
+        } catch (candErr: any) {
+          console.warn(`[Scraper Engine] Notice querying duplicate candidates for "${standardizedJob.title}":`, candErr?.message || candErr);
+        }
+
+        // Multi-signal deduplication check against Live/Pending candidates + intra-batch harvestedJobs
         const dupCheck: DuplicateMatchResult = detectJobDuplicate(
           standardizedJob,
-          combinedExisting,
+          duplicateCandidates,
           harvestedJobs
         );
 
@@ -504,7 +495,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
               isDuplicate: true
             });
           }
-          combinedExisting.push(standardizedJob);
         } else {
           sourceNew++;
           uniqueJobs.push(standardizedJob);
@@ -537,7 +527,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
               });
             }
           }
-          combinedExisting.push(standardizedJob);
         }
       }
 

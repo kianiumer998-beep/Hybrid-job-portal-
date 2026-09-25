@@ -1,4 +1,5 @@
 import { Database } from '../database';
+import { UserRepository } from './UserRepository';
 
 export class PaymentRepository {
   static getAll(userId?: string): any[] {
@@ -30,34 +31,34 @@ export class PaymentRepository {
     return Database.addTransaction(txData);
   }
 
-  static verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): any | null {
+  static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
     const txs = Database.getTransactions();
     const idx = txs.findIndex(t => t.id === id);
     if (idx === -1) return null;
 
     const tx = txs[idx];
     if (action === 'approve') {
-      tx.status = 'Success';
-      tx.verifiedAt = new Date().toISOString();
-      tx.adminNote = note || 'Verified and approved by administrator';
-
       // Credit wallet or activate features if applicable
       if (tx.type === 'Wallet Deposit' && tx.userId) {
-        const user = Database.getUserById(tx.userId);
+        const user = await UserRepository.getByIdAsync(tx.userId);
         if (user) {
           const currentBal = Number(user.walletBalance || 0);
-          Database.updateUser(user.id, { walletBalance: currentBal + Number(tx.amount || 0) });
+          await UserRepository.updateAsync(user.id, { walletBalance: currentBal + Number(tx.amount || 0) });
         }
       } else if (tx.type === 'Subscription' && tx.userId) {
-        const user = Database.getUserById(tx.userId);
+        const user = await UserRepository.getByIdAsync(tx.userId);
         if (user) {
-          Database.updateUser(user.id, {
+          await UserRepository.updateAsync(user.id, {
             membershipTier: tx.plan || 'Pro Alerts',
             membershipStatus: 'Active',
             subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
           });
         }
       }
+
+      tx.status = 'Success';
+      tx.verifiedAt = new Date().toISOString();
+      tx.adminNote = note || 'Verified and approved by administrator';
     } else {
       tx.status = 'Failed';
       tx.rejectionReason = reason || 'Payment proof verification rejected.';
@@ -69,7 +70,7 @@ export class PaymentRepository {
   }
 
   static async getUserWalletAsync(userId: string): Promise<any> {
-    const user = Database.getUserById(userId);
+    const user = await UserRepository.getByIdAsync(userId);
     const balance = Number(user?.walletBalance || 0);
     const txs = this.getAll(userId);
     return {

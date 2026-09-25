@@ -1,14 +1,25 @@
 import { Router } from 'express';
 import { PaymentRepository, AuditRepository, UserRepository, PricingRepository, JobRepository } from '../db/repositories';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdmin, requireAuth } from '../auth/authManager';
 
 export const transactionRouter = Router();
 
-// 1. Get transactions (all for admin, or filtered by userId)
-transactionRouter.get('/', (req, res) => {
+// 1. Get transactions (all for admin, or scoped to authenticated user)
+transactionRouter.get('/', requireAuth, (req, res) => {
   try {
-    const { userId } = req.query as Record<string, string>;
-    const txs = PaymentRepository.getAll(userId);
+    const user = (req as any).user;
+    const adminRoles = ['Super Admin', 'Admin', 'Payment Manager', 'Finance Manager'];
+    const isAdmin = user && adminRoles.includes(user.role);
+
+    let targetUserId: string | undefined;
+    if (isAdmin) {
+      const { userId } = req.query as Record<string, string>;
+      targetUserId = userId;
+    } else {
+      targetUserId = user.userId || user.id;
+    }
+
+    const txs = PaymentRepository.getAll(targetUserId);
     res.json({ success: true, transactions: txs });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching transactions' });
@@ -91,7 +102,7 @@ transactionRouter.post('/', async (req, res) => {
     // Wallet direct payment check
     let initialStatus: 'Pending' | 'Success' = 'Pending';
     if (paymentMethod === 'Wallet Balance' && userId) {
-      const user = UserRepository.getById(userId);
+      const user = await UserRepository.getByIdAsync(userId);
       if (!user || (user.walletBalance || 0) < enforcedAmount) {
         return res.status(400).json({
           success: false,
@@ -99,7 +110,7 @@ transactionRouter.post('/', async (req, res) => {
         });
       }
       // Deduct wallet balance directly
-      UserRepository.update(userId, {
+      await UserRepository.updateAsync(userId, {
         walletBalance: (user.walletBalance || 0) - enforcedAmount
       });
       initialStatus = 'Success';
@@ -162,7 +173,7 @@ transactionRouter.patch('/:id/verify', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Action must be "approve" or "reject".' });
     }
 
-    const tx = PaymentRepository.verify(req.params.id, action, note, reason);
+    const tx = await PaymentRepository.verify(req.params.id, action, note, reason);
     if (!tx) {
       return res.status(404).json({ success: false, message: 'Transaction not found.' });
     }

@@ -4,6 +4,7 @@ import { getMongoDb, isMongoConfigured } from '../mongodb';
 export interface ApplicationFilter {
   jobId?: string;
   applicantId?: string;
+  applicantEmail?: string;
 }
 
 export class ApplicationRepository {
@@ -17,6 +18,10 @@ export class ApplicationRepository {
     }
     if (filter.applicantId) {
       apps = apps.filter(a => a.applicantId === filter.applicantId);
+    }
+    if (filter.applicantEmail) {
+      const emailLower = filter.applicantEmail.toLowerCase().trim();
+      apps = apps.filter(a => a.applicantEmail && a.applicantEmail.toLowerCase().trim() === emailLower);
     }
     return apps;
   }
@@ -33,6 +38,10 @@ export class ApplicationRepository {
       const query: any = {};
       if (filter.jobId) query.jobId = filter.jobId;
       if (filter.applicantId) query.applicantId = filter.applicantId;
+      if (filter.applicantEmail) {
+        const emailEscaped = filter.applicantEmail.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        query.applicantEmail = { $regex: new RegExp(`^${emailEscaped}$`, 'i') };
+      }
 
       const docs = await coll.find(query).sort({ appliedAt: -1, createdAt: -1 }).toArray();
       return (docs || []).map(doc => {
@@ -41,6 +50,45 @@ export class ApplicationRepository {
       });
     }
     return ApplicationRepository.getAll(filter);
+  }
+
+  /**
+   * Finds an existing application for duplicate prevention.
+   * Scoped to (jobId + applicantId) for logged-in users, or (jobId + applicantEmail) for guests.
+   */
+  static async findExistingAsync(jobId: string, applicantId?: string, applicantEmail?: string): Promise<any | null> {
+    if (!jobId) return null;
+    const normalizedEmail = applicantEmail ? applicantEmail.trim().toLowerCase() : undefined;
+    const isGuest = !applicantId || applicantId === 'guest';
+
+    if (isMongoConfigured()) {
+      const db = await getMongoDb();
+      const coll = db.collection('applications');
+      let query: any;
+      if (!isGuest) {
+        query = { jobId, applicantId };
+      } else if (normalizedEmail) {
+        const emailEscaped = normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        query = { jobId, applicantEmail: { $regex: new RegExp(`^${emailEscaped}$`, 'i') } };
+      } else {
+        return null;
+      }
+
+      const existing = await coll.findOne(query);
+      if (existing) {
+        const { _id, ...safe } = existing;
+        return safe;
+      }
+      return null;
+    }
+
+    const apps = Database.getApplications();
+    return apps.find(a => {
+      if (a.jobId !== jobId) return false;
+      if (!isGuest && a.applicantId === applicantId) return true;
+      if (normalizedEmail && a.applicantEmail && a.applicantEmail.trim().toLowerCase() === normalizedEmail) return true;
+      return false;
+    }) || null;
   }
 
   /**

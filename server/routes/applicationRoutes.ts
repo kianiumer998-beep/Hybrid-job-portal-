@@ -284,11 +284,27 @@ applicationRouter.post('/', async (req, res) => {
       }
     }
 
+    // Duplicate Application Protection
+    const effectiveApplicantId = (req as any).user?.userId || (applicantId !== 'guest' ? applicantId : undefined);
+    const existingApp = await ApplicationRepository.findExistingAsync(
+      jobId,
+      effectiveApplicantId,
+      applicantEmail
+    );
+
+    if (existingApp) {
+      return res.status(409).json({
+        success: false,
+        message: 'You have already submitted an application for this vacancy.',
+        applicationId: existingApp.id
+      });
+    }
+
     const newApp = await ApplicationRepository.createAsync({
       jobId,
       jobTitle: jobTitle || 'Position',
       companyName: companyName || 'Company',
-      applicantId: applicantId || (req as any).user?.userId || 'guest',
+      applicantId: effectiveApplicantId || 'guest',
       applicantName,
       applicantEmail,
       applicantPhone,
@@ -298,12 +314,19 @@ applicationRouter.post('/', async (req, res) => {
       status: 'Applied'
     });
 
-    // Increment applications count on the job
-    const job = await JobRepository.getById(jobId);
-    if (job) {
-      await JobRepository.update(jobId, {
-        applicationsCount: (job.applicationsCount || 0) + 1
-      });
+    // Increment applications count on the job (non-fatal error isolation)
+    try {
+      const job = await JobRepository.getById(jobId);
+      if (job) {
+        await JobRepository.update(jobId, {
+          applicationsCount: (job.applicationsCount || 0) + 1
+        });
+      }
+    } catch (counterErr: any) {
+      console.warn(
+        `[ApplicationRoutes] Notice: Failed to increment applicationsCount for job ${jobId} on application ${newApp.id}:`,
+        counterErr?.message || counterErr
+      );
     }
 
     AuditRepository.add({

@@ -5,7 +5,7 @@ import { featureFlags, updateFeatureFlags } from './server/config/featureFlags';
 import { createServer as createViteServer } from 'vite';
 
 import { Database } from './server/db/database';
-import { authMiddleware } from './server/auth/authManager';
+import { authMiddleware, requireAdmin } from './server/auth/authManager';
 import { authRouter } from './server/routes/authRoutes';
 import { jobRouter } from './server/routes/jobRoutes';
 import { applicationRouter } from './server/routes/applicationRoutes';
@@ -69,7 +69,7 @@ async function startServer() {
     res.json(featureFlags);
   });
 
-  app.post('/api/admin/feature-flags', (req, res) => {
+  app.post('/api/admin/feature-flags', requireAdmin, (req, res) => {
     const updated = updateFeatureFlags(req.body);
     Database.addAuditLog({
       user: 'Administrator',

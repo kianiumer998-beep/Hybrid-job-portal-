@@ -146,7 +146,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
         isAuthorized = true;
       } else {
         // Check if user is the applicant or employer on the corresponding application
-        const applications = ApplicationRepository.getAll();
+        const applications = await ApplicationRepository.getAllAsync();
         const matchingApp = applications.find(
           a => a.cvFileUrl && a.cvFileUrl.includes(safeFileName)
         );
@@ -187,7 +187,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
 });
 
 // 3. Get applications (filter by jobId or applicantId, or all for admin)
-applicationRouter.get('/', (req, res) => {
+applicationRouter.get('/', async (req, res) => {
   try {
     const { jobId, applicantId } = req.query as Record<string, string>;
     const user = (req as any).user;
@@ -201,7 +201,7 @@ applicationRouter.get('/', (req, res) => {
       filterApplicantId = user.userId || user.id;
     }
 
-    const apps = ApplicationRepository.getAll({ jobId, applicantId: filterApplicantId });
+    const apps = await ApplicationRepository.getAllAsync({ jobId, applicantId: filterApplicantId });
 
     // Append authorized download tokens to CV URLs for this response so legitimate viewers can open them
     const enrichedApps = apps.map(app => {
@@ -284,7 +284,7 @@ applicationRouter.post('/', async (req, res) => {
       }
     }
 
-    const newApp = ApplicationRepository.create({
+    const newApp = await ApplicationRepository.createAsync({
       jobId,
       jobTitle: jobTitle || 'Position',
       companyName: companyName || 'Company',
@@ -325,10 +325,10 @@ applicationRouter.post('/', async (req, res) => {
 });
 
 // 5. Update Application Status (Reviewed, Shortlisted, Rejected)
-applicationRouter.patch('/:id/status', requireAdmin, (req, res) => {
+applicationRouter.patch('/:id/status', requireAdmin, async (req, res) => {
   try {
     const { status, notes } = req.body;
-    const updated = ApplicationRepository.updateStatus(req.params.id, status, notes);
+    const updated = await ApplicationRepository.updateStatusAsync(req.params.id, status, notes);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Application not found.' });
     }

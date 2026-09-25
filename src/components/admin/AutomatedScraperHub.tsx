@@ -471,7 +471,9 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [isScrapingActive, setIsScrapingActive] = useState(false);
   const isScraperRequestInFlightRef = useRef(false);
   const [activeRunStatus, setActiveRunStatus] = useState<any>(null);
-  const [scrapeScanType, setScrapeScanType] = useState<'full' | 'quick'>('full');
+  const [scrapeScanType, setScrapeScanType] = useState<'full' | 'quick' | 'page_range'>('full');
+  const [scrapeStartPage, setScrapeStartPage] = useState<number>(1);
+  const [scrapeEndPage, setScrapeEndPage] = useState<number>(5);
   const [autoPublishTrusted, setAutoPublishTrusted] = useState(false);
   const [selectedSingleSourceId, setSelectedSingleSourceId] = useState('');
   const [runProgressMessage, setRunProgressMessage] = useState('');
@@ -985,8 +987,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     }).catch(() => {});
 
     try {
+      const validStartPage = Math.max(1, Number(scrapeStartPage) || 1);
+      const validEndPage = Math.max(validStartPage, Number(scrapeEndPage) || validStartPage);
+
       const payload: any = {
-        mode: scrapeScanType === 'full' ? 'complete' : 'quick',
+        mode: scrapeScanType === 'page_range' ? 'page_range' : (scrapeScanType === 'full' ? 'complete' : 'quick'),
+        startPage: scrapeScanType === 'page_range' ? validStartPage : undefined,
+        endPage: scrapeScanType === 'page_range' ? validEndPage : undefined,
         autoPublishTrusted,
         sourceIds: options.targetSourceIds
       };
@@ -3158,12 +3165,44 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     value={scrapeScanType}
                     onChange={(e) => setScrapeScanType(e.target.value as any)}
                     aria-label="Scan Depth"
-                    className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs"
+                    className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white"
                   >
-                    <option value="full">Full Scan</option>
+                    <option value="full">Full Scan (All Pages)</option>
                     <option value="quick">Quick Scan (Recent only)</option>
+                    <option value="page_range">Page Range (Start - End)</option>
                   </select>
                 </div>
+
+                {scrapeScanType === 'page_range' && (
+                  <div className="grid grid-cols-2 gap-2 p-2 bg-slate-950/80 rounded-xl border border-slate-800 text-xs">
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1">Start Page</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={scrapeStartPage}
+                        onChange={(e) => {
+                          const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                          setScrapeStartPage(val);
+                          if (scrapeEndPage < val) setScrapeEndPage(val);
+                        }}
+                        aria-label="Start Page"
+                        className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1">End Page</label>
+                      <input
+                        type="number"
+                        min={scrapeStartPage}
+                        value={scrapeEndPage}
+                        onChange={(e) => setScrapeEndPage(Math.max(scrapeStartPage, parseInt(e.target.value, 10) || scrapeStartPage))}
+                        aria-label="End Page"
+                        className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="button"

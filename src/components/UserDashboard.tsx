@@ -203,8 +203,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       return;
     }
 
-    if (newPasswordInput.length < 6) {
-      alert('New password must be at least 6 characters long.');
+    if (newPasswordInput.length < 8) {
+      alert('New password must be at least 8 characters long.');
       return;
     }
 

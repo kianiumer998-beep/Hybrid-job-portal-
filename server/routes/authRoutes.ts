@@ -81,8 +81,8 @@ authRouter.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, email, and password are required.' });
     }
 
-    if (rawPassword.length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+    if (rawPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
     }
 
     const existing = await UserRepository.getByEmailAsync(cleanEmail);
@@ -307,8 +307,8 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
       return res.status(400).json({ success: false, message: 'Current password and new password are required.' });
     }
 
-    if (rawNew.length < 6) {
-      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
+    if (rawNew.length < 8) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 8 characters.' });
     }
 
     const user = await UserRepository.getByIdAsync(userId);
@@ -413,10 +413,10 @@ authRouter.post('/admin-bootstrap', async (req, res) => {
     const bootstrapPassword = (process.env.ADMIN_BOOTSTRAP_PASSWORD || req.body?.password || '').toString().trim();
     const bootstrapName = (process.env.ADMIN_BOOTSTRAP_NAME || req.body?.name || 'Super Administrator').toString().trim();
 
-    if (!bootstrapPassword || bootstrapPassword.length < 6) {
+    if (!bootstrapPassword || bootstrapPassword.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Valid bootstrap password (min 6 characters) must be configured via ADMIN_BOOTSTRAP_PASSWORD or request body.'
+        message: 'Valid bootstrap password (min 8 characters) must be configured via ADMIN_BOOTSTRAP_PASSWORD or request body.'
       });
     }
 

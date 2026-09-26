@@ -70,8 +70,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           return;
         }
 
-        if (cleanPassword.length < 6) {
-          setErrorMessage('Password must be at least 6 characters.');
+        if (cleanPassword.length < 8) {
+          setErrorMessage('Password must be at least 8 characters.');
           setLoading(false);
           return;
         }

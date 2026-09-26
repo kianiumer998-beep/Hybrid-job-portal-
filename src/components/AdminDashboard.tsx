@@ -521,8 +521,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
-    if (adminNewPassword.length < 6) {
-      setAdminPasswordStatus({ type: 'error', message: 'New password must be at least 6 characters.' });
+    if (adminNewPassword.length < 8) {
+      setAdminPasswordStatus({ type: 'error', message: 'New password must be at least 8 characters.' });
       return;
     }
 
@@ -6414,7 +6414,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  New Password (min 6 chars)
+                  New Password (min 8 chars)
                 </label>
                 <input
                   type="password"

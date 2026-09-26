@@ -27,7 +27,7 @@ transactionRouter.get('/', requireAuth, (req, res) => {
 });
 
 // 2. Submit payment proof with Idempotency Protection & Authoritative Pricing Authority
-transactionRouter.post('/', async (req, res) => {
+transactionRouter.post('/', requireAuth, async (req, res) => {
   try {
     const {
       amount,
@@ -50,8 +50,41 @@ transactionRouter.post('/', async (req, res) => {
       idempotencyKey
     } = req.body;
 
+    const authUser = (req as any).user;
+    const authUserId = authUser?.userId || authUser?.id;
+    const adminRoles = ['Super Admin', 'Admin', 'Payment Manager', 'Finance Manager'];
+    const isAdmin = Boolean(authUser && adminRoles.includes(authUser.role));
+
+    if (!authUserId) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
+
+    if (!isAdmin && userId && String(userId) !== String(authUserId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Cannot submit a transaction for another user.'
+      });
+    }
+
+    const effectiveUserId = isAdmin ? (userId || authUserId) : authUserId;
+    const effectiveUserName = isAdmin ? (userName || authUser?.name) : (authUser?.name || userName);
+    const effectiveUserEmail = isAdmin ? (userEmail || authUser?.email) : (authUser?.email || userEmail);
+
     if (!paymentMethod) {
       return res.status(400).json({ success: false, message: 'Payment method is required.' });
+    }
+
+    // Verify job ownership for non-admin users when jobIdRef is supplied
+    if (!isAdmin && jobIdRef) {
+      const matchedJobs = await JobRepository.getJobsByIds([String(jobIdRef)]);
+      const targetJob = matchedJobs[0];
+      const jobOwnerId = targetJob?.submittedByUserId || targetJob?.postedByUserId || targetJob?.userId;
+      if (!targetJob || !jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: Referenced job does not belong to the authenticated user.'
+        });
+      }
     }
 
     // AUTHORITATIVE PRICING CALCULATION
@@ -78,6 +111,12 @@ transactionRouter.post('/', async (req, res) => {
     if (idempotencyKey) {
       const existing = PaymentRepository.findByIdempotencyKey(idempotencyKey);
       if (existing) {
+        if (!isAdmin && existing.userId && String(existing.userId) !== String(effectiveUserId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden: Cannot access another user transaction.'
+          });
+        }
         return res.json({
           success: true,
           transaction: existing,
@@ -101,8 +140,8 @@ transactionRouter.post('/', async (req, res) => {
 
     // Wallet direct payment check
     let initialStatus: 'Pending' | 'Success' = 'Pending';
-    if (paymentMethod === 'Wallet Balance' && userId) {
-      const user = await UserRepository.getByIdAsync(userId);
+    if (paymentMethod === 'Wallet Balance') {
+      const user = await UserRepository.getByIdAsync(effectiveUserId);
       if (!user || (user.walletBalance || 0) < enforcedAmount) {
         return res.status(400).json({
           success: false,
@@ -110,7 +149,7 @@ transactionRouter.post('/', async (req, res) => {
         });
       }
       // Deduct wallet balance directly
-      await UserRepository.updateAsync(userId, {
+      await UserRepository.updateAsync(effectiveUserId, {
         walletBalance: (user.walletBalance || 0) - enforcedAmount
       });
       initialStatus = 'Success';
@@ -124,14 +163,14 @@ transactionRouter.post('/', async (req, res) => {
       paymentMethod,
       transactionId: tid,
       idempotencyKey: idempotencyKey || undefined,
-      senderName: senderName || userName || 'Customer',
+      senderName: senderName || effectiveUserName || 'Customer',
       senderPhoneOrAccount,
       depositBankOrWalletName,
       proofScreenshotUrl,
       proofNote,
-      userId,
-      userName,
-      userEmail,
+      userId: effectiveUserId,
+      userName: effectiveUserName,
+      userEmail: effectiveUserEmail,
       jobTitleRef,
       jobIdRef,
       pricingBreakdown,
@@ -145,7 +184,7 @@ transactionRouter.post('/', async (req, res) => {
     }
 
     AuditRepository.add({
-      user: userName || 'User',
+      user: effectiveUserName || 'User',
       role: 'Member',
       action: initialStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
       target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,

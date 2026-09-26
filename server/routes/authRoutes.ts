@@ -166,8 +166,6 @@ authRouter.post('/login', async (req, res) => {
     let isValid = false;
     if (user.passwordHash && user.salt) {
       isValid = verifyPassword(rawPassword, user.passwordHash, user.salt);
-    } else if (user.password) {
-      isValid = user.password === rawPassword;
     }
 
     if (!isValid) {
@@ -240,8 +238,6 @@ authRouter.post('/admin-login', async (req, res) => {
     let isValid = false;
     if (user.passwordHash && user.salt) {
       isValid = verifyPassword(adminPassword, user.passwordHash, user.salt);
-    } else if (user.password) {
-      isValid = user.password === adminPassword;
     }
 
     if (!isValid) {
@@ -323,8 +319,6 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
     let isCurrentValid = false;
     if (user.passwordHash && user.salt) {
       isCurrentValid = verifyPassword(rawCurrent, user.passwordHash, user.salt);
-    } else if (user.password) {
-      isCurrentValid = user.password === rawCurrent;
     }
 
     if (!isCurrentValid) {

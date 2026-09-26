@@ -100,31 +100,11 @@ export function hashPassword(password: string, salt?: string): { hash: string; s
 }
 
 export function verifyPassword(password: string, hash: string, salt: string): boolean {
-  // 1. Primary: crypto.scrypt (OWASP recommended memory-hard hashing)
   try {
+    if (!password || !hash || !salt) return false;
     const derivedKey = crypto.scryptSync(password, salt, 64);
     const hashBuf = Buffer.from(hash, 'hex');
     if (hashBuf.length === derivedKey.length && crypto.timingSafeEqual(hashBuf, derivedKey)) {
-      return true;
-    }
-  } catch {}
-
-  // 2. Fallback: HMAC-SHA256 with salt
-  try {
-    const computed = crypto.createHmac('sha256', salt).update(password).digest('hex');
-    const computedBuf = Buffer.from(computed, 'hex');
-    const hashBuf = Buffer.from(hash, 'hex');
-    if (computedBuf.length === hashBuf.length && crypto.timingSafeEqual(computedBuf, hashBuf)) {
-      return true;
-    }
-  } catch {}
-
-  // 3. Fallback: Standard SHA-256 for initial seed accounts
-  try {
-    const plain = crypto.createHash('sha256').update(password).digest('hex');
-    const plainBuf = Buffer.from(plain, 'hex');
-    const hashBuf = Buffer.from(hash, 'hex');
-    if (plainBuf.length === hashBuf.length && crypto.timingSafeEqual(plainBuf, hashBuf)) {
       return true;
     }
   } catch {}

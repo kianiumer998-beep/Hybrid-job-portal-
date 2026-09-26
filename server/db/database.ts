@@ -79,59 +79,7 @@ export function generateJobSlug(title: string, city?: string, id?: string): stri
 }
 
 // Initial Data Seeders
-const DEFAULT_USERS = [
-  {
-    id: 'user-demo-admin-1',
-    name: 'Super Administrator',
-    email: 'admin@jobportal.com',
-    username: 'admin',
-    // SHA256 / scrypt will verify 'admin123'
-    passwordHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', // sha256 of admin123
-    salt: 'dev-salt',
-    role: 'Super Admin',
-    permissions: ['all'],
-    plan: 'Premium',
-    walletBalance: 100000,
-    membershipStatus: 'Active',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'user-demo-qwer-unified',
-    name: 'Qwer Member',
-    email: 'qwer@jobportal.com',
-    username: 'qwer',
-    passwordHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', // sha256 of 123456
-    salt: 'dev-salt',
-    role: 'Unified Member',
-    companyName: 'Qwer Solutions',
-    phone: '+92 300 1234567',
-    plan: 'Premium',
-    walletBalance: 25000,
-    membershipStatus: 'Active',
-    activationDate: '2026-07-25 09:00',
-    expiryDate: '2026-08-24 09:00',
-    renewalCount: 2,
-    autoRenew: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'user-demo-1',
-    name: 'Ali Raza',
-    email: 'ali.raza@example.com',
-    username: 'aliraza',
-    passwordHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
-    salt: 'dev-salt',
-    role: 'Job Seeker',
-    phone: '+92 300 1122334',
-    plan: 'Premium',
-    walletBalance: 15000,
-    membershipStatus: 'Active',
-    activationDate: '2026-07-20 14:00',
-    expiryDate: '2026-08-19 14:00',
-    autoRenew: true,
-    createdAt: new Date().toISOString()
-  }
-];
+const DEFAULT_USERS: any[] = [];
 
 const DEFAULT_APPLY_SETTINGS = {
   enableApplyButton: true,

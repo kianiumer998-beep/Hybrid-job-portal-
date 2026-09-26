@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
-import { requireAdmin, requireAuth } from '../auth/authManager';
+import { requireAdminPermission, requireAuth } from '../auth/authManager';
 
 export const auditRouter = Router();
 
 // Get audit logs (Admin Only)
-auditRouter.get('/', requireAdmin, (req, res) => {
+auditRouter.get('/', requireAdminPermission('audit.view'), (req, res) => {
   try {
     const logs = Database.getAuditLogs();
     res.json({ success: true, logs });

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PaymentRepository, AuditRepository, UserRepository, PricingRepository, JobRepository } from '../db/repositories';
-import { requireAdmin, requireAuth } from '../auth/authManager';
+import { requireAdminPermission, requireAuth } from '../auth/authManager';
 
 export const transactionRouter = Router();
 
@@ -205,7 +205,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
 });
 
 // 3. Admin Approve / Reject Payment Verification Proof
-transactionRouter.patch('/:id/verify', requireAdmin, async (req, res) => {
+transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage'), async (req, res) => {
   try {
     const { action, note, reason } = req.body; // action: 'approve' | 'reject'
     if (!['approve', 'reject'].includes(action)) {

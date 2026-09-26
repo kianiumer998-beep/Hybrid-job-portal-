@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
 import { JobRepository } from '../db/repositories/JobRepository';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdminPermission } from '../auth/authManager';
 
 export const seoRouter = Router();
 
@@ -288,7 +288,7 @@ seoRouter.get('/config', (req, res) => {
   }
 });
 
-seoRouter.put('/config', requireAdmin, (req, res) => {
+seoRouter.put('/config', requireAdminPermission('seo.manage'), (req, res) => {
   try {
     const updated = { ...Database.getSeoConfig(), ...req.body, updatedAt: new Date().toISOString() };
     Database.saveSeoConfig(updated);

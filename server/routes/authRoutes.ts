@@ -5,7 +5,9 @@ import {
   hashPassword, 
   verifyPassword, 
   createToken, 
-  requireAuth 
+  requireAuth,
+  requireAdminPermission,
+  getPermissionsForRole
 } from '../auth/authManager';
 
 export const authRouter = Router();
@@ -240,15 +242,17 @@ authRouter.post('/admin-login', async (req, res) => {
     // Successful login: reset brute-force counter
     clearAttempts(ip);
 
+    const resolvedPermissions = getPermissionsForRole(user.role);
     const token = createToken({
       userId: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
-      permissions: user.permissions || ['all']
+      permissions: resolvedPermissions
     }, 168);
 
     const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = user;
+    safeUser.permissions = resolvedPermissions;
 
     AuditRepository.add({
       user: safeUser.name,
@@ -320,12 +324,13 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
     }
 
     // Generate a fresh signed token
+    const resolvedPermissions = getPermissionsForRole(updatedUser.role);
     const freshToken = createToken({
       userId: updatedUser.id,
       email: updatedUser.email,
       name: updatedUser.name,
       role: updatedUser.role,
-      permissions: updatedUser.permissions || (ADMIN_ROLES.includes(updatedUser.role) ? ['all'] : [])
+      permissions: resolvedPermissions
     }, ADMIN_ROLES.includes(updatedUser.role) ? 168 : 72);
 
     AuditRepository.add({
@@ -443,9 +448,132 @@ authRouter.get('/me', requireAuth, async (req: any, res) => {
     }
 
     const { passwordHash, salt, password, ...safeUser } = user;
+    safeUser.permissions = getPermissionsForRole(user.role);
     res.json({ success: true, user: safeUser });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Session error' });
+  }
+});
+
+// 7. Admin Role Management (Requires users.manage; restricted to Super Admin / Admin)
+const VALID_ASSIGNABLE_ROLES = [
+  'Job Seeker',
+  'Employer',
+  'Job Moderator',
+  'Scraper Manager',
+  'Payment Manager',
+  'Finance Manager',
+  'SEO Manager',
+  'Advertisement Manager',
+  'Admin',
+  'Super Admin'
+];
+
+authRouter.patch('/users/:id/role', requireAdminPermission('users.manage'), async (req: any, res) => {
+  try {
+    const targetUserId = (req.params.id || '').toString().trim();
+    const newRole = (req.body?.role || '').toString().trim();
+
+    if (!targetUserId || !newRole) {
+      return res.status(400).json({ success: false, message: 'Target user ID and role are required.' });
+    }
+
+    if (!VALID_ASSIGNABLE_ROLES.includes(newRole)) {
+      return res.status(400).json({ success: false, message: `Invalid role '${newRole}'.` });
+    }
+
+    const actorId = req.user?.userId || req.user?.id;
+    const actor = actorId ? await UserRepository.getByIdAsync(actorId) : null;
+    const actorRole = actor?.role || req.user?.role;
+
+    // Only Super Admin or Admin may assign administrative roles
+    if (actorRole !== 'Super Admin' && actorRole !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Only Super Admin or Admin may manage user roles.'
+      });
+    }
+
+    // Prevent a user from changing their own role (prevents self-elevation and accidental self-demotion)
+    if (String(targetUserId) === String(actorId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Action blocked: You cannot change your own administrative role.'
+      });
+    }
+
+    const targetUser = await UserRepository.getByIdAsync(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'Target user not found.' });
+    }
+
+    const oldRole = targetUser.role || 'Job Seeker';
+
+    // Only an existing Super Admin can assign the Super Admin role or modify an existing Super Admin
+    if (newRole === 'Super Admin' && actorRole !== 'Super Admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Only an existing Super Admin can assign the Super Admin role.'
+      });
+    }
+
+    if (oldRole === 'Super Admin' && actorRole !== 'Super Admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Only a Super Admin can modify another Super Admin account.'
+      });
+    }
+
+    // Prevent changing the last/only Super Admin into a lower role
+    if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
+      const allUsers = await UserRepository.getAllAsync();
+      const superAdminCount = allUsers.filter(u => u && u.role === 'Super Admin').length;
+      if (superAdminCount <= 1) {
+        return res.status(400).json({
+          success: false,
+          message: 'Action blocked: Cannot demote the last remaining Super Admin account.'
+        });
+      }
+    }
+
+    const updatedPermissions = getPermissionsForRole(newRole);
+
+    const updatedUser = await UserRepository.updateAsync(targetUser.id, {
+      role: newRole,
+      permissions: updatedPermissions
+    });
+
+    if (!updatedUser) {
+      return res.status(500).json({ success: false, message: 'Failed to update user role.' });
+    }
+
+    AuditRepository.add({
+      user: actor?.name || req.user?.name || req.user?.email || 'Administrator',
+      role: actorRole,
+      action: 'User Role Updated',
+      target: `${targetUser.email} (${oldRole} -> ${newRole})`,
+      status: 'Success',
+      metadata: {
+        actorId,
+        actorRole,
+        targetUserId: targetUser.id,
+        targetUserEmail: targetUser.email,
+        oldRole,
+        newRole,
+        permissions: updatedPermissions
+      }
+    });
+
+    const { passwordHash, salt, password, ...safeUser } = updatedUser;
+    safeUser.permissions = updatedPermissions;
+
+    return res.json({
+      success: true,
+      message: `Role for ${safeUser.name || safeUser.email} updated from '${oldRole}' to '${newRole}'.`,
+      user: safeUser
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Error updating user role.' });
   }
 });
 

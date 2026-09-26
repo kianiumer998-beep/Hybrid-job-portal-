@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PricingRepository, AuditRepository } from '../db/repositories';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdminPermission } from '../auth/authManager';
 
 export const pricingRouter = Router();
 
@@ -35,7 +35,7 @@ pricingRouter.post('/calculate-ad', (req, res) => {
 });
 
 // 4. Update Dynamic Pricing Configuration (Admin Only)
-pricingRouter.put('/', requireAdmin, (req, res) => {
+pricingRouter.put('/', requireAdminPermission('finance.manage'), (req, res) => {
   try {
     const updated = PricingRepository.update(req.body);
 

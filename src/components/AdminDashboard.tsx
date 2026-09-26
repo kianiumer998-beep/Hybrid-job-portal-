@@ -328,6 +328,157 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [moduleSearchQuery, setModuleSearchQuery] = useState('');
   const [seoPreviewJob, setSeoPreviewJob] = useState<Job | null>(null);
 
+  // Authenticated Admin Identity & Role Permissions (UX Guard - Backend remains authoritative)
+  const [currentAdminUser, setCurrentAdminUser] = useState<{
+    id?: string;
+    userId?: string;
+    name?: string;
+    email?: string;
+    role?: string;
+    permissions?: string[];
+  } | null>(() => {
+    try {
+      const saved = localStorage.getItem('hybrid_current_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
+    'Super Admin': ['*'],
+    'Admin': ['*'],
+    'Job Moderator': ['jobs.manage', 'applications.manage'],
+    'Scraper Manager': ['scraper.manage'],
+    'Payment Manager': ['payments.manage'],
+    'Finance Manager': ['finance.manage', 'payments.manage'],
+    'SEO Manager': ['seo.manage'],
+    'Advertisement Manager': ['advertisements.manage']
+  };
+
+  const effectiveAdminRole = currentAdminUser?.role || 'Super Admin';
+  const effectiveAdminPerms = ROLE_DEFAULT_PERMS[effectiveAdminRole] || currentAdminUser?.permissions || [];
+
+  const hasAdminUiPermission = (perm: string): boolean => {
+    if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
+    return effectiveAdminPerms.includes('*') || effectiveAdminPerms.includes(perm);
+  };
+
+  const canAccessAdminCategory = (cat: AdminCategory): boolean => {
+    if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
+    switch (cat) {
+      case 'jobs':
+        return hasAdminUiPermission('jobs.manage') || hasAdminUiPermission('applications.manage');
+      case 'scraper':
+        return hasAdminUiPermission('scraper.manage');
+      case 'ads':
+        return hasAdminUiPermission('advertisements.manage');
+      case 'payments':
+        return hasAdminUiPermission('payments.manage') || hasAdminUiPermission('finance.manage');
+      case 'users':
+        return hasAdminUiPermission('users.manage');
+      case 'alerts':
+        return hasAdminUiPermission('settings.manage') || hasAdminUiPermission('users.manage');
+      case 'settings':
+        return (
+          hasAdminUiPermission('seo.manage') ||
+          hasAdminUiPermission('settings.manage') ||
+          hasAdminUiPermission('audit.view')
+        );
+      default:
+        return false;
+    }
+  };
+
+  const canAccessAdminTab = (tabId: string): boolean => {
+    if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
+    if (['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(tabId)) {
+      return hasAdminUiPermission('jobs.manage') || hasAdminUiPermission('applications.manage');
+    }
+    if (['scraper', 'url-scraper', 'scraped-history'].includes(tabId)) {
+      return hasAdminUiPermission('scraper.manage');
+    }
+    if (['campaign-center', 'advertisements', 'landing-customizer'].includes(tabId)) {
+      return hasAdminUiPermission('advertisements.manage');
+    }
+    if (['payment-proofs', 'fee-logs'].includes(tabId)) {
+      return hasAdminUiPermission('payments.manage') || hasAdminUiPermission('finance.manage');
+    }
+    if (['pricing-controller', 'admin-payment-methods', 'fee-management', 'currency-forex'].includes(tabId)) {
+      return hasAdminUiPermission('finance.manage');
+    }
+    if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(tabId)) {
+      return hasAdminUiPermission('users.manage');
+    }
+    if (['seo-config'].includes(tabId)) {
+      return hasAdminUiPermission('seo.manage');
+    }
+    if (['activity-logs'].includes(tabId)) {
+      return hasAdminUiPermission('audit.view');
+    }
+    if (['apply-settings', 'settings', 'form-customizer', 'data-backup', 'analytics', 'whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(tabId)) {
+      return hasAdminUiPermission('settings.manage');
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    api.auth.me()
+      .then((res: any) => {
+        if (res?.success && res.user) {
+          setCurrentAdminUser(res.user);
+          try {
+            localStorage.setItem('hybrid_current_user', JSON.stringify(res.user));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (hasAdminUiPermission('users.manage') && onUpdateUser) {
+      api.users.getAll()
+        .then((res: any) => {
+          if (res?.success && Array.isArray(res.users)) {
+            res.users.forEach((backendUser: any) => {
+              if (backendUser && backendUser.id) {
+                onUpdateUser(backendUser);
+              }
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [effectiveAdminRole]);
+
+  useEffect(() => {
+    if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return;
+    if (!canAccessAdminCategory(activeCategory) || !canAccessAdminTab(adminTab)) {
+      if (hasAdminUiPermission('jobs.manage')) {
+        setActiveCategory('jobs');
+        setAdminTab('jobs');
+      } else if (hasAdminUiPermission('scraper.manage')) {
+        setActiveCategory('scraper');
+        setAdminTab('scraper');
+      } else if (hasAdminUiPermission('advertisements.manage')) {
+        setActiveCategory('ads');
+        setAdminTab('campaign-center');
+      } else if (hasAdminUiPermission('finance.manage') || hasAdminUiPermission('payments.manage')) {
+        setActiveCategory('payments');
+        setAdminTab('payment-proofs');
+      } else if (hasAdminUiPermission('seo.manage')) {
+        setActiveCategory('settings');
+        setAdminTab('seo-config');
+      } else if (hasAdminUiPermission('users.manage')) {
+        setActiveCategory('users');
+        setAdminTab('user-audit');
+      } else if (hasAdminUiPermission('audit.view')) {
+        setActiveCategory('settings');
+        setAdminTab('activity-logs');
+      }
+    }
+  }, [effectiveAdminRole]);
+
   // International Admin Suite States
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(INITIAL_SITE_SEO_CONFIG);
 
@@ -2053,7 +2204,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               { id: 'users' as AdminCategory, label: '👥 Users & KYC', urdu: 'صارفین', count: kycRequests.filter(r => r.status === 'Pending').length > 0 ? `${kycRequests.filter(r => r.status === 'Pending').length} KYC` : undefined, countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
               { id: 'alerts' as AdminCategory, label: '📣 Alerts & WhatsApp', urdu: 'الرٹس', count: undefined },
               { id: 'settings' as AdminCategory, label: '⚙️ Settings & SEO', urdu: 'ترتیبات', count: undefined }
-            ].map((cat) => (
+            ].filter(cat => canAccessAdminCategory(cat.id)).map((cat) => (
               <button
                 key={cat.id}
                 type="button"
@@ -2063,10 +2214,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   if (cat.id === 'jobs' && !['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(adminTab)) setAdminTab('jobs');
                   if (cat.id === 'scraper') setAdminTab('scraper');
                   if (cat.id === 'ads' && !['campaign-center', 'advertisements', 'landing-customizer'].includes(adminTab)) setAdminTab('campaign-center');
-                  if (cat.id === 'payments' && !['admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'].includes(adminTab)) setAdminTab('admin-payment-methods');
+                  if (cat.id === 'payments' && !['admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'].includes(adminTab)) {
+                    setAdminTab(hasAdminUiPermission('finance.manage') ? 'admin-payment-methods' : 'payment-proofs');
+                  }
                   if (cat.id === 'users' && !['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(adminTab)) setAdminTab('user-audit');
                   if (cat.id === 'alerts' && !['whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(adminTab)) setAdminTab('whatsapp-manager');
-                  if (cat.id === 'settings' && !['seo-config', 'settings', 'form-customizer', 'activity-logs', 'data-backup', 'analytics'].includes(adminTab)) setAdminTab('seo-config');
+                  if (cat.id === 'settings' && !['seo-config', 'settings', 'form-customizer', 'activity-logs', 'data-backup', 'analytics'].includes(adminTab)) {
+                    setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
+                  }
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer select-none ${
                   activeCategory === cat.id
@@ -2191,7 +2346,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس', icon: DollarSign },
                 { id: 'fee-logs', label: `Per-Job Fee Logs (${jobPostingFeeLogs.length})`, urdu: 'فیس لین دین', icon: Receipt },
                 { id: 'currency-forex', label: 'Multi-Currency & Forex', urdu: 'کرنسی ایکسچینج', icon: Coins }
-              ].map((t) => {
+              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
@@ -2282,7 +2437,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 { id: 'activity-logs', label: 'Security & Activity Trail', urdu: 'سیکیورٹی لاگز', icon: ShieldCheck },
                 { id: 'data-backup', label: 'Data Vault & CSV Backup', urdu: 'بیک اپ اور ایکسپورٹ', icon: Database },
                 { id: 'analytics', label: 'Executive Analytics & KPIs', urdu: 'اینالیٹکس رپورٹس', icon: BarChart3 }
-              ].map((t) => {
+              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
@@ -2418,10 +2573,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 const q = moduleSearchQuery.toLowerCase().trim();
                 const filteredItems = cat.items.filter(
                   (it) =>
-                    !q ||
-                    it.label.toLowerCase().includes(q) ||
-                    it.urdu.toLowerCase().includes(q) ||
-                    it.id.toLowerCase().includes(q)
+                    canAccessAdminTab(it.id) &&
+                    (!q ||
+                      it.label.toLowerCase().includes(q) ||
+                      it.urdu.toLowerCase().includes(q) ||
+                      it.id.toLowerCase().includes(q))
                 );
 
                 if (filteredItems.length === 0) return null;
@@ -6477,6 +6633,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           userJobs={jobs.concat(pendingJobs).filter(j => j.submittedByUserId === selectedUserForModal.id || j.company.toLowerCase() === selectedUserForModal.companyName?.toLowerCase())}
           userApplications={allApplications.filter(a => a.applicantId === selectedUserForModal.id)}
           userAds={ads}
+          currentAdminUser={currentAdminUser}
+          onUpdateUserRole={async (userId, newRole) => {
+            const res = await api.auth.updateUserRole(userId, newRole);
+            if (res?.success && res.user) {
+              const updatedUserObj = { ...selectedUserForModal, ...res.user };
+              setSelectedUserForModal(updatedUserObj);
+              if (onUpdateUser) {
+                onUpdateUser(updatedUserObj);
+              }
+            }
+            return res;
+          }}
           onClose={() => setSelectedUserForModal(null)}
           onUpdateUserExpiry={onUpdateUserExpiry}
           onToggleUserPlan={onToggleUserPlan}

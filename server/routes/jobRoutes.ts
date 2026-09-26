@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Database, generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdminPermission } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
 import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType } from '../services/jobValidation';
 import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
@@ -57,7 +57,7 @@ jobRouter.get('/', async (req, res) => {
 });
 
 // 2. Get Pending Jobs Queue (Admin Only)
-jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
+jobRouter.get('/queue/pending', requireAdminPermission('jobs.manage'), async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
@@ -117,7 +117,7 @@ jobRouter.get('/queue/pending', requireAdmin, async (req, res) => {
 });
 
 // 3. Approve Pending Job
-jobRouter.post('/queue/pending/:id/approve', requireAdmin, async (req, res) => {
+jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { force } = req.body || {};
     const pendingList = await JobRepository.getPending();
@@ -168,7 +168,7 @@ jobRouter.post('/queue/pending/:id/approve', requireAdmin, async (req, res) => {
 });
 
 // 4. Reject Pending Job
-jobRouter.post('/queue/pending/:id/reject', requireAdmin, async (req, res) => {
+jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body || {};
@@ -233,7 +233,7 @@ jobRouter.post('/queue/pending/:id/reject', requireAdmin, async (req, res) => {
 });
 
 // 5. Bulk Delete Jobs
-jobRouter.post('/bulk-delete', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -318,7 +318,7 @@ jobRouter.post('/bulk-delete', requireAdmin, async (req, res) => {
 });
 
 // 6. Bulk Approve Pending Jobs
-jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids, force = false } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -384,7 +384,7 @@ jobRouter.post('/bulk-approve', requireAdmin, async (req, res) => {
 });
 
 // 7. Bulk Reject Pending Jobs
-jobRouter.post('/bulk-reject', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids, reason } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -470,7 +470,7 @@ jobRouter.post('/bulk-reject', requireAdmin, async (req, res) => {
 });
 
 // 8. Bulk Delete Duplicates (Delete Selected Duplicates)
-jobRouter.post('/bulk-delete-duplicates', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-delete-duplicates', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -500,7 +500,7 @@ jobRouter.post('/bulk-delete-duplicates', requireAdmin, async (req, res) => {
     });
   }
 });
-jobRouter.post('/duplicates/bulk-delete', requireAdmin, async (req, res) => {
+jobRouter.post('/duplicates/bulk-delete', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -532,7 +532,7 @@ jobRouter.post('/duplicates/bulk-delete', requireAdmin, async (req, res) => {
 });
 
 // 9. Keep Original + Delete Duplicates
-jobRouter.post('/keep-original-delete-duplicates', requireAdmin, async (req, res) => {
+jobRouter.post('/keep-original-delete-duplicates', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -562,7 +562,7 @@ jobRouter.post('/keep-original-delete-duplicates', requireAdmin, async (req, res
     });
   }
 });
-jobRouter.post('/duplicates/keep-original', requireAdmin, async (req, res) => {
+jobRouter.post('/duplicates/keep-original', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -594,7 +594,7 @@ jobRouter.post('/duplicates/keep-original', requireAdmin, async (req, res) => {
 });
 
 // 10. Overwrite Original with Duplicate Data
-jobRouter.post('/overwrite-original', requireAdmin, async (req, res) => {
+jobRouter.post('/overwrite-original', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -624,7 +624,7 @@ jobRouter.post('/overwrite-original', requireAdmin, async (req, res) => {
     });
   }
 });
-jobRouter.post('/duplicates/overwrite-original', requireAdmin, async (req, res) => {
+jobRouter.post('/duplicates/overwrite-original', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -656,7 +656,7 @@ jobRouter.post('/duplicates/overwrite-original', requireAdmin, async (req, res) 
 });
 
 // 8. Bulk Update Jobs
-jobRouter.post('/bulk-update', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-update', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { jobs: updatedList } = req.body;
     if (!Array.isArray(updatedList) || updatedList.length === 0) {
@@ -671,7 +671,7 @@ jobRouter.post('/bulk-update', requireAdmin, async (req, res) => {
 });
 
 // 9. Bulk Add Jobs
-jobRouter.post('/bulk-add', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-add', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { jobs: batchJobs, status = 'Approved' } = req.body;
     if (!Array.isArray(batchJobs) || batchJobs.length === 0) {
@@ -689,7 +689,7 @@ jobRouter.post('/bulk-add', requireAdmin, async (req, res) => {
 });
 
 // 10. Batch Ingest & Persist Jobs (Direct MongoDB Storage - Admin Only)
-jobRouter.post('/batch', requireAdmin, async (req, res) => {
+jobRouter.post('/batch', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { jobs: batchJobs, autoPublish = false, autoApprove = false } = req.body;
     if (!Array.isArray(batchJobs) || batchJobs.length === 0) {
@@ -757,7 +757,7 @@ jobRouter.post('/detect-duplicates', async (req, res) => {
 });
 
 // 12. Override Duplicate Decision (Admin Only)
-jobRouter.post('/override-duplicate', requireAdmin, async (req, res) => {
+jobRouter.post('/override-duplicate', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { jobId, reason = 'Manually verified as distinct vacancy by administrator' } = req.body;
     if (!jobId) {
@@ -810,7 +810,7 @@ jobRouter.post('/override-duplicate', requireAdmin, async (req, res) => {
 });
 
 // 13. Intelligent Merge of Duplicates
-jobRouter.post('/merge', requireAdmin, async (req, res) => {
+jobRouter.post('/merge', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { primaryJobId, secondaryJobId } = req.body;
     const primary = (await JobRepository.getById(primaryJobId)) || (await JobRepository.getPending()).find(j => j.id === primaryJobId);
@@ -959,7 +959,7 @@ jobRouter.post('/', async (req, res) => {
 });
 
 // 17. Update Job
-jobRouter.put('/:id', requireAdmin, async (req, res) => {
+jobRouter.put('/:id', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const updated = await JobRepository.update(req.params.id, req.body);
     if (!updated) {
@@ -980,7 +980,7 @@ jobRouter.put('/:id', requireAdmin, async (req, res) => {
 });
 
 // 18. Delete Job
-jobRouter.delete('/:id', requireAdmin, async (req, res) => {
+jobRouter.delete('/:id', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const existing = (await JobRepository.getJobsByIds([id]))[0];
@@ -1029,7 +1029,7 @@ jobRouter.delete('/:id', requireAdmin, async (req, res) => {
 });
 
 // 19. Restore Expired Job to Live (Admin Only) - Preserves original deadlineDate
-jobRouter.post('/restore-expired/:id', requireAdmin, async (req, res) => {
+jobRouter.post('/restore-expired/:id', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const restored = await JobRepository.restoreJobToLive(req.params.id);
     if (!restored) {
@@ -1050,7 +1050,7 @@ jobRouter.post('/restore-expired/:id', requireAdmin, async (req, res) => {
 });
 
 // 20. Bulk Restore Expired Jobs to Live (Admin Only) - Preserves original deadlineDate
-jobRouter.post('/bulk-restore-expired', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-restore-expired', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -1072,7 +1072,7 @@ jobRouter.post('/bulk-restore-expired', requireAdmin, async (req, res) => {
 });
 
 // 21. Permanently Delete Job (Admin Only)
-jobRouter.delete('/permanent/:id', requireAdmin, async (req, res) => {
+jobRouter.delete('/permanent/:id', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const existing = (await JobRepository.getJobsByIds([id]))[0];
@@ -1121,7 +1121,7 @@ jobRouter.delete('/permanent/:id', requireAdmin, async (req, res) => {
 });
 
 // 22. Bulk Update Job Locations (Admin Only)
-jobRouter.post('/bulk-update-location', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-update-location', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { jobIds, locationData } = req.body;
     if (!Array.isArray(jobIds) || jobIds.length === 0) {
@@ -1143,7 +1143,7 @@ jobRouter.post('/bulk-update-location', requireAdmin, async (req, res) => {
 });
 
 // 23. Bulk Mark Pending Records as Non-Job (Admin Only)
-jobRouter.post('/bulk-mark-non-job', requireAdmin, async (req, res) => {
+jobRouter.post('/bulk-mark-non-job', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { ids, reason } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -1165,7 +1165,7 @@ jobRouter.post('/bulk-mark-non-job', requireAdmin, async (req, res) => {
 });
 
 // 24. Convert Non-Job/Needs-Review record to Standard Job (Admin Only)
-jobRouter.post('/convert-to-job', requireAdmin, async (req, res) => {
+jobRouter.post('/convert-to-job', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { id } = req.body;
     if (!id) {

@@ -9,7 +9,7 @@ import {
   stopActiveRun,
   resetActiveRun
 } from '../services/scraperEngine';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdminPermission } from '../auth/authManager';
 import { ScraperRepository, AuditRepository } from '../db/repositories';
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
@@ -20,7 +20,7 @@ import { Job } from '../../src/types/job';
 export const scraperRouter = Router();
 
 // 1. Get Scraper Sources (Admin Only)
-scraperRouter.get('/configs', requireAdmin, async (req, res) => {
+scraperRouter.get('/configs', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const sources = await ScraperRepository.getConfigs();
     res.json({ success: true, configs: sources });
@@ -30,7 +30,7 @@ scraperRouter.get('/configs', requireAdmin, async (req, res) => {
 });
 
 // 2. Update Scraper Sources (Admin Only)
-scraperRouter.put('/configs', requireAdmin, async (req, res) => {
+scraperRouter.put('/configs', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     await ScraperRepository.saveConfigs(req.body);
     AuditRepository.add({
@@ -47,7 +47,7 @@ scraperRouter.put('/configs', requireAdmin, async (req, res) => {
 });
 
 // 3. Scheduler Status & Diagnostics (Admin Only)
-scraperRouter.get('/scheduler-status', requireAdmin, async (req, res) => {
+scraperRouter.get('/scheduler-status', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const status = await getSchedulerStatus();
     res.json({ success: true, status });
@@ -57,7 +57,7 @@ scraperRouter.get('/scheduler-status', requireAdmin, async (req, res) => {
 });
 
 // 4. Trigger Scheduler Tick Manually (Admin Only)
-scraperRouter.post('/scheduler-tick', requireAdmin, async (req, res) => {
+scraperRouter.post('/scheduler-tick', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const tickResult = await runSchedulerTick();
     res.json({ success: true, ...tickResult });
@@ -67,7 +67,7 @@ scraperRouter.post('/scheduler-tick', requireAdmin, async (req, res) => {
 });
 
 // 5. Update Global Scheduler State (Admin Only)
-scraperRouter.post('/scheduler-state', requireAdmin, (req, res) => {
+scraperRouter.post('/scheduler-state', requireAdminPermission('scraper.manage'), (req, res) => {
   try {
     const { enabled } = req.body;
     const result = setGlobalSchedulerState(Boolean(enabled));
@@ -78,7 +78,7 @@ scraperRouter.post('/scheduler-state', requireAdmin, (req, res) => {
 });
 
 // 6. Parse a specific URL or PDF document with 100% factual integrity (NO demo/synthetic jobs)
-scraperRouter.post('/parse-url', requireAdmin, async (req, res) => {
+scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const { url, organization, title } = req.body;
     if (!url || typeof url !== 'string' || !url.trim().startsWith('http')) {
@@ -172,7 +172,7 @@ scraperRouter.post('/parse-url', requireAdmin, async (req, res) => {
 });
 
 // 6. Trigger Real Scraper Run with Multi-Source & All Modes
-scraperRouter.post('/run', requireAdmin, async (req, res) => {
+scraperRouter.post('/run', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const options: ScraperRunOptions = {
       mode: req.body.mode || 'complete',
@@ -195,7 +195,7 @@ scraperRouter.post('/run', requireAdmin, async (req, res) => {
 });
 
 // 6a. Active Scraper Run Monitoring & Controls (Admin Only)
-scraperRouter.get('/active-run', requireAdmin, (req, res) => {
+scraperRouter.get('/active-run', requireAdminPermission('scraper.manage'), (req, res) => {
   try {
     const status = getActiveRunStatus();
     res.json({ success: true, activeRun: status });
@@ -204,7 +204,7 @@ scraperRouter.get('/active-run', requireAdmin, (req, res) => {
   }
 });
 
-scraperRouter.post('/active-run/pause', requireAdmin, (req, res) => {
+scraperRouter.post('/active-run/pause', requireAdminPermission('scraper.manage'), (req, res) => {
   try {
     const paused = pauseActiveRun();
     res.json({ success: true, paused, activeRun: getActiveRunStatus() });
@@ -213,7 +213,7 @@ scraperRouter.post('/active-run/pause', requireAdmin, (req, res) => {
   }
 });
 
-scraperRouter.post('/active-run/resume', requireAdmin, (req, res) => {
+scraperRouter.post('/active-run/resume', requireAdminPermission('scraper.manage'), (req, res) => {
   try {
     const resumed = resumeActiveRun();
     res.json({ success: true, resumed, activeRun: getActiveRunStatus() });
@@ -222,7 +222,7 @@ scraperRouter.post('/active-run/resume', requireAdmin, (req, res) => {
   }
 });
 
-scraperRouter.post('/active-run/stop', requireAdmin, (req, res) => {
+scraperRouter.post('/active-run/stop', requireAdminPermission('scraper.manage'), (req, res) => {
   try {
     const stopped = stopActiveRun();
     res.json({ success: true, stopped, activeRun: getActiveRunStatus() });
@@ -231,7 +231,7 @@ scraperRouter.post('/active-run/stop', requireAdmin, (req, res) => {
   }
 });
 
-scraperRouter.post('/active-run/reset', requireAdmin, (req, res) => {
+scraperRouter.post('/active-run/reset', requireAdminPermission('scraper.manage'), (req, res) => {
   try {
     const status = resetActiveRun();
     res.json({ success: true, activeRun: status });
@@ -241,7 +241,7 @@ scraperRouter.post('/active-run/reset', requireAdmin, (req, res) => {
 });
 
 // 7. Get Scraper Audit Runs History (Admin Only)
-scraperRouter.get('/runs', requireAdmin, async (req, res) => {
+scraperRouter.get('/runs', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const runs = await ScraperRepository.getRuns();
     res.json({ success: true, runs });
@@ -251,7 +251,7 @@ scraperRouter.get('/runs', requireAdmin, async (req, res) => {
 });
 
 // 8. Retry Scraper Sources (Retry Selected, Retry Failed, Retry All Failed)
-scraperRouter.post('/retry', requireAdmin, async (req, res) => {
+scraperRouter.post('/retry', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const { sourceIds, retryAllFailed } = req.body;
     let targetIds: string[] = [];
@@ -294,7 +294,7 @@ scraperRouter.post('/retry', requireAdmin, async (req, res) => {
 });
 
 // 9. Source Groups CRUD & Execution (Admin Only)
-scraperRouter.get('/groups', requireAdmin, async (req, res) => {
+scraperRouter.get('/groups', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const groups = await ScraperRepository.getGroups();
     res.json({ success: true, groups });
@@ -303,7 +303,7 @@ scraperRouter.get('/groups', requireAdmin, async (req, res) => {
   }
 });
 
-scraperRouter.post('/groups', requireAdmin, async (req, res) => {
+scraperRouter.post('/groups', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const { name, description, sourceIds } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
@@ -323,7 +323,7 @@ scraperRouter.post('/groups', requireAdmin, async (req, res) => {
   }
 });
 
-scraperRouter.put('/groups/:id', requireAdmin, async (req, res) => {
+scraperRouter.put('/groups/:id', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const group = await ScraperRepository.updateGroup(req.params.id, req.body);
     if (!group) return res.status(404).json({ success: false, message: 'Group not found' });
@@ -340,7 +340,7 @@ scraperRouter.put('/groups/:id', requireAdmin, async (req, res) => {
   }
 });
 
-scraperRouter.delete('/groups/:id', requireAdmin, async (req, res) => {
+scraperRouter.delete('/groups/:id', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const deleted = await ScraperRepository.deleteGroup(req.params.id);
     AuditRepository.add({
@@ -356,7 +356,7 @@ scraperRouter.delete('/groups/:id', requireAdmin, async (req, res) => {
   }
 });
 
-scraperRouter.post('/groups/:id/add-sources', requireAdmin, async (req, res) => {
+scraperRouter.post('/groups/:id/add-sources', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const { sourceIds } = req.body;
     const group = await ScraperRepository.addSourcesToGroup(req.params.id, sourceIds);
@@ -367,7 +367,7 @@ scraperRouter.post('/groups/:id/add-sources', requireAdmin, async (req, res) => 
   }
 });
 
-scraperRouter.post('/groups/:id/remove-sources', requireAdmin, async (req, res) => {
+scraperRouter.post('/groups/:id/remove-sources', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const { sourceIds } = req.body;
     const group = await ScraperRepository.removeSourcesFromGroup(req.params.id, sourceIds);
@@ -378,7 +378,7 @@ scraperRouter.post('/groups/:id/remove-sources', requireAdmin, async (req, res) 
   }
 });
 
-scraperRouter.post('/groups/:id/run', requireAdmin, async (req, res) => {
+scraperRouter.post('/groups/:id/run', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const groups = await ScraperRepository.getGroups();
     const group = groups.find(g => g.id === req.params.id);

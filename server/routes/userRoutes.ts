@@ -1,31 +1,21 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
 import { PaymentRepository, UserRepository } from '../db/repositories';
-import { requireAdmin, requireAuth } from '../auth/authManager';
+import { requireAdminPermission, requireAuth, hasAdminPermission, getPermissionsForRole } from '../auth/authManager';
 
 export const userRouter = Router();
 
-const ADMIN_ROLES = [
-  'Super Admin',
-  'Admin',
-  'Job Moderator',
-  'Scraper Manager',
-  'Payment Manager',
-  'Finance Manager',
-  'SEO Manager',
-  'Advertisement Manager'
-];
-
 function isUserAdmin(user: any): boolean {
-  return Boolean(user && ADMIN_ROLES.includes(user.role));
+  return hasAdminPermission(user?.role, 'users.manage');
 }
 
-// 1. Get All Users (Admin Only)
-userRouter.get('/', requireAdmin, async (req, res) => {
+// 1. Get All Users (Admin Only - Requires users.manage)
+userRouter.get('/', requireAdminPermission('users.manage'), async (req, res) => {
   try {
     const rawUsers = await UserRepository.getAllAsync();
     const users = rawUsers.map(u => {
       const { passwordHash, salt, password, ...safe } = u;
+      safe.permissions = getPermissionsForRole(u.role);
       return safe;
     });
     res.json({ success: true, users });
@@ -170,10 +160,13 @@ userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
 // 2. Get User Wallet Summary (Strictly authorization protected)
 userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
   try {
-    const isAdmin = isUserAdmin(req.user);
+    const canViewWallet =
+      hasAdminPermission(req.user?.role, 'users.manage') ||
+      hasAdminPermission(req.user?.role, 'payments.manage') ||
+      hasAdminPermission(req.user?.role, 'finance.manage');
     const currentUserId = req.user?.userId || req.user?.id;
 
-    if (!isAdmin && req.params.id !== currentUserId) {
+    if (!canViewWallet && req.params.id !== currentUserId) {
       return res.status(403).json({ success: false, message: 'Access denied: You can only view your own wallet.' });
     }
 
@@ -263,11 +256,13 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       finalUpdates = { ...updates };
     }
 
-    // Never allow updating passwordHash, salt, password, or primary ID directly via this endpoint
+    // Never allow updating passwordHash, salt, password, role, permissions, or primary ID directly via this endpoint
     delete finalUpdates.passwordHash;
     delete finalUpdates.salt;
     delete finalUpdates.password;
     delete finalUpdates.id;
+    delete finalUpdates.role;
+    delete finalUpdates.permissions;
 
     const updated = await UserRepository.updateAsync(id, finalUpdates);
     if (!updated) {

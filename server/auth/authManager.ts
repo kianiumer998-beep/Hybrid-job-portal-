@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Database } from '../db/database';
+import { UserRepository } from '../db/repositories/UserRepository';
 
 function resolveJwtSecret(): string {
   const configuredSecret = process.env.JWT_SECRET?.trim();
@@ -25,6 +26,63 @@ function resolveJwtSecret(): string {
 }
 
 const JWT_SECRET = resolveJwtSecret();
+
+export const ADMIN_PERMISSIONS = [
+  'jobs.manage',
+  'applications.manage',
+  'scraper.manage',
+  'payments.manage',
+  'finance.manage',
+  'seo.manage',
+  'advertisements.manage',
+  'users.manage',
+  'settings.manage',
+  'audit.view'
+] as const;
+
+export type AdminPermission = typeof ADMIN_PERMISSIONS[number];
+
+export const ADMIN_ROLES = [
+  'Super Admin',
+  'Admin',
+  'Job Moderator',
+  'Scraper Manager',
+  'Payment Manager',
+  'Finance Manager',
+  'SEO Manager',
+  'Advertisement Manager'
+] as const;
+
+export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
+  'Super Admin': ['*'],
+  'Admin': ['*'],
+  'Job Moderator': ['jobs.manage', 'applications.manage'],
+  'Scraper Manager': ['scraper.manage'],
+  'Payment Manager': ['payments.manage'],
+  'Finance Manager': ['finance.manage', 'payments.manage'],
+  'SEO Manager': ['seo.manage'],
+  'Advertisement Manager': ['advertisements.manage']
+};
+
+export function getPermissionsForRole(role?: string): string[] {
+  if (!role) return [];
+  const perms = DEFAULT_ROLE_PERMISSIONS[role];
+  return perms ? [...perms] : [];
+}
+
+export function hasAdminPermission(role?: string, permission?: string): boolean {
+  if (!role || !(ADMIN_ROLES as readonly string[]).includes(role)) {
+    return false;
+  }
+  if (role === 'Super Admin' || role === 'Admin') {
+    return true;
+  }
+  if (!permission) {
+    return true;
+  }
+  const perms = DEFAULT_ROLE_PERMISSIONS[role] || [];
+  return perms.includes('*') || perms.includes(permission);
+}
 
 export interface UserSession {
   userId: string;
@@ -124,25 +182,68 @@ export function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-export function requireAdmin(req: any, res: any, next: any) {
+export async function requireAdmin(req: any, res: any, next: any) {
   if (!req.user) {
     return res.status(401).json({ success: false, message: 'Admin authentication required.' });
   }
 
-  const adminRoles = [
-    'Super Admin',
-    'Admin',
-    'Job Moderator',
-    'Scraper Manager',
-    'Payment Manager',
-    'Finance Manager',
-    'SEO Manager',
-    'Advertisement Manager'
-  ];
+  try {
+    const userId = req.user.userId || req.user.id;
+    const dbUser = userId ? await UserRepository.getByIdAsync(userId) : null;
+    if (dbUser && dbUser.role !== req.user.role) {
+      return res.status(401).json({
+        success: false,
+        message: 'Your administrative role has changed. Please log in again to refresh your session.'
+      });
+    }
 
-  if (!adminRoles.includes(req.user.role)) {
-    return res.status(403).json({ success: false, message: 'Access denied: Administrative privileges required.' });
+    const effectiveRole = dbUser?.role || req.user.role;
+    if (!(ADMIN_ROLES as readonly string[]).includes(effectiveRole)) {
+      return res.status(403).json({ success: false, message: 'Access denied: Administrative privileges required.' });
+    }
+
+    req.user.role = effectiveRole;
+    req.user.permissions = getPermissionsForRole(effectiveRole);
+    next();
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Authorization verification error.' });
   }
+}
 
-  next();
+export function requireAdminPermission(permission: string) {
+  return async (req: any, res: any, next: any) => {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Admin authentication required.' });
+    }
+
+    try {
+      const userId = req.user.userId || req.user.id;
+      const dbUser = userId ? await UserRepository.getByIdAsync(userId) : null;
+      if (dbUser && dbUser.role !== req.user.role) {
+        return res.status(401).json({
+          success: false,
+          message: 'Your administrative role has changed. Please log in again to refresh your session.'
+        });
+      }
+
+      const effectiveRole = dbUser?.role || req.user.role;
+      if (!(ADMIN_ROLES as readonly string[]).includes(effectiveRole)) {
+        return res.status(403).json({ success: false, message: 'Access denied: Administrative privileges required.' });
+      }
+
+      req.user.role = effectiveRole;
+      req.user.permissions = getPermissionsForRole(effectiveRole);
+
+      if (!hasAdminPermission(effectiveRole, permission)) {
+        return res.status(403).json({
+          success: false,
+          message: `Access denied: Role '${effectiveRole}' does not have required permission '${permission}'.`
+        });
+      }
+
+      next();
+    } catch (err) {
+      return res.status(500).json({ success: false, message: 'Authorization verification error.' });
+    }
+  };
 }

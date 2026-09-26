@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AdRepository, AuditRepository } from '../db/repositories';
-import { requireAdmin, requireAuth, authMiddleware } from '../auth/authManager';
+import { requireAdminPermission, requireAuth, authMiddleware } from '../auth/authManager';
 
 export const adRouter = Router();
 
@@ -46,7 +46,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
 });
 
 // 3. Update Advertisement
-adRouter.put('/:id', requireAdmin, async (req, res) => {
+adRouter.put('/:id', requireAdminPermission('advertisements.manage'), async (req, res) => {
   try {
     const updated = await AdRepository.updateAsync(req.params.id, req.body);
     if (!updated) {
@@ -60,7 +60,7 @@ adRouter.put('/:id', requireAdmin, async (req, res) => {
 });
 
 // 4. Delete Advertisement
-adRouter.delete('/:id', requireAdmin, async (req, res) => {
+adRouter.delete('/:id', requireAdminPermission('advertisements.manage'), async (req, res) => {
   try {
     const deleted = await AdRepository.deleteAsync(req.params.id);
     if (!deleted) {

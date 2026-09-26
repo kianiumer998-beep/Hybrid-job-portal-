@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { ApplicationRepository, AuditRepository, JobRepository } from '../db/repositories';
 import { Database } from '../db/database';
-import { requireAdmin, requireAuth } from '../auth/authManager';
+import { requireAdminPermission, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 
 export const applicationRouter = Router();
@@ -348,7 +348,7 @@ applicationRouter.post('/', async (req, res) => {
 });
 
 // 5. Update Application Status (Reviewed, Shortlisted, Rejected)
-applicationRouter.patch('/:id/status', requireAdmin, async (req, res) => {
+applicationRouter.patch('/:id/status', requireAdminPermission('applications.manage'), async (req, res) => {
   try {
     const { status, notes } = req.body;
     const updated = await ApplicationRepository.updateStatusAsync(req.params.id, status, notes);

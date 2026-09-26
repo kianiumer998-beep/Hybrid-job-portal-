@@ -1,6 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserAccount, Job, JobApplication } from '../types/job';
+import { api } from '../services/api';
 import { X, User, Lock, Mail, Phone, Building2, MapPin, Calendar, Clock, DollarSign, Key, Shield, CheckCircle2, Briefcase, FileText, Receipt, Sparkles, Edit3 } from 'lucide-react';
+
+const ROLE_OPTIONS = [
+  'Job Seeker',
+  'Employer',
+  'Job Moderator',
+  'Scraper Manager',
+  'Payment Manager',
+  'Finance Manager',
+  'SEO Manager',
+  'Advertisement Manager',
+  'Admin',
+  'Super Admin'
+] as const;
+
+const ROLE_MODULE_ACCESS_MAP: Record<string, string[]> = {
+  'Job Seeker': ['Public Job Search', 'Apply to Jobs & Upload CV', 'Saved Jobs & Job Alerts'],
+  'Employer': ['Post Job Vacancies', 'Employer Dashboard & Applications', 'Wallet & Ad Campaigns'],
+  'Job Moderator': ['jobs.manage (Job Moderation Queue, Live Listings, Duplicate Resolution)', 'applications.manage (Candidate Applications & Status Updates)'],
+  'Scraper Manager': ['scraper.manage (Scraper Sources, Scheduler Controls, Active Run & Source Groups)'],
+  'Payment Manager': ['payments.manage (Payment Receipt Verification & Transaction Approvals)'],
+  'Finance Manager': ['finance.manage (Universal Pricing Controller & Fee Configuration)', 'payments.manage (Payment Receipt Verification & Transaction Approvals)'],
+  'SEO Manager': ['seo.manage (Google Search SEO, Meta Tags & Sitemap Configuration)'],
+  'Advertisement Manager': ['advertisements.manage (Ad Campaigns, Banner Slots & Ad Moderation)'],
+  'Admin': ['Full Administrative Access (*) — Jobs, Applications, Scraper, Payments, Finance, SEO, Ads, Users, Settings & Audit Logs'],
+  'Super Admin': ['Full System & Super Admin Access (*) — All Administrative Modules + Super Admin Role Governance']
+};
 
 interface UserDetailModalProps {
   user: UserAccount | null;
@@ -18,6 +45,8 @@ interface UserDetailModalProps {
   userAds?: any[];
   onSaveAdminNotes?: (userId: string, notes: string) => void;
   onUpdateUserVerification?: (userId: string, status: string, kycStatus?: string) => void;
+  currentAdminUser?: { id?: string; userId?: string; name?: string; email?: string; role?: string; permissions?: string[] } | null;
+  onUpdateUserRole?: (userId: string, newRole: string) => Promise<{ success: boolean; message?: string; user?: any }>;
 }
 
 export const UserDetailModal: React.FC<UserDetailModalProps> = ({
@@ -32,13 +61,82 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
   onDeactivateUserJobs,
   onEndUserMembershipAndJobs,
   onSuspendJob,
-  onInspectJob
+  onInspectJob,
+  currentAdminUser,
+  onUpdateUserRole
 }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'applications' | 'posted-jobs' | 'transactions'>('info');
   const [adminNewPassword, setAdminNewPassword] = useState('');
   const [customExpiryInput, setCustomExpiryInput] = useState('');
+  const [selectedRole, setSelectedRole] = useState<string>(user?.role || 'Job Seeker');
+  const [roleUpdateLoading, setRoleUpdateLoading] = useState(false);
+  const [roleUpdateFeedback, setRoleUpdateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      setSelectedRole(user.role || 'Job Seeker');
+      setRoleUpdateFeedback(null);
+    }
+  }, [user?.id, user?.role]);
 
   if (!user) return null;
+
+  const actorRole = currentAdminUser?.role || '';
+  const actorPerms = Array.isArray(currentAdminUser?.permissions) ? currentAdminUser!.permissions! : [];
+  const canManageRoles =
+    actorRole === 'Super Admin' ||
+    actorRole === 'Admin' ||
+    actorPerms.includes('*') ||
+    actorPerms.includes('users.manage');
+  const isActorSuperAdmin = actorRole === 'Super Admin';
+  const actorId = currentAdminUser?.id || currentAdminUser?.userId || '';
+  const isSelfUser = Boolean(actorId && String(user.id) === String(actorId));
+  const isTargetSuperAdmin = user.role === 'Super Admin';
+  const roleEditingLocked = isSelfUser || (isTargetSuperAdmin && !isActorSuperAdmin);
+
+  const handleSaveRole = async () => {
+    if (!canManageRoles || roleEditingLocked) return;
+    const currentRole = user.role || 'Job Seeker';
+    if (selectedRole === currentRole) {
+      setRoleUpdateFeedback({ type: 'error', message: 'Selected role is already assigned to this user.' });
+      return;
+    }
+    if (selectedRole === 'Super Admin' && !isActorSuperAdmin) {
+      setRoleUpdateFeedback({ type: 'error', message: 'Only a Super Admin can assign the Super Admin role.' });
+      return;
+    }
+    const confirmed = window.confirm(
+      `Are you sure you want to change ${user.name}'s role from "${currentRole}" to "${selectedRole}"?`
+    );
+    if (!confirmed) return;
+
+    setRoleUpdateLoading(true);
+    setRoleUpdateFeedback(null);
+    try {
+      const res = onUpdateUserRole
+        ? await onUpdateUserRole(user.id, selectedRole)
+        : await api.auth.updateUserRole(user.id, selectedRole);
+
+      if (res && res.success) {
+        setRoleUpdateFeedback({
+          type: 'success',
+          message: res.message || `Role updated to ${selectedRole} successfully.`
+        });
+      } else {
+        setRoleUpdateFeedback({
+          type: 'error',
+          message: res?.message || 'Failed to update user role.'
+        });
+      }
+    } catch (err: any) {
+      setRoleUpdateFeedback({
+        type: 'error',
+        message: err?.message || 'Error updating user role.'
+      });
+    } finally {
+      setRoleUpdateLoading(false);
+    }
+  };
 
   const handleAdminChangePassword = (e: React.FormEvent) => {
     e.preventDefault();
@@ -232,6 +330,87 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Role & Access Management Section (Visible only to admins with users.manage) */}
+              {canManageRoles && (
+                <div className="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h3 className="text-xs font-bold uppercase text-amber-400 tracking-wider flex items-center space-x-2">
+                      <Shield className="w-4 h-4" />
+                      <span>Role & Access Governance</span>
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold">
+                      Current Role: {user.role || 'Job Seeker'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start text-xs">
+                    <div className="space-y-2">
+                      <label className="block text-slate-400 font-medium">Assign Portal / Administrative Role</label>
+                      <div className="flex items-center space-x-2">
+                        <select
+                          value={selectedRole}
+                          disabled={roleEditingLocked || roleUpdateLoading}
+                          onChange={(e) => {
+                            setSelectedRole(e.target.value);
+                            setRoleUpdateFeedback(null);
+                          }}
+                          className="flex-1 px-3 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-bold text-xs disabled:opacity-50"
+                        >
+                          {ROLE_OPTIONS.map((r) => {
+                            const disableSuperAdminOption = r === 'Super Admin' && !isActorSuperAdmin;
+                            return (
+                              <option key={r} value={r} disabled={disableSuperAdminOption}>
+                                {r}{disableSuperAdminOption ? ' (Super Admin Only)' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+
+                        <button
+                          type="button"
+                          disabled={roleEditingLocked || roleUpdateLoading || selectedRole === (user.role || 'Job Seeker')}
+                          onClick={handleSaveRole}
+                          className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-extrabold text-xs rounded-xl transition-all cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {roleUpdateLoading ? 'Saving...' : 'Save Role'}
+                        </button>
+                      </div>
+
+                      {isSelfUser && (
+                        <p className="text-[11px] text-amber-300/90">
+                          Safety Lock: You cannot modify your own currently logged-in administrative role.
+                        </p>
+                      )}
+                      {!isSelfUser && isTargetSuperAdmin && !isActorSuperAdmin && (
+                        <p className="text-[11px] text-amber-300/90">
+                          Safety Lock: Only a Super Admin can modify a Super Admin account.
+                        </p>
+                      )}
+                      {roleUpdateFeedback && (
+                        <div className={`p-2.5 rounded-xl border text-xs font-semibold ${
+                          roleUpdateFeedback.type === 'success'
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                        }`}>
+                          {roleUpdateFeedback.message}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
+                      <span className="text-[11px] font-bold uppercase text-slate-400 block">
+                        Effective Access / Modules for "{selectedRole}"
+                      </span>
+                      <ul className="space-y-1 text-xs text-slate-200 list-disc list-inside">
+                        {(ROLE_MODULE_ACCESS_MAP[selectedRole] || ROLE_MODULE_ACCESS_MAP['Job Seeker']).map((mod, i) => (
+                          <li key={i} className="leading-relaxed">{mod}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Admin Subscription, Unpaid Termination & Security Controls */}
               <div className="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-4">

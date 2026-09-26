@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdminPermission } from '../auth/authManager';
 
 export const applySettingsRouter = Router();
 
@@ -15,7 +15,7 @@ applySettingsRouter.get('/', (req, res) => {
 });
 
 // 2. Update Apply Flow & Button Configuration (Admin Only)
-applySettingsRouter.put('/', requireAdmin, (req, res) => {
+applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, res) => {
   try {
     const current = Database.getApplySettings();
     const updated = {

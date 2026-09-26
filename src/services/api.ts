@@ -155,6 +155,13 @@ export const api = {
         headers: getAuthHeader()
       });
     },
+    async updateUserRole(userId: string, role: string) {
+      return safeFetchJson(`${getResolvedApiBase()}/auth/users/${encodeURIComponent(userId)}/role`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ role })
+      });
+    },
     async logout() {
       try {
         await safeFetchJson(`${getResolvedApiBase()}/auth/logout`, {
@@ -607,6 +614,22 @@ export const api = {
     async getLogs() {
       return safeFetchJson(`${API_BASE}/audit-logs`, {
         headers: getAuthHeader()
+      });
+    }
+  },
+
+  // ---USERS & ROLE MANAGEMENT ---
+  users: {
+    async getAll() {
+      return safeFetchJson(`${API_BASE}/users`, {
+        headers: getAuthHeader()
+      });
+    },
+    async updateRole(userId: string, role: string) {
+      return safeFetchJson(`${getResolvedApiBase()}/auth/users/${encodeURIComponent(userId)}/role`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ role })
       });
     }
   },

@@ -937,6 +937,8 @@ jobRouter.post('/', async (req, res) => {
       // Non-admin / guest / user / employer submissions MUST always become Pending -> MongoDB.pending_jobs
       // Strictly ignore any client-supplied status: 'Approved'
       newJob.status = 'Pending';
+      newJob.featured = false;
+      newJob.urgent = false;
       savedJob = await JobRepository.addPending(newJob);
       AuditRepository.add({
         user: user?.name || 'Guest Employer',

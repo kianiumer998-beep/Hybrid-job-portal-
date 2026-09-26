@@ -42,11 +42,11 @@ export class AdRepository {
       title: adData.title || 'Untitled Advertisement',
       placement: adData.placement || 'sidebar',
       status: adData.status || 'active',
-      impressions: adData.impressions || 0,
-      clicks: adData.clicks || 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      ...adData
+      ...adData,
+      clicks: 0,
+      impressions: 0
     };
     ads.push(newAd);
     Database.saveAds(ads);

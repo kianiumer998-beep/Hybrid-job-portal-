@@ -298,7 +298,30 @@ export function validateCvMagicBytes(buffer: Buffer, ext: string): boolean {
   return false;
 }
 
-const CV_TOKEN_SECRET = process.env.CV_TOKEN_SECRET || 'cv-storage-secure-token-secret-8819';
+function resolveCvTokenSecret(): string {
+  const configuredSecret = process.env.CV_TOKEN_SECRET?.trim();
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!configuredSecret) {
+    if (isProduction) {
+      throw new Error(
+        'FATAL SECURITY CONFIGURATION ERROR: process.env.CV_TOKEN_SECRET is missing. Production requires an explicit CV_TOKEN_SECRET of at least 32 characters.'
+      );
+    }
+    // Non-production ephemeral random secret (64 hex chars) so dev environment never uses a static hardcoded fallback
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  if (configuredSecret.length < 32) {
+    throw new Error(
+      'FATAL SECURITY CONFIGURATION ERROR: process.env.CV_TOKEN_SECRET must be at least 32 characters long.'
+    );
+  }
+
+  return configuredSecret;
+}
+
+const CV_TOKEN_SECRET = resolveCvTokenSecret();
 
 // Temporary download token generator for authorized download
 export function generateCvDownloadToken(fileName: string, expiresInHours: number = 2): string {

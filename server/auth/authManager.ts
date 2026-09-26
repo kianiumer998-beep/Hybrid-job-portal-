@@ -1,8 +1,30 @@
 import crypto from 'crypto';
 import { Database } from '../db/database';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-portal-secret-key-super-secure-382910';
-const ADMIN_DEV_PASSKEY = process.env.ADMIN_DEV_PASSKEY || 'admin123';
+function resolveJwtSecret(): string {
+  const configuredSecret = process.env.JWT_SECRET?.trim();
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!configuredSecret) {
+    if (isProduction) {
+      throw new Error(
+        'FATAL SECURITY CONFIGURATION ERROR: process.env.JWT_SECRET is missing. Production requires an explicit JWT_SECRET of at least 32 characters.'
+      );
+    }
+    // Non-production ephemeral random secret (64 hex chars) so dev environment never uses a static hardcoded fallback
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  if (configuredSecret.length < 32) {
+    throw new Error(
+      'FATAL SECURITY CONFIGURATION ERROR: process.env.JWT_SECRET must be at least 32 characters long.'
+    );
+  }
+
+  return configuredSecret;
+}
+
+const JWT_SECRET = resolveJwtSecret();
 
 export interface UserSession {
   userId: string;

@@ -68,9 +68,55 @@ function clearAttempts(ip: string) {
   loginAttempts.delete(ip);
 }
 
+// Dedicated in-memory rate limiter exclusively for POST /api/auth/register
+const registerAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
+const REGISTER_MAX_ATTEMPTS = 5; // Max registration attempts per window
+const REGISTER_WINDOW_MS = 15 * 60 * 1000; // 15 minutes window
+
+function checkAndRecordRegisterRateLimit(ip: string): { blocked: boolean; retryAfterSeconds?: number } {
+  const now = Date.now();
+  const entry = registerAttempts.get(ip);
+
+  if (entry) {
+    if (entry.lockedUntil && now < entry.lockedUntil) {
+      return { blocked: true, retryAfterSeconds: Math.ceil((entry.lockedUntil - now) / 1000) };
+    }
+
+    if (now - entry.firstAttempt > REGISTER_WINDOW_MS) {
+      registerAttempts.set(ip, { count: 1, firstAttempt: now });
+      return { blocked: false };
+    }
+
+    if (entry.count >= REGISTER_MAX_ATTEMPTS) {
+      const remainingMs = Math.max(1000, REGISTER_WINDOW_MS - (now - entry.firstAttempt));
+      entry.lockedUntil = now + remainingMs;
+      return { blocked: true, retryAfterSeconds: Math.ceil(remainingMs / 1000) };
+    }
+
+    entry.count += 1;
+    if (entry.count >= REGISTER_MAX_ATTEMPTS) {
+      entry.lockedUntil = entry.firstAttempt + REGISTER_WINDOW_MS;
+    }
+    return { blocked: false };
+  }
+
+  registerAttempts.set(ip, { count: 1, firstAttempt: now });
+  return { blocked: false };
+}
+
 // 1. User Registration (Public - Admin roles strictly blocked)
 authRouter.post('/register', async (req, res) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const rateCheck = checkAndRecordRegisterRateLimit(ip);
+    if (rateCheck.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many registration attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`,
+        retryAfterSeconds: rateCheck.retryAfterSeconds || 60
+      });
+    }
+
     const { name, email, password, role, phone, companyName } = req.body || {};
 
     const cleanName = (name || '').toString().trim();

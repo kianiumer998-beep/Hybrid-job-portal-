@@ -37,6 +37,16 @@ export class PaymentRepository {
     if (idx === -1) return null;
 
     const tx = txs[idx];
+    if (tx.status !== 'Pending') {
+      if (tx.status === 'Success' && action === 'approve') {
+        return tx;
+      }
+      if (tx.status === 'Failed' && action === 'reject') {
+        return tx;
+      }
+      throw new Error(`Transaction is already ${tx.status} and cannot be ${action === 'approve' ? 'approved' : 'rejected'}.`);
+    }
+
     if (action === 'approve') {
       // Credit wallet or activate features if applicable
       if (tx.type === 'Wallet Deposit' && tx.userId) {

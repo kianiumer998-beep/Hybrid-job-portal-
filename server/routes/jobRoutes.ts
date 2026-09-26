@@ -744,7 +744,7 @@ jobRouter.post('/batch', requireAdminPermission('jobs.manage'), async (req, res)
 });
 
 // 11. Multi-Signal Duplicate Detection on Demand
-jobRouter.post('/detect-duplicates', async (req, res) => {
+jobRouter.post('/detect-duplicates', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const candidateJob = req.body;
     const existing = (await JobRepository.getAll({ limit: 1000 })).jobs;

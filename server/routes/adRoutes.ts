@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AdRepository, AuditRepository } from '../db/repositories';
-import { requireAdmin, authMiddleware } from '../auth/authManager';
+import { requireAdmin, requireAuth, authMiddleware } from '../auth/authManager';
 
 export const adRouter = Router();
 
@@ -16,18 +16,17 @@ adRouter.get('/', async (req, res) => {
 });
 
 // 2. Create Advertisement
-adRouter.post('/', authMiddleware, async (req: any, res) => {
+adRouter.post('/', requireAuth, async (req: any, res) => {
   try {
     const adData = req.body;
     const isAdmin = req.user?.role === 'Admin' || req.user?.role === 'Super Admin';
 
-    // Strictly enforce advertiser identity to prevent spoofing another user's wallet
-    if (req.user && !isAdmin) {
+    // Strictly enforce advertiser identity and pending moderation status for non-admin users
+    if (!isAdmin) {
       adData.submittedByUserId = req.user.userId || req.user.id;
       adData.submittedByUserName = req.user.name || adData.submittedByUserName;
       adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;
-    } else if (!req.user) {
-      delete adData.submittedByUserId;
+      adData.status = 'pending';
     }
 
     const newAd = await AdRepository.createAsync(adData);

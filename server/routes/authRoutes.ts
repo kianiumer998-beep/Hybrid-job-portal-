@@ -140,6 +140,15 @@ authRouter.post('/register', async (req, res) => {
 // 2. User Login
 authRouter.post('/login', async (req, res) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const rateCheck = checkRateLimit(ip);
+    if (rateCheck.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed login attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`
+      });
+    }
+
     const { email, password } = req.body || {};
     const cleanEmail = (email || '').toString().toLowerCase().trim();
     const rawPassword = (password || '').toString();
@@ -150,6 +159,7 @@ authRouter.post('/login', async (req, res) => {
 
     const user = await UserRepository.getByEmailAsync(cleanEmail);
     if (!user) {
+      recordFailedAttempt(ip);
       return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
     }
 
@@ -161,8 +171,11 @@ authRouter.post('/login', async (req, res) => {
     }
 
     if (!isValid) {
+      recordFailedAttempt(ip);
       return res.status(401).json({ success: false, message: 'Invalid email address or password.' });
     }
+
+    clearAttempts(ip);
 
     const token = createToken({
       userId: user.id,
@@ -276,6 +289,15 @@ authRouter.post('/admin-login', async (req, res) => {
 // 4. Change Password (Authenticated user - Admin or Member)
 authRouter.post('/change-password', requireAuth, async (req: any, res) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const rateCheck = checkRateLimit(ip);
+    if (rateCheck.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`
+      });
+    }
+
     const userId = req.user?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required.' });
@@ -306,8 +328,11 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
     }
 
     if (!isCurrentValid) {
+      recordFailedAttempt(ip);
       return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
     }
+
+    clearAttempts(ip);
 
     // Hash new password securely
     const { hash: newHash, salt: newSalt } = hashPassword(rawNew);
@@ -357,6 +382,15 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
 // 5. Admin Bootstrap (Controlled one-time bootstrap via environment key)
 authRouter.post('/admin-bootstrap', async (req, res) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const rateCheck = checkRateLimit(ip);
+    if (rateCheck.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`
+      });
+    }
+
     const isEnabled = process.env.ADMIN_BOOTSTRAP_ENABLED === 'true';
     if (!isEnabled) {
       return res.status(403).json({
@@ -375,8 +409,11 @@ authRouter.post('/admin-bootstrap', async (req, res) => {
 
     const requestKey = (req.headers['x-bootstrap-key'] || req.body?.bootstrapKey || '').toString().trim();
     if (requestKey !== envKey) {
+      recordFailedAttempt(ip);
       return res.status(401).json({ success: false, message: 'Invalid bootstrap key.' });
     }
+
+    clearAttempts(ip);
 
     const bootstrapEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL || req.body?.email || 'admin@jobportal.com').toString().trim().toLowerCase();
     const bootstrapPassword = (process.env.ADMIN_BOOTSTRAP_PASSWORD || req.body?.password || '').toString().trim();

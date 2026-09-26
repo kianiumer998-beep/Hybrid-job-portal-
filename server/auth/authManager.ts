@@ -190,7 +190,7 @@ export async function requireAdmin(req: any, res: any, next: any) {
   try {
     const userId = req.user.userId || req.user.id;
     const dbUser = userId ? await UserRepository.getByIdAsync(userId) : null;
-    if (dbUser && dbUser.role !== req.user.role) {
+    if (!dbUser || dbUser.role !== req.user.role) {
       return res.status(401).json({
         success: false,
         message: 'Your administrative role has changed. Please log in again to refresh your session.'
@@ -219,7 +219,7 @@ export function requireAdminPermission(permission: string) {
     try {
       const userId = req.user.userId || req.user.id;
       const dbUser = userId ? await UserRepository.getByIdAsync(userId) : null;
-      if (dbUser && dbUser.role !== req.user.role) {
+      if (!dbUser || dbUser.role !== req.user.role) {
         return res.status(401).json({
           success: false,
           message: 'Your administrative role has changed. Please log in again to refresh your session.'

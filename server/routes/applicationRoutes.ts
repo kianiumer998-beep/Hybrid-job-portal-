@@ -285,7 +285,7 @@ applicationRouter.post('/', async (req, res) => {
     }
 
     // Duplicate Application Protection
-    const effectiveApplicantId = (req as any).user?.userId || (applicantId !== 'guest' ? applicantId : undefined);
+    const effectiveApplicantId = (req as any).user?.userId || (req as any).user?.id || 'guest';
     const existingApp = await ApplicationRepository.findExistingAsync(
       jobId,
       effectiveApplicantId,

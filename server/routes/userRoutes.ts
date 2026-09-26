@@ -34,46 +34,6 @@ userRouter.get('/', requireAdmin, async (req, res) => {
   }
 });
 
-// 1b. Get Single User Profile (Self or Admin)
-userRouter.get('/:id', requireAuth, async (req: any, res) => {
-  try {
-    const { id } = req.params;
-    const isAdmin = isUserAdmin(req.user);
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && id !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own profile.' });
-    }
-
-    const user = await UserRepository.getByIdAsync(id);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-
-    const { passwordHash, salt, password, ...safeUser } = user;
-    res.json({ success: true, user: safeUser });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error fetching user profile' });
-  }
-});
-
-// 2. Get User Wallet Summary (Strictly authorization protected)
-userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
-  try {
-    const isAdmin = isUserAdmin(req.user);
-    const currentUserId = req.user?.userId || req.user?.id;
-
-    if (!isAdmin && req.params.id !== currentUserId) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own wallet.' });
-    }
-
-    const summary = await PaymentRepository.getUserWalletAsync(req.params.id);
-    res.json({ success: true, wallet: summary });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error fetching user wallet' });
-  }
-});
-
 // 3. User Saved Jobs
 userRouter.get('/saved-jobs', requireAuth, (req: any, res) => {
   try {
@@ -204,6 +164,46 @@ userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
     res.json({ success: deleted, message: deleted ? 'Document removed.' : 'Document not found.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error deleting document' });
+  }
+});
+
+// 2. Get User Wallet Summary (Strictly authorization protected)
+userRouter.get('/:id/wallet', requireAuth, async (req: any, res) => {
+  try {
+    const isAdmin = isUserAdmin(req.user);
+    const currentUserId = req.user?.userId || req.user?.id;
+
+    if (!isAdmin && req.params.id !== currentUserId) {
+      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own wallet.' });
+    }
+
+    const summary = await PaymentRepository.getUserWalletAsync(req.params.id);
+    res.json({ success: true, wallet: summary });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error fetching user wallet' });
+  }
+});
+
+// 1b. Get Single User Profile (Self or Admin)
+userRouter.get('/:id', requireAuth, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const isAdmin = isUserAdmin(req.user);
+    const currentUserId = req.user?.userId || req.user?.id;
+
+    if (!isAdmin && id !== currentUserId) {
+      return res.status(403).json({ success: false, message: 'Access denied: You can only view your own profile.' });
+    }
+
+    const user = await UserRepository.getByIdAsync(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const { passwordHash, salt, password, ...safeUser } = user;
+    res.json({ success: true, user: safeUser });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Error fetching user profile' });
   }
 });
 

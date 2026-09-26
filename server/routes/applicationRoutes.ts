@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { ApplicationRepository, AuditRepository, JobRepository } from '../db/repositories';
 import { Database } from '../db/database';
-import { requireAdmin } from '../auth/authManager';
+import { requireAdmin, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 
 export const applicationRouter = Router();
@@ -187,7 +187,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
 });
 
 // 3. Get applications (filter by jobId or applicantId, or all for admin)
-applicationRouter.get('/', async (req, res) => {
+applicationRouter.get('/', requireAuth, async (req, res) => {
   try {
     const { jobId, applicantId } = req.query as Record<string, string>;
     const user = (req as any).user;

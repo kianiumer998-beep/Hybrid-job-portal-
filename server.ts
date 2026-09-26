@@ -30,22 +30,38 @@ async function startServer() {
     ? parseInt(process.env.PORT, 10)
     : parseInt(process.env.DEFAULT_APP_PORT || '3000', 10);
 
+  const normalizeOrigin = (value?: string) => (value || '').trim().replace(/\/+$/, '');
+  const trustedOrigins = new Set<string>(
+    [
+      'https://hybrid-job-portal.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173',
+      process.env.FRONTEND_URL || '',
+      ...(process.env.CORS_ALLOWED_ORIGINS || '').split(',')
+    ]
+      .map(normalizeOrigin)
+      .filter(Boolean)
+  );
+
   // Basic security headers
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-XSS-Protection', '1; mode=block');
 
-    // Robust CORS headers to allow cross-origin requests from any browser, incognito window, or external domain
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
+    // Trusted-origin CORS allowlist (blocks arbitrary external origin reflection)
+    const rawOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+    const normalizedOrigin = normalizeOrigin(rawOrigin);
+
+    if (normalizedOrigin && trustedOrigins.has(normalizedOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', normalizedOrigin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Max-Age', '86400');
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400');
 
     if (req.method === 'OPTIONS') {
       return res.sendStatus(204);

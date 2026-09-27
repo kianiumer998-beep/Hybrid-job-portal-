@@ -935,7 +935,11 @@ jobRouter.post('/', async (req, res) => {
       });
     } else {
       // Non-admin / guest / user / employer submissions MUST always become Pending -> MongoDB.pending_jobs
-      // Strictly ignore any client-supplied status: 'Approved'
+      // Strictly ignore any client-supplied status: 'Approved' and strip client-controlled ID / owner-alias fields
+      delete newJob.id;
+      delete newJob.postedByUserId;
+      delete newJob.userId;
+      newJob.slug = generateJobSlug(jobData.title, jobData.city);
       newJob.status = 'Pending';
       newJob.featured = false;
       newJob.urgent = false;

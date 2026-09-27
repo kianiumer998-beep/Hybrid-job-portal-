@@ -192,24 +192,24 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
       const adminRoles = [
         'Super Admin',
         'Admin',
-        'Job Moderator',
-        'Scraper Manager',
-        'Payment Manager',
-        'Finance Manager'
+        'Job Moderator'
       ];
       if (adminRoles.includes(user.role)) {
         isAuthorized = true;
       } else {
         // Check if user is the applicant or employer on the corresponding application
         const applications = await ApplicationRepository.getAllAsync();
-        const matchingApp = applications.find(
-          a => a.cvFileUrl && a.cvFileUrl.includes(safeFileName)
+        const expectedCvPath = `/api/applications/cv/${safeFileName}`;
+
+        const isOwner = applications.some(
+          a =>
+            typeof a.cvFileUrl === 'string' &&
+            a.cvFileUrl.split('?')[0] === expectedCvPath &&
+            (a.applicantId === user.userId || a.applicantEmail === user.email)
         );
 
-        if (matchingApp) {
-          if (matchingApp.applicantId === user.userId || matchingApp.applicantEmail === user.email) {
-            isAuthorized = true;
-          }
+        if (isOwner) {
+          isAuthorized = true;
         }
       }
     }

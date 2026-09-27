@@ -294,6 +294,14 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         }
       }
     } else {
+      const existingUser = await UserRepository.getByIdAsync(id);
+      if (existingUser && existingUser.role === 'Super Admin' && req.user?.role !== 'Super Admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: Only a Super Admin can modify a Super Admin account.'
+        });
+      }
+
       // Administrators retain full administrative user management capabilities
       finalUpdates = { ...updates };
     }

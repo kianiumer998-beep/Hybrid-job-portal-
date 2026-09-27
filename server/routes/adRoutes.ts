@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AdRepository, AuditRepository } from '../db/repositories';
-import { requireAdminPermission, requireAuth, authMiddleware } from '../auth/authManager';
+import { requireAdminPermission, requireAuth, authMiddleware, hasAdminPermission } from '../auth/authManager';
 
 export const adRouter = Router();
 
@@ -8,7 +8,13 @@ export const adRouter = Router();
 adRouter.get('/', async (req, res) => {
   try {
     const { status, placement } = req.query as Record<string, string>;
-    const ads = await AdRepository.getAllAsync({ status, placement });
+    const user = (req as any).user;
+    const canManageAds = Boolean(user && hasAdminPermission(user.role, 'advertisements.manage'));
+    const effectiveStatus = canManageAds ? status : 'active';
+    const rawAds = await AdRepository.getAllAsync({ status: effectiveStatus, placement });
+    const ads = canManageAds
+      ? rawAds
+      : rawAds.map(({ clientEmail, submittedByUserEmail, submittedByUserId, ...publicAd }: any) => publicAd);
     res.json({ success: true, advertisements: ads });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching advertisements' });

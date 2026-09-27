@@ -575,7 +575,9 @@ export const api = {
       const params = new URLSearchParams();
       if (status) params.append('status', status);
       if (placement) params.append('placement', placement);
-      return safeFetchJson(`${API_BASE}/ads?${params.toString()}`);
+      return safeFetchJson(`${API_BASE}/ads?${params.toString()}`, {
+        headers: getAuthHeader()
+      });
     },
     async create(adData: any) {
       return safeFetchJson(`${API_BASE}/ads`, {

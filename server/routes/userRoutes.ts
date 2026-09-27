@@ -306,13 +306,14 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       finalUpdates = { ...updates };
     }
 
-    // Never allow updating passwordHash, salt, password, role, permissions, or primary ID directly via this endpoint
+    // Never allow updating passwordHash, salt, password, role, permissions, walletBalance, or primary ID directly via this endpoint
     delete finalUpdates.passwordHash;
     delete finalUpdates.salt;
     delete finalUpdates.password;
     delete finalUpdates.id;
     delete finalUpdates.role;
     delete finalUpdates.permissions;
+    delete finalUpdates.walletBalance;
 
     const updated = await UserRepository.updateAsync(id, finalUpdates);
     if (!updated) {

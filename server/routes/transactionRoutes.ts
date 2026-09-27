@@ -195,10 +195,16 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         enforcedAmount = configuredSubPrice;
         pricingBreakdown = [{ name: `${safeSubscriptionPlan} Subscription`, amount: configuredSubPrice }];
       } else {
-        // Wallet deposit: must be a finite positive number
+        // Wallet deposit: must be a finite positive number with at most 2 decimal places
         const numericAmount = Number(amount);
         if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
           return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
+        }
+        if (Math.abs(Math.round(numericAmount * 100) - numericAmount * 100) > 1e-6) {
+          return res.status(400).json({
+            success: false,
+            message: 'Deposit amount must have at most 2 decimal places.'
+          });
         }
         enforcedAmount = numericAmount;
       }
@@ -224,6 +230,23 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             success: true,
             transaction: existing,
             message: 'Payment proof already submitted (idempotent result).'
+          });
+        }
+      }
+
+      // Prevent duplicate pending or completed transactions for the same Job Posting (Failed transactions do not block retry)
+      if (effectiveType === 'Job Posting' && safeJobIdRef) {
+        const existingJobTx = PaymentRepository.getAll().find(
+          (t: any) =>
+            t &&
+            t.type === 'Job Posting' &&
+            String(t.jobIdRef) === String(safeJobIdRef) &&
+            (t.status === 'Pending' || t.status === 'Success')
+        );
+        if (existingJobTx) {
+          return res.status(409).json({
+            success: false,
+            message: 'This job already has a pending or completed payment transaction.'
           });
         }
       }

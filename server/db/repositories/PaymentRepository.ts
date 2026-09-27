@@ -1,5 +1,6 @@
 import { Database } from '../database';
 import { UserRepository } from './UserRepository';
+import { JobRepository } from './JobRepository';
 
 export class PaymentRepository {
   static getAll(userId?: string): any[] {
@@ -48,6 +49,10 @@ export class PaymentRepository {
     }
 
     if (action === 'approve') {
+      if (tx.paymentMethod === 'Wallet Balance') {
+        throw new Error('Wallet Balance transactions cannot be manually approved.');
+      }
+
       // Credit wallet or activate features if applicable
       if (tx.type === 'Wallet Deposit') {
         if (!tx.userId) {
@@ -77,14 +82,33 @@ export class PaymentRepository {
         if (!updatedUser) {
           throw new Error('Cannot approve Wallet Deposit: failed to update user wallet balance.');
         }
-      } else if (tx.type === 'Subscription' && tx.userId) {
+      } else if (tx.type === 'Subscription') {
+        if (!tx.userId) {
+          throw new Error('Cannot approve Subscription: transaction is missing userId.');
+        }
+
         const user = await UserRepository.getByIdAsync(tx.userId);
-        if (user) {
-          await UserRepository.updateAsync(user.id, {
-            membershipTier: tx.plan || 'Pro Alerts',
-            membershipStatus: 'Active',
-            subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-          });
+        if (!user) {
+          throw new Error('Cannot approve Subscription: target user not found.');
+        }
+
+        const updatedUser = await UserRepository.updateAsync(user.id, {
+          membershipTier: tx.plan || 'Pro Alerts',
+          membershipStatus: 'Active',
+          subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        });
+
+        if (!updatedUser) {
+          throw new Error('Cannot approve Subscription: failed to activate user membership.');
+        }
+      } else if (tx.type === 'Job Posting') {
+        if (!tx.jobIdRef) {
+          throw new Error('Cannot approve Job Posting: transaction is missing jobIdRef.');
+        }
+
+        const approvedJob = await JobRepository.approvePending(String(tx.jobIdRef));
+        if (!approvedJob) {
+          throw new Error('Cannot approve Job Posting: failed to activate pending job.');
         }
       }
 

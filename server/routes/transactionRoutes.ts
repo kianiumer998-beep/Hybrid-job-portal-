@@ -105,7 +105,10 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         });
       }
 
-      const safeJobIdRef = effectiveType === 'Job Posting' ? jobIdRef : undefined;
+      const safeJobIdRef =
+        effectiveType === 'Job Posting' && jobIdRef !== undefined && jobIdRef !== null && String(jobIdRef).trim() !== ''
+          ? String(jobIdRef).trim()
+          : undefined;
 
       if (effectiveType === 'Wallet Deposit' && paymentMethod === 'Wallet Balance') {
         return res.status(400).json({
@@ -114,19 +117,37 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         });
       }
 
-      // Verify job ownership for non-admin users when jobIdRef is supplied on a Job Posting transaction
+      // Require valid pending job reference and verify job ownership for non-admin users on Job Posting transactions
       let targetJob: any = null;
-      if (safeJobIdRef) {
+      if (effectiveType === 'Job Posting') {
+        if (!safeJobIdRef) {
+          return res.status(400).json({
+            success: false,
+            message: 'A valid jobIdRef is required for Job Posting transactions.'
+          });
+        }
         const matchedJobs = await JobRepository.getJobsByIds([String(safeJobIdRef)]);
         targetJob = matchedJobs[0] || null;
+        if (!targetJob) {
+          return res.status(400).json({
+            success: false,
+            message: 'Referenced job posting was not found.'
+          });
+        }
         if (!isAdmin) {
           const jobOwnerId = targetJob?.submittedByUserId || targetJob?.postedByUserId || targetJob?.userId;
-          if (!targetJob || !jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
+          if (!jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
             return res.status(403).json({
               success: false,
               message: 'Forbidden: Referenced job does not belong to the authenticated user.'
             });
           }
+        }
+        if (targetJob.status !== 'Pending') {
+          return res.status(409).json({
+            success: false,
+            message: 'This job has already been paid for or is already active.'
+          });
         }
       }
 
@@ -275,63 +296,80 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       let finalStatus: 'Pending' | 'Success' = 'Pending';
 
       if (paymentMethod === 'Wallet Balance') {
-        if (effectiveType === 'Subscription') {
-          // Single atomic user update for wallet deduction + subscription activation
-          const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
-            walletBalance: previousWalletBalance - enforcedAmount,
-            membershipTier: safeSubscriptionPlan || 'Pro Alerts',
-            membershipStatus: 'Active',
-            subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-          });
-          if (!updatedUser) {
-            throw new Error('Failed to deduct wallet balance and activate subscription.');
-          }
-        } else {
-          // Job Posting or Advertisement wallet deduction
-          const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
-            walletBalance: previousWalletBalance - enforcedAmount
-          });
-          if (!updatedUser) {
-            throw new Error('Failed to deduct wallet balance.');
+        try {
+          if (effectiveType === 'Subscription') {
+            // Single atomic user update for wallet deduction + subscription activation
+            const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
+              walletBalance: previousWalletBalance - enforcedAmount,
+              membershipTier: safeSubscriptionPlan || 'Pro Alerts',
+              membershipStatus: 'Active',
+              subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            });
+            if (!updatedUser) {
+              throw new Error('Failed to deduct wallet balance and activate subscription.');
+            }
+          } else {
+            // Job Posting or Advertisement wallet deduction
+            const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
+              walletBalance: previousWalletBalance - enforcedAmount
+            });
+            if (!updatedUser) {
+              throw new Error('Failed to deduct wallet balance.');
+            }
+
+            if (effectiveType === 'Job Posting' && safeJobIdRef) {
+              let approvedJob: any = null;
+              try {
+                approvedJob = await JobRepository.approvePending(safeJobIdRef);
+              } catch (jobApproveErr) {
+                try {
+                  await UserRepository.updateAsync(effectiveUserId, {
+                    walletBalance: previousWalletBalance
+                  });
+                } catch {}
+                throw jobApproveErr;
+              }
+              if (!approvedJob) {
+                try {
+                  await UserRepository.updateAsync(effectiveUserId, {
+                    walletBalance: previousWalletBalance
+                  });
+                } catch {}
+                throw new Error('Failed to activate job posting after wallet deduction.');
+              }
+            }
           }
 
-          if (effectiveType === 'Job Posting' && safeJobIdRef) {
-            let approvedJob: any = null;
-            try {
-              approvedJob = await JobRepository.approvePending(safeJobIdRef);
-            } catch (jobApproveErr) {
-              try {
-                await UserRepository.updateAsync(effectiveUserId, {
-                  walletBalance: previousWalletBalance
-                });
-              } catch {}
-              throw jobApproveErr;
-            }
-            if (!approvedJob) {
-              try {
-                await UserRepository.updateAsync(effectiveUserId, {
-                  walletBalance: previousWalletBalance
-                });
-              } catch {}
-              throw new Error('Failed to activate job posting after wallet deduction.');
-            }
+          // Only mark transaction Success after wallet operation and service activation succeed
+          const verifiedAt = new Date().toISOString();
+          const allTxs = Database.getTransactions();
+          const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
+          if (txIdx !== -1) {
+            allTxs[txIdx].status = 'Success';
+            allTxs[txIdx].verifiedAt = verifiedAt;
+            allTxs[txIdx].updatedAt = verifiedAt;
+            Database.saveTransactions(allTxs);
           }
+          newTx.status = 'Success';
+          newTx.verifiedAt = verifiedAt;
+          newTx.updatedAt = verifiedAt;
+          finalStatus = 'Success';
+        } catch (walletProcessingErr: any) {
+          const failedAt = new Date().toISOString();
+          const failureReason = walletProcessingErr?.message || 'Wallet Balance processing failed.';
+          const allTxs = Database.getTransactions();
+          const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
+          if (txIdx !== -1) {
+            allTxs[txIdx].status = 'Failed';
+            allTxs[txIdx].rejectionReason = failureReason;
+            allTxs[txIdx].updatedAt = failedAt;
+            Database.saveTransactions(allTxs);
+          }
+          newTx.status = 'Failed';
+          newTx.rejectionReason = failureReason;
+          newTx.updatedAt = failedAt;
+          throw walletProcessingErr;
         }
-
-        // Only mark transaction Success after wallet operation and service activation succeed
-        const verifiedAt = new Date().toISOString();
-        const allTxs = Database.getTransactions();
-        const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
-        if (txIdx !== -1) {
-          allTxs[txIdx].status = 'Success';
-          allTxs[txIdx].verifiedAt = verifiedAt;
-          allTxs[txIdx].updatedAt = verifiedAt;
-          Database.saveTransactions(allTxs);
-        }
-        newTx.status = 'Success';
-        newTx.verifiedAt = verifiedAt;
-        newTx.updatedAt = verifiedAt;
-        finalStatus = 'Success';
       }
 
       AuditRepository.add({
@@ -379,11 +417,6 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
       const tx = await PaymentRepository.verify(req.params.id, action, note, reason);
       if (!tx) {
         return res.status(404).json({ success: false, message: 'Transaction not found.' });
-      }
-
-      // If approved and was for a pending job posting, publish it live
-      if (action === 'approve' && tx.type === 'Job Posting' && tx.jobIdRef) {
-        await JobRepository.approvePending(tx.jobIdRef);
       }
 
       AuditRepository.add({

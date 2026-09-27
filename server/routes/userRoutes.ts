@@ -132,7 +132,10 @@ userRouter.delete('/job-alerts/:id', requireAuth, (req: any, res) => {
     const currentUserId = req.user?.userId || req.user?.id;
     const targetUserId = isAdmin && req.query.userId ? (req.query.userId as string) : currentUserId;
 
-    const deleted = Database.deleteJobAlert(req.params.id, targetUserId);
+    const userAlerts = Database.getJobAlerts(targetUserId);
+    const deleted = userAlerts.some(a => a.id === req.params.id)
+      ? Database.deleteJobAlert(req.params.id, targetUserId)
+      : false;
     res.json({ success: deleted, message: deleted ? 'Alert removed.' : 'Alert not found.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error deleting job alert' });
@@ -186,7 +189,10 @@ userRouter.delete('/documents/:id', requireAuth, (req: any, res) => {
     if (!targetUserId) {
       return res.status(400).json({ success: false, message: 'userId is required.' });
     }
-    const deleted = Database.deleteUserDocument(req.params.id, targetUserId);
+    const userDocs = Database.getUserDocuments(targetUserId);
+    const deleted = userDocs.some(d => d.id === req.params.id)
+      ? Database.deleteUserDocument(req.params.id, targetUserId)
+      : false;
     res.json({ success: deleted, message: deleted ? 'Document removed.' : 'Document not found.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error deleting document' });

@@ -54,6 +54,7 @@ async function startServer() {
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 
     // Trusted-origin CORS allowlist (blocks arbitrary external origin reflection)
     const rawOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';

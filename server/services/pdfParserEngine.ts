@@ -373,8 +373,76 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
     }
 
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
-    const arrayBuffer = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const MAX_REMOTE_PDF_BYTES = 15 * 1024 * 1024;
+
+    const contentLengthHeader = res.headers.get('content-length');
+    if (contentLengthHeader) {
+      const contentLength = parseInt(contentLengthHeader, 10);
+      if (!Number.isNaN(contentLength) && contentLength > MAX_REMOTE_PDF_BYTES) {
+        try {
+          await res.body?.cancel();
+        } catch {
+          // Ignore stream cancel errors
+        }
+        return {
+          success: false,
+          totalPages: 0,
+          extractedJobs: [],
+          rawTextSample: '',
+          sourceUrl: cleanUrl,
+          fileName,
+          message: 'Document exceeds maximum supported size (15 MB)'
+        };
+      }
+    }
+
+    let buffer: Buffer;
+    if (res.body && typeof res.body.getReader === 'function') {
+      const reader = res.body.getReader();
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          totalBytes += value.byteLength;
+          if (totalBytes > MAX_REMOTE_PDF_BYTES) {
+            try {
+              await reader.cancel();
+            } catch {
+              // Ignore stream cancel errors
+            }
+            return {
+              success: false,
+              totalPages: 0,
+              extractedJobs: [],
+              rawTextSample: '',
+              sourceUrl: cleanUrl,
+              fileName,
+              message: 'Document exceeds maximum supported size (15 MB)'
+            };
+          }
+          chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+        }
+      }
+
+      buffer = Buffer.concat(chunks, totalBytes);
+    } else {
+      const arrayBuffer = await res.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_REMOTE_PDF_BYTES) {
+        return {
+          success: false,
+          totalPages: 0,
+          extractedJobs: [],
+          rawTextSample: '',
+          sourceUrl: cleanUrl,
+          fileName,
+          message: 'Document exceeds maximum supported size (15 MB)'
+        };
+      }
+      buffer = Buffer.from(arrayBuffer);
+    }
 
     if (buffer.length === 0) {
       return {

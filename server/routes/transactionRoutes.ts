@@ -51,6 +51,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       jobIdRef,
       jobPricingOptions,
       adPricingOptions,
+      plan,
       idempotencyKey
     } = req.body;
 
@@ -117,6 +118,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       // AUTHORITATIVE PRICING CALCULATION
       let enforcedAmount = Number(amount);
       let pricingBreakdown: Array<{ name: string; amount: number }> = [];
+      let safeSubscriptionPlan: string | undefined = undefined;
 
       if (effectiveType === 'Job Posting') {
         const calc = PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
@@ -126,6 +128,36 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         const calc = PricingRepository.calculateAdPrice(adPricingOptions || {});
         enforcedAmount = calc.finalPrice;
         pricingBreakdown = calc.breakdown;
+      } else if (effectiveType === 'Subscription') {
+        const rawPlan = typeof plan === 'string' ? plan.trim() : '';
+        const subPricing = PricingRepository.get()?.subscriptions || {};
+        let configuredSubPrice = NaN;
+
+        if (rawPlan === 'Pro Alerts' || rawPlan === 'proMonthlyPkr') {
+          safeSubscriptionPlan = 'Pro Alerts';
+          configuredSubPrice = Number(subPricing.proMonthlyPkr);
+        } else if (rawPlan === 'VIP Jobseeker' || rawPlan === 'vipMonthlyPkr') {
+          safeSubscriptionPlan = 'VIP Jobseeker';
+          configuredSubPrice = Number(subPricing.vipMonthlyPkr);
+        } else if (rawPlan === 'Govt Alerts Weekly' || rawPlan === 'govtAlertsWeeklyPkr') {
+          safeSubscriptionPlan = 'Govt Alerts Weekly';
+          configuredSubPrice = Number(subPricing.govtAlertsWeeklyPkr);
+        } else {
+          return res.status(400).json({
+            success: false,
+            message: 'Valid subscription plan is required.'
+          });
+        }
+
+        if (!Number.isFinite(configuredSubPrice) || configuredSubPrice <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid subscription plan pricing.'
+          });
+        }
+
+        enforcedAmount = configuredSubPrice;
+        pricingBreakdown = [{ name: `${safeSubscriptionPlan} Subscription`, amount: configuredSubPrice }];
       } else {
         // Wallet deposit / other: must be a finite positive number
         const numericAmount = Number(amount);
@@ -208,6 +240,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         amount: enforcedAmount,
         currency: currency || 'PKR',
         type: effectiveType,
+        ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
         status: initialStatus,
         paymentMethod,
         transactionId: tid,
@@ -236,6 +269,21 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         enforcedAmount > 0
       ) {
         await JobRepository.approvePending(safeJobIdRef);
+      }
+
+      // If Subscription paid from wallet successfully, activate membership using the same fields/behavior as PaymentRepository.verify()
+      if (
+        effectiveType === 'Subscription' &&
+        initialStatus === 'Success' &&
+        effectiveUserId &&
+        Number.isFinite(enforcedAmount) &&
+        enforcedAmount > 0
+      ) {
+        await UserRepository.updateAsync(effectiveUserId, {
+          membershipTier: safeSubscriptionPlan || 'Pro Alerts',
+          membershipStatus: 'Active',
+          subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        });
       }
 
       AuditRepository.add({

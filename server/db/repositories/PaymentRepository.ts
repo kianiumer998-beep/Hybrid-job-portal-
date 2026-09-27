@@ -49,11 +49,33 @@ export class PaymentRepository {
 
     if (action === 'approve') {
       // Credit wallet or activate features if applicable
-      if (tx.type === 'Wallet Deposit' && tx.userId) {
+      if (tx.type === 'Wallet Deposit') {
+        if (!tx.userId) {
+          throw new Error('Cannot approve Wallet Deposit: transaction is missing userId.');
+        }
+
+        const depositAmount = Number(tx.amount);
+        if (!Number.isFinite(depositAmount) || depositAmount <= 0) {
+          throw new Error('Cannot approve Wallet Deposit: invalid deposit amount.');
+        }
+
         const user = await UserRepository.getByIdAsync(tx.userId);
-        if (user) {
-          const currentBal = Number(user.walletBalance || 0);
-          await UserRepository.updateAsync(user.id, { walletBalance: currentBal + Number(tx.amount || 0) });
+        if (!user) {
+          throw new Error('Cannot approve Wallet Deposit: target user not found.');
+        }
+
+        const rawCurrentBal = Number(user.walletBalance || 0);
+        const currentBal =
+          Number.isFinite(rawCurrentBal) && rawCurrentBal >= 0
+            ? rawCurrentBal
+            : 0;
+
+        const updatedUser = await UserRepository.updateAsync(user.id, {
+          walletBalance: currentBal + depositAmount
+        });
+
+        if (!updatedUser) {
+          throw new Error('Cannot approve Wallet Deposit: failed to update user wallet balance.');
         }
       } else if (tx.type === 'Subscription' && tx.userId) {
         const user = await UserRepository.getByIdAsync(tx.userId);

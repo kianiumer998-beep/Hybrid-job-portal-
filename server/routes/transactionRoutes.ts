@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { PaymentRepository, AuditRepository, UserRepository, PricingRepository, JobRepository } from '../db/repositories';
+import { Database } from '../db/database';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
 
 export const transactionRouter = Router();
@@ -90,6 +91,20 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       }
 
       const effectiveType = type || 'Wallet Deposit';
+      const ALLOWED_TRANSACTION_TYPES = [
+        'Wallet Deposit',
+        'Job Posting',
+        'Advertisement',
+        'Subscription'
+      ];
+
+      if (!ALLOWED_TRANSACTION_TYPES.includes(effectiveType)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid transaction type.'
+        });
+      }
+
       const safeJobIdRef = effectiveType === 'Job Posting' ? jobIdRef : undefined;
 
       if (effectiveType === 'Wallet Deposit' && paymentMethod === 'Wallet Balance') {
@@ -159,7 +174,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         enforcedAmount = configuredSubPrice;
         pricingBreakdown = [{ name: `${safeSubscriptionPlan} Subscription`, amount: configuredSubPrice }];
       } else {
-        // Wallet deposit / other: must be a finite positive number
+        // Wallet deposit: must be a finite positive number
         const numericAmount = Number(amount);
         if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
           return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
@@ -205,8 +220,8 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
 
       const tid = transactionId || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-      // Wallet direct payment check
-      let initialStatus: 'Pending' | 'Success' = 'Pending';
+      // Pre-validate Wallet Balance requirements before creating the Pending transaction
+      let previousWalletBalance = 0;
       if (paymentMethod === 'Wallet Balance') {
         if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
           return res.status(400).json({
@@ -223,25 +238,23 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
           }
         }
         const user = await UserRepository.getByIdAsync(effectiveUserId);
-        if (!user || (user.walletBalance || 0) < enforcedAmount) {
+        const rawBal = Number(user?.walletBalance || 0);
+        previousWalletBalance = Number.isFinite(rawBal) && rawBal >= 0 ? rawBal : 0;
+        if (!user || previousWalletBalance < enforcedAmount) {
           return res.status(400).json({
             success: false,
             message: `Insufficient wallet balance. Required: ${enforcedAmount} PKR, Available: ${user?.walletBalance || 0} PKR.`
           });
         }
-        // Deduct wallet balance directly
-        await UserRepository.updateAsync(effectiveUserId, {
-          walletBalance: (user.walletBalance || 0) - enforcedAmount
-        });
-        initialStatus = 'Success';
       }
 
+      // Create transaction initially as Pending
       const newTx = PaymentRepository.create({
         amount: enforcedAmount,
         currency: currency || 'PKR',
         type: effectiveType,
         ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
-        status: initialStatus,
+        status: 'Pending',
         paymentMethod,
         transactionId: tid,
         idempotencyKey: idempotencyKey || undefined,
@@ -256,40 +269,75 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         jobTitleRef,
         jobIdRef: safeJobIdRef,
         pricingBreakdown,
-        verifiedAt: initialStatus === 'Success' ? new Date().toISOString() : undefined,
         createdAt: new Date().toISOString()
       });
 
-      // If job posting paid from wallet successfully with a positive enforced amount, approve pending job
-      if (
-        effectiveType === 'Job Posting' &&
-        initialStatus === 'Success' &&
-        safeJobIdRef &&
-        Number.isFinite(enforcedAmount) &&
-        enforcedAmount > 0
-      ) {
-        await JobRepository.approvePending(safeJobIdRef);
-      }
+      let finalStatus: 'Pending' | 'Success' = 'Pending';
 
-      // If Subscription paid from wallet successfully, activate membership using the same fields/behavior as PaymentRepository.verify()
-      if (
-        effectiveType === 'Subscription' &&
-        initialStatus === 'Success' &&
-        effectiveUserId &&
-        Number.isFinite(enforcedAmount) &&
-        enforcedAmount > 0
-      ) {
-        await UserRepository.updateAsync(effectiveUserId, {
-          membershipTier: safeSubscriptionPlan || 'Pro Alerts',
-          membershipStatus: 'Active',
-          subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        });
+      if (paymentMethod === 'Wallet Balance') {
+        if (effectiveType === 'Subscription') {
+          // Single atomic user update for wallet deduction + subscription activation
+          const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
+            walletBalance: previousWalletBalance - enforcedAmount,
+            membershipTier: safeSubscriptionPlan || 'Pro Alerts',
+            membershipStatus: 'Active',
+            subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          });
+          if (!updatedUser) {
+            throw new Error('Failed to deduct wallet balance and activate subscription.');
+          }
+        } else {
+          // Job Posting or Advertisement wallet deduction
+          const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
+            walletBalance: previousWalletBalance - enforcedAmount
+          });
+          if (!updatedUser) {
+            throw new Error('Failed to deduct wallet balance.');
+          }
+
+          if (effectiveType === 'Job Posting' && safeJobIdRef) {
+            let approvedJob: any = null;
+            try {
+              approvedJob = await JobRepository.approvePending(safeJobIdRef);
+            } catch (jobApproveErr) {
+              try {
+                await UserRepository.updateAsync(effectiveUserId, {
+                  walletBalance: previousWalletBalance
+                });
+              } catch {}
+              throw jobApproveErr;
+            }
+            if (!approvedJob) {
+              try {
+                await UserRepository.updateAsync(effectiveUserId, {
+                  walletBalance: previousWalletBalance
+                });
+              } catch {}
+              throw new Error('Failed to activate job posting after wallet deduction.');
+            }
+          }
+        }
+
+        // Only mark transaction Success after wallet operation and service activation succeed
+        const verifiedAt = new Date().toISOString();
+        const allTxs = Database.getTransactions();
+        const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
+        if (txIdx !== -1) {
+          allTxs[txIdx].status = 'Success';
+          allTxs[txIdx].verifiedAt = verifiedAt;
+          allTxs[txIdx].updatedAt = verifiedAt;
+          Database.saveTransactions(allTxs);
+        }
+        newTx.status = 'Success';
+        newTx.verifiedAt = verifiedAt;
+        newTx.updatedAt = verifiedAt;
+        finalStatus = 'Success';
       }
 
       AuditRepository.add({
         user: effectiveUserName || 'User',
         role: 'Member',
-        action: initialStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
+        action: finalStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
         target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
         status: 'Success',
         metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, type: effectiveType }
@@ -298,7 +346,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       return res.status(201).json({
         success: true,
         transaction: newTx,
-        message: initialStatus === 'Success'
+        message: finalStatus === 'Success'
           ? 'Payment processed and verified immediately via wallet balance!'
           : 'Payment proof submitted successfully! Administrator verification is pending.'
       });

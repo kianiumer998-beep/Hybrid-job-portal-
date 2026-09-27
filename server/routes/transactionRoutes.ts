@@ -4,6 +4,10 @@ import { requireAdminPermission, requireAuth } from '../auth/authManager';
 
 export const transactionRouter = Router();
 
+// Lightweight in-memory concurrency locks to prevent per-user wallet double-spend and concurrent transaction verification races
+const activeUserTransactionLocks = new Set<string>();
+const activeTransactionVerificationLocks = new Set<string>();
+
 // 1. Get transactions (all for admin, or scoped to authenticated user)
 transactionRouter.get('/', requireAuth, (req, res) => {
   try {
@@ -70,158 +74,171 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
     const effectiveUserName = isAdmin ? (userName || authUser?.name) : (authUser?.name || userName);
     const effectiveUserEmail = isAdmin ? (userEmail || authUser?.email) : (authUser?.email || userEmail);
 
-    if (!paymentMethod) {
-      return res.status(400).json({ success: false, message: 'Payment method is required.' });
-    }
-
-    const effectiveType = type || 'Wallet Deposit';
-    const safeJobIdRef = effectiveType === 'Job Posting' ? jobIdRef : undefined;
-
-    if (effectiveType === 'Wallet Deposit' && paymentMethod === 'Wallet Balance') {
-      return res.status(400).json({
+    const userLockKey = String(effectiveUserId);
+    if (activeUserTransactionLocks.has(userLockKey)) {
+      return res.status(409).json({
         success: false,
-        message: 'Wallet Deposit cannot be funded using Wallet Balance.'
+        message: 'Another transaction for this user is currently being processed. Please try again.'
       });
     }
 
-    // Verify job ownership for non-admin users when jobIdRef is supplied on a Job Posting transaction
-    if (!isAdmin && safeJobIdRef) {
-      const matchedJobs = await JobRepository.getJobsByIds([String(safeJobIdRef)]);
-      const targetJob = matchedJobs[0];
-      const jobOwnerId = targetJob?.submittedByUserId || targetJob?.postedByUserId || targetJob?.userId;
-      if (!targetJob || !jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
-        return res.status(403).json({
+    activeUserTransactionLocks.add(userLockKey);
+    try {
+      if (!paymentMethod) {
+        return res.status(400).json({ success: false, message: 'Payment method is required.' });
+      }
+
+      const effectiveType = type || 'Wallet Deposit';
+      const safeJobIdRef = effectiveType === 'Job Posting' ? jobIdRef : undefined;
+
+      if (effectiveType === 'Wallet Deposit' && paymentMethod === 'Wallet Balance') {
+        return res.status(400).json({
           success: false,
-          message: 'Forbidden: Referenced job does not belong to the authenticated user.'
+          message: 'Wallet Deposit cannot be funded using Wallet Balance.'
         });
       }
-    }
 
-    // AUTHORITATIVE PRICING CALCULATION
-    let enforcedAmount = Number(amount);
-    let pricingBreakdown: Array<{ name: string; amount: number }> = [];
-
-    if (effectiveType === 'Job Posting') {
-      const calc = PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
-      enforcedAmount = calc.finalPrice;
-      pricingBreakdown = calc.breakdown;
-    } else if (effectiveType === 'Advertisement') {
-      const calc = PricingRepository.calculateAdPrice(adPricingOptions || {});
-      enforcedAmount = calc.finalPrice;
-      pricingBreakdown = calc.breakdown;
-    } else {
-      // Wallet deposit / other: must be a finite positive number
-      const numericAmount = Number(amount);
-      if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-        return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
-      }
-      enforcedAmount = numericAmount;
-    }
-
-    // Check idempotency
-    if (idempotencyKey) {
-      const existing = PaymentRepository.findByIdempotencyKey(idempotencyKey);
-      if (existing) {
-        if (!isAdmin && existing.userId && String(existing.userId) !== String(effectiveUserId)) {
+      // Verify job ownership for non-admin users when jobIdRef is supplied on a Job Posting transaction
+      if (!isAdmin && safeJobIdRef) {
+        const matchedJobs = await JobRepository.getJobsByIds([String(safeJobIdRef)]);
+        const targetJob = matchedJobs[0];
+        const jobOwnerId = targetJob?.submittedByUserId || targetJob?.postedByUserId || targetJob?.userId;
+        if (!targetJob || !jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
           return res.status(403).json({
             success: false,
-            message: 'Forbidden: Cannot access another user transaction.'
+            message: 'Forbidden: Referenced job does not belong to the authenticated user.'
           });
         }
-        return res.json({
-          success: true,
-          transaction: existing,
-          message: 'Payment proof already submitted (idempotent result).'
-        });
       }
-    }
 
-    // Check duplicate transaction ID if provided
-    if (transactionId) {
-      const existingTid = PaymentRepository.findByTransactionId(transactionId);
-      if (existingTid) {
-        return res.status(409).json({
-          success: false,
-          message: `A transaction with reference ID ${transactionId} has already been recorded.`
-        });
-      }
-    }
+      // AUTHORITATIVE PRICING CALCULATION
+      let enforcedAmount = Number(amount);
+      let pricingBreakdown: Array<{ name: string; amount: number }> = [];
 
-    const tid = transactionId || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      if (effectiveType === 'Job Posting') {
+        const calc = PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
+        enforcedAmount = calc.finalPrice;
+        pricingBreakdown = calc.breakdown;
+      } else if (effectiveType === 'Advertisement') {
+        const calc = PricingRepository.calculateAdPrice(adPricingOptions || {});
+        enforcedAmount = calc.finalPrice;
+        pricingBreakdown = calc.breakdown;
+      } else {
+        // Wallet deposit / other: must be a finite positive number
+        const numericAmount = Number(amount);
+        if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+          return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
+        }
+        enforcedAmount = numericAmount;
+      }
 
-    // Wallet direct payment check
-    let initialStatus: 'Pending' | 'Success' = 'Pending';
-    if (paymentMethod === 'Wallet Balance') {
-      if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'A positive payment amount is required for Wallet Balance transactions.'
-        });
+      // Check idempotency
+      if (idempotencyKey) {
+        const existing = PaymentRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing) {
+          if (!isAdmin && existing.userId && String(existing.userId) !== String(effectiveUserId)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Forbidden: Cannot access another user transaction.'
+            });
+          }
+          return res.json({
+            success: true,
+            transaction: existing,
+            message: 'Payment proof already submitted (idempotent result).'
+          });
+        }
       }
-      const user = await UserRepository.getByIdAsync(effectiveUserId);
-      if (!user || (user.walletBalance || 0) < enforcedAmount) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient wallet balance. Required: ${enforcedAmount} PKR, Available: ${user?.walletBalance || 0} PKR.`
-        });
+
+      // Check duplicate transaction ID if provided
+      if (transactionId) {
+        const existingTid = PaymentRepository.findByTransactionId(transactionId);
+        if (existingTid) {
+          return res.status(409).json({
+            success: false,
+            message: `A transaction with reference ID ${transactionId} has already been recorded.`
+          });
+        }
       }
-      // Deduct wallet balance directly
-      await UserRepository.updateAsync(effectiveUserId, {
-        walletBalance: (user.walletBalance || 0) - enforcedAmount
+
+      const tid = transactionId || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+      // Wallet direct payment check
+      let initialStatus: 'Pending' | 'Success' = 'Pending';
+      if (paymentMethod === 'Wallet Balance') {
+        if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'A positive payment amount is required for Wallet Balance transactions.'
+          });
+        }
+        const user = await UserRepository.getByIdAsync(effectiveUserId);
+        if (!user || (user.walletBalance || 0) < enforcedAmount) {
+          return res.status(400).json({
+            success: false,
+            message: `Insufficient wallet balance. Required: ${enforcedAmount} PKR, Available: ${user?.walletBalance || 0} PKR.`
+          });
+        }
+        // Deduct wallet balance directly
+        await UserRepository.updateAsync(effectiveUserId, {
+          walletBalance: (user.walletBalance || 0) - enforcedAmount
+        });
+        initialStatus = 'Success';
+      }
+
+      const newTx = PaymentRepository.create({
+        amount: enforcedAmount,
+        currency: currency || 'PKR',
+        type: effectiveType,
+        status: initialStatus,
+        paymentMethod,
+        transactionId: tid,
+        idempotencyKey: idempotencyKey || undefined,
+        senderName: senderName || effectiveUserName || 'Customer',
+        senderPhoneOrAccount,
+        depositBankOrWalletName,
+        proofScreenshotUrl,
+        proofNote,
+        userId: effectiveUserId,
+        userName: effectiveUserName,
+        userEmail: effectiveUserEmail,
+        jobTitleRef,
+        jobIdRef: safeJobIdRef,
+        pricingBreakdown,
+        verifiedAt: initialStatus === 'Success' ? new Date().toISOString() : undefined,
+        createdAt: new Date().toISOString()
       });
-      initialStatus = 'Success';
+
+      // If job posting paid from wallet successfully with a positive enforced amount, approve pending job
+      if (
+        effectiveType === 'Job Posting' &&
+        initialStatus === 'Success' &&
+        safeJobIdRef &&
+        Number.isFinite(enforcedAmount) &&
+        enforcedAmount > 0
+      ) {
+        await JobRepository.approvePending(safeJobIdRef);
+      }
+
+      AuditRepository.add({
+        user: effectiveUserName || 'User',
+        role: 'Member',
+        action: initialStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
+        target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
+        status: 'Success',
+        metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, type: effectiveType }
+      });
+
+      return res.status(201).json({
+        success: true,
+        transaction: newTx,
+        message: initialStatus === 'Success'
+          ? 'Payment processed and verified immediately via wallet balance!'
+          : 'Payment proof submitted successfully! Administrator verification is pending.'
+      });
+    } finally {
+      activeUserTransactionLocks.delete(userLockKey);
     }
-
-    const newTx = PaymentRepository.create({
-      amount: enforcedAmount,
-      currency: currency || 'PKR',
-      type: effectiveType,
-      status: initialStatus,
-      paymentMethod,
-      transactionId: tid,
-      idempotencyKey: idempotencyKey || undefined,
-      senderName: senderName || effectiveUserName || 'Customer',
-      senderPhoneOrAccount,
-      depositBankOrWalletName,
-      proofScreenshotUrl,
-      proofNote,
-      userId: effectiveUserId,
-      userName: effectiveUserName,
-      userEmail: effectiveUserEmail,
-      jobTitleRef,
-      jobIdRef: safeJobIdRef,
-      pricingBreakdown,
-      verifiedAt: initialStatus === 'Success' ? new Date().toISOString() : undefined,
-      createdAt: new Date().toISOString()
-    });
-
-    // If job posting paid from wallet successfully with a positive enforced amount, approve pending job
-    if (
-      effectiveType === 'Job Posting' &&
-      initialStatus === 'Success' &&
-      safeJobIdRef &&
-      Number.isFinite(enforcedAmount) &&
-      enforcedAmount > 0
-    ) {
-      await JobRepository.approvePending(safeJobIdRef);
-    }
-
-    AuditRepository.add({
-      user: effectiveUserName || 'User',
-      role: 'Member',
-      action: initialStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
-      target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
-      status: 'Success',
-      metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, type: effectiveType }
-    });
-
-    res.status(201).json({
-      success: true,
-      transaction: newTx,
-      message: initialStatus === 'Success'
-        ? 'Payment processed and verified immediately via wallet balance!'
-        : 'Payment proof submitted successfully! Administrator verification is pending.'
-    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error creating transaction' });
   }
@@ -235,30 +252,43 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
       return res.status(400).json({ success: false, message: 'Action must be "approve" or "reject".' });
     }
 
-    const tx = await PaymentRepository.verify(req.params.id, action, note, reason);
-    if (!tx) {
-      return res.status(404).json({ success: false, message: 'Transaction not found.' });
+    const verifyLockKey = String(req.params.id);
+    if (activeTransactionVerificationLocks.has(verifyLockKey)) {
+      return res.status(409).json({
+        success: false,
+        message: 'This transaction is currently being processed. Please try again.'
+      });
     }
 
-    // If approved and was for a pending job posting, publish it live
-    if (action === 'approve' && tx.type === 'Job Posting' && tx.jobIdRef) {
-      await JobRepository.approvePending(tx.jobIdRef);
+    activeTransactionVerificationLocks.add(verifyLockKey);
+    try {
+      const tx = await PaymentRepository.verify(req.params.id, action, note, reason);
+      if (!tx) {
+        return res.status(404).json({ success: false, message: 'Transaction not found.' });
+      }
+
+      // If approved and was for a pending job posting, publish it live
+      if (action === 'approve' && tx.type === 'Job Posting' && tx.jobIdRef) {
+        await JobRepository.approvePending(tx.jobIdRef);
+      }
+
+      AuditRepository.add({
+        user: 'Administrator',
+        role: 'Payment Manager',
+        action: action === 'approve' ? 'Payment Approved' : 'Payment Rejected',
+        target: `Transaction ID ${tx.transactionId || tx.id} (${tx.amount} ${tx.currency})`,
+        status: action === 'approve' ? 'Success' : 'Warning',
+        metadata: { action, note, reason }
+      });
+
+      return res.json({
+        success: true,
+        transaction: tx,
+        message: `Transaction ${tx.transactionId || tx.id} has been ${action === 'approve' ? 'approved and activated' : 'rejected'}.`
+      });
+    } finally {
+      activeTransactionVerificationLocks.delete(verifyLockKey);
     }
-
-    AuditRepository.add({
-      user: 'Administrator',
-      role: 'Payment Manager',
-      action: action === 'approve' ? 'Payment Approved' : 'Payment Rejected',
-      target: `Transaction ID ${tx.transactionId || tx.id} (${tx.amount} ${tx.currency})`,
-      status: action === 'approve' ? 'Success' : 'Warning',
-      metadata: { action, note, reason }
-    });
-
-    res.json({
-      success: true,
-      transaction: tx,
-      message: `Transaction ${tx.transactionId || tx.id} has been ${action === 'approve' ? 'approved and activated' : 'rejected'}.`
-    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error verifying transaction' });
   }

@@ -23,6 +23,7 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
 
     // Strictly enforce advertiser identity and pending moderation status for non-admin users
     if (!isAdmin) {
+      delete adData.id;
       adData.submittedByUserId = req.user.userId || req.user.id;
       adData.submittedByUserName = req.user.name || adData.submittedByUserName;
       adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;

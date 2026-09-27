@@ -203,10 +203,7 @@ userRouter.post('/documents', requireAuth, (req: any, res) => {
     }
 
     const pathname = parsedUrl.pathname;
-    const isInternalPath =
-      rawUrl.startsWith('/') ||
-      pathname.startsWith('/api/applications/cv') ||
-      rawUrl.includes('/api/applications/cv');
+    const isInternalPath = rawUrl.startsWith('/api/applications/cv/');
 
     let safeFileUrl = rawUrl;
     if (isInternalPath) {
@@ -235,6 +232,8 @@ userRouter.post('/documents', requireAuth, (req: any, res) => {
         return res.status(400).json({ success: false, message: 'Invalid internal document file path.' });
       }
       safeFileUrl = rawUrl;
+    } else if (!/^https?:\/\//i.test(rawUrl)) {
+      return res.status(400).json({ success: false, message: 'Invalid document fileUrl.' });
     }
 
     // Validate fileName when supplied

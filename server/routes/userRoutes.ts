@@ -43,12 +43,48 @@ userRouter.get('/saved-jobs', requireAuth, (req: any, res) => {
 
 userRouter.post('/saved-jobs/toggle', requireAuth, (req: any, res) => {
   try {
-    const { job } = req.body;
+    const { job } = req.body || {};
     const currentUserId = req.user?.userId || req.user?.id;
-    if (!currentUserId || !job?.id) {
+    const cleanId = typeof job?.id === 'string' ? job.id.trim() : '';
+    if (!currentUserId || !job || typeof job !== 'object' || Array.isArray(job) || !cleanId || cleanId.length > 128) {
       return res.status(400).json({ success: false, message: 'Valid user session and job with id are required.' });
     }
-    const result = Database.toggleSavedJob(currentUserId, job);
+
+    const ALLOWED_STRING_FIELDS = [
+      'title',
+      'company',
+      'city',
+      'province',
+      'region',
+      'jobType',
+      'salary',
+      'currency',
+      'experienceLevel',
+      'department',
+      'postedAt',
+      'deadline',
+      'deadlineDate',
+      'slug',
+      'sourceUrl',
+      'originalApplyUrl',
+      'govtScale'
+    ] as const;
+
+    const safeJob: Record<string, any> = { id: cleanId };
+    for (const field of ALLOWED_STRING_FIELDS) {
+      const val = job[field];
+      if (typeof val === 'string') {
+        safeJob[field] = val.trim().slice(0, 300);
+      } else if (typeof val === 'number' && Number.isFinite(val)) {
+        safeJob[field] = String(val).slice(0, 300);
+      }
+    }
+
+    if (typeof job.isGovtJob === 'boolean') {
+      safeJob.isGovtJob = job.isGovtJob;
+    }
+
+    const result = Database.toggleSavedJob(currentUserId, safeJob);
     res.json({ success: true, saved: result.saved, count: result.count });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error toggling saved job' });

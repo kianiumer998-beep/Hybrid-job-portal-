@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import path from 'path';
 import { Database } from '../db/database';
 import { PaymentRepository, UserRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth, hasAdminPermission, getPermissionsForRole } from '../auth/authManager';
@@ -161,18 +162,124 @@ userRouter.get('/documents', requireAuth, (req: any, res) => {
 
 userRouter.post('/documents', requireAuth, (req: any, res) => {
   try {
-    const { title, type, fileUrl, fileSize, fileName } = req.body;
+    const { title, type, fileUrl, fileSize, fileName } = req.body || {};
     const currentUserId = req.user?.userId || req.user?.id;
-    if (!currentUserId || !title) {
+    const cleanTitle = typeof title === 'string' ? title.trim() : '';
+    if (!currentUserId || !cleanTitle || cleanTitle.length > 200 || cleanTitle.includes('\0')) {
       return res.status(400).json({ success: false, message: 'Valid user session and title are required.' });
     }
+
+    let safeType = 'CV';
+    if (type !== undefined && type !== null && type !== '') {
+      if (typeof type !== 'string' || type.trim().length === 0 || type.trim().length > 100 || type.includes('\0')) {
+        return res.status(400).json({ success: false, message: 'Invalid document type.' });
+      }
+      safeType = type.trim();
+    }
+
+    // Validate fileUrl: must be a non-empty string without traversal or unsafe schemes
+    if (typeof fileUrl !== 'string' || !fileUrl.trim() || fileUrl.trim().length > 2048) {
+      return res.status(400).json({ success: false, message: 'A valid document fileUrl is required.' });
+    }
+    const rawUrl = fileUrl.trim();
+    if (
+      rawUrl.includes('\0') ||
+      rawUrl.includes('\\') ||
+      rawUrl.includes('..') ||
+      /%(2e|2f|5c)/i.test(rawUrl)
+    ) {
+      return res.status(400).json({ success: false, message: 'Invalid document fileUrl.' });
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl, 'http://localhost');
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid document fileUrl.' });
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return res.status(400).json({ success: false, message: 'Invalid document fileUrl protocol.' });
+    }
+
+    const pathname = parsedUrl.pathname;
+    const isInternalPath =
+      rawUrl.startsWith('/') ||
+      pathname.startsWith('/api/applications/cv') ||
+      rawUrl.includes('/api/applications/cv');
+
+    let safeFileUrl = rawUrl;
+    if (isInternalPath) {
+      const prefix = '/api/applications/cv/';
+      if (!pathname.startsWith(prefix)) {
+        return res.status(400).json({ success: false, message: 'Invalid internal document fileUrl.' });
+      }
+      const rawSegment = pathname.slice(prefix.length);
+      let decodedSegment = '';
+      try {
+        decodedSegment = decodeURIComponent(rawSegment);
+      } catch {
+        return res.status(400).json({ success: false, message: 'Invalid internal document fileUrl.' });
+      }
+      const baseSegment = path.basename(decodedSegment);
+      if (
+        !baseSegment ||
+        baseSegment !== decodedSegment ||
+        baseSegment !== rawSegment ||
+        baseSegment === '.' ||
+        baseSegment === '..' ||
+        baseSegment.includes('/') ||
+        baseSegment.includes('\\') ||
+        baseSegment.includes('..')
+      ) {
+        return res.status(400).json({ success: false, message: 'Invalid internal document file path.' });
+      }
+      safeFileUrl = rawUrl;
+    }
+
+    // Validate fileName when supplied
+    let safeFileName: string | undefined = undefined;
+    if (fileName !== undefined && fileName !== null) {
+      if (
+        typeof fileName !== 'string' ||
+        !fileName.trim() ||
+        fileName.trim().length > 255 ||
+        fileName.includes('\0') ||
+        fileName.includes('/') ||
+        fileName.includes('\\') ||
+        fileName.includes('..') ||
+        /%(2e|2f|5c)/i.test(fileName)
+      ) {
+        return res.status(400).json({ success: false, message: 'Invalid fileName.' });
+      }
+      const trimmedFileName = fileName.trim();
+      if (path.basename(trimmedFileName) !== trimmedFileName || trimmedFileName === '.' || trimmedFileName === '..') {
+        return res.status(400).json({ success: false, message: 'Invalid fileName.' });
+      }
+      safeFileName = trimmedFileName;
+    }
+
+    // Validate fileSize when supplied (finite, non-negative, max 5MB = 5 * 1024 * 1024 bytes)
+    const MAX_DOCUMENT_SIZE = 5 * 1024 * 1024;
+    let safeFileSize: number | undefined = undefined;
+    if (fileSize !== undefined && fileSize !== null && fileSize !== '') {
+      const numericSize = Number(fileSize);
+      if (!Number.isFinite(numericSize) || numericSize < 0 || numericSize > MAX_DOCUMENT_SIZE) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid fileSize. File size must be between 0 and 5MB.'
+        });
+      }
+      safeFileSize = numericSize;
+    }
+
     const doc = Database.addUserDocument({
       userId: currentUserId,
-      title,
-      type: type || 'CV',
-      fileUrl,
-      fileSize,
-      fileName
+      title: cleanTitle,
+      type: safeType,
+      fileUrl: safeFileUrl,
+      ...(safeFileSize !== undefined ? { fileSize: safeFileSize } : {}),
+      ...(safeFileName !== undefined ? { fileName: safeFileName } : {})
     });
     res.status(201).json({ success: true, document: doc, message: 'Document uploaded successfully!' });
   } catch (err: any) {

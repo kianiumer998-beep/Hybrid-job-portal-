@@ -939,6 +939,10 @@ jobRouter.post('/', async (req, res) => {
       newJob.status = 'Pending';
       newJob.featured = false;
       newJob.urgent = false;
+      newJob.isPinnedTop = false;
+      newJob.isFutureJob = false;
+      newJob.priorityTier = 'standard';
+      newJob.isVerified = false;
       savedJob = await JobRepository.addPending(newJob);
       AuditRepository.add({
         user: user?.name || 'Guest Employer',

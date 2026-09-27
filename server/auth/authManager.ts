@@ -140,7 +140,7 @@ export function verifyToken(token: string): any | null {
 }
 
 // Authentication & Authorization Middlewares for Express
-export function authMiddleware(req: any, res: any, next: any) {
+export async function authMiddleware(req: any, res: any, next: any) {
   // Disallow any bypass headers such as x-admin-passkey
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -151,14 +151,49 @@ export function authMiddleware(req: any, res: any, next: any) {
   }
 
   const payload = verifyToken(token);
+  if (payload && (ADMIN_ROLES as readonly string[]).includes(payload.role)) {
+    try {
+      const userId = payload.userId || payload.id;
+      const dbUser = userId ? await UserRepository.getByIdAsync(userId) : null;
+      if (!dbUser || dbUser.role !== payload.role) {
+        req.user = null;
+        return next();
+      }
+      payload.role = dbUser.role;
+      payload.permissions = getPermissionsForRole(dbUser.role);
+    } catch (err) {
+      req.user = null;
+      return next();
+    }
+  }
+
   req.user = payload;
   next();
 }
 
-export function requireAuth(req: any, res: any, next: any) {
+export async function requireAuth(req: any, res: any, next: any) {
   if (!req.user) {
     return res.status(401).json({ success: false, message: 'Authentication required. Please log in.' });
   }
+
+  if ((ADMIN_ROLES as readonly string[]).includes(req.user.role)) {
+    try {
+      const userId = req.user.userId || req.user.id;
+      const dbUser = userId ? await UserRepository.getByIdAsync(userId) : null;
+      if (!dbUser || dbUser.role !== req.user.role) {
+        return res.status(401).json({
+          success: false,
+          message: 'Your administrative role has changed. Please log in again to refresh your session.'
+        });
+      }
+
+      req.user.role = dbUser.role;
+      req.user.permissions = getPermissionsForRole(dbUser.role);
+    } catch (err) {
+      return res.status(500).json({ success: false, message: 'Authorization verification error.' });
+    }
+  }
+
   next();
 }
 

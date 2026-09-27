@@ -141,6 +141,12 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
     // Wallet direct payment check
     let initialStatus: 'Pending' | 'Success' = 'Pending';
     if (paymentMethod === 'Wallet Balance') {
+      if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'A positive payment amount is required for Wallet Balance transactions.'
+        });
+      }
       const user = await UserRepository.getByIdAsync(effectiveUserId);
       if (!user || (user.walletBalance || 0) < enforcedAmount) {
         return res.status(400).json({
@@ -178,8 +184,8 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       createdAt: new Date().toISOString()
     });
 
-    // If job posting paid from wallet successfully, approve pending job
-    if (initialStatus === 'Success' && jobIdRef) {
+    // If job posting paid from wallet successfully with a positive enforced amount, approve pending job
+    if (initialStatus === 'Success' && jobIdRef && enforcedAmount > 0) {
       await JobRepository.approvePending(jobIdRef);
     }
 

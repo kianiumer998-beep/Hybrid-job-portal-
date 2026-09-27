@@ -21,6 +21,11 @@ import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
   const app = express();
+  // Trust only local/private reverse proxies (Render internal router, Cloud Run / local Nginx proxy).
+  // Express evaluates X-Forwarded-For right-to-left and stops at the first non-private client IP,
+  // preventing external clients from spoofing X-Forwarded-For headers.
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
   // Port configuration:
   // - In AI Studio preview environment, an internal Nginx proxy listens on NGINX_PORT (8080) and forwards to DEFAULT_APP_PORT (3000).
   // - In cloud deployments (Render, Heroku, Cloud Run, AWS, Railway, etc.), NGINX_PORT is not set and the platform provides PORT.

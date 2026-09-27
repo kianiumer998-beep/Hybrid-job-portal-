@@ -49,22 +49,22 @@ export class PricingRepository {
     const plan = req.jobPlan || 'Standard';
     switch (plan) {
       case 'Standard':
-        basePrice = pricing.jobPosting?.standard || 0;
+        basePrice = pricing.jobPosting?.standardFeePkr ?? pricing.jobPosting?.standard ?? 0;
         break;
       case 'Urgent':
-        basePrice = pricing.jobPosting?.urgent || 2500;
+        basePrice = pricing.jobPosting?.urgentFeePkr ?? pricing.jobPosting?.urgent ?? 2500;
         break;
       case 'Featured':
-        basePrice = pricing.jobPosting?.featured || 4500;
+        basePrice = pricing.jobPosting?.featuredTopFeePkr ?? pricing.jobPosting?.featured ?? 4500;
         break;
       case 'Top':
-        basePrice = pricing.jobPosting?.topOfWeek || 7000;
+        basePrice = pricing.jobPosting?.featuredTopFeePkr ?? pricing.jobPosting?.topOfWeek ?? 7000;
         break;
       case 'Future':
-        basePrice = pricing.jobPosting?.futureListing || 12000;
+        basePrice = pricing.jobPosting?.futureJobFeePkr ?? pricing.jobPosting?.futureListing ?? 12000;
         break;
       case 'VIP Bundle':
-        basePrice = pricing.jobPosting?.vipBundle || 15000;
+        basePrice = pricing.jobPosting?.vipBundleFeePkr ?? pricing.jobPosting?.vipBundle ?? 15000;
         break;
       default:
         basePrice = 0;
@@ -134,19 +134,19 @@ export class PricingRepository {
     let dailyRate = 500;
     switch (placement) {
       case 'Top Banner':
-        dailyRate = pricing.ads?.topBannerDaily || 1200;
+        dailyRate = pricing.advertisements?.topBannerPerDayPkr ?? pricing.ads?.topBannerDaily ?? 1200;
         break;
       case 'Banner':
-        dailyRate = pricing.ads?.standardBannerDaily || 600;
+        dailyRate = pricing.advertisements?.bannerPerDayPkr ?? pricing.ads?.standardBannerDaily ?? 600;
         break;
       case 'Popup':
-        dailyRate = pricing.ads?.popupDaily || 2000;
+        dailyRate = pricing.advertisements?.popupPerDayPkr ?? pricing.ads?.popupDaily ?? 2000;
         break;
       case 'Feed Ad':
-        dailyRate = pricing.ads?.feedAdDaily || 800;
+        dailyRate = pricing.advertisements?.feedAdPerDayPkr ?? pricing.ads?.feedAdDaily ?? 800;
         break;
       case 'Featured Employer':
-        dailyRate = pricing.ads?.featuredEmployerDaily || 1500;
+        dailyRate = pricing.advertisements?.featuredEmployerPerMonthPkr ?? pricing.ads?.featuredEmployerDaily ?? 1500;
         break;
     }
 

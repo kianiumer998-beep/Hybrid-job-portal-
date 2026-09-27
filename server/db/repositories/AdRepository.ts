@@ -18,6 +18,38 @@ export interface AdvertisementRecord {
   updatedAt?: string;
 }
 
+const processedClickKeys = new Map<string, number>();
+const processedImpressionKeys = new Map<string, number>();
+const MAX_IDEMPOTENCY_ENTRIES = 5000;
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function hasProcessedIdempotencyKey(store: Map<string, number>, key: string): boolean {
+  const timestamp = store.get(key);
+  if (timestamp === undefined) return false;
+  if (Date.now() - timestamp > IDEMPOTENCY_TTL_MS) {
+    store.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function recordBoundedIdempotencyKey(store: Map<string, number>, key: string): void {
+  const now = Date.now();
+  if (store.size >= MAX_IDEMPOTENCY_ENTRIES) {
+    for (const [k, ts] of store.entries()) {
+      if (now - ts > IDEMPOTENCY_TTL_MS) {
+        store.delete(k);
+      }
+    }
+    while (store.size >= MAX_IDEMPOTENCY_ENTRIES) {
+      const oldestKey = store.keys().next().value;
+      if (oldestKey === undefined) break;
+      store.delete(oldestKey);
+    }
+  }
+  store.set(key, now);
+}
+
 export class AdRepository {
   static getAll(filters?: { status?: string; placement?: string }): AdvertisementRecord[] {
     let ads = Database.getAds() || [];
@@ -107,11 +139,37 @@ export class AdRepository {
   }
 
   static async trackClickAsync(id: string, _options?: any): Promise<AdvertisementRecord | null> {
+    const idempotencyKey = typeof _options?.idempotencyKey === 'string' ? _options.idempotencyKey.trim() : '';
+    if (idempotencyKey) {
+      const compositeKey = `${id}:${idempotencyKey}`;
+      if (hasProcessedIdempotencyKey(processedClickKeys, compositeKey)) {
+        return this.getById(id);
+      }
+      const recorded = this.recordClick(id);
+      if (recorded) {
+        recordBoundedIdempotencyKey(processedClickKeys, compositeKey);
+      }
+      return this.getById(id);
+    }
+
     this.recordClick(id);
     return this.getById(id);
   }
 
   static async trackImpressionAsync(id: string, _options?: any): Promise<AdvertisementRecord | null> {
+    const idempotencyKey = typeof _options?.idempotencyKey === 'string' ? _options.idempotencyKey.trim() : '';
+    if (idempotencyKey) {
+      const compositeKey = `${id}:${idempotencyKey}`;
+      if (hasProcessedIdempotencyKey(processedImpressionKeys, compositeKey)) {
+        return this.getById(id);
+      }
+      const recorded = this.recordImpression(id);
+      if (recorded) {
+        recordBoundedIdempotencyKey(processedImpressionKeys, compositeKey);
+      }
+      return this.getById(id);
+    }
+
     this.recordImpression(id);
     return this.getById(id);
   }

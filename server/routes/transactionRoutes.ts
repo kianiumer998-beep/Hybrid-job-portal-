@@ -74,9 +74,19 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Payment method is required.' });
     }
 
-    // Verify job ownership for non-admin users when jobIdRef is supplied
-    if (!isAdmin && jobIdRef) {
-      const matchedJobs = await JobRepository.getJobsByIds([String(jobIdRef)]);
+    const effectiveType = type || 'Wallet Deposit';
+    const safeJobIdRef = effectiveType === 'Job Posting' ? jobIdRef : undefined;
+
+    if (effectiveType === 'Wallet Deposit' && paymentMethod === 'Wallet Balance') {
+      return res.status(400).json({
+        success: false,
+        message: 'Wallet Deposit cannot be funded using Wallet Balance.'
+      });
+    }
+
+    // Verify job ownership for non-admin users when jobIdRef is supplied on a Job Posting transaction
+    if (!isAdmin && safeJobIdRef) {
+      const matchedJobs = await JobRepository.getJobsByIds([String(safeJobIdRef)]);
       const targetJob = matchedJobs[0];
       const jobOwnerId = targetJob?.submittedByUserId || targetJob?.postedByUserId || targetJob?.userId;
       if (!targetJob || !jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
@@ -91,20 +101,21 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
     let enforcedAmount = Number(amount);
     let pricingBreakdown: Array<{ name: string; amount: number }> = [];
 
-    if (type === 'Job Posting') {
+    if (effectiveType === 'Job Posting') {
       const calc = PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
       enforcedAmount = calc.finalPrice;
       pricingBreakdown = calc.breakdown;
-    } else if (type === 'Advertisement') {
+    } else if (effectiveType === 'Advertisement') {
       const calc = PricingRepository.calculateAdPrice(adPricingOptions || {});
       enforcedAmount = calc.finalPrice;
       pricingBreakdown = calc.breakdown;
     } else {
-      // Wallet deposit: must be positive
-      if (!amount || Number(amount) <= 0) {
+      // Wallet deposit / other: must be a finite positive number
+      const numericAmount = Number(amount);
+      if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
         return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
       }
-      enforcedAmount = Number(amount);
+      enforcedAmount = numericAmount;
     }
 
     // Check idempotency
@@ -164,7 +175,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
     const newTx = PaymentRepository.create({
       amount: enforcedAmount,
       currency: currency || 'PKR',
-      type: type || 'Wallet Deposit',
+      type: effectiveType,
       status: initialStatus,
       paymentMethod,
       transactionId: tid,
@@ -178,15 +189,21 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       userName: effectiveUserName,
       userEmail: effectiveUserEmail,
       jobTitleRef,
-      jobIdRef,
+      jobIdRef: safeJobIdRef,
       pricingBreakdown,
       verifiedAt: initialStatus === 'Success' ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString()
     });
 
     // If job posting paid from wallet successfully with a positive enforced amount, approve pending job
-    if (initialStatus === 'Success' && jobIdRef && enforcedAmount > 0) {
-      await JobRepository.approvePending(jobIdRef);
+    if (
+      effectiveType === 'Job Posting' &&
+      initialStatus === 'Success' &&
+      safeJobIdRef &&
+      Number.isFinite(enforcedAmount) &&
+      enforcedAmount > 0
+    ) {
+      await JobRepository.approvePending(safeJobIdRef);
     }
 
     AuditRepository.add({
@@ -195,7 +212,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       action: initialStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
       target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
       status: 'Success',
-      metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, type }
+      metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, type: effectiveType }
     });
 
     res.status(201).json({
@@ -223,8 +240,8 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
       return res.status(404).json({ success: false, message: 'Transaction not found.' });
     }
 
-    // If approved and was for a pending job, publish it live
-    if (action === 'approve' && tx.jobIdRef) {
+    // If approved and was for a pending job posting, publish it live
+    if (action === 'approve' && tx.type === 'Job Posting' && tx.jobIdRef) {
       await JobRepository.approvePending(tx.jobIdRef);
     }
 

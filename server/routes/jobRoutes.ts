@@ -900,16 +900,14 @@ jobRouter.post('/', async (req, res) => {
       user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role)
     );
 
-    const isScrapedOrigin = isScrapedJob(jobData);
+    const isScrapedOrigin = canCreateApproved && isScrapedJob(jobData);
     let derivedSourceType: string;
     if (isScrapedOrigin) {
       derivedSourceType = 'scraped';
     } else if (canCreateApproved) {
       derivedSourceType = 'admin_created';
-    } else if (authUserId) {
-      derivedSourceType = 'user_posted';
     } else {
-      derivedSourceType = 'unknown';
+      derivedSourceType = 'user_posted';
     }
 
     const newJob: any = {
@@ -935,10 +933,23 @@ jobRouter.post('/', async (req, res) => {
       });
     } else {
       // Non-admin / guest / user / employer submissions MUST always become Pending -> MongoDB.pending_jobs
-      // Strictly ignore any client-supplied status: 'Approved' and strip client-controlled ID / owner-alias fields
+      // Strictly ignore any client-supplied status: 'Approved' and strip client-controlled ID / owner-alias / scraper fields
       delete newJob.id;
       delete newJob.postedByUserId;
       delete newJob.userId;
+      delete newJob.isScraped;
+      delete newJob.isPdfScraped;
+      delete newJob.scraperSourceId;
+      delete newJob.scraperSourceName;
+      delete newJob.scrapedSourceDomain;
+      delete newJob.sourcePortal;
+      delete newJob.scrapeRunId;
+      delete newJob.scrapedAt;
+      delete newJob.extractionMethod;
+      delete newJob.sourceJobId;
+      delete newJob.pdfSourceUrl;
+      delete newJob.pdfFileName;
+      newJob.sourceType = 'user_posted';
       newJob.slug = generateJobSlug(jobData.title, jobData.city);
       newJob.status = 'Pending';
       newJob.featured = false;

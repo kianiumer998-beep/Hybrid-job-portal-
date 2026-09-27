@@ -67,7 +67,7 @@ export class PricingRepository {
         basePrice = pricing.jobPosting?.vipBundleFeePkr ?? pricing.jobPosting?.vipBundle ?? 15000;
         break;
       default:
-        basePrice = 0;
+        basePrice = pricing.jobPosting?.standardFeePkr ?? pricing.jobPosting?.standard ?? 0;
     }
     breakdown.push({ name: `${plan} Listing Base`, amount: basePrice });
 

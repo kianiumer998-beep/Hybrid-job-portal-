@@ -99,15 +99,18 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       }
 
       // Verify job ownership for non-admin users when jobIdRef is supplied on a Job Posting transaction
-      if (!isAdmin && safeJobIdRef) {
+      let targetJob: any = null;
+      if (safeJobIdRef) {
         const matchedJobs = await JobRepository.getJobsByIds([String(safeJobIdRef)]);
-        const targetJob = matchedJobs[0];
-        const jobOwnerId = targetJob?.submittedByUserId || targetJob?.postedByUserId || targetJob?.userId;
-        if (!targetJob || !jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden: Referenced job does not belong to the authenticated user.'
-          });
+        targetJob = matchedJobs[0] || null;
+        if (!isAdmin) {
+          const jobOwnerId = targetJob?.submittedByUserId || targetJob?.postedByUserId || targetJob?.userId;
+          if (!targetJob || !jobOwnerId || String(jobOwnerId) !== String(effectiveUserId)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Forbidden: Referenced job does not belong to the authenticated user.'
+            });
+          }
         }
       }
 
@@ -130,6 +133,13 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
           return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
         }
         enforcedAmount = numericAmount;
+      }
+
+      if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid transaction amount.'
+        });
       }
 
       // Check idempotency
@@ -171,6 +181,14 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             success: false,
             message: 'A positive payment amount is required for Wallet Balance transactions.'
           });
+        }
+        if (effectiveType === 'Job Posting' && safeJobIdRef) {
+          if (!targetJob || targetJob.status === 'Approved' || targetJob.status !== 'Pending') {
+            return res.status(409).json({
+              success: false,
+              message: 'This job has already been paid for or is already active.'
+            });
+          }
         }
         const user = await UserRepository.getByIdAsync(effectiveUserId);
         if (!user || (user.walletBalance || 0) < enforcedAmount) {

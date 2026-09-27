@@ -429,10 +429,33 @@ applicationRouter.post('/', async (req, res) => {
     // Check employer / admin apply settings server-side
     const settings = Database.getApplySettings();
 
+    // Verify target job exists and is currently live/approved
+    const job = await JobRepository.getById(jobId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found.'
+      });
+    }
+
+    if (
+      job.status === 'Expired' ||
+      job.status === 'Pending' ||
+      job.status === 'Rejected' ||
+      job.status === 'Draft' ||
+      (job.status && job.status !== 'Approved') ||
+      job.isExpired === true ||
+      job.isSuspended === true
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'This position is not currently open for applications.'
+      });
+    }
+
     // Check deadline enforcement
     if (settings.enforceDeadlines) {
-      const job = await JobRepository.getById(jobId);
-      if (job && (job.deadline || job.deadlineDate || job.closingDeadline)) {
+      if (job.deadline || job.deadlineDate || job.closingDeadline) {
         const deadlineStr = job.deadline || job.deadlineDate || job.closingDeadline;
         const deadlineTime = new Date(deadlineStr).getTime();
         if (!isNaN(deadlineTime) && deadlineTime < Date.now()) {

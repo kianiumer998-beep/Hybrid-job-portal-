@@ -198,18 +198,34 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
         isAuthorized = true;
       } else {
         // Check if user is the applicant or employer on the corresponding application
+        const currentUserId = user.userId || user.id;
         const applications = await ApplicationRepository.getAllAsync();
         const expectedCvPath = `/api/applications/cv/${safeFileName}`;
 
-        const isOwner = applications.some(
+        const matchingApps = applications.filter(
           a =>
             typeof a.cvFileUrl === 'string' &&
-            a.cvFileUrl.split('?')[0] === expectedCvPath &&
-            (a.applicantId === user.userId || a.applicantEmail === user.email)
+            a.cvFileUrl.split('?')[0] === expectedCvPath
+        );
+
+        const isOwner = matchingApps.some(
+          a =>
+            (currentUserId && String(a.applicantId) === String(currentUserId)) ||
+            (user.email && a.applicantEmail === user.email)
         );
 
         if (isOwner) {
           isAuthorized = true;
+        } else if (currentUserId && matchingApps.length > 0) {
+          for (const app of matchingApps) {
+            if (!app.jobId) continue;
+            const job = await JobRepository.getById(String(app.jobId));
+            const jobOwnerId = job?.submittedByUserId || job?.postedByUserId || job?.userId;
+            if (job && jobOwnerId && String(jobOwnerId) === String(currentUserId)) {
+              isAuthorized = true;
+              break;
+            }
+          }
         }
       }
     }
@@ -247,13 +263,28 @@ applicationRouter.get('/', requireAuth, async (req, res) => {
     const { jobId, applicantId } = req.query as Record<string, string>;
     const user = (req as any).user;
 
-    // If not admin, limit to user's own applications
+    // If not admin, limit to user's own applications unless querying a job they own
     const adminRoles = ['Super Admin', 'Admin', 'Job Moderator'];
     const isAdmin = user && adminRoles.includes(user.role);
 
-    let filterApplicantId = applicantId;
+    let filterApplicantId: string | undefined = applicantId;
     if (!isAdmin && user) {
-      filterApplicantId = user.userId || user.id;
+      const currentUserId = user.userId || user.id;
+      if (jobId) {
+        const job = await JobRepository.getById(String(jobId));
+        if (!job) {
+          return res.status(404).json({ success: false, message: 'Job not found.' });
+        }
+        const jobOwnerId = job.submittedByUserId || job.postedByUserId || job.userId;
+        const isJobOwner = Boolean(
+          currentUserId &&
+          jobOwnerId &&
+          String(jobOwnerId) === String(currentUserId)
+        );
+        filterApplicantId = isJobOwner ? undefined : currentUserId;
+      } else {
+        filterApplicantId = currentUserId;
+      }
     }
 
     const apps = await ApplicationRepository.getAllAsync({ jobId, applicantId: filterApplicantId });

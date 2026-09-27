@@ -8,9 +8,64 @@ import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownl
 
 export const applicationRouter = Router();
 
+// Dedicated in-memory per-IP rate limiters for public CV upload and application submission
+const cvUploadAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
+const CV_UPLOAD_MAX_ATTEMPTS = 10;
+const CV_UPLOAD_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+const applicationSubmitAttempts = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
+const APPLICATION_SUBMIT_MAX_ATTEMPTS = 15;
+const APPLICATION_SUBMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+function checkAndRecordBucketLimit(
+  store: Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>,
+  ip: string,
+  maxAttempts: number,
+  windowMs: number
+): { blocked: boolean; retryAfterSeconds?: number } {
+  const now = Date.now();
+  const entry = store.get(ip);
+
+  if (entry) {
+    if (entry.lockedUntil && now < entry.lockedUntil) {
+      return { blocked: true, retryAfterSeconds: Math.ceil((entry.lockedUntil - now) / 1000) };
+    }
+
+    if (now - entry.firstAttempt > windowMs) {
+      store.set(ip, { count: 1, firstAttempt: now });
+      return { blocked: false };
+    }
+
+    if (entry.count >= maxAttempts) {
+      const remainingMs = Math.max(1000, windowMs - (now - entry.firstAttempt));
+      entry.lockedUntil = now + remainingMs;
+      return { blocked: true, retryAfterSeconds: Math.ceil(remainingMs / 1000) };
+    }
+
+    entry.count += 1;
+    if (entry.count >= maxAttempts) {
+      entry.lockedUntil = entry.firstAttempt + windowMs;
+    }
+    return { blocked: false };
+  }
+
+  store.set(ip, { count: 1, firstAttempt: now });
+  return { blocked: false };
+}
+
 // 1. Secure Real CV Upload Endpoint
 applicationRouter.post('/upload-cv', async (req, res) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const rateCheck = checkAndRecordBucketLimit(cvUploadAttempts, ip, CV_UPLOAD_MAX_ATTEMPTS, CV_UPLOAD_WINDOW_MS);
+    if (rateCheck.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many CV upload attempts. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`,
+        retryAfterSeconds: rateCheck.retryAfterSeconds || 60
+      });
+    }
+
     const { fileName, fileType, fileBase64 } = req.body;
 
     if (!fileName || !fileBase64) {
@@ -225,6 +280,21 @@ applicationRouter.get('/', requireAuth, async (req, res) => {
 // 4. Submit Job Application (Server-side settings enforcement)
 applicationRouter.post('/', async (req, res) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const rateCheck = checkAndRecordBucketLimit(
+      applicationSubmitAttempts,
+      ip,
+      APPLICATION_SUBMIT_MAX_ATTEMPTS,
+      APPLICATION_SUBMIT_WINDOW_MS
+    );
+    if (rateCheck.blocked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many application submissions. Please try again in ${rateCheck.retryAfterSeconds || 60} seconds.`,
+        retryAfterSeconds: rateCheck.retryAfterSeconds || 60
+      });
+    }
+
     const {
       jobId,
       jobTitle,
@@ -240,6 +310,89 @@ applicationRouter.post('/', async (req, res) => {
 
     if (!jobId || !applicantName || !applicantEmail) {
       return res.status(400).json({ success: false, message: 'Job ID, applicant name, and email are required.' });
+    }
+
+    // Validate and sanitize internal CV URL before expensive operations or persistence
+    let sanitizedCvFileUrl: string | undefined = undefined;
+    if (typeof cvFileUrl === 'string' && cvFileUrl.trim()) {
+      const rawUrl = cvFileUrl.trim();
+
+      if (
+        rawUrl.includes('\0') ||
+        rawUrl.includes('\\') ||
+        rawUrl.includes('..') ||
+        /%(2e|2f|5c)/i.test(rawUrl)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid CV file URL.'
+        });
+      }
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(rawUrl, 'http://localhost');
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid CV file URL.'
+        });
+      }
+
+      const pathname = parsedUrl.pathname;
+      const isInternalCvPath =
+        pathname.startsWith('/api/applications/cv') ||
+        rawUrl.includes('/api/applications/cv');
+
+      if (isInternalCvPath) {
+        const prefix = '/api/applications/cv/';
+        if (!pathname.startsWith(prefix)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid CV file URL.'
+          });
+        }
+
+        const rawSegment = pathname.slice(prefix.length);
+        let decodedSegment = '';
+        try {
+          decodedSegment = decodeURIComponent(rawSegment);
+        } catch {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid CV file URL.'
+          });
+        }
+
+        const fileName = path.basename(decodedSegment);
+        if (
+          !fileName ||
+          fileName !== decodedSegment ||
+          fileName !== rawSegment ||
+          fileName === '.' ||
+          fileName === '..' ||
+          fileName.includes('/') ||
+          fileName.includes('\\') ||
+          fileName.includes('..')
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid CV file path.'
+          });
+        }
+
+        const token = parsedUrl.searchParams.get('token') || '';
+        if (!token || !verifyCvDownloadToken(fileName, token)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid or unauthorized CV download token.'
+          });
+        }
+
+        sanitizedCvFileUrl = `/api/applications/cv/${fileName}`;
+      } else {
+        sanitizedCvFileUrl = rawUrl;
+      }
     }
 
     // Check employer / admin apply settings server-side
@@ -268,7 +421,7 @@ applicationRouter.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'A valid contact phone number is required by employer.' });
     }
 
-    if (settings.requireCv && (!cvFileUrl || !cvFileUrl.trim())) {
+    if (settings.requireCv && !sanitizedCvFileUrl) {
       return res.status(400).json({ success: false, message: 'CV upload is required for this application.' });
     }
 
@@ -310,7 +463,7 @@ applicationRouter.post('/', async (req, res) => {
       applicantPhone,
       coverLetter,
       answers: answers || {},
-      cvFileUrl: cvFileUrl || undefined,
+      cvFileUrl: sanitizedCvFileUrl,
       status: 'Applied'
     });
 

@@ -89,6 +89,25 @@ function decodeStoredAuthTokenPayload(): Record<string, any> | null {
   }
 }
 
+function isAuthoritativeUserSubscribed(user: any): boolean {
+  if (!user || typeof user !== 'object') return false;
+  const status = String(user.membershipStatus || '').trim();
+  if (status === 'Inactive' || status === 'Expired' || status === 'Suspended' || status === 'Cancelled') {
+    return false;
+  }
+  const tier = String(user.membershipTier || '').trim();
+  if (status === 'Active' && tier && tier.toLowerCase() !== 'free') {
+    return true;
+  }
+  if (user.plan === 'Premium') {
+    return true;
+  }
+  if (user.paymentStatus === 'Paid' && status === 'Active') {
+    return true;
+  }
+  return false;
+}
+
 export default function App() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
@@ -484,7 +503,12 @@ export default function App() {
   });
 
   const [isSubscribed, setIsSubscribed] = useState<boolean>(() => {
-    return localStorage.getItem('hybrid_user_is_subscribed') === 'true';
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('hybrid_user_is_subscribed');
+      } catch {}
+    }
+    return false;
   });
 
   const [monthlyFeePkr, setMonthlyFeePkr] = useState<number>(() => {
@@ -628,7 +652,11 @@ export default function App() {
 
   const sanitizeBackendUser = useCallback((rawUser: any): UserAccount => {
     const { password, passwordHash, salt, ...safeUser } = rawUser || {};
-    return safeUser as UserAccount;
+    const subscribed = isAuthoritativeUserSubscribed(safeUser);
+    return {
+      ...safeUser,
+      plan: subscribed ? 'Premium' : (safeUser.plan === 'Premium' ? 'Free' : (safeUser.plan || 'Free'))
+    } as UserAccount;
   }, []);
 
   const getAuthenticatedUserIdFromToken = useCallback((): string | null => {
@@ -687,8 +715,10 @@ export default function App() {
             localStorage.removeItem('hybrid_auth_token');
             localStorage.removeItem('hybrid_current_user');
             localStorage.removeItem('hybrid_admin_view_preference');
+            localStorage.removeItem('hybrid_user_is_subscribed');
           } catch {}
           setCurrentUser(null);
+          setIsSubscribed(false);
           setIsAdminLoggedIn(false);
           setShowAdminView(false);
         }
@@ -751,8 +781,11 @@ export default function App() {
   }, [subscribers]);
 
   useEffect(() => {
-    safeLocalStorageSet('hybrid_user_is_subscribed', isSubscribed ? 'true' : 'false');
-  }, [isSubscribed]);
+    try {
+      localStorage.removeItem('hybrid_user_is_subscribed');
+    } catch {}
+    setIsSubscribed(isAuthoritativeUserSubscribed(currentUser));
+  }, [currentUser]);
 
   useEffect(() => {
     safeLocalStorageSet('hybrid_monthly_fee', monthlyFeePkr.toString());
@@ -1322,10 +1355,19 @@ export default function App() {
     if (newSub.status === 'Active') {
       setIsSubscribed(true);
       if (currentUser) {
-        setCurrentUser({ ...currentUser, plan: 'Premium', autoRenew: true });
+        setCurrentUser({
+          ...currentUser,
+          plan: 'Premium',
+          membershipStatus: 'Active',
+          membershipTier: newSub.plan || 'Pro Alerts',
+          autoRenew: true
+        } as UserAccount);
       }
     }
 
+    if (currentUser?.id) {
+      loadBackendUserProfile(currentUser.id);
+    }
     if (currentUser?.id || isAdminLoggedIn) {
       loadBackendTransactions(currentUser?.id);
     }
@@ -2473,8 +2515,10 @@ export default function App() {
                   await api.auth.logout();
                   try {
                     localStorage.removeItem('hybrid_admin_view_preference');
+                    localStorage.removeItem('hybrid_user_is_subscribed');
                   } catch {}
                   setCurrentUser(null);
+                  setIsSubscribed(false);
                   setUsers([]);
                   setAllApplications([]);
                   setPaymentTransactions([]);
@@ -2612,8 +2656,17 @@ export default function App() {
         isOpen={cvPaywallOpen}
         onClose={() => setCvPaywallOpen(false)}
         onUnlock={() => {
-          setIsSubscribed(true);
           setCvPaywallOpen(false);
+          if (isAuthoritativeUserSubscribed(currentUser)) {
+            setIsSubscribed(true);
+          } else {
+            setIsSubscribed(false);
+            setSelectedJobTitleForSub('ATS Un-Watermarked CV Export');
+            setSubscriptionModalOpen(true);
+          }
+          if (currentUser?.id) {
+            loadBackendUserProfile(currentUser.id);
+          }
         }}
       />
 

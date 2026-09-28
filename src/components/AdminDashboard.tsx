@@ -338,8 +338,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     permissions?: string[];
   } | null>(() => {
     try {
-      const saved = localStorage.getItem('hybrid_current_user');
-      return saved ? JSON.parse(saved) : null;
+      const token = localStorage.getItem('hybrid_auth_token');
+      if (!token) return null;
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+      const payload = JSON.parse(atob(padded));
+      if (!payload || typeof payload !== 'object') return null;
+      if (typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now()) return null;
+      return {
+        id: payload.userId || payload.id,
+        userId: payload.userId || payload.id,
+        name: payload.name,
+        email: payload.email,
+        role: payload.role,
+        permissions: payload.permissions
+      };
     } catch {
       return null;
     }
@@ -427,9 +442,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .then((res: any) => {
         if (res?.success && res.user) {
           setCurrentAdminUser(res.user);
-          try {
-            localStorage.setItem('hybrid_current_user', JSON.stringify(res.user));
-          } catch {}
         }
       })
       .catch(() => {});

@@ -92,18 +92,32 @@ export const api = {
   // --- AUTH ---
   auth: {
     async register(data: { name: string; email: string; password: string; role?: string; phone?: string; companyName?: string }) {
-      return safeFetchJson(`${getResolvedApiBase()}/auth/register`, {
+      const res = await safeFetchJson(`${getResolvedApiBase()}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
+      if (res?.success && res?.token) {
+        try {
+          localStorage.setItem('hybrid_auth_token', res.token);
+          localStorage.removeItem('hybrid_current_user');
+        } catch {}
+      }
+      return res;
     },
     async login(data: { email: string; password: string }) {
-      return safeFetchJson(`${getResolvedApiBase()}/auth/login`, {
+      const res = await safeFetchJson(`${getResolvedApiBase()}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
+      if (res?.success && res?.token) {
+        try {
+          localStorage.setItem('hybrid_auth_token', res.token);
+          localStorage.removeItem('hybrid_current_user');
+        } catch {}
+      }
+      return res;
     },
     async adminLogin(emailOrPassword: string, passwordArg?: string) {
       let email = 'admin@jobportal.com';
@@ -126,9 +140,7 @@ export const api = {
       if (data?.success && data?.token) {
         try {
           localStorage.setItem('hybrid_auth_token', data.token);
-          if (data.user) {
-            localStorage.setItem('hybrid_current_user', JSON.stringify(data.user));
-          }
+          localStorage.removeItem('hybrid_current_user');
         } catch {}
       }
 
@@ -170,6 +182,7 @@ export const api = {
         localStorage.removeItem('hybrid_auth_token');
         localStorage.removeItem('hybrid_admin_dev_passkey');
         localStorage.removeItem('hybrid_current_user');
+        localStorage.removeItem('hybrid_admin_view_preference');
       } catch {}
     }
   },

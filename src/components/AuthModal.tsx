@@ -56,7 +56,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (res && res.success && res.user && res.token) {
           try {
             localStorage.setItem('hybrid_auth_token', res.token);
-            localStorage.setItem('hybrid_current_user', JSON.stringify(res.user));
+            localStorage.removeItem('hybrid_current_user');
           } catch {}
           onLoginSuccess(res.user);
           onClose();
@@ -88,7 +88,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (res && res.success && res.user && res.token) {
           try {
             localStorage.setItem('hybrid_auth_token', res.token);
-            localStorage.setItem('hybrid_current_user', JSON.stringify(res.user));
+            localStorage.removeItem('hybrid_current_user');
           } catch {}
           onLoginSuccess(res.user);
           onClose();

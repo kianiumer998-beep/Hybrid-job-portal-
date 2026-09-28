@@ -94,11 +94,20 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
   const [showAdminView, setShowAdminView] = useState<boolean>(() => {
     const payload = decodeStoredAuthTokenPayload();
-    return Boolean(
+    const isAuthorizedAdminToken = Boolean(
       payload &&
       typeof payload.role === 'string' &&
       (ADMIN_ROLES as readonly string[]).includes(payload.role)
     );
+    if (!isAuthorizedAdminToken) {
+      return false;
+    }
+    try {
+      if (localStorage.getItem('hybrid_admin_view_preference') === 'false') {
+        return false;
+      }
+    } catch {}
+    return true;
   });
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
@@ -648,6 +657,9 @@ export default function App() {
           (ADMIN_ROLES as readonly string[]).includes(authoritativeUser.role);
         setIsAdminLoggedIn(isBackendAdmin);
         if (!isBackendAdmin) {
+          try {
+            localStorage.removeItem('hybrid_admin_view_preference');
+          } catch {}
           setShowAdminView(false);
         }
         setCurrentUser((prev) => ({
@@ -674,6 +686,7 @@ export default function App() {
           try {
             localStorage.removeItem('hybrid_auth_token');
             localStorage.removeItem('hybrid_current_user');
+            localStorage.removeItem('hybrid_admin_view_preference');
           } catch {}
           setCurrentUser(null);
           setIsAdminLoggedIn(false);
@@ -2100,6 +2113,11 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={(tab) => {
           setActiveTab(tab);
+          if (showAdminView) {
+            try {
+              localStorage.setItem('hybrid_admin_view_preference', 'false');
+            } catch {}
+          }
           setShowAdminView(false);
         }}
         isSubscribed={isSubscribed}
@@ -2111,7 +2129,13 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         isAdminLoggedIn={isAdminLoggedIn}
-        onToggleAdminView={() => setShowAdminView(!showAdminView)}
+        onToggleAdminView={() => {
+          const nextView = !showAdminView;
+          try {
+            localStorage.setItem('hybrid_admin_view_preference', nextView ? 'true' : 'false');
+          } catch {}
+          setShowAdminView(nextView);
+        }}
         showAdminView={showAdminView}
         activeAdsCount={advertisements.filter((a) => a.status === 'active').length}
         onOpenAdDrawer={() => setIsAdDrawerOpen(true)}
@@ -2176,7 +2200,12 @@ export default function App() {
             onBulkDeleteFeeLogs={(logIds) => setJobPostingFeeLogs(prev => prev.filter(l => !logIds.includes(l.id)))}
             monthlyFeePkr={monthlyFeePkr}
             onChangeMonthlyFee={setMonthlyFeePkr}
-            onExitAdmin={() => setShowAdminView(false)}
+            onExitAdmin={() => {
+              try {
+                localStorage.setItem('hybrid_admin_view_preference', 'false');
+              } catch {}
+              setShowAdminView(false);
+            }}
             ads={advertisements}
             onAddAd={handleAddAd}
             onUpdateAd={handleUpdateAd}
@@ -2442,6 +2471,9 @@ export default function App() {
                 onDeleteDocument={handleDeleteUserDocument}
                 onLogout={async () => {
                   await api.auth.logout();
+                  try {
+                    localStorage.removeItem('hybrid_admin_view_preference');
+                  } catch {}
                   setCurrentUser(null);
                   setUsers([]);
                   setAllApplications([]);
@@ -2589,6 +2621,9 @@ export default function App() {
         isOpen={adminLoginOpen}
         onClose={() => setAdminLoginOpen(false)}
         onLoginSuccess={() => {
+          try {
+            localStorage.setItem('hybrid_admin_view_preference', 'true');
+          } catch {}
           setIsAdminLoggedIn(true);
           setShowAdminView(true);
           loadBackendUserProfile();

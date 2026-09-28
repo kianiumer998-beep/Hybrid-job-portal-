@@ -624,7 +624,7 @@ export default function App() {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
     if (!token) return null;
 
-    const targetUserId = explicitUserId || getAuthenticatedUserIdFromToken() || currentUser?.id;
+    const targetUserId = getAuthenticatedUserIdFromToken() || explicitUserId;
     if (!targetUserId) return null;
 
     try {
@@ -654,16 +654,45 @@ export default function App() {
       console.error('[App] Failed to load user profile from backend /api/users/:id:', err);
     }
     return null;
-  }, [currentUser?.id, getAuthenticatedUserIdFromToken, sanitizeBackendUser]);
+  }, [getAuthenticatedUserIdFromToken, sanitizeBackendUser]);
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
     const tokenUserId = getAuthenticatedUserIdFromToken();
-    const targetId = currentUser?.id || tokenUserId;
-    if (token && targetId) {
-      loadBackendUserProfile(targetId);
+    if (token && tokenUserId) {
+      loadBackendUserProfile(tokenUserId);
     }
-  }, [currentUser?.id, getAuthenticatedUserIdFromToken, loadBackendUserProfile]);
+  }, [getAuthenticatedUserIdFromToken, loadBackendUserProfile]);
+
+  const loadBackendAdminUsers = useCallback(async () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    if (!token || !isAdminLoggedIn) {
+      return;
+    }
+
+    try {
+      const res = await api.users.getAll();
+      if (res && res.success && Array.isArray(res.users)) {
+        const seen = new Set<string>();
+        const sanitizedUsers: UserAccount[] = [];
+        for (const rawUser of res.users) {
+          if (rawUser && rawUser.id && !seen.has(String(rawUser.id))) {
+            seen.add(String(rawUser.id));
+            sanitizedUsers.push(sanitizeBackendUser(rawUser));
+          }
+        }
+        setUsers(sanitizedUsers);
+      }
+    } catch (err) {
+      console.warn('[App] Could not load admin user directory:', err);
+    }
+  }, [isAdminLoggedIn, sanitizeBackendUser]);
+
+  useEffect(() => {
+    if (isAdminLoggedIn) {
+      loadBackendAdminUsers();
+    }
+  }, [isAdminLoggedIn, showAdminView, loadBackendAdminUsers]);
 
   // LocalStorage Persist Effects - Fully guarded with safeLocalStorageSet to prevent QuotaExceeded crashes
   useEffect(() => {
@@ -974,7 +1003,7 @@ export default function App() {
     updates: Partial<UserAccount> | UserAccount
   ): Promise<boolean> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
-    const authenticatedUserId = getAuthenticatedUserIdFromToken() || currentUser?.id;
+    const authenticatedUserId = getAuthenticatedUserIdFromToken();
     if (!token || !authenticatedUserId) {
       alert('Authentication required. Please log in.');
       return false;
@@ -1051,7 +1080,8 @@ export default function App() {
     newPass: string
   ): Promise<{ success: boolean; message?: string }> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
-    if (!token || !currentUser?.id) {
+    const authenticatedUserId = getAuthenticatedUserIdFromToken();
+    if (!token || !authenticatedUserId) {
       return { success: false, message: 'Authentication required. Please log in.' };
     }
 
@@ -2383,6 +2413,7 @@ export default function App() {
                 onLogout={async () => {
                   await api.auth.logout();
                   setCurrentUser(null);
+                  setUsers([]);
                   setAllApplications([]);
                   setPaymentTransactions([]);
                   setSavedJobIds([]);

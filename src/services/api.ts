@@ -637,6 +637,66 @@ export const api = {
         headers: getAuthHeader(),
         body: JSON.stringify({ role })
       });
+    },
+    async getSavedJobs() {
+      return safeFetchJson(`${API_BASE}/users/saved-jobs`, {
+        headers: getAuthHeader()
+      });
+    },
+    async toggleSavedJob(job: Record<string, any>) {
+      return safeFetchJson(`${API_BASE}/users/saved-jobs/toggle`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ job })
+      });
+    },
+    async getJobAlerts() {
+      return safeFetchJson(`${API_BASE}/users/job-alerts`, {
+        headers: getAuthHeader()
+      });
+    },
+    async createJobAlert(data: {
+      keyword?: string;
+      city?: string;
+      jobType?: string;
+      frequency?: string;
+      email?: string;
+    }) {
+      return safeFetchJson(`${API_BASE}/users/job-alerts`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async deleteJobAlert(id: string) {
+      return safeFetchJson(`${API_BASE}/users/job-alerts/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
+    },
+    async getDocuments() {
+      return safeFetchJson(`${API_BASE}/users/documents`, {
+        headers: getAuthHeader()
+      });
+    },
+    async addDocument(data: {
+      title: string;
+      type?: string;
+      fileUrl: string;
+      fileSize?: number;
+      fileName?: string;
+    }) {
+      return safeFetchJson(`${API_BASE}/users/documents`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async deleteDocument(id: string) {
+      return safeFetchJson(`${API_BASE}/users/documents/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
     }
   },
 

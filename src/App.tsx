@@ -453,6 +453,7 @@ export default function App() {
       localStorage.removeItem('hybrid_pending_jobs');
       localStorage.removeItem('hybrid_all_applications');
       localStorage.removeItem('hybrid_payment_transactions');
+      localStorage.removeItem('hybrid_saved_job_ids');
     } catch {}
 
     loadBackendJobs();
@@ -495,10 +496,10 @@ export default function App() {
     ];
   });
 
-  const [savedJobIds, setSavedJobIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem('hybrid_saved_job_ids');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
+  const [savedJobsList, setSavedJobsList] = useState<any[]>([]);
+  const [jobAlerts, setJobAlerts] = useState<any[]>([]);
+  const [userDocuments, setUserDocuments] = useState<any[]>([]);
 
   const [subscribers, setSubscribers] = useState<Subscriber[]>(() => {
     const saved = localStorage.getItem('hybrid_subscribers_list');
@@ -689,10 +690,6 @@ export default function App() {
   }, [customFormFields]);
 
   useEffect(() => {
-    safeLocalStorageSet('hybrid_saved_job_ids', savedJobIds);
-  }, [savedJobIds]);
-
-  useEffect(() => {
     safeLocalStorageSet('hybrid_subscribers_list', subscribers.slice(0, 100));
   }, [subscribers]);
 
@@ -703,6 +700,76 @@ export default function App() {
   useEffect(() => {
     safeLocalStorageSet('hybrid_monthly_fee', monthlyFeePkr.toString());
   }, [monthlyFeePkr]);
+
+  const loadBackendUserResources = useCallback(async (activeUserId?: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    const targetUserId = activeUserId ?? currentUser?.id;
+    if (!token || (!targetUserId && !isAdminLoggedIn)) {
+      setSavedJobIds([]);
+      setSavedJobsList([]);
+      setJobAlerts([]);
+      setUserDocuments([]);
+      return;
+    }
+
+    try {
+      const [savedRes, alertsRes, docsRes] = await Promise.all([
+        api.users.getSavedJobs().catch(() => null),
+        api.users.getJobAlerts().catch(() => null),
+        api.users.getDocuments().catch(() => null)
+      ]);
+
+      if (savedRes && savedRes.success && Array.isArray(savedRes.savedJobs)) {
+        const seenIds = new Set<string>();
+        const uniqueSaved: any[] = [];
+        for (const sj of savedRes.savedJobs) {
+          if (sj && typeof sj.id === 'string' && !seenIds.has(sj.id)) {
+            seenIds.add(sj.id);
+            uniqueSaved.push(sj);
+          }
+        }
+        setSavedJobsList(uniqueSaved);
+        setSavedJobIds(uniqueSaved.map((sj) => sj.id));
+      }
+
+      if (alertsRes && alertsRes.success && Array.isArray(alertsRes.alerts)) {
+        const seenAlerts = new Set<string>();
+        const uniqueAlerts: any[] = [];
+        for (const al of alertsRes.alerts) {
+          if (al && al.id && !seenAlerts.has(al.id)) {
+            seenAlerts.add(al.id);
+            uniqueAlerts.push(al);
+          }
+        }
+        setJobAlerts(uniqueAlerts);
+      }
+
+      if (docsRes && docsRes.success && Array.isArray(docsRes.documents)) {
+        const seenDocs = new Set<string>();
+        const uniqueDocs: any[] = [];
+        for (const doc of docsRes.documents) {
+          if (doc && doc.id && !seenDocs.has(doc.id)) {
+            seenDocs.add(doc.id);
+            uniqueDocs.push(doc);
+          }
+        }
+        setUserDocuments(uniqueDocs);
+      }
+    } catch (err) {
+      console.error('[App] Failed to load saved jobs, job alerts, or documents from backend:', err);
+    }
+  }, [currentUser?.id, isAdminLoggedIn]);
+
+  useEffect(() => {
+    if (currentUser?.id || isAdminLoggedIn) {
+      loadBackendUserResources(currentUser?.id);
+    } else {
+      setSavedJobIds([]);
+      setSavedJobsList([]);
+      setJobAlerts([]);
+      setUserDocuments([]);
+    }
+  }, [currentUser?.id, isAdminLoggedIn, loadBackendUserResources]);
 
   const loadBackendApplications = useCallback(async (activeUserId?: string) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
@@ -943,10 +1010,119 @@ export default function App() {
   };
 
   // Handlers
-  const handleToggleSaveJob = (jobId: string) => {
-    setSavedJobIds((prev) =>
-      prev.includes(jobId) ? prev.filter((id) => id !== jobId) : [...prev, jobId]
-    );
+  const handleToggleSaveJob = async (jobId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    if (!token || !currentUser?.id) {
+      setSavedJobIds((prev) =>
+        prev.includes(jobId) ? prev.filter((id) => id !== jobId) : [...prev, jobId]
+      );
+      return;
+    }
+
+    const matchedJob =
+      jobs.find((j) => j.id === jobId) ||
+      savedJobsList.find((j: any) => j.id === jobId) ||
+      { id: jobId };
+
+    try {
+      const res = await api.users.toggleSavedJob(matchedJob);
+      if (res && res.success) {
+        await loadBackendUserResources(currentUser.id);
+      }
+    } catch (err) {
+      console.error('Error toggling saved job on backend:', err);
+    }
+  };
+
+  const handleCreateJobAlert = async (data: {
+    keyword?: string;
+    city?: string;
+    jobType?: string;
+    frequency?: string;
+    email?: string;
+  }): Promise<boolean> => {
+    if (!currentUser?.id) return false;
+    try {
+      const res = await api.users.createJobAlert(data);
+      if (res && res.success && res.alert) {
+        setJobAlerts((prev) => [res.alert, ...prev.filter((a: any) => a.id !== res.alert.id)]);
+        await loadBackendUserResources(currentUser.id);
+        return true;
+      }
+      alert(res?.message || 'Failed to create job alert.');
+      return false;
+    } catch (err: any) {
+      console.error('Error creating job alert:', err);
+      alert(err?.message || 'Error creating job alert.');
+      return false;
+    }
+  };
+
+  const handleDeleteJobAlert = async (alertId: string): Promise<boolean> => {
+    if (!currentUser?.id) return false;
+    try {
+      const res = await api.users.deleteJobAlert(alertId);
+      if (res && res.success) {
+        setJobAlerts((prev) => prev.filter((a: any) => a.id !== alertId));
+        await loadBackendUserResources(currentUser.id);
+        return true;
+      }
+      alert(res?.message || 'Failed to delete job alert.');
+      return false;
+    } catch (err: any) {
+      console.error('Error deleting job alert:', err);
+      alert(err?.message || 'Error deleting job alert.');
+      return false;
+    }
+  };
+
+  const handleAddUserDocument = async (file: File, title?: string, type?: string): Promise<boolean> => {
+    if (!currentUser?.id) return false;
+    try {
+      const uploadRes = await api.applications.uploadCv(file);
+      const rawRelativeUrl = (uploadRes as any)?.rawRelativeUrl;
+      if (!uploadRes || !uploadRes.success || (!rawRelativeUrl && !uploadRes.fileUrl)) {
+        alert(uploadRes?.message || 'Failed to upload document file.');
+        return false;
+      }
+      const cleanInternalUrl = String(rawRelativeUrl || String(uploadRes.fileUrl).split('?')[0]).trim();
+      const docRes = await api.users.addDocument({
+        title: (title || file.name || 'Document').trim(),
+        type: type || 'CV',
+        fileUrl: cleanInternalUrl,
+        fileSize: uploadRes.fileSize ?? file.size,
+        fileName: uploadRes.fileName || file.name
+      });
+      if (docRes && docRes.success && docRes.document) {
+        setUserDocuments((prev) => [docRes.document, ...prev.filter((d: any) => d.id !== docRes.document.id)]);
+        await loadBackendUserResources(currentUser.id);
+        return true;
+      }
+      alert(docRes?.message || 'Failed to save document metadata.');
+      return false;
+    } catch (err: any) {
+      console.error('Error uploading user document:', err);
+      alert(err?.message || 'Error uploading user document.');
+      return false;
+    }
+  };
+
+  const handleDeleteUserDocument = async (docId: string): Promise<boolean> => {
+    if (!currentUser?.id) return false;
+    try {
+      const res = await api.users.deleteDocument(docId);
+      if (res && res.success) {
+        setUserDocuments((prev) => prev.filter((d: any) => d.id !== docId));
+        await loadBackendUserResources(currentUser.id);
+        return true;
+      }
+      alert(res?.message || 'Failed to delete document.');
+      return false;
+    } catch (err: any) {
+      console.error('Error deleting user document:', err);
+      alert(err?.message || 'Error deleting user document.');
+      return false;
+    }
   };
 
   const handleApplyClick = (job: Job) => {
@@ -2097,11 +2273,22 @@ export default function App() {
                 onSendMessageToAdmin={handleUserSendMessage}
                 onUpdateProfile={handleUpdateProfile}
                 onChangePassword={handleChangePassword}
+                savedJobsList={savedJobsList}
+                jobAlerts={jobAlerts}
+                userDocuments={userDocuments}
+                onCreateJobAlert={handleCreateJobAlert}
+                onDeleteJobAlert={handleDeleteJobAlert}
+                onAddDocument={handleAddUserDocument}
+                onDeleteDocument={handleDeleteUserDocument}
                 onLogout={async () => {
                   await api.auth.logout();
                   setCurrentUser(null);
                   setAllApplications([]);
                   setPaymentTransactions([]);
+                  setSavedJobIds([]);
+                  setSavedJobsList([]);
+                  setJobAlerts([]);
+                  setUserDocuments([]);
                   setIsAdminLoggedIn(false);
                   setShowAdminView(false);
                   setActiveTab('jobs');

@@ -33,6 +33,13 @@ interface UserDashboardProps {
   onSendMessageToAdmin: (text: string) => void;
   onUpdateProfile?: (updated: UserAccount) => void;
   onChangePassword?: (currentPass: string, newPass: string) => boolean;
+  savedJobsList?: any[];
+  jobAlerts?: any[];
+  userDocuments?: any[];
+  onCreateJobAlert?: (data: { keyword?: string; city?: string; jobType?: string; frequency?: string; email?: string }) => Promise<boolean> | boolean;
+  onDeleteJobAlert?: (id: string) => Promise<boolean> | boolean;
+  onAddDocument?: (file: File, title?: string, type?: string) => Promise<boolean> | boolean;
+  onDeleteDocument?: (id: string) => Promise<boolean> | boolean;
   onLogout: () => void;
   onOpenSubscriptionModal: () => void;
 }
@@ -64,10 +71,26 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onSendMessageToAdmin,
   onUpdateProfile,
   onChangePassword,
+  savedJobsList = [],
+  jobAlerts = [],
+  userDocuments = [],
+  onCreateJobAlert,
+  onDeleteJobAlert,
+  onAddDocument,
+  onDeleteDocument,
   onLogout,
   onOpenSubscriptionModal
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
+
+  // Job Alert & Document Form State
+  const [alertKeyword, setAlertKeyword] = useState('');
+  const [alertCity, setAlertCity] = useState('');
+  const [alertJobType, setAlertJobType] = useState('Remote');
+  const [alertFrequency, setAlertFrequency] = useState('daily');
+  const [docTitle, setDocTitle] = useState('');
+  const [docType, setDocType] = useState('CV');
+  const [docUploading, setDocUploading] = useState(false);
 
   useEffect(() => {
     if (initialTab) {
@@ -897,6 +920,222 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* SAVED JOBS, JOB ALERTS & DOCUMENTS (BACKEND AUTHORITATIVE) */}
+          <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 1. Saved Jobs */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-black text-white flex items-center space-x-2">
+                  <Bookmark className="w-4 h-4 text-amber-400" />
+                  <span>Saved Jobs ({savedJobsList.length || savedJobIds.length})</span>
+                </h3>
+              </div>
+              {savedJobIds.length === 0 && savedJobsList.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No saved jobs yet. Click the bookmark icon on any job card to save it to your account.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {(savedJobsList.length > 0
+                    ? savedJobsList
+                    : allJobs.filter((j) => savedJobIds.includes(j.id))
+                  ).map((sj: any) => (
+                    <div key={sj.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-bold text-white truncate">{sj.title || sj.id}</div>
+                        <div className="text-[11px] text-slate-400 truncate">{sj.company || ''} {sj.city ? `• ${sj.city}` : ''}</div>
+                      </div>
+                      {onToggleSaveJob && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleSaveJob(sj.id)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Job Alerts */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-black text-white flex items-center space-x-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  <span>My Job Alerts ({jobAlerts.length})</span>
+                </h3>
+              </div>
+              {onCreateJobAlert && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!alertKeyword.trim() && !alertCity.trim()) return;
+                    const ok = await onCreateJobAlert({
+                      keyword: alertKeyword.trim() || undefined,
+                      city: alertCity.trim() || undefined,
+                      jobType: alertJobType,
+                      frequency: alertFrequency,
+                      email: currentUser.email
+                    });
+                    if (ok) {
+                      setAlertKeyword('');
+                      setAlertCity('');
+                    }
+                  }}
+                  className="space-y-2 text-xs"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={alertKeyword}
+                      onChange={(e) => setAlertKeyword(e.target.value)}
+                      placeholder="Keyword (e.g. React)"
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={alertCity}
+                      onChange={(e) => setAlertCity(e.target.value)}
+                      placeholder="City (e.g. Lahore)"
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={alertJobType}
+                      onChange={(e) => setAlertJobType(e.target.value)}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
+                    >
+                      <option value="Remote">Remote</option>
+                      <option value="Hybrid">Hybrid</option>
+                      <option value="On-site">On-site</option>
+                    </select>
+                    <select
+                      value={alertFrequency}
+                      onChange={(e) => setAlertFrequency(e.target.value)}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer"
+                  >
+                    + Create Job Alert
+                  </button>
+                </form>
+              )}
+              <div className="space-y-2 max-h-44 overflow-y-auto">
+                {jobAlerts.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">No active job alerts configured.</p>
+                ) : (
+                  jobAlerts.map((al: any) => (
+                    <div key={al.id} className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-bold text-white truncate">
+                          {al.keyword || 'All Keywords'} {al.city ? `• ${al.city}` : ''}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {al.jobType || 'Any'} • {al.frequency || 'daily'}
+                        </div>
+                      </div>
+                      {onDeleteJobAlert && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteJobAlert(al.id)}
+                          className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* 3. User Documents */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-black text-white flex items-center space-x-2">
+                  <FileText className="w-4 h-4 text-teal-400" />
+                  <span>My Documents ({userDocuments.length})</span>
+                </h3>
+              </div>
+              {onAddDocument && (
+                <div className="space-y-2 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={docTitle}
+                      onChange={(e) => setDocTitle(e.target.value)}
+                      placeholder="Document Title (optional)"
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
+                    />
+                    <select
+                      value={docType}
+                      onChange={(e) => setDocType(e.target.value)}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
+                    >
+                      <option value="CV">CV / Resume</option>
+                      <option value="Cover Letter">Cover Letter</option>
+                      <option value="Certificate">Certificate</option>
+                    </select>
+                  </div>
+                  <label className="block w-full py-2 px-3 text-center rounded-lg bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 font-bold text-xs cursor-pointer">
+                    {docUploading ? 'Uploading...' : '+ Upload PDF/DOC/DOCX'}
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      className="hidden"
+                      disabled={docUploading}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setDocUploading(true);
+                        try {
+                          await onAddDocument(file, docTitle.trim() || file.name, docType);
+                          setDocTitle('');
+                        } finally {
+                          setDocUploading(false);
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="space-y-2 max-h-44 overflow-y-auto">
+                {userDocuments.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">No uploaded documents yet.</p>
+                ) : (
+                  userDocuments.map((doc: any) => (
+                    <div key={doc.id} className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-bold text-white truncate">{doc.title || doc.fileName || doc.id}</div>
+                        <div className="text-[10px] text-slate-400 truncate">
+                          {doc.type || 'CV'} {doc.fileName ? `• ${doc.fileName}` : ''}
+                        </div>
+                      </div>
+                      {onDeleteDocument && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteDocument(doc.id)}
+                          className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
 
         </div>

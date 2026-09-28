@@ -2094,6 +2094,114 @@ export default function App() {
     return deduplicateJobsById([...ownedLiveJobs, ...ownedPendingJobs]);
   }, [jobs, pendingJobs, currentUser]);
 
+  const handleLoadEmployerJobApplications = useCallback(
+    async (jobId: string): Promise<{ success: boolean; applications: JobApplication[]; message?: string }> => {
+      if (!currentUser || !currentUser.id) {
+        return { success: false, applications: [], message: 'Authentication required.' };
+      }
+      const currentUserId = String(currentUser.id);
+      const ownedJob = userJobs.find(
+        (j) =>
+          String(j.id) === String(jobId) &&
+          String(j.submittedByUserId || (j as any).postedByUserId || '') === currentUserId
+      );
+      if (!ownedJob) {
+        return {
+          success: false,
+          applications: [],
+          message: 'Access denied: You can only view applications for jobs you own.'
+        };
+      }
+
+      try {
+        const res = await api.applications.getAll(String(jobId));
+        if (res && res.success && Array.isArray(res.applications)) {
+          return { success: true, applications: res.applications };
+        }
+        return {
+          success: false,
+          applications: [],
+          message: res?.message || 'Failed to load applications for this job.'
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          applications: [],
+          message: err?.message || 'Error loading applications for this job.'
+        };
+      }
+    },
+    [currentUser, userJobs]
+  );
+
+  const handleUpdateEmployerApplicationStatus = useCallback(
+    async (
+      applicationId: string,
+      newStatus: string,
+      jobId?: string
+    ): Promise<{ success: boolean; application?: JobApplication; message?: string }> => {
+      if (!currentUser || !currentUser.id) {
+        return { success: false, message: 'Authentication required.' };
+      }
+      if (jobId) {
+        const currentUserId = String(currentUser.id);
+        const ownedJob = userJobs.find(
+          (j) =>
+            String(j.id) === String(jobId) &&
+            String(j.submittedByUserId || (j as any).postedByUserId || '') === currentUserId
+        );
+        if (!ownedJob) {
+          return {
+            success: false,
+            message: 'Access denied: You can only update applications for jobs you own.'
+          };
+        }
+      }
+
+      try {
+        const res = await api.applications.updateStatus(String(applicationId), newStatus);
+        if (res && res.success) {
+          const confirmedStatus = (res.application?.status || newStatus) as JobApplication['status'];
+          setAllApplications((prev) =>
+            prev.map((app) =>
+              String(app.id) === String(applicationId)
+                ? { ...app, ...(res.application || {}), status: confirmedStatus }
+                : app
+            )
+          );
+          setCurrentUser((prev) => {
+            if (!prev || !Array.isArray(prev.appliedJobs)) return prev;
+            const hasApp = prev.appliedJobs.some((a) => String(a.id) === String(applicationId));
+            if (!hasApp) return prev;
+            return {
+              ...prev,
+              appliedJobs: prev.appliedJobs.map((app) =>
+                String(app.id) === String(applicationId)
+                  ? { ...app, ...(res.application || {}), status: confirmedStatus }
+                  : app
+              )
+            };
+          });
+          return {
+            success: true,
+            application: res.application,
+            message: res.message || `Application status updated to ${confirmedStatus}.`
+          };
+        }
+        return {
+          success: false,
+          message: res?.message || 'Failed to update application status.'
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          message: err?.message || 'Error updating application status.'
+        };
+      }
+    },
+    [currentUser, userJobs]
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950">
       
@@ -2516,6 +2624,8 @@ export default function App() {
                 onDeleteJobAlert={handleDeleteJobAlert}
                 onAddDocument={handleAddUserDocument}
                 onDeleteDocument={handleDeleteUserDocument}
+                onLoadJobApplications={handleLoadEmployerJobApplications}
+                onUpdateApplicationStatus={handleUpdateEmployerApplicationStatus}
                 onLogout={async () => {
                   await api.auth.logout();
                   try {

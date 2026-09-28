@@ -3,8 +3,17 @@ import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, Job
 import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
+import { api } from '../services/api';
 import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe } from 'lucide-react';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
+
+const EMPLOYER_ALLOWED_APP_STATUSES = [
+  'Pending',
+  'Reviewed',
+  'Shortlisted',
+  'Rejected',
+  'Accepted'
+] as const;
 
 interface UserDashboardProps {
   currentUser: UserAccount;
@@ -40,6 +49,12 @@ interface UserDashboardProps {
   onDeleteJobAlert?: (id: string) => Promise<boolean> | boolean;
   onAddDocument?: (file: File, title?: string, type?: string) => Promise<boolean> | boolean;
   onDeleteDocument?: (id: string) => Promise<boolean> | boolean;
+  onLoadJobApplications?: (jobId: string) => Promise<{ success: boolean; applications: JobApplication[]; message?: string }>;
+  onUpdateApplicationStatus?: (
+    applicationId: string,
+    newStatus: string,
+    jobId?: string
+  ) => Promise<{ success: boolean; application?: JobApplication; message?: string }>;
   onLogout: () => void;
   onOpenSubscriptionModal: () => void;
 }
@@ -78,6 +93,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onDeleteJobAlert,
   onAddDocument,
   onDeleteDocument,
+  onLoadJobApplications,
+  onUpdateApplicationStatus,
   onLogout,
   onOpenSubscriptionModal
 }) => {
@@ -179,6 +196,151 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   // SEO Preview Modal State for User Postings
   const [userJobSeoPreview, setUserJobSeoPreview] = useState<Job | null>(null);
+
+  // Employer Job Applications State (per owned job ID)
+  const [expandedJobApps, setExpandedJobApps] = useState<Record<string, boolean>>({});
+  const [jobApplicationsByJobId, setJobApplicationsByJobId] = useState<Record<string, JobApplication[]>>({});
+  const [jobApplicationsLoading, setJobApplicationsLoading] = useState<Record<string, boolean>>({});
+  const [jobApplicationsError, setJobApplicationsError] = useState<Record<string, string>>({});
+  const [updatingApplicationId, setUpdatingApplicationId] = useState<string | null>(null);
+  const [jobApplicationStatusNotice, setJobApplicationStatusNotice] = useState<
+    Record<string, { type: 'success' | 'error'; message: string }>
+  >({});
+
+  const isJobOwnedByCurrentEmployer = (job: Job): boolean => {
+    if (!currentUser || !currentUser.id) return false;
+    const ownerId = String(job.submittedByUserId || (job as any).postedByUserId || '');
+    return (
+      ownerId === String(currentUser.id) &&
+      userJobs.some((uj) => String(uj.id) === String(job.id))
+    );
+  };
+
+  const handleToggleEmployerJobApplications = async (job: Job) => {
+    const jobId = String(job.id);
+    if (!isJobOwnedByCurrentEmployer(job)) {
+      setJobApplicationsError((prev) => ({
+        ...prev,
+        [jobId]: 'You can only view applications for jobs owned by your account.'
+      }));
+      return;
+    }
+
+    const willExpand = !expandedJobApps[jobId];
+    setExpandedJobApps((prev) => ({ ...prev, [jobId]: willExpand }));
+    if (!willExpand) {
+      return;
+    }
+
+    setJobApplicationsLoading((prev) => ({ ...prev, [jobId]: true }));
+    setJobApplicationsError((prev) => {
+      const next = { ...prev };
+      delete next[jobId];
+      return next;
+    });
+
+    try {
+      const res = onLoadJobApplications
+        ? await onLoadJobApplications(jobId)
+        : await api.applications.getAll(jobId);
+
+      if (res && res.success && Array.isArray(res.applications)) {
+        setJobApplicationsByJobId((prev) => ({
+          ...prev,
+          [jobId]: res.applications
+        }));
+      } else {
+        setJobApplicationsError((prev) => ({
+          ...prev,
+          [jobId]: res?.message || 'Failed to load applications for this job.'
+        }));
+      }
+    } catch (err: any) {
+      setJobApplicationsError((prev) => ({
+        ...prev,
+        [jobId]: err?.message || 'Error loading applications for this job.'
+      }));
+    } finally {
+      setJobApplicationsLoading((prev) => ({ ...prev, [jobId]: false }));
+    }
+  };
+
+  const handleEmployerStatusChange = async (
+    job: Job,
+    applicationId: string,
+    newStatus: string
+  ) => {
+    const jobId = String(job.id);
+    if (!isJobOwnedByCurrentEmployer(job)) {
+      setJobApplicationStatusNotice((prev) => ({
+        ...prev,
+        [jobId]: {
+          type: 'error',
+          message: 'You can only update applications for jobs owned by your account.'
+        }
+      }));
+      return;
+    }
+
+    if (
+      !(EMPLOYER_ALLOWED_APP_STATUSES as readonly string[]).includes(newStatus)
+    ) {
+      return;
+    }
+
+    setUpdatingApplicationId(String(applicationId));
+    setJobApplicationStatusNotice((prev) => {
+      const next = { ...prev };
+      delete next[jobId];
+      return next;
+    });
+
+    try {
+      const res = onUpdateApplicationStatus
+        ? await onUpdateApplicationStatus(String(applicationId), newStatus, jobId)
+        : await api.applications.updateStatus(String(applicationId), newStatus);
+
+      if (res && res.success) {
+        const confirmedStatus = (res.application?.status || newStatus) as JobApplication['status'];
+        setJobApplicationsByJobId((prev) => {
+          const currentList = prev[jobId] || [];
+          return {
+            ...prev,
+            [jobId]: currentList.map((app) =>
+              String(app.id) === String(applicationId)
+                ? { ...app, ...(res.application || {}), status: confirmedStatus }
+                : app
+            )
+          };
+        });
+        setJobApplicationStatusNotice((prev) => ({
+          ...prev,
+          [jobId]: {
+            type: 'success',
+            message: res.message || `Application status updated to "${confirmedStatus}".`
+          }
+        }));
+      } else {
+        setJobApplicationStatusNotice((prev) => ({
+          ...prev,
+          [jobId]: {
+            type: 'error',
+            message: res?.message || 'Failed to update application status.'
+          }
+        }));
+      }
+    } catch (err: any) {
+      setJobApplicationStatusNotice((prev) => ({
+        ...prev,
+        [jobId]: {
+          type: 'error',
+          message: err?.message || 'Error updating application status.'
+        }
+      }));
+    } finally {
+      setUpdatingApplicationId(null);
+    }
+  };
 
   // Pricing calculation helper
   const computeJobPostingCost = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): number => {
@@ -1939,43 +2101,191 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {userJobs.map((j) => (
-                <div key={j.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2">
-                      <h4 className="font-bold text-sm text-white">{j.title}</h4>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        j.status === 'Approved'
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : j.status === 'Rejected'
-                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                      }`}>
-                        Status: {j.status || 'Pending Approval'}
-                      </span>
+              {userJobs.map((j) => {
+                const jobId = String(j.id);
+                const isExpanded = Boolean(expandedJobApps[jobId]);
+                const isLoadingApps = Boolean(jobApplicationsLoading[jobId]);
+                const appsError = jobApplicationsError[jobId];
+                const jobApps = jobApplicationsByJobId[jobId] || [];
+                const statusNotice = jobApplicationStatusNotice[jobId];
+
+                return (
+                  <div key={j.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-2">
+                          <h4 className="font-bold text-sm text-white">{j.title}</h4>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            j.status === 'Approved'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : j.status === 'Rejected'
+                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          }`}>
+                            Status: {j.status || 'Pending Approval'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{j.company} • {j.city ? `${j.city}, ${j.province}` : j.region} • {j.salary}</p>
+                        
+                        {j.status === 'Rejected' && j.rejectionReason && (
+                          <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300">
+                            <span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleEmployerJobApplications(j)}
+                          className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>
+                            {isExpanded
+                              ? 'Hide Applications'
+                              : `View Applications${
+                                  jobApplicationsByJobId[jobId]
+                                    ? ` (${jobApplicationsByJobId[jobId].length})`
+                                    : typeof j.applicationsCount === 'number'
+                                    ? ` (${j.applicationsCount})`
+                                    : ''
+                                }`}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setUserJobSeoPreview(j)}
+                          className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-teal-400 border border-teal-500/30 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
+                          title="Inspect Google Search SEO Metadata & Schema"
+                        >
+                          <Globe className="w-3.5 h-3.5" />
+                          <span>Google SEO Tag</span>
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">{j.company} • {j.city ? `${j.city}, ${j.province}` : j.region} • {j.salary}</p>
-                    
-                    {j.status === 'Rejected' && j.rejectionReason && (
-                      <div className="mt-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300">
-                        <span className="font-bold">Admin Rejection Reason:</span> {j.rejectionReason}
+
+                    {isExpanded && (
+                      <div className="pt-3 border-t border-slate-800 space-y-3">
+                        {statusNotice && (
+                          <div
+                            className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center space-x-2 ${
+                              statusNotice.type === 'success'
+                                ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                                : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+                            }`}
+                          >
+                            {statusNotice.type === 'success' ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                            )}
+                            <span>{statusNotice.message}</span>
+                          </div>
+                        )}
+
+                        {isLoadingApps ? (
+                          <div className="p-4 text-center text-xs text-slate-400 flex items-center justify-center space-x-2">
+                            <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                            <span>Loading applications...</span>
+                          </div>
+                        ) : appsError ? (
+                          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center space-x-2">
+                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>{appsError}</span>
+                          </div>
+                        ) : jobApps.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-slate-400 bg-slate-900/50 rounded-lg border border-slate-800">
+                            No applications received for this job yet.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {jobApps.map((app) => {
+                              const currentStatus = String(app.status || 'Pending');
+                              const isCustomInitialStatus = !(
+                                EMPLOYER_ALLOWED_APP_STATUSES as readonly string[]
+                              ).includes(currentStatus);
+                              const cvUrl = (app as any).cvFileUrl as string | undefined;
+
+                              return (
+                                <div
+                                  key={app.id}
+                                  className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                                >
+                                  <div className="space-y-1 min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="font-bold text-white">{app.applicantName}</span>
+                                      <span className="text-slate-400 font-mono">{app.applicantEmail}</span>
+                                      {app.applicantPhone && (
+                                        <span className="text-slate-400 font-mono">• {app.applicantPhone}</span>
+                                      )}
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                        {currentStatus}
+                                      </span>
+                                    </div>
+
+                                    {app.appliedAt && (
+                                      <div className="text-[11px] text-slate-400 font-mono">
+                                        Applied: {app.appliedAt}
+                                      </div>
+                                    )}
+
+                                    {app.coverLetter && (
+                                      <p className="text-[11px] text-slate-300 whitespace-pre-wrap mt-1">
+                                        {app.coverLetter}
+                                      </p>
+                                    )}
+
+                                    {cvUrl && (
+                                      <div className="pt-1">
+                                        <a
+                                          href={cvUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center space-x-1 text-[11px] font-bold text-teal-400 hover:underline"
+                                        >
+                                          <FileText className="w-3 h-3" />
+                                          <span>View Candidate CV</span>
+                                        </a>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center space-x-2 shrink-0">
+                                    <label className="text-[11px] font-bold text-slate-400">
+                                      Status:
+                                    </label>
+                                    <select
+                                      value={currentStatus}
+                                      disabled={updatingApplicationId === String(app.id)}
+                                      onChange={(e) =>
+                                        handleEmployerStatusChange(j, String(app.id), e.target.value)
+                                      }
+                                      className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white text-xs font-bold focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+                                    >
+                                      {isCustomInitialStatus && (
+                                        <option value={currentStatus} disabled>
+                                          {currentStatus}
+                                        </option>
+                                      )}
+                                      {EMPLOYER_ALLOWED_APP_STATUSES.map((statusOption) => (
+                                        <option key={statusOption} value={statusOption}>
+                                          {statusOption}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-
-                  <div className="flex items-center space-x-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setUserJobSeoPreview(j)}
-                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-teal-400 border border-teal-500/30 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
-                      title="Inspect Google Search SEO Metadata & Schema"
-                    >
-                      <Globe className="w-3.5 h-3.5" />
-                      <span>Google SEO Tag</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

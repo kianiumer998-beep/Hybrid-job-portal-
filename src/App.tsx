@@ -2085,9 +2085,14 @@ export default function App() {
   };
 
   const userJobs = useMemo(() => {
-    if (!currentUser) return [];
-    return jobs.filter(j => j.submittedByUserId === currentUser.id);
-  }, [jobs, currentUser]);
+    if (!currentUser || !currentUser.id) return [];
+    const currentUserId = String(currentUser.id);
+    const isOwnedByCurrentUser = (job: Job) =>
+      String(job.submittedByUserId || (job as any).postedByUserId || '') === currentUserId;
+    const ownedLiveJobs = jobs.filter(isOwnedByCurrentUser);
+    const ownedPendingJobs = pendingJobs.filter(isOwnedByCurrentUser);
+    return deduplicateJobsById([...ownedLiveJobs, ...ownedPendingJobs]);
+  }, [jobs, pendingJobs, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-slate-950">

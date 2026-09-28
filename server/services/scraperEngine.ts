@@ -576,7 +576,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         err?.name?.includes('Mongo') ||
         errLower.includes('mongodb') ||
         errLower.includes('mongo') ||
-        errLower.includes('econnrefused') ||
         errLower.includes('topology was destroyed');
 
       if (isDbError) {
@@ -589,10 +588,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         if (!httpStatus) httpStatus = 403;
       } else if (errLower.includes('timeout') || errLower.includes('timed out') || errLower.includes('etimedout') || errLower.includes('aborterror')) {
         classifiedHealth = 'Timeout';
-      } else if (errLower.includes('invalid pdf') || errLower.includes('pdf error') || errLower.includes('corrupt pdf') || (errLower.includes('pdf') && errLower.includes('fail'))) {
-        classifiedHealth = 'Invalid PDF';
       } else if (errLower.includes('html instead of pdf') || errLower.includes('non-pdf') || errLower.includes('cheerio') || errLower.includes('html parse') || errLower.includes('invalid html') || errLower.includes('selector')) {
         classifiedHealth = 'HTML';
+      } else if (errLower.includes('invalid pdf') || errLower.includes('pdf error') || errLower.includes('corrupt pdf') || (errLower.includes('pdf') && errLower.includes('fail'))) {
+        classifiedHealth = 'Invalid PDF';
       } else {
         classifiedHealth = 'Fetch Error';
       }

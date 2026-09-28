@@ -438,8 +438,32 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
   try {
     const pdfResult = await parsePdfFromUrl(targetPdfUrl, config.name);
     if (!pdfResult.success) {
-      const pdfErr: any = new Error(pdfResult.message || 'PDF extraction failed');
+      const rawMsg = pdfResult.message || 'Invalid PDF: PDF extraction failed';
+      const statusMatch = rawMsg.match(/HTTP\s+(\d{3})/i);
+      const parsedStatus = statusMatch ? parseInt(statusMatch[1], 10) : undefined;
+      const msgLower = rawMsg.toLowerCase();
+      const hasKnownClassificationKeyword =
+        Boolean(parsedStatus) ||
+        msgLower.includes('403') ||
+        msgLower.includes('404') ||
+        msgLower.includes('forbidden') ||
+        msgLower.includes('not found') ||
+        msgLower.includes('timeout') ||
+        msgLower.includes('timed out') ||
+        msgLower.includes('etimedout') ||
+        msgLower.includes('abort') ||
+        msgLower.includes('invalid pdf') ||
+        msgLower.includes('html instead of pdf');
+      const pdfErr: any = new Error(hasKnownClassificationKeyword ? rawMsg : `Invalid PDF: ${rawMsg}`);
+      if (parsedStatus) {
+        pdfErr.status = parsedStatus;
+        pdfErr.statusCode = parsedStatus;
+        pdfErr.httpStatus = parsedStatus;
+      }
       throw pdfErr;
+    }
+    if (pdfResult.formatType === 'html') {
+      throw new Error(`HTML instead of PDF: Expected PDF document from ${targetPdfUrl} but server returned an HTML response`);
     }
     if (!pdfResult.extractedJobs || pdfResult.extractedJobs.length === 0) {
       return {
@@ -495,7 +519,7 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
     };
   } catch (err: any) {
     console.log(`[PDF Adapter] PDF parsing note for ${config.name}: ${err?.message || err}`);
-    return { jobs: [], extractionMethod: 'government_pdf_engine', totalFoundOnPage: 0 };
+    throw err;
   }
 }
 
@@ -815,7 +839,7 @@ export async function scrapeTargetPortal(
   try {
     // 1. Check Government PDF Adapter
     const pdfResult = await scrapeGovernmentPdfPortal(config, options);
-    if (pdfResult && pdfResult.jobs.length > 0) {
+    if (pdfResult) {
       return filterByOptions(pdfResult.jobs, options);
     }
 
@@ -862,7 +886,13 @@ export async function scrapeTargetPortal(
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/pdf')) {
       const pdfRes = await parsePdfFromUrl(targetUrl, config.name);
-      if (pdfRes.success && pdfRes.extractedJobs.length > 0) {
+      if (!pdfRes.success) {
+        throw new Error(pdfRes.message ? `Invalid PDF: ${pdfRes.message}` : 'Invalid PDF: Failed to parse PDF response');
+      }
+      if (pdfRes.formatType === 'html') {
+        throw new Error(`HTML instead of PDF: Expected PDF response from ${targetUrl} but received HTML content`);
+      }
+      if (pdfRes.extractedJobs.length > 0) {
         return filterByOptions(pdfRes.extractedJobs.map(j => ({
           ...j,
           sourcePortal: config.name,
@@ -930,25 +960,27 @@ export async function scrapeTargetPortal(
   } catch (error: any) {
     console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${error?.message || 'Remote portal did not respond'}`);
 
-    // If official portal has verified gazette vacancies in the repository, use them
-    const gazette = MOCK_CONSOLIDATED_PDF_GAZETTES.find(g =>
-      (config.id && g.id.toLowerCase().includes(config.id.toLowerCase().replace('portal-', ''))) ||
-      (g.organization && config.name && g.organization.toLowerCase().includes(config.name.toLowerCase().split('(')[0].trim())) ||
-      (g.pdfUrl && config.pdfUrl && g.pdfUrl.toLowerCase() === config.pdfUrl.toLowerCase())
-    );
+    // Isolate static test gazette fallback strictly from production and standard real scraper runs
+    if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_MOCK_PDF_FALLBACK === 'true') {
+      const gazette = MOCK_CONSOLIDATED_PDF_GAZETTES.find(g =>
+        (config.id && g.id.toLowerCase().includes(config.id.toLowerCase().replace('portal-', ''))) ||
+        (g.organization && config.name && g.organization.toLowerCase().includes(config.name.toLowerCase().split('(')[0].trim())) ||
+        (g.pdfUrl && config.pdfUrl && g.pdfUrl.toLowerCase() === config.pdfUrl.toLowerCase())
+      );
 
-    if (gazette && gazette.extractedVacancies && gazette.extractedVacancies.length > 0) {
-      return filterByOptions(gazette.extractedVacancies.map(j => ({
-        ...j,
-        sourcePortal: config.name,
-        extractionMethod: 'government_pdf_engine',
-        rawSourceHtml: undefined,
-        scrapeRunId: options.runId
-      })) as any, options);
+      if (gazette && gazette.extractedVacancies && gazette.extractedVacancies.length > 0) {
+        return filterByOptions(gazette.extractedVacancies.map(j => ({
+          ...j,
+          sourcePortal: config.name,
+          extractionMethod: 'government_pdf_engine',
+          rawSourceHtml: undefined,
+          scrapeRunId: options.runId
+        })) as any, options);
+      }
     }
 
-    // Never invent fake jobs on error
-    return [];
+    // Propagate genuine HTTP/network/PDF/HTML-instead-of-PDF error to scraperEngine
+    throw error;
   }
 }
 

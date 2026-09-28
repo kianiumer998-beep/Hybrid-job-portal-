@@ -31,8 +31,8 @@ interface UserDashboardProps {
   onRenewSubscription: () => void;
   onSubmitJobForApproval: (job: Job, feePayment?: { amount: number; paymentMethod: string }) => void;
   onSendMessageToAdmin: (text: string) => void;
-  onUpdateProfile?: (updated: UserAccount) => void;
-  onChangePassword?: (currentPass: string, newPass: string) => boolean;
+  onUpdateProfile?: (updated: Partial<UserAccount> | UserAccount) => Promise<boolean> | boolean | void;
+  onChangePassword?: (currentPass: string, newPass: string) => Promise<{ success: boolean; message?: string } | boolean> | { success: boolean; message?: string } | boolean;
   savedJobsList?: any[];
   jobAlerts?: any[];
   userDocuments?: any[];
@@ -104,6 +104,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [profileCompany, setProfileCompany] = useState(currentUser.companyName || '');
   const [profileAddress, setProfileAddress] = useState(currentUser.address || '');
   const [profileBio, setProfileBio] = useState(currentUser.bio || '');
+
+  useEffect(() => {
+    setProfileName(currentUser.name || '');
+    setProfilePhone(currentUser.phone || '');
+    setProfileCompany(currentUser.companyName || '');
+    setProfileAddress(currentUser.address || '');
+    setProfileBio(currentUser.bio || '');
+  }, [
+    currentUser.id,
+    currentUser.name,
+    currentUser.phone,
+    currentUser.companyName,
+    currentUser.address,
+    currentUser.bio
+  ]);
 
   // Password Change Form State
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
@@ -192,15 +207,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     ? currentUser.appliedJobs
     : userApplications.filter(a => a.applicantId === currentUser.id);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profileName.trim()) {
       alert('Full name cannot be empty.');
       return;
     }
 
-    const updated: UserAccount = {
-      ...currentUser,
+    const allowedUpdates: Partial<UserAccount> = {
       name: profileName.trim(),
       phone: profilePhone.trim(),
       companyName: profileCompany.trim(),
@@ -209,12 +223,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     };
 
     if (onUpdateProfile) {
-      onUpdateProfile(updated);
-      alert('Profile details saved successfully! Email remains fixed as your primary account key.');
+      const ok = await onUpdateProfile(allowedUpdates);
+      if (ok !== false) {
+        alert('Profile details saved successfully! Email remains fixed as your primary account key.');
+      }
     }
   };
 
-  const handleChangePasswordSubmit = (e: React.FormEvent) => {
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPasswordInput || !newPasswordInput) {
       alert('Please fill out both current and new password fields.');
@@ -232,14 +248,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
 
     if (onChangePassword) {
-      const success = onChangePassword(currentPasswordInput, newPasswordInput);
+      const result = await onChangePassword(currentPasswordInput, newPasswordInput);
+      const success =
+        typeof result === 'object' && result !== null ? result.success : Boolean(result);
+      const message =
+        typeof result === 'object' && result !== null ? result.message : undefined;
       if (success) {
         alert('Password changed successfully!');
         setCurrentPasswordInput('');
         setNewPasswordInput('');
         setConfirmPasswordInput('');
       } else {
-        alert('Incorrect current password. Please try again.');
+        alert(message || 'Incorrect current password. Please try again.');
       }
     }
   };

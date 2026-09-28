@@ -143,9 +143,6 @@ export const api = {
       if (data?.success && data?.token) {
         try {
           localStorage.setItem('hybrid_auth_token', data.token);
-          if (data.user) {
-            localStorage.setItem('hybrid_current_user', JSON.stringify(data.user));
-          }
         } catch {}
       }
       return data;
@@ -629,6 +626,18 @@ export const api = {
     async getAll() {
       return safeFetchJson(`${API_BASE}/users`, {
         headers: getAuthHeader()
+      });
+    },
+    async getProfile(userId: string) {
+      return safeFetchJson(`${API_BASE}/users/${encodeURIComponent(userId)}`, {
+        headers: getAuthHeader()
+      });
+    },
+    async updateProfile(userId: string, updates: Record<string, any>) {
+      return safeFetchJson(`${API_BASE}/users/${encodeURIComponent(userId)}`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(updates)
       });
     },
     async updateRole(userId: string, role: string) {

@@ -177,115 +177,41 @@ export default function App() {
     }
   };
 
-  // Registered Current User State
+  // Registered Current User State (Authoritative profile loaded from GET /api/users/:id)
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
-    const saved = localStorage.getItem('hybrid_current_user');
-    if (saved) {
+    if (typeof window === 'undefined') return null;
+    const token = localStorage.getItem('hybrid_auth_token');
+    if (!token) {
       try {
-        const u: UserAccount = JSON.parse(saved);
-        if (u && u.walletBalance === undefined) {
-          u.walletBalance = 25000;
-        }
-        return u;
-      } catch {
-        return null;
-      }
+        localStorage.removeItem('hybrid_current_user');
+      } catch {}
+      return null;
     }
+    try {
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        const payload = JSON.parse(atob(padded));
+        const uid = payload?.userId || payload?.id;
+        if (uid) {
+          return {
+            id: String(uid),
+            name: payload?.name || 'Member',
+            email: payload?.email || '',
+            role: payload?.role || 'Job Seeker',
+            plan: 'Free',
+            walletBalance: 0,
+            createdAt: new Date().toISOString()
+          } as UserAccount;
+        }
+      }
+    } catch {}
     return null;
   });
 
-  // User Accounts Directory State
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    const saved = localStorage.getItem('hybrid_users_directory');
-    const defaultList: UserAccount[] = [
-      {
-        id: 'user-demo-qwer-unified',
-        name: 'Qwer Member',
-        email: 'qwer@jobportal.com',
-        username: 'qwer',
-        password: '123456',
-        role: 'Unified Member',
-        companyName: 'Qwer Solutions',
-        phone: '+92 300 1234567',
-        plan: 'Premium',
-        walletBalance: 25000,
-        activationDate: '2026-07-25 09:00',
-        expiryDate: '2026-08-24 09:00',
-        renewalCount: 2,
-        autoRenew: true,
-        transactions: [
-          {
-            id: 'tx-demo-1',
-            dateTime: '2026-07-25 09:00',
-            amount: 300,
-            currency: 'PKR',
-            type: 'Subscription',
-            status: 'Success',
-            paymentMethod: 'JazzCash'
-          },
-          {
-            id: 'tx-demo-2',
-            dateTime: '2026-07-25 09:30',
-            amount: 1000,
-            currency: 'PKR',
-            type: 'Job Posting Fee',
-            status: 'Success',
-            paymentMethod: 'Easypaisa',
-            jobTitleRef: 'Remote Senior React Developer'
-          }
-        ],
-        createdAt: new Date().toISOString()
-      },
-      {
-        id: 'user-demo-1',
-        name: 'Ali Raza',
-        email: 'ali.raza@example.com',
-        role: 'Unified Member',
-        phone: '+92 300 1122334',
-        plan: 'Premium',
-        walletBalance: 15000,
-        activationDate: '2026-07-20 14:00',
-        expiryDate: '2026-08-19 14:00',
-        renewalCount: 1,
-        autoRenew: true,
-        transactions: [
-          {
-            id: 'tx-ali-1',
-            dateTime: '2026-07-20 14:00',
-            amount: 300,
-            currency: 'PKR',
-            type: 'Subscription',
-            status: 'Success',
-            paymentMethod: 'JazzCash'
-          }
-        ],
-        createdAt: new Date().toISOString()
-      }
-    ];
-
-    if (!saved) return defaultList;
-
-    try {
-      const parsed: UserAccount[] = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return defaultList;
-
-      const userMap = new Map<string, UserAccount>();
-      defaultList.forEach(u => userMap.set(u.id, u));
-      parsed.forEach(u => {
-        if (u && u.id) {
-          const existing = userMap.get(u.id);
-          const combined = existing ? { ...existing, ...u } : u;
-          if (combined.walletBalance === undefined) {
-            combined.walletBalance = 25000;
-          }
-          userMap.set(u.id, combined);
-        }
-      });
-      return Array.from(userMap.values());
-    } catch {
-      return defaultList;
-    }
-  });
+  // User Accounts Directory State (No localStorage password or profile authority)
+  const [users, setUsers] = useState<UserAccount[]>([]);
 
   // Per-Job Posting Fee Configuration & Log Sheet
   const [jobPostingFeePkr, setJobPostingFeePkr] = useState<number>(() => {
@@ -454,6 +380,7 @@ export default function App() {
       localStorage.removeItem('hybrid_all_applications');
       localStorage.removeItem('hybrid_payment_transactions');
       localStorage.removeItem('hybrid_saved_job_ids');
+      localStorage.removeItem('hybrid_users_directory');
     } catch {}
 
     loadBackendJobs();
@@ -672,15 +599,73 @@ export default function App() {
     setCurrentPage(1);
   };
 
+  const sanitizeBackendUser = useCallback((rawUser: any): UserAccount => {
+    const { password, passwordHash, salt, ...safeUser } = rawUser || {};
+    return safeUser as UserAccount;
+  }, []);
+
+  const getAuthenticatedUserIdFromToken = useCallback((): string | null => {
+    if (typeof window === 'undefined') return null;
+    const token = localStorage.getItem('hybrid_auth_token');
+    if (!token) return null;
+    try {
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        const payload = JSON.parse(atob(padded));
+        return payload?.userId || payload?.id || null;
+      }
+    } catch {}
+    return null;
+  }, []);
+
+  const loadBackendUserProfile = useCallback(async (explicitUserId?: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    if (!token) return null;
+
+    const targetUserId = explicitUserId || getAuthenticatedUserIdFromToken() || currentUser?.id;
+    if (!targetUserId) return null;
+
+    try {
+      const res = await api.users.getProfile(targetUserId);
+      if (res && res.success && res.user) {
+        const authoritativeUser = sanitizeBackendUser(res.user);
+        setCurrentUser((prev) => ({
+          ...(prev && String(prev.id) === String(authoritativeUser.id) ? prev : {}),
+          ...authoritativeUser,
+          appliedJobs:
+            prev && String(prev.id) === String(authoritativeUser.id) ? prev.appliedJobs : undefined,
+          transactions:
+            prev && String(prev.id) === String(authoritativeUser.id) ? prev.transactions : undefined
+        }));
+        setUsers((prev) => {
+          const idx = prev.findIndex((u) => String(u.id) === String(authoritativeUser.id));
+          if (idx >= 0) {
+            const copy = [...prev];
+            copy[idx] = { ...copy[idx], ...authoritativeUser };
+            return copy;
+          }
+          return [authoritativeUser, ...prev];
+        });
+        return authoritativeUser;
+      }
+    } catch (err) {
+      console.error('[App] Failed to load user profile from backend /api/users/:id:', err);
+    }
+    return null;
+  }, [currentUser?.id, getAuthenticatedUserIdFromToken, sanitizeBackendUser]);
+
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    const tokenUserId = getAuthenticatedUserIdFromToken();
+    const targetId = currentUser?.id || tokenUserId;
+    if (token && targetId) {
+      loadBackendUserProfile(targetId);
+    }
+  }, [currentUser?.id, getAuthenticatedUserIdFromToken, loadBackendUserProfile]);
+
   // LocalStorage Persist Effects - Fully guarded with safeLocalStorageSet to prevent QuotaExceeded crashes
-  useEffect(() => {
-    safeLocalStorageSet('hybrid_current_user', currentUser);
-  }, [currentUser]);
-
-  useEffect(() => {
-    safeLocalStorageSet('hybrid_users_directory', users);
-  }, [users]);
-
   useEffect(() => {
     safeLocalStorageSet('hybrid_chat_messages', chatMessages.slice(-50));
   }, [chatMessages]);
@@ -984,21 +969,132 @@ export default function App() {
     });
   }, [jobs, filters]);
 
-  // Profile & Password Handlers
-  const handleUpdateProfile = (updatedUser: UserAccount) => {
-    setCurrentUser(updatedUser);
-    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-  };
-
-  const handleChangePassword = (currentPass: string, newPass: string): boolean => {
-    if (!currentUser) return false;
-    if (currentUser.password && currentUser.password !== currentPass) {
+  // Profile & Password Handlers (Server-Authoritative via PUT /api/users/:id & POST /api/auth/change-password)
+  const handleUpdateProfile = async (
+    updates: Partial<UserAccount> | UserAccount
+  ): Promise<boolean> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    const authenticatedUserId = getAuthenticatedUserIdFromToken() || currentUser?.id;
+    if (!token || !authenticatedUserId) {
+      alert('Authentication required. Please log in.');
       return false;
     }
-    const updatedUser = { ...currentUser, password: newPass };
-    setCurrentUser(updatedUser);
-    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-    return true;
+
+    const ALLOWED_PROFILE_FIELDS = [
+      'name',
+      'fullName',
+      'phone',
+      'phoneNumber',
+      'bio',
+      'location',
+      'city',
+      'country',
+      'address',
+      'avatarUrl',
+      'company',
+      'companyName',
+      'headline',
+      'title',
+      'skills',
+      'preferences',
+      'website',
+      'experience',
+      'education',
+      'cvUrl',
+      'resumeUrl',
+      'socialLinks',
+      'notificationsEnabled',
+      'whatsappAlertsEnabled'
+    ] as const;
+
+    const safePayload: Record<string, any> = {};
+    for (const key of ALLOWED_PROFILE_FIELDS) {
+      if (
+        updates &&
+        Object.prototype.hasOwnProperty.call(updates, key) &&
+        (updates as any)[key] !== undefined
+      ) {
+        safePayload[key] = (updates as any)[key];
+      }
+    }
+
+    try {
+      const res = await api.users.updateProfile(authenticatedUserId, safePayload);
+      if (res && res.success && res.user) {
+        const authoritativeUser = sanitizeBackendUser(res.user);
+        setCurrentUser((prev) => ({
+          ...(prev && String(prev.id) === String(authoritativeUser.id) ? prev : {}),
+          ...authoritativeUser,
+          appliedJobs:
+            prev && String(prev.id) === String(authoritativeUser.id) ? prev.appliedJobs : undefined,
+          transactions:
+            prev && String(prev.id) === String(authoritativeUser.id) ? prev.transactions : undefined
+        }));
+        setUsers((prev) =>
+          prev.map((u) =>
+            String(u.id) === String(authoritativeUser.id) ? { ...u, ...authoritativeUser } : u
+          )
+        );
+        return true;
+      }
+      alert(res?.message || 'Failed to update profile.');
+      return false;
+    } catch (err: any) {
+      console.error('Error updating user profile on backend:', err);
+      alert(err?.message || 'Error updating user profile.');
+      return false;
+    }
+  };
+
+  const handleChangePassword = async (
+    currentPass: string,
+    newPass: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    if (!token || !currentUser?.id) {
+      return { success: false, message: 'Authentication required. Please log in.' };
+    }
+
+    try {
+      const res = await api.auth.changePassword({
+        currentPassword: currentPass,
+        newPassword: newPass
+      });
+      if (res && res.success) {
+        if (res.user) {
+          const authoritativeUser = sanitizeBackendUser(res.user);
+          setCurrentUser((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  ...authoritativeUser,
+                  appliedJobs: prev.appliedJobs,
+                  transactions: prev.transactions
+                }
+              : authoritativeUser
+          );
+          setUsers((prev) =>
+            prev.map((u) =>
+              String(u.id) === String(authoritativeUser.id) ? { ...u, ...authoritativeUser } : u
+            )
+          );
+        }
+        return {
+          success: true,
+          message: res.message || 'Password changed successfully!'
+        };
+      }
+      return {
+        success: false,
+        message: res?.message || 'Incorrect current password. Please try again.'
+      };
+    } catch (err: any) {
+      console.error('Error changing password on backend:', err);
+      return {
+        success: false,
+        message: err?.message || 'Error updating password.'
+      };
+    }
   };
 
   const handleAdminUpdateUserPassword = (userId: string, newPass: string) => {
@@ -1141,7 +1237,7 @@ export default function App() {
         ...currentUser,
         appliedJobs: dedupedUserApps
       };
-      handleUpdateProfile(updatedUser);
+      setCurrentUser(updatedUser);
       loadBackendApplications(currentUser.id);
     }
   };
@@ -1164,17 +1260,21 @@ export default function App() {
 
   // User Auth Login Success
   const handleLoginSuccess = (account: UserAccount) => {
-    setCurrentUser(account);
+    const sanitized = sanitizeBackendUser(account);
+    setCurrentUser(sanitized);
     setActiveTab('dashboard');
     setUsers(prev => {
-      const idx = prev.findIndex(u => u.id === account.id || u.email === account.email);
+      const idx = prev.findIndex(u => u.id === sanitized.id || u.email === sanitized.email);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = account;
+        copy[idx] = sanitized;
         return copy;
       }
-      return [account, ...prev];
+      return [sanitized, ...prev];
     });
+    if (sanitized.id) {
+      loadBackendUserProfile(sanitized.id);
+    }
   };
 
   // Auto-Renew Toggle Switch Handler for Current User

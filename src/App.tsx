@@ -473,6 +473,7 @@ export default function App() {
     try {
       localStorage.removeItem('hybrid_jobs_list');
       localStorage.removeItem('hybrid_pending_jobs');
+      localStorage.removeItem('hybrid_all_applications');
     } catch {}
 
     loadBackendJobs();
@@ -563,24 +564,8 @@ export default function App() {
     } catch (e) {}
   }, [jobPostingPricing]);
 
-  // All Job Applications Log State
-  const [allApplications, setAllApplications] = useState<JobApplication[]>(() => {
-    const saved = localStorage.getItem('hybrid_all_applications');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'app-1',
-        jobId: 'job-1',
-        jobTitle: 'Senior Full Stack React Native Engineer',
-        companyName: 'DevSinc Lahore',
-        applicantId: 'usr-demo-1',
-        applicantName: 'Qwer Test User',
-        applicantEmail: 'qwer@example.com',
-        appliedAt: '2026-07-25 10:15',
-        status: 'Under Review',
-        paymentStatus: 'Subscription Paid'
-      }
-    ];
-  });
+  // All Job Applications State (Loaded from /api/applications for authenticated users)
+  const [allApplications, setAllApplications] = useState<JobApplication[]>([]);
 
   // Modal States
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -740,9 +725,52 @@ export default function App() {
     safeLocalStorageSet('hybrid_monthly_fee', monthlyFeePkr.toString());
   }, [monthlyFeePkr]);
 
+  const loadBackendApplications = useCallback(async (activeUserId?: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    if (!token) {
+      setAllApplications([]);
+      return;
+    }
+
+    try {
+      const res = await api.applications.getAll();
+      if (res && res.success && Array.isArray(res.applications)) {
+        const seen = new Set<string>();
+        const uniqueApps: JobApplication[] = [];
+        for (const app of res.applications) {
+          if (app && app.id && !seen.has(app.id)) {
+            seen.add(app.id);
+            uniqueApps.push(app);
+          }
+        }
+        setAllApplications(uniqueApps);
+
+        const targetUserId = activeUserId ?? currentUser?.id;
+        if (targetUserId) {
+          const userOwnedApps = uniqueApps.filter((a) => String(a.applicantId) === String(targetUserId));
+          setCurrentUser((prev) => {
+            if (!prev || String(prev.id) !== String(targetUserId)) return prev;
+            const prevIds = (prev.appliedJobs || []).map((a) => a.id).join(',');
+            const nextIds = userOwnedApps.map((a) => a.id).join(',');
+            if (prevIds === nextIds && (prev.appliedJobs || []).length === userOwnedApps.length) {
+              return prev;
+            }
+            return { ...prev, appliedJobs: userOwnedApps };
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[App] Failed to load applications from backend /api/applications:', err);
+    }
+  }, [currentUser?.id]);
+
   useEffect(() => {
-    safeLocalStorageSet('hybrid_all_applications', allApplications.slice(0, 100));
-  }, [allApplications]);
+    if (currentUser?.id || isAdminLoggedIn) {
+      loadBackendApplications(currentUser?.id);
+    } else {
+      setAllApplications([]);
+    }
+  }, [currentUser?.id, isAdminLoggedIn, loadBackendApplications]);
 
   // Filtering & Sorting
   const filteredJobs = useMemo(() => {
@@ -841,14 +869,19 @@ export default function App() {
   };
 
   const handleApplicationSubmitted = (newApp: JobApplication) => {
-    setAllApplications((prev) => [newApp, ...prev]);
+    setAllApplications((prev) => [newApp, ...prev.filter((a) => a.id !== newApp.id)]);
 
     if (currentUser) {
+      const dedupedUserApps = [
+        newApp,
+        ...(currentUser.appliedJobs || []).filter((a) => a.id !== newApp.id)
+      ];
       const updatedUser: UserAccount = {
         ...currentUser,
-        appliedJobs: [...(currentUser.appliedJobs || []), newApp]
+        appliedJobs: dedupedUserApps
       };
       handleUpdateProfile(updatedUser);
+      loadBackendApplications(currentUser.id);
     }
   };
 
@@ -1928,6 +1961,7 @@ export default function App() {
                 onLogout={async () => {
                   await api.auth.logout();
                   setCurrentUser(null);
+                  setAllApplications([]);
                   setIsAdminLoggedIn(false);
                   setShowAdminView(false);
                   setActiveTab('jobs');

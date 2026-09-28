@@ -323,12 +323,14 @@ export const api = {
       const params = new URLSearchParams();
       if (jobId) params.append('jobId', jobId);
       if (applicantId) params.append('applicantId', applicantId);
-      return safeFetchJson(`${API_BASE}/applications?${params.toString()}`);
+      return safeFetchJson(`${API_BASE}/applications?${params.toString()}`, {
+        headers: getAuthHeader()
+      });
     },
     async submit(data: any) {
       return safeFetchJson(`${API_BASE}/applications`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeader(),
         body: JSON.stringify(data)
       });
     },
@@ -340,7 +342,7 @@ export const api = {
             const base64 = reader.result as string;
             const data = await safeFetchJson(`${API_BASE}/applications/upload-cv`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: getAuthHeader(),
               body: JSON.stringify({
                 fileName: file.name,
                 fileType: file.type,

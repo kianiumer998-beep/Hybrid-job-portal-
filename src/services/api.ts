@@ -553,12 +553,14 @@ export const api = {
   transactions: {
     async getAll(userId?: string) {
       const qs = userId ? `?userId=${userId}` : '';
-      return safeFetchJson(`${API_BASE}/transactions${qs}`);
+      return safeFetchJson(`${API_BASE}/transactions${qs}`, {
+        headers: getAuthHeader()
+      });
     },
     async submit(txData: any) {
       return safeFetchJson(`${API_BASE}/transactions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeader(),
         body: JSON.stringify(txData)
       });
     },

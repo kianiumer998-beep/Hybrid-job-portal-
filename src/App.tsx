@@ -333,47 +333,25 @@ export default function App() {
     } catch (e) {}
   }, [whatsAppSupportConfig]);
 
-  // Payment Verification Transactions State
-  const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransaction[]>(() => {
-    try {
-      const saved = localStorage.getItem('hybrid_payment_transactions');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_PAYMENT_TRANSACTIONS;
-  });
+  // Payment Verification Transactions State (Loaded from /api/transactions for authenticated users)
+  const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransaction[]>([]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('hybrid_payment_transactions', JSON.stringify(paymentTransactions));
-    } catch (e) {}
-  }, [paymentTransactions]);
-
-  const handleApprovePaymentTransaction = (txId: string, note?: string) => {
-    setPaymentTransactions(prev => prev.map(t => {
-      if (t.id === txId) {
-        return {
-          ...t,
-          status: 'Success' as const,
-          verifiedAt: new Date().toISOString(),
-          adminNote: note
-        };
-      }
-      return t;
-    }));
-  };
-
-  const handleRejectPaymentTransaction = (txId: string, reason: string) => {
-    setPaymentTransactions(prev => prev.map(t => {
-      if (t.id === txId) {
-        return {
-          ...t,
-          status: 'Failed' as const,
-          rejectionReason: reason
-        };
-      }
-      return t;
-    }));
-  };
+  const normalizeBackendTransaction = useCallback((rawTx: any): PaymentTransaction => {
+    const fallbackDate = rawTx?.createdAt
+      ? String(rawTx.createdAt).replace('T', ' ').substring(0, 16)
+      : new Date().toISOString().replace('T', ' ').substring(0, 16);
+    const mappedType: PaymentTransaction['type'] =
+      rawTx?.type === 'Job Posting'
+        ? 'Job Posting Fee'
+        : rawTx?.type === 'Advertisement'
+        ? 'Ad Campaign Fee'
+        : (rawTx?.type || 'Wallet Deposit');
+    return {
+      ...rawTx,
+      dateTime: rawTx?.dateTime || fallbackDate,
+      type: mappedType
+    };
+  }, []);
 
   // Helper to deduplicate jobs by unique ID
   const deduplicateJobsById = (jobList: Job[]): Job[] => {
@@ -474,6 +452,7 @@ export default function App() {
       localStorage.removeItem('hybrid_jobs_list');
       localStorage.removeItem('hybrid_pending_jobs');
       localStorage.removeItem('hybrid_all_applications');
+      localStorage.removeItem('hybrid_payment_transactions');
     } catch {}
 
     loadBackendJobs();
@@ -772,6 +751,112 @@ export default function App() {
     }
   }, [currentUser?.id, isAdminLoggedIn, loadBackendApplications]);
 
+  const loadBackendTransactions = useCallback(async (activeUserId?: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
+    if (!token) {
+      setPaymentTransactions([]);
+      return;
+    }
+
+    try {
+      const res = await api.transactions.getAll();
+      if (res && res.success && Array.isArray(res.transactions)) {
+        const seen = new Set<string>();
+        const uniqueTxs: PaymentTransaction[] = [];
+        for (const rawTx of res.transactions) {
+          if (rawTx && rawTx.id && !seen.has(rawTx.id)) {
+            seen.add(rawTx.id);
+            uniqueTxs.push(normalizeBackendTransaction(rawTx));
+          }
+        }
+        setPaymentTransactions(uniqueTxs);
+
+        const targetUserId = activeUserId ?? currentUser?.id;
+        if (targetUserId) {
+          const userOwnedTxs = uniqueTxs.filter(
+            (t) => !t.userId || String(t.userId) === String(targetUserId)
+          );
+          let latestBackendUser: any = null;
+          try {
+            const meRes = await api.auth.me();
+            if (meRes && meRes.success && meRes.user && String(meRes.user.id) === String(targetUserId)) {
+              latestBackendUser = meRes.user;
+            }
+          } catch {}
+
+          setCurrentUser((prev) => {
+            if (!prev || String(prev.id) !== String(targetUserId)) return prev;
+            const nextWalletBalance =
+              latestBackendUser && typeof latestBackendUser.walletBalance === 'number'
+                ? latestBackendUser.walletBalance
+                : prev.walletBalance;
+            const nextMembershipStatus = latestBackendUser?.membershipStatus || prev.membershipStatus;
+            const nextPlan =
+              latestBackendUser?.membershipTier && latestBackendUser.membershipStatus === 'Active'
+                ? 'Premium'
+                : (latestBackendUser?.plan || prev.plan);
+            return {
+              ...prev,
+              walletBalance: nextWalletBalance,
+              membershipStatus: nextMembershipStatus,
+              plan: nextPlan,
+              transactions: userOwnedTxs
+            };
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[App] Failed to load transactions from backend /api/transactions:', err);
+    }
+  }, [currentUser?.id, normalizeBackendTransaction]);
+
+  useEffect(() => {
+    if (currentUser?.id || isAdminLoggedIn) {
+      loadBackendTransactions(currentUser?.id);
+    } else {
+      setPaymentTransactions([]);
+    }
+  }, [currentUser?.id, isAdminLoggedIn, loadBackendTransactions]);
+
+  const handleApprovePaymentTransaction = async (txId: string, note?: string) => {
+    try {
+      const res = await api.transactions.verify(txId, 'approve', note);
+      if (res && res.success && res.transaction) {
+        const normalized = normalizeBackendTransaction(res.transaction);
+        setPaymentTransactions((prev) => [
+          normalized,
+          ...prev.filter((t) => t.id !== normalized.id)
+        ]);
+        await loadBackendTransactions(currentUser?.id);
+        await loadBackendJobs();
+      } else {
+        alert(res?.message || 'Failed to approve payment transaction.');
+      }
+    } catch (err: any) {
+      console.error('Error approving payment transaction:', err);
+      alert(err?.message || 'Error approving payment transaction.');
+    }
+  };
+
+  const handleRejectPaymentTransaction = async (txId: string, reason: string) => {
+    try {
+      const res = await api.transactions.verify(txId, 'reject', undefined, reason);
+      if (res && res.success && res.transaction) {
+        const normalized = normalizeBackendTransaction(res.transaction);
+        setPaymentTransactions((prev) => [
+          normalized,
+          ...prev.filter((t) => t.id !== normalized.id)
+        ]);
+        await loadBackendTransactions(currentUser?.id);
+      } else {
+        alert(res?.message || 'Failed to reject payment transaction.');
+      }
+    } catch (err: any) {
+      console.error('Error rejecting payment transaction:', err);
+      alert(err?.message || 'Error rejecting payment transaction.');
+    }
+  };
+
   // Filtering & Sorting
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
@@ -886,12 +971,18 @@ export default function App() {
   };
 
   const handleSubscribeSuccess = (newSub: Subscriber) => {
-    setSubscribers((prev) => [newSub, ...prev]);
-    setIsSubscribed(true);
+    setSubscribers((prev) => [newSub, ...prev.filter((s) => s.id !== newSub.id)]);
     setSubscriptionModalOpen(false);
 
-    if (currentUser) {
-      setCurrentUser({ ...currentUser, plan: 'Premium', autoRenew: true });
+    if (newSub.status === 'Active') {
+      setIsSubscribed(true);
+      if (currentUser) {
+        setCurrentUser({ ...currentUser, plan: 'Premium', autoRenew: true });
+      }
+    }
+
+    if (currentUser?.id || isAdminLoggedIn) {
+      loadBackendTransactions(currentUser?.id);
     }
   };
 
@@ -1071,86 +1162,123 @@ export default function App() {
 
   // User submits job for admin verification with optional Fee Payment
   const handleSubmitJobForApproval = async (newJob: Job, feePayment?: { amount: number; paymentMethod: string }) => {
+    let createdJob: Job | null = null;
     try {
-      await api.jobs.create({ ...newJob, status: 'Pending' });
+      const createRes = await api.jobs.create({ ...newJob, status: 'Pending' });
+      if (createRes && createRes.job) {
+        createdJob = createRes.job;
+      }
       await loadBackendJobs();
     } catch (err) {
       console.error('Error creating pending job on backend:', err);
       await loadBackendJobs();
+      return;
     }
 
-    if (feePayment && currentUser) {
-      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
-      
-      const newLog: JobPostingFeeLog = {
-        id: 'log-' + Date.now(),
-        jobTitle: newJob.title,
-        userId: currentUser.id,
-        userName: currentUser.name,
-        userEmail: currentUser.email,
-        amount: feePayment.amount,
-        currency: 'PKR',
-        paymentMethod: feePayment.paymentMethod,
-        dateTime: nowStr,
-        status: 'Paid'
-      };
+    if (feePayment && currentUser && createdJob?.id) {
+      try {
+        const txRes = await api.transactions.submit({
+          amount: feePayment.amount,
+          currency: 'PKR',
+          type: 'Job Posting',
+          paymentMethod: feePayment.paymentMethod || 'JazzCash',
+          jobIdRef: createdJob.id,
+          jobTitleRef: createdJob.title || newJob.title,
+          jobPricingOptions: {
+            featured: Boolean(newJob.featured || newJob.priorityTier === 'featured_top'),
+            urgent: Boolean(newJob.urgent || newJob.priorityTier === 'urgent'),
+            pinnedTop: Boolean(newJob.isPinnedTop),
+            futureJob: Boolean(newJob.isFutureJob),
+            vipBundle: Boolean(newJob.priorityTier === 'vip_bundle'),
+            government: Boolean(newJob.isGovtJob),
+            newspaper: Boolean(newJob.isNewspaperAd)
+          },
+          senderName: currentUser.name,
+          userName: currentUser.name,
+          userEmail: currentUser.email,
+          idempotencyKey: `job-fee-${createdJob.id}-${Date.now()}`
+        });
 
-      setJobPostingFeeLogs(prev => [newLog, ...prev]);
+        if (txRes && txRes.success && txRes.transaction) {
+          const normalizedTx = normalizeBackendTransaction(txRes.transaction);
+          const nowStr = normalizedTx.dateTime;
 
-      const newTx: PaymentTransaction = {
-        id: 'tx-job-fee-' + Date.now(),
-        dateTime: nowStr,
-        amount: feePayment.amount,
-        currency: 'PKR',
-        type: 'Job Posting Fee',
-        status: 'Success',
-        paymentMethod: (feePayment.paymentMethod as 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer') || 'JazzCash',
-        jobTitleRef: newJob.title
-      };
+          const newLog: JobPostingFeeLog = {
+            id: 'log-' + normalizedTx.id,
+            jobTitle: createdJob.title || newJob.title,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            userEmail: currentUser.email,
+            amount: Number(normalizedTx.amount) || feePayment.amount,
+            currency: 'PKR',
+            paymentMethod: feePayment.paymentMethod,
+            dateTime: nowStr,
+            status: 'Paid'
+          };
 
-      const updatedUser: UserAccount = {
-        ...currentUser,
-        transactions: [newTx, ...(currentUser.transactions || [])]
-      };
-
-      setCurrentUser(updatedUser);
-      setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+          setJobPostingFeeLogs((prev) => [newLog, ...prev.filter((l) => l.id !== newLog.id)]);
+          setPaymentTransactions((prev) => [
+            normalizedTx,
+            ...prev.filter((t) => t.id !== normalizedTx.id)
+          ]);
+          await loadBackendTransactions(currentUser.id);
+          await loadBackendJobs();
+        } else {
+          alert(txRes?.message || 'Job submitted, but payment proof submission could not be completed.');
+        }
+      } catch (err: any) {
+        console.error('Error submitting job posting payment transaction:', err);
+        alert(err?.message || 'Error submitting job posting payment transaction.');
+      }
     }
   };
 
   // User Manual Subscription Renewal (+30 Days)
-  const handleRenewSubscription = () => {
+  const handleRenewSubscription = async () => {
     if (!currentUser) return;
-    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
 
-    const currentExp = currentUser.expiryDate || '2026-08-24 09:00';
-    const parts = currentExp.split(' ');
-    const dateParts = parts[0].split('-');
-    const d = new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]));
-    d.setDate(d.getDate() + 30);
-    const newExp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${parts[1] || '09:00'}`;
+    const rawTier = (currentUser as any).membershipTier;
+    const selectedPlan =
+      rawTier === 'VIP Jobseeker' || rawTier === 'Govt Alerts Weekly' || rawTier === 'Pro Alerts'
+        ? rawTier
+        : 'Pro Alerts';
 
-    const newTx: PaymentTransaction = {
-      id: 'tx-renew-' + Date.now(),
-      dateTime: nowStr,
-      amount: monthlyFeePkr,
-      currency: 'PKR',
-      type: 'Subscription',
-      status: 'Success',
-      paymentMethod: 'JazzCash'
-    };
+    try {
+      const txRes = await api.transactions.submit({
+        amount: monthlyFeePkr,
+        currency: 'PKR',
+        type: 'Subscription',
+        plan: selectedPlan,
+        paymentMethod: 'JazzCash',
+        senderName: currentUser.name,
+        userName: currentUser.name,
+        userEmail: currentUser.email,
+        idempotencyKey: `renew-${currentUser.id}-${Date.now()}`
+      });
 
-    const updatedUser: UserAccount = {
-      ...currentUser,
-      plan: 'Premium',
-      expiryDate: newExp,
-      renewalCount: (currentUser.renewalCount || 1) + 1,
-      transactions: [newTx, ...(currentUser.transactions || [])]
-    };
+      if (txRes && txRes.success && txRes.transaction) {
+        const normalizedTx = normalizeBackendTransaction(txRes.transaction);
+        setPaymentTransactions((prev) => [
+          normalizedTx,
+          ...prev.filter((t) => t.id !== normalizedTx.id)
+        ]);
+        await loadBackendTransactions(currentUser.id);
 
-    setCurrentUser(updatedUser);
-    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
-    alert(`Subscription renewed successfully! New Expiry Date: ${newExp}`);
+        if (normalizedTx.status === 'Success') {
+          alert('Subscription renewed and activated!');
+        } else {
+          alert(
+            txRes.message ||
+              'Subscription renewal submitted! Administrator verification is pending.'
+          );
+        }
+      } else {
+        alert(txRes?.message || 'Failed to submit subscription renewal.');
+      }
+    } catch (err: any) {
+      console.error('Error renewing subscription:', err);
+      alert(err?.message || 'Error processing subscription renewal.');
+    }
   };
 
   // Admin Approves Job
@@ -1415,33 +1543,44 @@ export default function App() {
   };
 
   // Deposit funds into user wallet
-  const handleDepositFunds = (amount: number, paymentMethod: string) => {
+  const handleDepositFunds = async (amount: number, paymentMethod: string) => {
     if (!currentUser) return;
 
-    const currentBalance = currentUser.walletBalance ?? 0;
-    const newBalance = currentBalance + amount;
-    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    try {
+      const txRes = await api.transactions.submit({
+        amount,
+        currency: 'PKR',
+        type: 'Wallet Deposit',
+        paymentMethod: (paymentMethod as 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer') || 'JazzCash',
+        senderName: currentUser.name,
+        userName: currentUser.name,
+        userEmail: currentUser.email,
+        idempotencyKey: `dep-${currentUser.id}-${Date.now()}`
+      });
 
-    const newTx: PaymentTransaction = {
-      id: 'tx-dep-' + Date.now(),
-      dateTime: nowStr,
-      amount: amount,
-      currency: 'PKR',
-      type: 'Wallet Deposit',
-      status: 'Success',
-      paymentMethod: (paymentMethod as 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer') || 'JazzCash'
-    };
+      if (txRes && txRes.success && txRes.transaction) {
+        const normalizedTx = normalizeBackendTransaction(txRes.transaction);
+        setPaymentTransactions((prev) => [
+          normalizedTx,
+          ...prev.filter((t) => t.id !== normalizedTx.id)
+        ]);
+        await loadBackendTransactions(currentUser.id);
 
-    const updatedUser: UserAccount = {
-      ...currentUser,
-      walletBalance: newBalance,
-      transactions: [newTx, ...(currentUser.transactions || [])]
-    };
-
-    setCurrentUser(updatedUser);
-    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
-
-    alert(`Successfully deposited PKR ${amount.toLocaleString()} via ${paymentMethod}! New Wallet Balance: PKR ${newBalance.toLocaleString()}`);
+        if (normalizedTx.status === 'Success') {
+          alert(`Successfully deposited PKR ${amount.toLocaleString()} via ${paymentMethod}!`);
+        } else {
+          alert(
+            txRes.message ||
+              `Deposit request of PKR ${amount.toLocaleString()} via ${paymentMethod} submitted! Administrator verification is pending.`
+          );
+        }
+      } else {
+        alert(txRes?.message || 'Failed to submit wallet deposit request.');
+      }
+    } catch (err: any) {
+      console.error('Error submitting wallet deposit:', err);
+      alert(err?.message || 'Error submitting wallet deposit.');
+    }
   };
 
   // Admin Approves Ad Campaign
@@ -1962,6 +2101,7 @@ export default function App() {
                   await api.auth.logout();
                   setCurrentUser(null);
                   setAllApplications([]);
+                  setPaymentTransactions([]);
                   setIsAdminLoggedIn(false);
                   setShowAdminView(false);
                   setActiveTab('jobs');

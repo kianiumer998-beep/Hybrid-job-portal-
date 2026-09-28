@@ -45,7 +45,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       const txRes = await api.transactions.submit({
         amount: amountPaid,
         currency: 'PKR',
-        type: `Subscription: ${plan}`,
+        type: 'Subscription',
+        plan,
         paymentMethod,
         transactionId: finalTrxId,
         senderName: name.trim(),
@@ -56,19 +57,21 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         idempotencyKey: `sub-${email.trim().toLowerCase()}-${Date.now()}`
       });
 
-      if (txRes && (txRes.success || txRes.transaction)) {
+      if (txRes && txRes.success && txRes.transaction) {
+        const isImmediateActive = txRes.transaction.status === 'Success';
         const newSub: Subscriber = {
-          id: 'sub-' + Date.now(),
+          id: txRes.transaction.id || ('sub-' + Date.now()),
           name: name.trim(),
           phone: phone.trim(),
           email: email.trim(),
           plan,
           paymentMethod,
-          amountPaid,
+          amountPaid: Number(txRes.transaction.amount) || amountPaid,
           currency: 'PKR',
-          status: 'Active',
+          status: isImmediateActive ? 'Active' : 'Pending',
           subscribedAt: new Date().toISOString(),
-          whatsappEnabled: true
+          whatsappEnabled: true,
+          transactionRef: txRes.transaction.transactionId || finalTrxId
         };
 
         setIsSubmitting(false);

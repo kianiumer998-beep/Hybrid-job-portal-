@@ -570,7 +570,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       let classifiedHealth: string = 'Fetch Error';
       let httpStatus: number | undefined = err.status || err.statusCode || err.httpStatus;
 
-      const isDbError = isTransientMongoError(err) ||
+      const isDbError =
         err?.name === 'MongoNetworkTimeoutError' ||
         err?.name === 'MongoConnectionUnavailableError' ||
         err?.name?.includes('Mongo') ||

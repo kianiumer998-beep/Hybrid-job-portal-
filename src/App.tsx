@@ -56,10 +56,50 @@ import {
 } from './types/landing';
 import { safeLocalStorageSet, safeLocalStorageGet } from './utils/safeStorage';
 
+const ADMIN_ROLES = [
+  'Super Admin',
+  'Admin',
+  'Job Moderator',
+  'Scraper Manager',
+  'Payment Manager',
+  'Finance Manager',
+  'SEO Manager',
+  'Advertisement Manager'
+] as const;
+
+function decodeStoredAuthTokenPayload(): Record<string, any> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const token = localStorage.getItem('hybrid_auth_token');
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    if (!payload || typeof payload !== 'object') return null;
+    if (typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now()) {
+      return null;
+    }
+    const uid = payload.userId || payload.id;
+    if (!uid) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<'jobs' | 'cv' | 'alerts' | 'dashboard'>('jobs');
-  const [showAdminView, setShowAdminView] = useState<boolean>(false);
+  const [showAdminView, setShowAdminView] = useState<boolean>(() => {
+    const payload = decodeStoredAuthTokenPayload();
+    return Boolean(
+      payload &&
+      typeof payload.role === 'string' &&
+      (ADMIN_ROLES as readonly string[]).includes(payload.role)
+    );
+  });
   const [dismissAnnouncement, setDismissAnnouncement] = useState<boolean>(false);
 
   // User Country Selection State (Pop-up on entry if not set)
@@ -180,34 +220,21 @@ export default function App() {
   // Registered Current User State (Authoritative profile loaded from GET /api/users/:id)
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     if (typeof window === 'undefined') return null;
-    const token = localStorage.getItem('hybrid_auth_token');
-    if (!token) {
-      try {
-        localStorage.removeItem('hybrid_current_user');
-      } catch {}
-      return null;
-    }
     try {
-      const parts = token.split('.');
-      if (parts.length >= 2) {
-        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-        const payload = JSON.parse(atob(padded));
-        const uid = payload?.userId || payload?.id;
-        if (uid) {
-          return {
-            id: String(uid),
-            name: payload?.name || 'Member',
-            email: payload?.email || '',
-            role: payload?.role || 'Job Seeker',
-            plan: 'Free',
-            walletBalance: 0,
-            createdAt: new Date().toISOString()
-          } as UserAccount;
-        }
-      }
+      localStorage.removeItem('hybrid_current_user');
     } catch {}
-    return null;
+    const payload = decodeStoredAuthTokenPayload();
+    if (!payload) return null;
+    const uid = payload.userId || payload.id;
+    return {
+      id: String(uid),
+      name: payload.name || 'Member',
+      email: payload.email || '',
+      role: payload.role || 'Job Seeker',
+      plan: 'Free',
+      walletBalance: 0,
+      createdAt: new Date().toISOString()
+    } as UserAccount;
   });
 
   // User Accounts Directory State (No localStorage password or profile authority)
@@ -486,23 +513,14 @@ export default function App() {
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem('hybrid_admin_dev_passkey');
-        const token = localStorage.getItem('hybrid_auth_token');
-        const userStr = localStorage.getItem('hybrid_current_user');
-        if (token && userStr) {
-          const u = JSON.parse(userStr);
-          const ADMIN_ROLES = [
-            'Super Admin',
-            'Admin',
-            'Job Moderator',
-            'Scraper Manager',
-            'Payment Manager',
-            'Finance Manager',
-            'SEO Manager',
-            'Advertisement Manager'
-          ];
-          if (u && ADMIN_ROLES.includes(u.role)) {
-            return true;
-          }
+        localStorage.removeItem('hybrid_current_user');
+        const payload = decodeStoredAuthTokenPayload();
+        if (
+          payload &&
+          typeof payload.role === 'string' &&
+          (ADMIN_ROLES as readonly string[]).includes(payload.role)
+        ) {
+          return true;
         }
       } catch {}
     }
@@ -605,19 +623,9 @@ export default function App() {
   }, []);
 
   const getAuthenticatedUserIdFromToken = useCallback((): string | null => {
-    if (typeof window === 'undefined') return null;
-    const token = localStorage.getItem('hybrid_auth_token');
-    if (!token) return null;
-    try {
-      const parts = token.split('.');
-      if (parts.length >= 2) {
-        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-        const payload = JSON.parse(atob(padded));
-        return payload?.userId || payload?.id || null;
-      }
-    } catch {}
-    return null;
+    const payload = decodeStoredAuthTokenPayload();
+    const uid = payload?.userId || payload?.id;
+    return uid ? String(uid) : null;
   }, []);
 
   const loadBackendUserProfile = useCallback(async (explicitUserId?: string) => {
@@ -625,12 +633,23 @@ export default function App() {
     if (!token) return null;
 
     const targetUserId = getAuthenticatedUserIdFromToken() || explicitUserId;
-    if (!targetUserId) return null;
+    if (!targetUserId) {
+      setIsAdminLoggedIn(false);
+      setShowAdminView(false);
+      return null;
+    }
 
     try {
       const res = await api.users.getProfile(targetUserId);
       if (res && res.success && res.user) {
         const authoritativeUser = sanitizeBackendUser(res.user);
+        const isBackendAdmin =
+          typeof authoritativeUser.role === 'string' &&
+          (ADMIN_ROLES as readonly string[]).includes(authoritativeUser.role);
+        setIsAdminLoggedIn(isBackendAdmin);
+        if (!isBackendAdmin) {
+          setShowAdminView(false);
+        }
         setCurrentUser((prev) => ({
           ...(prev && String(prev.id) === String(authoritativeUser.id) ? prev : {}),
           ...authoritativeUser,
@@ -649,6 +668,17 @@ export default function App() {
           return [authoritativeUser, ...prev];
         });
         return authoritativeUser;
+      } else {
+        const meRes = await api.auth.me().catch(() => null);
+        if (!meRes || !meRes.success || !meRes.user) {
+          try {
+            localStorage.removeItem('hybrid_auth_token');
+            localStorage.removeItem('hybrid_current_user');
+          } catch {}
+          setCurrentUser(null);
+          setIsAdminLoggedIn(false);
+          setShowAdminView(false);
+        }
       }
     } catch (err) {
       console.error('[App] Failed to load user profile from backend /api/users/:id:', err);
@@ -2561,6 +2591,7 @@ export default function App() {
         onLoginSuccess={() => {
           setIsAdminLoggedIn(true);
           setShowAdminView(true);
+          loadBackendUserProfile();
         }}
       />
 

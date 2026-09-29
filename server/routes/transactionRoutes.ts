@@ -161,7 +161,20 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         enforcedAmount = calc.finalPrice;
         pricingBreakdown = calc.breakdown;
       } else if (effectiveType === 'Advertisement') {
-        const calc = PricingRepository.calculateAdPrice(adPricingOptions || {});
+        const adCalcInput =
+          adPricingOptions && typeof adPricingOptions === 'object' && Object.keys(adPricingOptions).length > 0
+            ? adPricingOptions
+            : {
+                placement: req.body?.placement,
+                durationUnit: req.body?.durationUnit,
+                durationValue: req.body?.durationValue,
+                durationPresetId: req.body?.durationPresetId || req.body?.selectedDurationId,
+                durationDays: req.body?.durationDays,
+                targetPages: req.body?.targetPages,
+                smsRecipientsCount: req.body?.smsRecipientsCount,
+                type: req.body?.adType || req.body?.campaignType
+              };
+        const calc = PricingRepository.calculateAdPrice(adCalcInput);
         enforcedAmount = calc.finalPrice;
         pricingBreakdown = calc.breakdown;
       } else if (effectiveType === 'Subscription') {

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../../src/data/mockTransactions';
-import { INITIAL_ADVERTISEMENTS, DEFAULT_AD_PRICING_CONFIG } from '../../src/types/ad';
+import { INITIAL_ADVERTISEMENTS, DEFAULT_AD_PRICING_CONFIG, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../../src/types/ad';
 import { DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../../src/types/job';
 import { INITIAL_SITE_SEO_CONFIG } from '../../src/data/mockAdminSuiteData';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../src/data/allScraperPortals';
@@ -153,7 +153,9 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     standardPdfExportPkr: 0,
     premiumAiOptimizerPkr: 500,
     unlimitedTemplatesPkr: 1000
-  }
+  },
+  adPricingConfig: DEFAULT_AD_PRICING_CONFIG,
+  campaignCustomizationConfig: DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
 };
 
 export class Database {
@@ -535,7 +537,36 @@ export class Database {
 
   // --- PRICING ---
   static getPricing(): any {
-    return safeReadJson<any>('pricing_config.json', DEFAULT_COMPREHENSIVE_PRICING);
+    const stored = safeReadJson<any>('pricing_config.json', DEFAULT_COMPREHENSIVE_PRICING);
+    return {
+      ...DEFAULT_COMPREHENSIVE_PRICING,
+      ...(stored || {}),
+      adPricingConfig: {
+        ...DEFAULT_AD_PRICING_CONFIG,
+        ...(stored?.adPricingConfig || {}),
+        placementMultipliers: {
+          ...DEFAULT_AD_PRICING_CONFIG.placementMultipliers,
+          ...(stored?.adPricingConfig?.placementMultipliers || {})
+        },
+        pageMultipliers: {
+          ...DEFAULT_AD_PRICING_CONFIG.pageMultipliers,
+          ...(stored?.adPricingConfig?.pageMultipliers || {})
+        }
+      },
+      campaignCustomizationConfig: {
+        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+        ...(stored?.campaignCustomizationConfig || {}),
+        portalPages: Array.isArray(stored?.campaignCustomizationConfig?.portalPages)
+          ? stored.campaignCustomizationConfig.portalPages
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
+        durationPresets: Array.isArray(stored?.campaignCustomizationConfig?.durationPresets)
+          ? stored.campaignCustomizationConfig.durationPresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+        placementOptions: Array.isArray(stored?.campaignCustomizationConfig?.placementOptions)
+          ? stored.campaignCustomizationConfig.placementOptions
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
+      }
+    };
   }
 
   static savePricing(pricing: any): void {

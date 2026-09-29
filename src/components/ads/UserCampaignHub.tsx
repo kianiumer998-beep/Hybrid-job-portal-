@@ -12,6 +12,7 @@ import {
   DEFAULT_AD_PRICING_CONFIG,
   DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
   calculateCampaignCost,
+  resolveCampaignDuration,
   getPlacementDisplayName,
   getPageDisplayName,
   formatTimeRemaining,
@@ -137,22 +138,13 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
   // Calculate duration unit & value from preset or custom
   const getResolvedDuration = (): { unit: AdDurationUnit; value: number } => {
-    if (selectedDurationId === 'custom') {
-      return { unit: customDurationUnit, value: Math.max(1, customDurationValue) };
-    }
-    const matchedPreset = campaignConfig.durationPresets.find(d => d.id === selectedDurationId);
-    if (matchedPreset) {
-      return { unit: matchedPreset.unit, value: matchedPreset.value };
-    }
-    // Fallback standard presets
-    if (selectedDurationId === '6h') return { unit: 'hours', value: 6 };
-    if (selectedDurationId === '12h') return { unit: 'hours', value: 12 };
-    if (selectedDurationId === '24h') return { unit: 'days', value: 1 };
-    if (selectedDurationId === '3d') return { unit: 'days', value: 3 };
-    if (selectedDurationId === '1w') return { unit: 'weeks', value: 1 };
-    if (selectedDurationId === '2w') return { unit: 'weeks', value: 2 };
-    if (selectedDurationId === '1m') return { unit: 'months', value: 1 };
-    return { unit: 'days', value: 1 };
+    const resolved = resolveCampaignDuration(
+      selectedDurationId,
+      customDurationUnit,
+      customDurationValue,
+      campaignConfig
+    );
+    return { unit: resolved.unit, value: resolved.value };
   };
 
   const { unit: resolvedDurationUnit, value: resolvedDurationValue } = getResolvedDuration();
@@ -164,7 +156,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     resolvedDurationValue,
     formPlacement,
     formTargetPages,
-    formType === 'sms' ? formSmsRecipientsCount : 0
+    formType === 'sms' ? formSmsRecipientsCount : 0,
+    {
+      campaignConfig,
+      durationPresetId: selectedDurationId
+    }
   );
 
   const walletBalance = currentUser.walletBalance ?? 12000;

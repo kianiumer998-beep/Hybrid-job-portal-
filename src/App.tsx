@@ -285,25 +285,101 @@ export default function App() {
     }
   }, [normalizeBackendAd]);
 
-  // Pricing Matrix Configuration State
-  const [pricingConfig, setPricingConfig] = useState<AdPricingConfig>(() => {
-    const saved = localStorage.getItem('hybrid_ad_pricing_config');
-    return saved ? JSON.parse(saved) : DEFAULT_AD_PRICING_CONFIG;
-  });
+  // Pricing Matrix Configuration State (Authoritative Backend /api/pricing)
+  const [pricingConfig, setPricingConfig] = useState<AdPricingConfig>(DEFAULT_AD_PRICING_CONFIG);
+
+  // Campaign Customization & Portal Page Scheduling State (Authoritative Backend /api/pricing)
+  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(
+    DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
+  );
+
+  const loadBackendPricingConfig = useCallback(async () => {
+    try {
+      const res = await api.pricing.get();
+      if (res && res.success && res.pricing) {
+        if (res.pricing.adPricingConfig) {
+          setPricingConfig({
+            ...DEFAULT_AD_PRICING_CONFIG,
+            ...res.pricing.adPricingConfig,
+            placementMultipliers: {
+              ...DEFAULT_AD_PRICING_CONFIG.placementMultipliers,
+              ...(res.pricing.adPricingConfig.placementMultipliers || {})
+            },
+            pageMultipliers: {
+              ...DEFAULT_AD_PRICING_CONFIG.pageMultipliers,
+              ...(res.pricing.adPricingConfig.pageMultipliers || {})
+            }
+          });
+        }
+        if (res.pricing.campaignCustomizationConfig) {
+          setCampaignConfig({
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+            ...res.pricing.campaignCustomizationConfig,
+            portalPages: Array.isArray(res.pricing.campaignCustomizationConfig.portalPages)
+              ? res.pricing.campaignCustomizationConfig.portalPages
+              : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
+            durationPresets: Array.isArray(res.pricing.campaignCustomizationConfig.durationPresets)
+              ? res.pricing.campaignCustomizationConfig.durationPresets
+              : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+            placementOptions: Array.isArray(res.pricing.campaignCustomizationConfig.placementOptions)
+              ? res.pricing.campaignCustomizationConfig.placementOptions
+              : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
+          });
+        }
+        try {
+          localStorage.removeItem('hybrid_ad_pricing_config');
+          localStorage.removeItem('hybrid_campaign_customization_config');
+        } catch {}
+      }
+    } catch (err) {
+      console.error('[App] Failed to load pricing configuration from backend /api/pricing:', err);
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('hybrid_ad_pricing_config', JSON.stringify(pricingConfig));
-  }, [pricingConfig]);
+    loadBackendPricingConfig();
+  }, [loadBackendPricingConfig]);
 
-  // Campaign Customization & Portal Page Scheduling State
-  const [campaignConfig, setCampaignConfig] = useState<CampaignCustomizationConfig>(() => {
-    const saved = localStorage.getItem('hybrid_campaign_customization_config');
-    return saved ? JSON.parse(saved) : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG;
-  });
+  const handleUpdatePricingConfig = useCallback(async (nextPricingConfig: AdPricingConfig) => {
+    setPricingConfig(nextPricingConfig);
+    try {
+      const res = await api.pricing.update({ adPricingConfig: nextPricingConfig });
+      if (res && res.success && res.pricing?.adPricingConfig) {
+        setPricingConfig({
+          ...DEFAULT_AD_PRICING_CONFIG,
+          ...res.pricing.adPricingConfig,
+          placementMultipliers: {
+            ...DEFAULT_AD_PRICING_CONFIG.placementMultipliers,
+            ...(res.pricing.adPricingConfig.placementMultipliers || {})
+          },
+          pageMultipliers: {
+            ...DEFAULT_AD_PRICING_CONFIG.pageMultipliers,
+            ...(res.pricing.adPricingConfig.pageMultipliers || {})
+          }
+        });
+      }
+    } catch (err) {
+      console.error('[App] Failed to persist adPricingConfig to backend /api/pricing:', err);
+    }
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem('hybrid_campaign_customization_config', JSON.stringify(campaignConfig));
-  }, [campaignConfig]);
+  const handleUpdateCampaignConfig = useCallback(
+    async (nextCampaignConfig: CampaignCustomizationConfig) => {
+      setCampaignConfig(nextCampaignConfig);
+      try {
+        const res = await api.pricing.update({ campaignCustomizationConfig: nextCampaignConfig });
+        if (res && res.success && res.pricing?.campaignCustomizationConfig) {
+          setCampaignConfig({
+            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+            ...res.pricing.campaignCustomizationConfig
+          });
+        }
+      } catch (err) {
+        console.error('[App] Failed to persist campaignCustomizationConfig to backend /api/pricing:', err);
+      }
+    },
+    []
+  );
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
@@ -2579,9 +2655,9 @@ export default function App() {
             onDeleteAd={handleDeleteAd}
             onResetAdMetrics={handleResetAdMetrics}
             pricingConfig={pricingConfig}
-            onUpdatePricingConfig={setPricingConfig}
+            onUpdatePricingConfig={handleUpdatePricingConfig}
             campaignConfig={campaignConfig}
-            onUpdateCampaignConfig={setCampaignConfig}
+            onUpdateCampaignConfig={handleUpdateCampaignConfig}
             onApproveAd={handleApproveAd}
             onRejectAd={handleRejectAd}
             jobPostingPricing={jobPostingPricing}

@@ -965,6 +965,44 @@ export const INITIAL_ADVERTISEMENTS: Advertisement[] = [
   }
 ];
 
+export interface CampaignCostCalculationOptions {
+  campaignConfig?: CampaignCustomizationConfig;
+  durationPresetId?: string;
+}
+
+/**
+ * Resolves campaign duration unit, value, and matching preset from a preset ID or custom duration input.
+ */
+export function resolveCampaignDuration(
+  durationPresetId?: string,
+  customUnit: AdDurationUnit = 'days',
+  customValue: number = 1,
+  campaignConfig: CampaignCustomizationConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
+): { unit: AdDurationUnit; value: number; preset?: CampaignDurationPreset } {
+  if (durationPresetId && durationPresetId !== 'custom') {
+    const matchedPreset = campaignConfig?.durationPresets?.find((d) => d.id === durationPresetId);
+    if (matchedPreset) {
+      return { unit: matchedPreset.unit, value: matchedPreset.value, preset: matchedPreset };
+    }
+    // Fallback standard presets
+    if (durationPresetId === '6h' || durationPresetId === 'flash-6h') return { unit: 'hours', value: 6 };
+    if (durationPresetId === '12h' || durationPresetId === 'halfday-12h') return { unit: 'hours', value: 12 };
+    if (durationPresetId === '24h' || durationPresetId === 'fullday-24h') return { unit: 'days', value: 1 };
+    if (durationPresetId === '3d' || durationPresetId === 'weekend-3d') return { unit: 'days', value: 3 };
+    if (durationPresetId === '1w' || durationPresetId === 'week-1w') return { unit: 'weeks', value: 1 };
+    if (durationPresetId === '2w' || durationPresetId === 'biweekly-2w') return { unit: 'weeks', value: 2 };
+    if (durationPresetId === '1m' || durationPresetId === 'month-1m') return { unit: 'months', value: 1 };
+    if (durationPresetId === '2m' || durationPresetId === 'quarter-2m') return { unit: 'months', value: 2 };
+  }
+
+  const safeUnit: AdDurationUnit =
+    customUnit && ['hours', 'days', 'weeks', 'months'].includes(customUnit) ? customUnit : 'days';
+  return {
+    unit: safeUnit,
+    value: Math.max(1, Number(customValue) || 1)
+  };
+}
+
 /**
  * Robust Dynamic Pricing Calculator Function
  */
@@ -974,7 +1012,9 @@ export function calculateCampaignCost(
   durationValue: number,
   placement: AdPlacement,
   targetPages: AdTargetPage[],
-  smsRecipientsCount: number = 0
+  smsRecipientsCount: number = 0,
+  options?: CampaignCostCalculationOptions | CampaignCustomizationConfig,
+  durationPresetIdArg?: string
 ): {
   baseCost: number;
   placementMultiplier: number;
@@ -983,62 +1023,129 @@ export function calculateCampaignCost(
   totalCostPkr: number;
   durationHours: number;
   durationDisplay: string;
+  isFreeOverride?: boolean;
+  fixedPriceOverridePkr?: number;
 } {
+  const effectivePricing: AdPricingConfig = pricing || DEFAULT_AD_PRICING_CONFIG;
+  const campaignConfig: CampaignCustomizationConfig | undefined =
+    options && 'portalPages' in options
+      ? (options as CampaignCustomizationConfig)
+      : (options as CampaignCostCalculationOptions | undefined)?.campaignConfig;
+  const durationPresetId: string | undefined =
+    durationPresetIdArg ??
+    (options && !('portalPages' in options)
+      ? (options as CampaignCostCalculationOptions)?.durationPresetId
+      : undefined);
+
+  const resolvedDuration =
+    durationPresetId && durationPresetId !== 'custom'
+      ? resolveCampaignDuration(
+          durationPresetId,
+          durationUnit,
+          durationValue,
+          campaignConfig || DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
+        )
+      : {
+          unit: durationUnit || 'days',
+          value: Math.max(1, durationValue || 1),
+          preset: campaignConfig?.durationPresets?.find(
+            (d) => d.unit === durationUnit && d.value === Math.max(1, durationValue || 1)
+          )
+        };
+
+  const effectiveUnit: AdDurationUnit = resolvedDuration.unit;
+  const cleanVal = Math.max(1, resolvedDuration.value || 1);
+
   let durationHours = 24;
   let baseRate = 0;
   let durationDisplay = '';
 
-  const cleanVal = Math.max(1, durationValue || 1);
-
-  if (durationUnit === 'hours') {
+  if (effectiveUnit === 'hours') {
     durationHours = cleanVal;
-    baseRate = pricing.hourlyRatePkr * cleanVal;
+    baseRate = effectivePricing.hourlyRatePkr * cleanVal;
     durationDisplay = `${cleanVal} Hour${cleanVal > 1 ? 's' : ''}`;
-  } else if (durationUnit === 'days') {
+  } else if (effectiveUnit === 'days') {
     durationHours = cleanVal * 24;
     // If exactly 1 day, use dailyRate, else daily rate * days
-    baseRate = pricing.dailyRatePkr * cleanVal;
+    baseRate = effectivePricing.dailyRatePkr * cleanVal;
     durationDisplay = cleanVal === 1 ? '24 Hours (1 Day)' : `${cleanVal} Days`;
-  } else if (durationUnit === 'weeks') {
+  } else if (effectiveUnit === 'weeks') {
     durationHours = cleanVal * 7 * 24;
-    baseRate = pricing.weeklyRatePkr * cleanVal;
+    baseRate = effectivePricing.weeklyRatePkr * cleanVal;
     durationDisplay = cleanVal === 1 ? '1 Week (7 Days)' : `${cleanVal} Weeks`;
-  } else if (durationUnit === 'months') {
+  } else if (effectiveUnit === 'months') {
     durationHours = cleanVal * 30 * 24;
-    baseRate = pricing.monthlyRatePkr * cleanVal;
+    baseRate = effectivePricing.monthlyRatePkr * cleanVal;
     durationDisplay = cleanVal === 1 ? '1 Month (30 Days)' : `${cleanVal} Months`;
   }
 
-  const pMultiplier = pricing.placementMultipliers[placement] || 1.0;
+  if (
+    typeof resolvedDuration.preset?.fixedPriceOverridePkr === 'number' &&
+    resolvedDuration.preset.fixedPriceOverridePkr > 0
+  ) {
+    baseRate = resolvedDuration.preset.fixedPriceOverridePkr;
+  }
+
+  const matchedPlacementOption = campaignConfig?.placementOptions?.find((p) => p.id === placement);
+  const pMultiplier =
+    effectivePricing.placementMultipliers?.[placement] ?? matchedPlacementOption?.multiplier ?? 1.0;
 
   // Compute page multiplier (max of individual page multipliers or 'all' multiplier)
+  const safeTargetPages: AdTargetPage[] =
+    Array.isArray(targetPages) && targetPages.length > 0 ? targetPages : ['all'];
   let pageMultiplier = 1.0;
-  if (targetPages.includes('all')) {
-    pageMultiplier = pricing.pageMultipliers['all'] || 1.4;
+  if (safeTargetPages.includes('all')) {
+    pageMultiplier =
+      effectivePricing.pageMultipliers?.['all'] ??
+      campaignConfig?.portalPages?.find((p) => p.id === 'all')?.multiplier ??
+      1.4;
   } else {
-    const multipliers = targetPages.map((p) => pricing.pageMultipliers[p] || 1.0);
+    const multipliers = safeTargetPages.map(
+      (p) =>
+        effectivePricing.pageMultipliers?.[p] ??
+        campaignConfig?.portalPages?.find((pg) => pg.id === p)?.multiplier ??
+        1.0
+    );
     // Highest multiplier + 10% for each extra page
     const maxM = Math.max(...multipliers, 1.0);
-    const extraCount = Math.max(0, targetPages.length - 1);
+    const extraCount = Math.max(0, safeTargetPages.length - 1);
     pageMultiplier = parseFloat((maxM + extraCount * 0.15).toFixed(2));
   }
 
   let smsFee = 0;
   if (placement === 'sms-broadcast') {
-    smsFee = Math.round(smsRecipientsCount * pricing.smsPerContactRatePkr);
+    smsFee = Math.round(
+      Math.max(0, Number(smsRecipientsCount) || 0) * effectivePricing.smsPerContactRatePkr
+    );
   }
 
-  const calculatedSubtotal = Math.round(baseRate * pMultiplier * pageMultiplier);
-  const totalCostPkr = calculatedSubtotal + smsFee;
+  const isFreeOverride = Boolean(matchedPlacementOption?.isFreeOverride);
+  const fixedPriceOverridePkr =
+    typeof matchedPlacementOption?.fixedPriceOverridePkr === 'number' &&
+    matchedPlacementOption.fixedPriceOverridePkr > 0
+      ? matchedPlacementOption.fixedPriceOverridePkr
+      : undefined;
+
+  let totalCostPkr: number;
+  if (isFreeOverride) {
+    totalCostPkr = 0;
+  } else if (fixedPriceOverridePkr !== undefined) {
+    totalCostPkr = Math.round(fixedPriceOverridePkr) + smsFee;
+  } else {
+    const calculatedSubtotal = Math.round(baseRate * pMultiplier * pageMultiplier);
+    totalCostPkr = Math.max(effectivePricing.hourlyRatePkr, calculatedSubtotal + smsFee);
+  }
 
   return {
     baseCost: Math.round(baseRate),
     placementMultiplier: pMultiplier,
     pageMultiplier,
     smsFee,
-    totalCostPkr: Math.max(pricing.hourlyRatePkr, totalCostPkr),
+    totalCostPkr,
     durationHours,
-    durationDisplay
+    durationDisplay,
+    isFreeOverride,
+    fixedPriceOverridePkr
   };
 }
 

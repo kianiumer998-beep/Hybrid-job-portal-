@@ -273,6 +273,15 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
               message: 'Forbidden: Cannot access another user transaction.'
             });
           }
+          if (PaymentRepository.isTransactionCompensated(existing)) {
+            return res.json({
+              success: true,
+              compensated: true,
+              alreadyCompensated: true,
+              transaction: existing,
+              message: 'Advertisement payment was already refunded/compensated after a previous campaign creation failure (idempotent result).'
+            });
+          }
           return res.json({
             success: true,
             transaction: existing,
@@ -281,20 +290,29 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         }
       }
 
-      // Prevent duplicate pending or completed transactions for the same Advertisement draft (idempotent return for same user)
+      // Prevent duplicate pending, completed, or compensated transactions for the same Advertisement draft (idempotent return for same user)
       if (effectiveType === 'Advertisement' && safeAdIdRef) {
         const existingAdTx = PaymentRepository.getAll().find(
           (t: any) =>
             t &&
             t.type === 'Advertisement' &&
             String(t.adIdRef) === String(safeAdIdRef) &&
-            (t.status === 'Pending' || t.status === 'Success')
+            (t.status === 'Pending' || t.status === 'Success' || PaymentRepository.isTransactionCompensated(t))
         );
         if (existingAdTx) {
           if (!isAdmin && existingAdTx.userId && String(existingAdTx.userId) !== String(effectiveUserId)) {
             return res.status(403).json({
               success: false,
               message: 'Forbidden: Cannot access another user advertisement transaction.'
+            });
+          }
+          if (PaymentRepository.isTransactionCompensated(existingAdTx)) {
+            return res.json({
+              success: true,
+              compensated: true,
+              alreadyCompensated: true,
+              transaction: existingAdTx,
+              message: 'Advertisement payment was already refunded/compensated after a previous campaign creation failure (idempotent result).'
             });
           }
           return res.json({

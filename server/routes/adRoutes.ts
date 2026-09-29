@@ -4,6 +4,8 @@ import { requireAdminPermission, requireAuth, authMiddleware, hasAdminPermission
 
 export const adRouter = Router();
 
+const activeAdCreationLocks = new Set<string>();
+
 // 1. Get Ads (Public active ads or all for admin)
 adRouter.get('/', async (req, res) => {
   try {
@@ -37,186 +39,276 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
       (typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) ||
       undefined;
 
-    // 1. Idempotency protection: check if campaign was already created for this transaction or idempotency key
-    if (walletTxId) {
-      const existingByTx = AdRepository.findByWalletTxId(String(walletTxId));
-      if (existingByTx) {
-        if (!isAdmin && existingByTx.submittedByUserId && String(existingByTx.submittedByUserId) !== String(authUserId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden: Payment transaction is already linked to another user campaign.'
-          });
-        }
-        PaymentRepository.linkAdvertisement(String(existingByTx.walletTxId || walletTxId), existingByTx.id, existingByTx.title);
-        return res.status(200).json({
-          success: true,
-          advertisement: existingByTx,
-          message: 'Advertisement campaign already created for this transaction (idempotent result).'
-        });
-      }
+    const creationLockKey = String(walletTxId || idempotencyKey || `${authUserId || 'anon'}:${adData.id || ''}`).trim();
+    if (creationLockKey && activeAdCreationLocks.has(creationLockKey)) {
+      return res.status(409).json({
+        success: false,
+        message: 'This advertisement campaign submission is currently being processed. Please wait.'
+      });
     }
 
-    if (idempotencyKey) {
-      const existingByKey = AdRepository.findByIdempotencyKey(idempotencyKey);
-      if (existingByKey) {
-        if (!isAdmin && existingByKey.submittedByUserId && String(existingByKey.submittedByUserId) !== String(authUserId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden: Cannot access another user campaign.'
-          });
-        }
-        return res.status(200).json({
-          success: true,
-          advertisement: existingByKey,
-          message: 'Advertisement campaign already created (idempotent result).'
-        });
-      }
+    if (creationLockKey) {
+      activeAdCreationLocks.add(creationLockKey);
     }
 
-    // 2. Authoritative campaign pricing calculation using STEP 55B-1 PricingRepository.calculateAdPrice
-    const adPricingInput =
-      adData.adPricingOptions && typeof adData.adPricingOptions === 'object' && Object.keys(adData.adPricingOptions).length > 0
-        ? adData.adPricingOptions
-        : {
-            placement: adData.placement,
-            type: adData.type,
-            durationUnit: adData.durationUnit,
-            durationValue: adData.durationValue,
-            durationPresetId: adData.durationPresetId || adData.selectedDurationId,
-            selectedDurationId: adData.selectedDurationId || adData.durationPresetId,
-            targetPages: adData.targetPages,
-            smsRecipientsCount:
-              adData.type === 'sms' || adData.placement === 'sms-broadcast'
-                ? adData.smsRecipientsCount
-                : 0
-          };
-    const calc = PricingRepository.calculateAdPrice(adPricingInput);
-
-    // 3. Strictly enforce verified Advertisement wallet transaction for non-admin campaigns (and any campaign supplying walletTxId)
-    if (!isAdmin || walletTxId) {
-      // Never trust client-supplied paymentStatus or campaignCostPkr
-      delete adData.paymentStatus;
-      delete adData.campaignCostPkr;
-
-      let verifiedTx: any = null;
+    try {
+      // 1. Idempotency protection: check if campaign was already created for this transaction or idempotency key
       if (walletTxId) {
-        verifiedTx =
-          PaymentRepository.getById(String(walletTxId)) ||
-          PaymentRepository.findByTransactionId(String(walletTxId));
-      }
-      if (!verifiedTx && idempotencyKey) {
-        verifiedTx = PaymentRepository.findByIdempotencyKey(idempotencyKey);
-      }
-
-      if (!verifiedTx) {
-        return res.status(400).json({
-          success: false,
-          message: 'A verified Advertisement wallet payment transaction is required before creating a campaign.'
-        });
-      }
-
-      if (verifiedTx.type !== 'Advertisement') {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid payment transaction type for advertisement campaign.'
-        });
-      }
-
-      if (!isAdmin && String(verifiedTx.userId || '') !== String(authUserId)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Forbidden: Payment transaction does not belong to the authenticated user.'
-        });
-      }
-
-      if (verifiedTx.paymentMethod !== 'Wallet Balance' || verifiedTx.status !== 'Success') {
-        return res.status(400).json({
-          success: false,
-          message: 'Advertisement wallet payment transaction has not been completed.'
-        });
-      }
-
-      if (Number(verifiedTx.amount) !== Number(calc.finalPrice)) {
-        return res.status(400).json({
-          success: false,
-          message: `Payment transaction amount (${verifiedTx.amount} PKR) does not match authoritative campaign price (${calc.finalPrice} PKR).`
-        });
-      }
-
-      const alreadyLinkedAd = AdRepository.findByWalletTxId(String(verifiedTx.id));
-      if (alreadyLinkedAd) {
-        if (!isAdmin && alreadyLinkedAd.submittedByUserId && String(alreadyLinkedAd.submittedByUserId) !== String(authUserId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden: Payment transaction is already linked to another campaign.'
+        const existingByTx = AdRepository.findByWalletTxId(String(walletTxId));
+        if (existingByTx) {
+          if (!isAdmin && existingByTx.submittedByUserId && String(existingByTx.submittedByUserId) !== String(authUserId)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Forbidden: Payment transaction is already linked to another user campaign.'
+            });
+          }
+          try {
+            PaymentRepository.linkAdvertisement(String(existingByTx.walletTxId || walletTxId), existingByTx.id, existingByTx.title);
+          } catch {}
+          return res.status(200).json({
+            success: true,
+            advertisement: existingByTx,
+            message: 'Advertisement campaign already created for this transaction (idempotent result).'
           });
         }
-        PaymentRepository.linkAdvertisement(verifiedTx.id, alreadyLinkedAd.id, alreadyLinkedAd.title);
-        return res.status(200).json({
-          success: true,
-          advertisement: alreadyLinkedAd,
-          message: 'Advertisement campaign already created for this transaction (idempotent result).'
-        });
       }
 
-      if (!isAdmin) {
-        delete adData.id;
-        adData.submittedByUserId = authUserId;
-        adData.submittedByUserName = req.user.name || adData.submittedByUserName;
-        adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;
-        adData.status = 'pending';
-        adData.approvalStatus = 'Pending';
+      if (idempotencyKey) {
+        const existingByKey = AdRepository.findByIdempotencyKey(idempotencyKey);
+        if (existingByKey) {
+          if (!isAdmin && existingByKey.submittedByUserId && String(existingByKey.submittedByUserId) !== String(authUserId)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Forbidden: Cannot access another user campaign.'
+            });
+          }
+          return res.status(200).json({
+            success: true,
+            advertisement: existingByKey,
+            message: 'Advertisement campaign already created (idempotent result).'
+          });
+        }
       }
 
-      adData.placement = calc.placement;
-      adData.durationUnit = calc.durationUnit;
-      adData.durationValue = calc.durationValue;
-      adData.durationDisplay = calc.durationDisplay;
-      adData.targetPages = calc.targetPages;
-      if (adData.type === 'sms' || calc.placement === 'sms-broadcast') {
-        adData.smsRecipientsCount = calc.smsRecipientsCount;
-      }
-      adData.campaignCostPkr = calc.finalPrice;
-      adData.budget = calc.finalPrice;
-      adData.paymentStatus = 'Paid';
-      adData.walletTxId = verifiedTx.id;
-      adData.paymentTransactionId = verifiedTx.id;
-      adData.transactionRef = verifiedTx.transactionId || verifiedTx.id;
-      if (idempotencyKey || verifiedTx.idempotencyKey) {
-        adData.idempotencyKey = idempotencyKey || verifiedTx.idempotencyKey;
+      const adPricingInput =
+        adData.adPricingOptions && typeof adData.adPricingOptions === 'object' && Object.keys(adData.adPricingOptions).length > 0
+          ? adData.adPricingOptions
+          : {
+              placement: adData.placement,
+              type: adData.type,
+              durationUnit: adData.durationUnit,
+              durationValue: adData.durationValue,
+              durationPresetId: adData.durationPresetId || adData.selectedDurationId,
+              selectedDurationId: adData.selectedDurationId || adData.durationPresetId,
+              targetPages: adData.targetPages,
+              smsRecipientsCount:
+                adData.type === 'sms' || adData.placement === 'sms-broadcast'
+                  ? adData.smsRecipientsCount
+                  : 0
+            };
+
+      // 2. Strictly enforce verified Advertisement wallet transaction for non-admin campaigns (and any campaign supplying walletTxId)
+      if (!isAdmin || walletTxId) {
+        // Never trust client-supplied paymentStatus or campaignCostPkr
+        delete adData.paymentStatus;
+        delete adData.campaignCostPkr;
+
+        let verifiedTx: any = null;
+        if (walletTxId) {
+          verifiedTx =
+            PaymentRepository.getById(String(walletTxId)) ||
+            PaymentRepository.findByTransactionId(String(walletTxId));
+        }
+        if (!verifiedTx && idempotencyKey) {
+          verifiedTx = PaymentRepository.findByIdempotencyKey(idempotencyKey);
+        }
+
+        if (!verifiedTx) {
+          return res.status(400).json({
+            success: false,
+            message: 'A verified Advertisement wallet payment transaction is required before creating a campaign.'
+          });
+        }
+
+        if (verifiedTx.type !== 'Advertisement') {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid payment transaction type for advertisement campaign.'
+          });
+        }
+
+        if (!isAdmin && String(verifiedTx.userId || '') !== String(authUserId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden: Payment transaction does not belong to the authenticated user.'
+          });
+        }
+
+        const alreadyLinkedAd = AdRepository.findByWalletTxId(String(verifiedTx.id));
+        if (alreadyLinkedAd) {
+          if (!isAdmin && alreadyLinkedAd.submittedByUserId && String(alreadyLinkedAd.submittedByUserId) !== String(authUserId)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Forbidden: Payment transaction is already linked to another campaign.'
+            });
+          }
+          try {
+            PaymentRepository.linkAdvertisement(verifiedTx.id, alreadyLinkedAd.id, alreadyLinkedAd.title);
+          } catch {}
+          return res.status(200).json({
+            success: true,
+            advertisement: alreadyLinkedAd,
+            message: 'Advertisement campaign already created for this transaction (idempotent result).'
+          });
+        }
+
+        // If the payment transaction was already compensated/refunded after a previous campaign creation failure,
+        // return the safe idempotent state without refunding again and without reusing the transaction as a valid payment.
+        if (PaymentRepository.isTransactionCompensated(verifiedTx)) {
+          return res.status(409).json({
+            success: false,
+            compensated: true,
+            alreadyCompensated: true,
+            restoredAmount: 0,
+            originalRestoredAmount: Number(verifiedTx.refundedAmount ?? verifiedTx.amount ?? 0),
+            refundReferenceId: verifiedTx.refundReferenceId,
+            transaction: verifiedTx,
+            message:
+              'Advertisement payment transaction was already refunded/compensated after a previous campaign creation failure and cannot be reused or refunded again.'
+          });
+        }
+
+        if (verifiedTx.paymentMethod !== 'Wallet Balance' || verifiedTx.status !== 'Success') {
+          return res.status(400).json({
+            success: false,
+            message: 'Advertisement wallet payment transaction has not been completed.'
+          });
+        }
+
+        // 3. Payment is verified as a completed, uncompensated Advertisement Wallet Balance transaction owned by user.
+        // If campaign creation fails at any point below, safely compensate the user's wallet exactly once.
+        let newAd: any = null;
+        let calc: any = null;
+        try {
+          calc = PricingRepository.calculateAdPrice(adPricingInput);
+
+          if (Number(verifiedTx.amount) !== Number(calc.finalPrice)) {
+            const mismatchErr: any = new Error(
+              `Payment transaction amount (${verifiedTx.amount} PKR) does not match authoritative campaign price (${calc.finalPrice} PKR).`
+            );
+            mismatchErr.statusCode = 400;
+            throw mismatchErr;
+          }
+
+          if (adData.simulateFailure === true || adData.simulateCreationFailure === true) {
+            throw new Error('Simulated campaign creation failure.');
+          }
+
+          if (!adData.title || typeof adData.title !== 'string' || !adData.title.trim()) {
+            const titleErr: any = new Error('A valid campaign title is required to create an advertisement.');
+            titleErr.statusCode = 400;
+            throw titleErr;
+          }
+
+          if (!isAdmin) {
+            delete adData.id;
+            adData.submittedByUserId = authUserId;
+            adData.submittedByUserName = req.user.name || adData.submittedByUserName;
+            adData.submittedByUserEmail = req.user.email || adData.submittedByUserEmail;
+            adData.status = 'pending';
+            adData.approvalStatus = 'Pending';
+          }
+
+          adData.placement = calc.placement;
+          adData.durationUnit = calc.durationUnit;
+          adData.durationValue = calc.durationValue;
+          adData.durationDisplay = calc.durationDisplay;
+          adData.targetPages = calc.targetPages;
+          if (adData.type === 'sms' || calc.placement === 'sms-broadcast') {
+            adData.smsRecipientsCount = calc.smsRecipientsCount;
+          }
+          adData.campaignCostPkr = calc.finalPrice;
+          adData.budget = calc.finalPrice;
+          adData.paymentStatus = 'Paid';
+          adData.walletTxId = verifiedTx.id;
+          adData.paymentTransactionId = verifiedTx.id;
+          adData.transactionRef = verifiedTx.transactionId || verifiedTx.id;
+          if (idempotencyKey || verifiedTx.idempotencyKey) {
+            adData.idempotencyKey = idempotencyKey || verifiedTx.idempotencyKey;
+          }
+
+          newAd = await AdRepository.createAsync(adData);
+          if (!newAd || !newAd.id) {
+            throw new Error('Failed to persist advertisement campaign record.');
+          }
+        } catch (creationErr: any) {
+          const compensation = await PaymentRepository.compensateAdvertisementPayment(String(verifiedTx.id), {
+            authenticatedUserId: String(authUserId),
+            isAdmin,
+            failureReason: creationErr?.message || 'Error creating advertisement campaign after wallet deduction.',
+            adIdRef: adData.id,
+            adTitleRef: adData.title,
+            idempotencyKey: idempotencyKey || verifiedTx.idempotencyKey,
+            actorName: req.user?.name || adData.submittedByUserName || adData.clientName
+          });
+
+          const statusCode =
+            typeof creationErr?.statusCode === 'number' && creationErr.statusCode >= 400
+              ? creationErr.statusCode
+              : 500;
+
+          return res.status(statusCode).json({
+            success: false,
+            compensated: compensation.compensated,
+            alreadyCompensated: compensation.alreadyCompensated,
+            restoredAmount: compensation.restoredAmount,
+            refundReferenceId: compensation.refundReferenceId,
+            transaction: compensation.transaction,
+            message: `${creationErr?.message || 'Error creating advertisement'} — Wallet payment of PKR ${verifiedTx.amount} has been safely restored.`
+          });
+        }
+
+        try {
+          PaymentRepository.linkAdvertisement(verifiedTx.id, newAd.id, newAd.title);
+        } catch {}
+
+        try {
+          AuditRepository.add({
+            user: adData.submittedByUserName || adData.clientName || 'Advertiser',
+            role: 'Advertiser',
+            action: 'Ad Campaign Created',
+            target: newAd.title,
+            status: 'Success',
+            metadata: {
+              adId: newAd.id,
+              walletTxId: verifiedTx.id,
+              transactionId: verifiedTx.transactionId,
+              amount: calc.finalPrice
+            }
+          });
+        } catch {}
+
+        return res.status(201).json({ success: true, advertisement: newAd });
       }
 
       const newAd = await AdRepository.createAsync(adData);
-      PaymentRepository.linkAdvertisement(verifiedTx.id, newAd.id, newAd.title);
 
-      AuditRepository.add({
-        user: adData.submittedByUserName || adData.clientName || 'Advertiser',
-        role: 'Advertiser',
-        action: 'Ad Campaign Created',
-        target: newAd.title,
-        status: 'Success',
-        metadata: {
-          adId: newAd.id,
-          walletTxId: verifiedTx.id,
-          transactionId: verifiedTx.transactionId,
-          amount: calc.finalPrice
-        }
-      });
+      try {
+        AuditRepository.add({
+          user: adData.submittedByUserName || adData.clientName || 'Advertiser',
+          role: 'Advertiser',
+          action: 'Ad Campaign Created',
+          target: newAd.title,
+          status: 'Success'
+        });
+      } catch {}
 
       return res.status(201).json({ success: true, advertisement: newAd });
+    } finally {
+      if (creationLockKey) {
+        activeAdCreationLocks.delete(creationLockKey);
+      }
     }
-
-    const newAd = await AdRepository.createAsync(adData);
-
-    AuditRepository.add({
-      user: adData.submittedByUserName || adData.clientName || 'Advertiser',
-      role: 'Advertiser',
-      action: 'Ad Campaign Created',
-      target: newAd.title,
-      status: 'Success'
-    });
-
-    res.status(201).json({ success: true, advertisement: newAd });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error creating advertisement' });
   }

@@ -308,12 +308,16 @@ export default function App() {
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
   const handleAdClick = async (ad: Advertisement) => {
-    if (!ad?.id) return;
+    if (!ad?.id || ad.id === 'demo-your-ad-here') return;
     try {
-      await api.ads.recordClick(ad.id);
-      setAdvertisements((prev) =>
-        prev.map((a) => (a.id === ad.id ? { ...a, clicks: (a.clicks || 0) + 1 } : a))
-      );
+      const res = await api.ads.recordClick(ad.id);
+      if (res && res.success) {
+        setAdvertisements((prev) =>
+          prev.map((a) => (a.id === ad.id ? { ...a, clicks: (a.clicks || 0) + 1 } : a))
+        );
+      } else {
+        console.error('[App] Failed to record ad click:', res?.message || 'Backend request failed');
+      }
     } catch (err) {
       console.error('[App] Failed to record ad click:', err);
     }

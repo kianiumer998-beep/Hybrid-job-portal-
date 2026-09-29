@@ -614,9 +614,10 @@ export const api = {
       });
     },
     async recordClick(id: string) {
-      try {
-        await fetch(`${API_BASE}/ads/${id}/click`, { method: 'POST' });
-      } catch {}
+      return safeFetchJson(`${API_BASE}/ads/${id}/click`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
     },
     async recordImpression(id: string) {
       try {

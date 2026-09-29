@@ -32,7 +32,7 @@ interface UserDashboardProps {
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
   jobPostingPricing?: JobPostingPricingConfig;
-  onSubmitCampaign?: (ad: Advertisement, cost: number) => void;
+  onSubmitCampaign?: (ad: Advertisement, cost: number) => Promise<any> | any;
   onDepositFunds?: (amount: number, paymentMethod: string) => void;
   onDeleteAd?: (adId: string) => void;
   onDuplicateAd?: (ad: Advertisement) => void;
@@ -2367,8 +2367,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           campaignConfig={campaignConfig}
           onSubmitCampaign={(newAd, cost) => {
             if (onSubmitCampaign) {
-              onSubmitCampaign(newAd, cost);
+              return onSubmitCampaign(newAd, cost);
             }
+            return { success: false };
           }}
           onDepositWallet={(amount, paymentMethod) => {
             if (onDepositFunds) {

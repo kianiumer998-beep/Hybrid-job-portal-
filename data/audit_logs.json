@@ -1,5 +1,44 @@
 [
   {
+    "id": "log-1790665320732-q00v",
+    "timestamp": "2026-09-29T07:02:00.732Z",
+    "user": "Test Advertiser",
+    "role": "Advertiser",
+    "action": "Ad Campaign Created",
+    "target": "Valid Campaign",
+    "status": "Success",
+    "metadata": {
+      "adId": "ad-1790665320731-dct9p",
+      "walletTxId": "tx-1790665319975-jqfzy",
+      "transactionId": "TXN-MUMBWBHS-BVME",
+      "amount": 1000
+    }
+  },
+  {
+    "id": "log-1790665320225-6rzd",
+    "timestamp": "2026-09-29T07:02:00.226Z",
+    "user": "Test Advertiser",
+    "role": "Member",
+    "action": "Payment Completed (Wallet)",
+    "target": "1000 PKR via Wallet Balance (Ref: TXN-MUMBWBHS-BVME)",
+    "status": "Success",
+    "metadata": {
+      "transactionId": "TXN-MUMBWBHS-BVME",
+      "amount": 1000,
+      "paymentMethod": "Wallet Balance",
+      "type": "Advertisement"
+    }
+  },
+  {
+    "id": "log-1790658853669-y5lc",
+    "timestamp": "2026-09-29T05:14:13.669Z",
+    "user": "Super Administrator",
+    "role": "Super Admin",
+    "action": "Admin Panel Authenticated",
+    "target": "System Management Suite",
+    "status": "Success"
+  },
+  {
     "id": "log-1790571913079-v8sz",
     "timestamp": "2026-09-28T05:05:13.079Z",
     "user": "Super Administrator",

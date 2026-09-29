@@ -50,6 +50,8 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       userEmail,
       jobTitleRef,
       jobIdRef,
+      adIdRef,
+      adTitleRef,
       jobPricingOptions,
       adPricingOptions,
       plan,
@@ -110,6 +112,16 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
           ? String(jobIdRef).trim()
           : undefined;
 
+      const safeAdIdRef =
+        effectiveType === 'Advertisement' && adIdRef !== undefined && adIdRef !== null && String(adIdRef).trim() !== ''
+          ? String(adIdRef).trim()
+          : undefined;
+
+      const safeAdTitleRef =
+        effectiveType === 'Advertisement' && (adTitleRef || jobTitleRef)
+          ? String(adTitleRef || jobTitleRef).trim()
+          : undefined;
+
       if (effectiveType === 'Wallet Deposit' && paymentMethod === 'Wallet Balance') {
         return res.status(400).json({
           success: false,
@@ -155,6 +167,8 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       let enforcedAmount = Number(amount);
       let pricingBreakdown: Array<{ name: string; amount: number }> = [];
       let safeSubscriptionPlan: string | undefined = undefined;
+      let isAdFreeOverride = false;
+      let resolvedAdPricingSnapshot: Record<string, any> | undefined = undefined;
 
       if (effectiveType === 'Job Posting') {
         const calc = PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
@@ -169,14 +183,34 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
                 durationUnit: req.body?.durationUnit,
                 durationValue: req.body?.durationValue,
                 durationPresetId: req.body?.durationPresetId || req.body?.selectedDurationId,
+                selectedDurationId: req.body?.selectedDurationId || req.body?.durationPresetId,
                 durationDays: req.body?.durationDays,
                 targetPages: req.body?.targetPages,
                 smsRecipientsCount: req.body?.smsRecipientsCount,
-                type: req.body?.adType || req.body?.campaignType
+                type: req.body?.adType || req.body?.campaignType || req.body?.type
               };
         const calc = PricingRepository.calculateAdPrice(adCalcInput);
         enforcedAmount = calc.finalPrice;
         pricingBreakdown = calc.breakdown;
+        isAdFreeOverride = Boolean(calc.isFreeOverride && calc.finalPrice === 0);
+        resolvedAdPricingSnapshot = {
+          placement: calc.placement,
+          durationUnit: calc.durationUnit,
+          durationValue: calc.durationValue,
+          durationHours: calc.durationHours,
+          durationDays: calc.durationDays,
+          durationDisplay: calc.durationDisplay,
+          targetPages: calc.targetPages,
+          smsRecipientsCount: calc.smsRecipientsCount,
+          placementMultiplier: calc.placementMultiplier,
+          pageMultiplier: calc.pageMultiplier,
+          baseCost: calc.baseCost,
+          smsFee: calc.smsFee,
+          totalCostPkr: calc.totalCostPkr,
+          isFreeOverride: calc.isFreeOverride,
+          fixedPriceOverridePkr: calc.fixedPriceOverridePkr,
+          durationPresetId: adCalcInput.durationPresetId || adCalcInput.selectedDurationId
+        };
       } else if (effectiveType === 'Subscription') {
         const rawPlan = typeof plan === 'string' ? plan.trim() : '';
         const subPricing = PricingRepository.get()?.subscriptions || {};
@@ -222,17 +256,17 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         enforcedAmount = numericAmount;
       }
 
-      if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
+      if (!Number.isFinite(enforcedAmount) || (enforcedAmount <= 0 && !isAdFreeOverride)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid transaction amount.'
         });
       }
 
-      // Check idempotency
+      // Check idempotency (Failed transactions do not block legitimate retries)
       if (idempotencyKey) {
         const existing = PaymentRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing) {
+        if (existing && existing.status !== 'Failed') {
           if (!isAdmin && existing.userId && String(existing.userId) !== String(effectiveUserId)) {
             return res.status(403).json({
               success: false,
@@ -243,6 +277,30 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             success: true,
             transaction: existing,
             message: 'Payment proof already submitted (idempotent result).'
+          });
+        }
+      }
+
+      // Prevent duplicate pending or completed transactions for the same Advertisement draft (idempotent return for same user)
+      if (effectiveType === 'Advertisement' && safeAdIdRef) {
+        const existingAdTx = PaymentRepository.getAll().find(
+          (t: any) =>
+            t &&
+            t.type === 'Advertisement' &&
+            String(t.adIdRef) === String(safeAdIdRef) &&
+            (t.status === 'Pending' || t.status === 'Success')
+        );
+        if (existingAdTx) {
+          if (!isAdmin && existingAdTx.userId && String(existingAdTx.userId) !== String(effectiveUserId)) {
+            return res.status(403).json({
+              success: false,
+              message: 'Forbidden: Cannot access another user advertisement transaction.'
+            });
+          }
+          return res.json({
+            success: true,
+            transaction: existingAdTx,
+            message: 'Advertisement payment already processed (idempotent result).'
           });
         }
       }
@@ -280,7 +338,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       // Pre-validate Wallet Balance requirements before creating the Pending transaction
       let previousWalletBalance = 0;
       if (paymentMethod === 'Wallet Balance') {
-        if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
+        if (!Number.isFinite(enforcedAmount) || (enforcedAmount <= 0 && !isAdFreeOverride)) {
           return res.status(400).json({
             success: false,
             message: 'A positive payment amount is required for Wallet Balance transactions.'
@@ -323,8 +381,11 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         userId: effectiveUserId,
         userName: effectiveUserName,
         userEmail: effectiveUserEmail,
-        jobTitleRef,
+        jobTitleRef: jobTitleRef || safeAdTitleRef,
         jobIdRef: safeJobIdRef,
+        ...(safeAdIdRef ? { adIdRef: safeAdIdRef } : {}),
+        ...(safeAdTitleRef ? { adTitleRef: safeAdTitleRef } : {}),
+        ...(resolvedAdPricingSnapshot ? { adPricingSnapshot: resolvedAdPricingSnapshot } : {}),
         pricingBreakdown,
         createdAt: new Date().toISOString()
       });
@@ -346,11 +407,13 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             }
           } else {
             // Job Posting or Advertisement wallet deduction
-            const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
-              walletBalance: previousWalletBalance - enforcedAmount
-            });
-            if (!updatedUser) {
-              throw new Error('Failed to deduct wallet balance.');
+            if (enforcedAmount > 0) {
+              const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
+                walletBalance: previousWalletBalance - enforcedAmount
+              });
+              if (!updatedUser) {
+                throw new Error('Failed to deduct wallet balance.');
+              }
             }
 
             if (effectiveType === 'Job Posting' && safeJobIdRef) {
@@ -384,11 +447,15 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             allTxs[txIdx].status = 'Success';
             allTxs[txIdx].verifiedAt = verifiedAt;
             allTxs[txIdx].updatedAt = verifiedAt;
+            allTxs[txIdx].balanceBefore = previousWalletBalance;
+            allTxs[txIdx].balanceAfter = previousWalletBalance - enforcedAmount;
             Database.saveTransactions(allTxs);
           }
           newTx.status = 'Success';
           newTx.verifiedAt = verifiedAt;
           newTx.updatedAt = verifiedAt;
+          newTx.balanceBefore = previousWalletBalance;
+          newTx.balanceAfter = previousWalletBalance - enforcedAmount;
           finalStatus = 'Success';
         } catch (walletProcessingErr: any) {
           const failedAt = new Date().toISOString();

@@ -245,6 +245,8 @@ export default function App() {
           : typeof rawAd?.budget === 'number'
           ? rawAd.budget
           : undefined,
+      paymentStatus: rawAd?.paymentStatus,
+      walletTxId: rawAd?.walletTxId || rawAd?.paymentTransactionId,
       headline: rawAd?.headline || rawAd?.title || 'Untitled Campaign',
       bodyText: rawAd?.bodyText ?? '',
       imageUrl: rawAd?.imageUrl || undefined,
@@ -2191,17 +2193,100 @@ export default function App() {
     setCustomFormFields(prev => prev.filter(f => f.id !== fieldId));
   };
 
-  // Self-Serve Ad Campaign Submissions
-  const handleSubmitCampaign = async (newAd: Advertisement, cost: number) => {
-    if (!currentUser) return;
+  // Self-Serve Ad Campaign Submissions (Authoritative Backend Wallet Payment -> Linked Campaign Creation)
+  const handleSubmitCampaign = async (
+    newAd: Advertisement,
+    _clientCost: number
+  ): Promise<{
+    success: boolean;
+    advertisement?: Advertisement;
+    transaction?: PaymentTransaction;
+    chargedAmount?: number;
+    message?: string;
+  }> => {
+    if (!currentUser) {
+      return { success: false, message: 'Authentication required.' };
+    }
+
+    const adAny = newAd as any;
+    const resolvedTargetPages =
+      Array.isArray(newAd.targetPages) && newAd.targetPages.length > 0
+        ? newAd.targetPages
+        : ['all'];
+    const smsRecipientsCount =
+      newAd.type === 'sms' || newAd.placement === 'sms-broadcast'
+        ? Number(newAd.smsRecipientsCount || 0)
+        : 0;
+
+    const adPricingOptions = adAny.adPricingOptions || {
+      placement: newAd.placement,
+      type: newAd.type,
+      durationUnit: newAd.durationUnit || 'days',
+      durationValue: newAd.durationValue || 1,
+      durationPresetId: adAny.durationPresetId || adAny.selectedDurationId,
+      selectedDurationId: adAny.selectedDurationId || adAny.durationPresetId,
+      targetPages: resolvedTargetPages,
+      smsRecipientsCount
+    };
+
+    const stableIdempotencyKey =
+      typeof adAny.idempotencyKey === 'string' && adAny.idempotencyKey.trim()
+        ? adAny.idempotencyKey.trim()
+        : `ad-pay-${currentUser.id}-${newAd.id || Date.now()}`;
 
     try {
+      // 1. Create and complete Advertisement wallet transaction via authoritative backend pricing & wallet balance
+      const txRes = await api.transactions.submit({
+        currency: 'PKR',
+        type: 'Advertisement',
+        paymentMethod: 'Wallet Balance',
+        adIdRef: newAd.id,
+        adTitleRef: newAd.title,
+        jobTitleRef: newAd.title,
+        adPricingOptions,
+        senderName: currentUser.name,
+        userName: currentUser.name,
+        userEmail: currentUser.email,
+        idempotencyKey: stableIdempotencyKey
+      });
+
+      if (!txRes || !txRes.success || !txRes.transaction || txRes.transaction.status !== 'Success') {
+        const errMsg =
+          txRes?.message || 'Campaign wallet payment could not be completed. Please verify your wallet balance.';
+        await Promise.all([
+          loadBackendTransactions(currentUser.id),
+          loadBackendUserProfile(currentUser.id)
+        ]);
+        alert(errMsg);
+        return { success: false, message: errMsg };
+      }
+
+      const verifiedTx = txRes.transaction;
+      const normalizedTx = normalizeBackendTransaction(verifiedTx);
+      const authoritativeCost = Number(verifiedTx.amount ?? 0);
+
+      setPaymentTransactions((prev) => [
+        normalizedTx,
+        ...prev.filter((t) => t.id !== normalizedTx.id)
+      ]);
+
+      // 2. Only after verified wallet payment transaction success, create Advertisement linked to the transaction
+      const {
+        paymentStatus: _ignoredClientPaymentStatus,
+        campaignCostPkr: _ignoredClientCost,
+        ...safeAdDraft
+      } = adAny;
+
       const payload = {
-        ...newAd,
+        ...safeAdDraft,
         submittedByUserId: currentUser.id,
         submittedByUserName: currentUser.name,
         submittedByUserEmail: currentUser.email,
-        campaignCostPkr: cost
+        walletTxId: verifiedTx.id,
+        paymentTransactionId: verifiedTx.id,
+        transactionId: verifiedTx.transactionId || verifiedTx.id,
+        adPricingOptions,
+        idempotencyKey: stableIdempotencyKey
       };
 
       const res = await api.ads.create(payload);
@@ -2212,21 +2297,50 @@ export default function App() {
           ...prev.filter((a) => a.id !== createdAd.id)
         ]);
 
+        await Promise.all([
+          loadBackendTransactions(currentUser.id),
+          loadBackendUserProfile(currentUser.id)
+        ]);
+
+        const finalCost =
+          typeof createdAd.campaignCostPkr === 'number'
+            ? createdAd.campaignCostPkr
+            : authoritativeCost;
+
         const confirmMsg: ChatMessage = {
           id: 'msg-' + Date.now(),
           userId: currentUser.id,
           userName: 'Portal Admin',
           senderRole: 'admin',
-          text: `Your campaign "${createdAd.title}" has been submitted for admin approval! Campaign fee: PKR ${cost.toLocaleString()}.`,
+          text: `Your campaign "${createdAd.title}" has been submitted for admin approval! Campaign fee paid via wallet: PKR ${finalCost.toLocaleString()} (Ref: ${verifiedTx.transactionId || verifiedTx.id}).`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
         setChatMessages((prev) => [...prev, confirmMsg]);
+
+        return {
+          success: true,
+          advertisement: createdAd,
+          transaction: normalizedTx,
+          chargedAmount: finalCost
+        };
       } else {
-        alert(res?.message || 'Failed to submit advertisement campaign.');
+        await Promise.all([
+          loadBackendTransactions(currentUser.id),
+          loadBackendUserProfile(currentUser.id)
+        ]);
+        const errMsg = res?.message || 'Failed to submit advertisement campaign.';
+        alert(errMsg);
+        return { success: false, message: errMsg };
       }
     } catch (err: any) {
       console.error('Error submitting advertisement campaign:', err);
-      alert(err?.message || 'Error submitting advertisement campaign.');
+      await Promise.all([
+        loadBackendTransactions(currentUser.id),
+        loadBackendUserProfile(currentUser.id)
+      ]).catch(() => {});
+      const errMsg = err?.message || 'Error submitting advertisement campaign.';
+      alert(errMsg);
+      return { success: false, message: errMsg };
     }
   };
 

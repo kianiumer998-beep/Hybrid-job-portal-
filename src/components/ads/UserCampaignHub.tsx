@@ -69,7 +69,10 @@ interface UserCampaignHubProps {
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
   onDepositWallet: (amount: number, paymentMethod: string) => void;
-  onSubmitCampaign: (ad: Advertisement, cost: number) => void;
+  onSubmitCampaign: (
+    ad: Advertisement,
+    cost: number
+  ) => Promise<{ success: boolean; chargedAmount?: number; message?: string } | boolean | void> | { success: boolean; chargedAmount?: number; message?: string } | boolean | void;
   onDeleteCampaign: (adId: string) => void;
   onDuplicateCampaign: (ad: Advertisement) => void;
   onOpenGlobalDepositModal?: () => void;
@@ -135,6 +138,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   // Live Context Preview mode switcher: 'context' (Full Portal Simulation) | 'card' (Isolated Card)
   const [previewDisplayMode, setPreviewDisplayMode] = useState<'context' | 'card'>('context');
   const [selectedContextPage, setSelectedContextPage] = useState<string>('alerts');
+  const [isSubmittingCampaign, setIsSubmittingCampaign] = useState<boolean>(false);
+  const [campaignDraftSeed, setCampaignDraftSeed] = useState<string>(
+    () => `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`
+  );
 
   // Calculate duration unit & value from preset or custom
   const getResolvedDuration = (): { unit: AdDurationUnit; value: number } => {
@@ -163,7 +170,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     }
   );
 
-  const walletBalance = currentUser.walletBalance ?? 12000;
+  const walletBalance =
+    typeof currentUser.walletBalance === 'number' && Number.isFinite(currentUser.walletBalance)
+      ? currentUser.walletBalance
+      : 0;
   const isWalletSufficient = walletBalance >= costCalculation.totalCostPkr;
   const walletDeficit = costCalculation.totalCostPkr - walletBalance;
 
@@ -192,9 +202,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     }
   };
 
-  // Submit Campaign with Admin Schedule & Policy Validation
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  // Submit Campaign with Admin Schedule, Policy Validation & Authoritative Backend Wallet Payment
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingCampaign) return;
+
     if (!formHeadline.trim()) {
       alert('Please enter a headline or message for your campaign.');
       return;
@@ -220,11 +232,30 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       return;
     }
 
-    const newAd: Advertisement = {
-      id: 'ad-user-' + Date.now(),
+    const resolvedTargetPages: AdTargetPage[] = formTargetPages.length > 0 ? formTargetPages : ['all'];
+    const smsCount = formType === 'sms' ? formSmsRecipientsCount : 0;
+    const pricingSignature = [
+      formPlacement,
+      formType,
+      resolvedDurationUnit,
+      resolvedDurationValue,
+      selectedDurationId || 'custom',
+      [...resolvedTargetPages].sort().join(','),
+      smsCount
+    ].join(':');
+    const idempotencyKey = `ad-pay-${currentUser.id}-${campaignDraftSeed}-${pricingSignature}`;
+    const draftAdId = `ad-user-${campaignDraftSeed}`;
+
+    const newAd: Advertisement & {
+      durationPresetId?: string;
+      selectedDurationId?: string;
+      idempotencyKey?: string;
+      adPricingOptions?: Record<string, any>;
+    } = {
+      id: draftAdId,
       title: formTitle.trim() || `${getPlacementDisplayName(formPlacement)} Campaign`,
       type: formType,
-      targetPages: formTargetPages.length > 0 ? formTargetPages : ['all'],
+      targetPages: resolvedTargetPages,
       placement: formPlacement,
       status: campaignConfig.formRules.requireAdminApproval ? 'pending_approval' : 'active',
       approvalStatus: campaignConfig.formRules.requireAdminApproval ? 'Pending' : 'Approved',
@@ -235,8 +266,21 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       durationUnit: resolvedDurationUnit,
       durationValue: resolvedDurationValue,
       durationDisplay: costCalculation.durationDisplay,
+      durationPresetId: selectedDurationId,
+      selectedDurationId: selectedDurationId,
       campaignCostPkr: costCalculation.totalCostPkr,
-      paymentStatus: 'Paid',
+      paymentStatus: 'Pending Wallet Deduction',
+      idempotencyKey,
+      adPricingOptions: {
+        placement: formPlacement,
+        type: formType,
+        durationUnit: resolvedDurationUnit,
+        durationValue: resolvedDurationValue,
+        durationPresetId: selectedDurationId,
+        selectedDurationId: selectedDurationId,
+        targetPages: resolvedTargetPages,
+        smsRecipientsCount: smsCount
+      },
       headline: formHeadline.trim(),
       bodyText: formBodyText.trim(),
       imageUrl: formImageUrl.trim() || undefined,
@@ -253,14 +297,39 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
     };
 
-    onSubmitCampaign(newAd, costCalculation.totalCostPkr);
-    
-    // Reset form & navigate to my campaigns
-    setFormTitle('');
-    setFormHeadline('');
-    setFormBodyText('');
-    setActiveSubTab('my-campaigns');
-    alert(`Campaign "${newAd.title}" submitted successfully! PKR ${costCalculation.totalCostPkr.toLocaleString()} has been deducted from your wallet balance. ${campaignConfig.formRules.requireAdminApproval ? 'The portal administrator will review and verify your campaign shortly.' : 'Your campaign is now live!'}`);
+    setIsSubmittingCampaign(true);
+    try {
+      const result = await onSubmitCampaign(newAd, costCalculation.totalCostPkr);
+      const isSuccess =
+        typeof result === 'object' && result !== null
+          ? Boolean(result.success)
+          : result !== false;
+
+      if (!isSuccess) {
+        return;
+      }
+
+      const chargedAmount =
+        typeof result === 'object' && result !== null && typeof result.chargedAmount === 'number'
+          ? result.chargedAmount
+          : costCalculation.totalCostPkr;
+
+      // Reset form & navigate to my campaigns only after verified backend payment + campaign creation
+      setFormTitle('');
+      setFormHeadline('');
+      setFormBodyText('');
+      setCampaignDraftSeed(`${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`);
+      setActiveSubTab('my-campaigns');
+      alert(
+        `Campaign "${newAd.title}" submitted successfully! PKR ${chargedAmount.toLocaleString()} has been deducted from your wallet balance. ${
+          campaignConfig.formRules.requireAdminApproval
+            ? 'The portal administrator will review and verify your campaign shortly.'
+            : 'Your campaign is now live!'
+        }`
+      );
+    } finally {
+      setIsSubmittingCampaign(false);
+    }
   };
 
   // Process Deposit
@@ -601,7 +670,27 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                           </button>
 
                           <button
-                            onClick={() => onDuplicateCampaign(ad)}
+                            onClick={() => {
+                              setFormTitle(`${ad.title} (Copy)`);
+                              setFormType(ad.type);
+                              setFormPlacement(ad.placement);
+                              setFormTargetPages(ad.targetPages?.length ? ad.targetPages : ['all']);
+                              if (ad.durationUnit) setCustomDurationUnit(ad.durationUnit);
+                              if (ad.durationValue) setCustomDurationValue(ad.durationValue);
+                              setFormHeadline(ad.headline || '');
+                              setFormBodyText(ad.bodyText || '');
+                              setFormImageUrl(ad.imageUrl || '');
+                              setFormCtaText(ad.ctaText || 'Learn More');
+                              setFormCtaUrl(ad.ctaUrl || '#jobs');
+                              setFormBadgeText(ad.badgeText || 'Featured Partner');
+                              setFormTheme(ad.theme || 'indigo');
+                              setFormDismissable(ad.dismissable ?? true);
+                              if (ad.smsSenderId) setFormSmsSenderId(ad.smsSenderId);
+                              if (ad.smsAudience) setFormSmsAudience(ad.smsAudience);
+                              if (typeof ad.smsRecipientsCount === 'number') setFormSmsRecipientsCount(ad.smsRecipientsCount);
+                              setCampaignDraftSeed(`${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`);
+                              setActiveSubTab('create');
+                            }}
                             className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl transition-all cursor-pointer"
                             title="Duplicate as new campaign draft"
                           >
@@ -1147,7 +1236,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
                 <button
                   type="submit"
-                  className={`w-full py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 ${
+                  disabled={isSubmittingCampaign}
+                  className={`w-full py-3.5 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
                     isWalletSufficient
                       ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'
                       : 'bg-gradient-to-r from-amber-500 to-orange-600 text-slate-950 hover:from-amber-400 hover:to-orange-500'
@@ -1155,7 +1245,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 >
                   <Send className="w-4 h-4" />
                   <span>
-                    {isWalletSufficient 
+                    {isSubmittingCampaign
+                      ? 'Processing Wallet Payment & Submitting Campaign...'
+                      : isWalletSufficient 
                       ? `Submit Campaign for Admin Approval (PKR ${costCalculation.totalCostPkr.toLocaleString()})`
                       : `Deposit Funds to Submit Campaign (Deficit: PKR ${walletDeficit.toLocaleString()})`
                     }

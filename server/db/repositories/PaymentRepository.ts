@@ -32,6 +32,24 @@ export class PaymentRepository {
     return Database.addTransaction(txData);
   }
 
+  static linkAdvertisement(txId: string, adId: string, adTitle?: string): any | null {
+    if (!txId || !adId) return null;
+    const txs = Database.getTransactions();
+    const idx = txs.findIndex((t: any) => t && String(t.id) === String(txId));
+    if (idx === -1) return null;
+
+    txs[idx].adIdRef = adId;
+    if (adTitle) {
+      txs[idx].adTitleRef = adTitle;
+      if (!txs[idx].jobTitleRef) {
+        txs[idx].jobTitleRef = adTitle;
+      }
+    }
+    txs[idx].updatedAt = new Date().toISOString();
+    Database.saveTransactions(txs);
+    return txs[idx];
+  }
+
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
     const txs = Database.getTransactions();
     const idx = txs.findIndex(t => t.id === id);

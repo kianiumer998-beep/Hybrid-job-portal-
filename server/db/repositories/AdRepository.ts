@@ -8,7 +8,22 @@ export interface AdvertisementRecord {
   imageUrl?: string;
   destinationUrl?: string;
   placement: string;
-  status: 'active' | 'pending' | 'expired' | 'paused';
+  status: 'active' | 'pending' | 'expired' | 'paused' | string;
+  approvalStatus?: 'Approved' | 'Pending' | 'Rejected';
+  submittedByUserId?: string;
+  submittedByUserName?: string;
+  submittedByUserEmail?: string;
+  submittedByUserPhone?: string;
+  durationUnit?: string;
+  durationValue?: number;
+  durationDisplay?: string;
+  targetPages?: string[];
+  campaignCostPkr?: number;
+  paymentStatus?: 'Paid' | 'Pending Wallet Deduction' | 'Refunded' | 'Exempt';
+  walletTxId?: string;
+  paymentTransactionId?: string;
+  transactionRef?: string;
+  idempotencyKey?: string;
   startDate?: string;
   endDate?: string;
   impressions?: number;
@@ -16,6 +31,7 @@ export interface AdvertisementRecord {
   budget?: number;
   createdAt?: string;
   updatedAt?: string;
+  [key: string]: any;
 }
 
 const processedClickKeys = new Map<string, number>();
@@ -65,6 +81,26 @@ export class AdRepository {
   static getById(id: string): AdvertisementRecord | null {
     const ads = Database.getAds() || [];
     return ads.find(a => a.id === id) || null;
+  }
+
+  static findByWalletTxId(walletTxId: string): AdvertisementRecord | null {
+    if (!walletTxId) return null;
+    const ads = Database.getAds() || [];
+    return (
+      ads.find(
+        (a: any) =>
+          a &&
+          (String(a.walletTxId || '') === String(walletTxId) ||
+            String(a.paymentTransactionId || '') === String(walletTxId) ||
+            String(a.transactionRef || '') === String(walletTxId))
+      ) || null
+    );
+  }
+
+  static findByIdempotencyKey(key: string): AdvertisementRecord | null {
+    if (!key) return null;
+    const ads = Database.getAds() || [];
+    return ads.find((a: any) => a && String(a.idempotencyKey || '') === String(key)) || null;
   }
 
   static create(adData: Partial<AdvertisementRecord>): AdvertisementRecord {

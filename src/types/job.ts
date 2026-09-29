@@ -40,6 +40,8 @@ export interface PaymentTransaction {
   senderPhoneOrAccount?: string;
   depositBankOrWalletName?: string;
   jobIdRef?: string;
+  adIdRef?: string;
+  adTitleRef?: string;
   adminNote?: string;
   proofScreenshotUrl?: string;
   proofNote?: string;

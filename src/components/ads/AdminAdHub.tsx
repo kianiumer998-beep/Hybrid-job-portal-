@@ -261,32 +261,31 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
   const handleApprove = (ad: Advertisement) => {
     if (onApproveAd) {
       onApproveAd(ad.id);
-    } else {
-      const now = new Date();
-      const nowStr = now.toISOString().replace('T', ' ').substring(0, 16);
-      
-      const calc = calculateCampaignCost(
-        editablePricing,
-        ad.durationUnit || 'days',
-        ad.durationValue || 1,
-        ad.placement,
-        ad.targetPages
-      );
-      
-      const endTimestamp = new Date(now.getTime() + calc.durationHours * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 16);
-
-      onUpdateAd({
-        ...ad,
-        status: 'active',
-        approvalStatus: 'Approved',
-        scheduledStartAt: nowStr,
-        scheduledEndAt: endTimestamp,
-        approvedAt: nowStr,
-        approvedBy: 'Admin'
-      });
+      return;
     }
 
-    alert(`Campaign "${ad.title}" has been APPROVED and is now LIVE on ${getPlacementDisplayName(ad.placement)}!`);
+    const now = new Date();
+    const nowStr = now.toISOString().replace('T', ' ').substring(0, 16);
+    
+    const calc = calculateCampaignCost(
+      editablePricing,
+      ad.durationUnit || 'days',
+      ad.durationValue || 1,
+      ad.placement,
+      ad.targetPages
+    );
+    
+    const endTimestamp = new Date(now.getTime() + calc.durationHours * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 16);
+
+    onUpdateAd({
+      ...ad,
+      status: 'active',
+      approvalStatus: 'Approved',
+      scheduledStartAt: nowStr,
+      scheduledEndAt: endTimestamp,
+      approvedAt: nowStr,
+      approvedBy: 'Admin'
+    });
   };
 
   // Confirm Rejection Handler
@@ -297,18 +296,17 @@ export const AdminAdHub: React.FC<AdminAdHubProps> = ({
 
     if (onRejectAd) {
       onRejectAd(rejectingAd.id, resolvedReason);
-    } else {
-      onUpdateAd({
-        ...rejectingAd,
-        status: 'rejected',
-        approvalStatus: 'Rejected',
-        rejectionReason: resolvedReason,
-        rejectedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        paymentStatus: 'Refunded'
-      });
+      setRejectingAd(null);
+      return;
     }
 
-    alert(`Campaign "${rejectingAd.title}" has been REJECTED. PKR ${(rejectingAd.campaignCostPkr || 0).toLocaleString()} has been refunded to the user's wallet.`);
+    onUpdateAd({
+      ...rejectingAd,
+      status: 'rejected',
+      approvalStatus: 'Rejected',
+      rejectionReason: resolvedReason,
+      rejectedAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
+    });
     setRejectingAd(null);
   };
 

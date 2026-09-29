@@ -181,15 +181,109 @@ export default function App() {
     } catch (e) {}
   }, [siteSeoConfig]);
 
-  // Advertisements State
-  const [advertisements, setAdvertisements] = useState<Advertisement[]>(() => {
-    const saved = localStorage.getItem('hybrid_portal_ads');
-    return saved ? JSON.parse(saved) : INITIAL_ADVERTISEMENTS;
-  });
+  const normalizeBackendAd = useCallback((rawAd: any): Advertisement => {
+    const rawStatus = String(rawAd?.status || '').trim();
+    const rawApprovalStatus = String(rawAd?.approvalStatus || '').trim();
 
-  useEffect(() => {
-    localStorage.setItem('hybrid_portal_ads', JSON.stringify(advertisements));
-  }, [advertisements]);
+    let normalizedStatus: Advertisement['status'] = 'active';
+    let normalizedApprovalStatus: Advertisement['approvalStatus'] = 'Approved';
+
+    if (rawStatus === 'pending' || rawStatus === 'pending_approval') {
+      normalizedStatus = 'pending_approval';
+      normalizedApprovalStatus = 'Pending';
+    } else if (rawStatus === 'rejected') {
+      normalizedStatus = 'rejected';
+      normalizedApprovalStatus = 'Rejected';
+    } else if (rawStatus === 'active') {
+      normalizedStatus = 'active';
+      normalizedApprovalStatus = 'Approved';
+    } else if (rawStatus === 'paused') {
+      normalizedStatus = 'paused';
+      normalizedApprovalStatus =
+        rawApprovalStatus === 'Pending' || rawApprovalStatus === 'Rejected'
+          ? (rawApprovalStatus as Advertisement['approvalStatus'])
+          : 'Approved';
+    } else if (rawStatus === 'expired' || rawStatus === 'completed') {
+      normalizedStatus = 'completed';
+      normalizedApprovalStatus =
+        rawApprovalStatus === 'Pending' || rawApprovalStatus === 'Rejected'
+          ? (rawApprovalStatus as Advertisement['approvalStatus'])
+          : 'Approved';
+    } else if (rawStatus === 'draft') {
+      normalizedStatus = 'draft';
+      normalizedApprovalStatus = 'Pending';
+    } else if (rawApprovalStatus === 'Pending') {
+      normalizedStatus = 'pending_approval';
+      normalizedApprovalStatus = 'Pending';
+    } else if (rawApprovalStatus === 'Rejected') {
+      normalizedStatus = 'rejected';
+      normalizedApprovalStatus = 'Rejected';
+    }
+
+    const targetPages: Advertisement['targetPages'] =
+      Array.isArray(rawAd?.targetPages) && rawAd.targetPages.length > 0
+        ? rawAd.targetPages
+        : ['all'];
+
+    return {
+      ...rawAd,
+      id: String(rawAd?.id || ''),
+      title: rawAd?.title || rawAd?.headline || 'Untitled Campaign',
+      type: rawAd?.type || 'banner',
+      targetPages,
+      placement: rawAd?.placement || 'top-header',
+      status: normalizedStatus,
+      approvalStatus: normalizedApprovalStatus,
+      submittedByUserId: rawAd?.submittedByUserId,
+      submittedByUserName: rawAd?.submittedByUserName || rawAd?.clientName,
+      submittedByUserEmail: rawAd?.submittedByUserEmail || rawAd?.clientEmail,
+      scheduledStartAt: rawAd?.scheduledStartAt || rawAd?.startDate,
+      scheduledEndAt: rawAd?.scheduledEndAt || rawAd?.endDate,
+      campaignCostPkr:
+        typeof rawAd?.campaignCostPkr === 'number'
+          ? rawAd.campaignCostPkr
+          : typeof rawAd?.budget === 'number'
+          ? rawAd.budget
+          : undefined,
+      headline: rawAd?.headline || rawAd?.title || 'Untitled Campaign',
+      bodyText: rawAd?.bodyText ?? '',
+      imageUrl: rawAd?.imageUrl || undefined,
+      ctaText: rawAd?.ctaText || undefined,
+      ctaUrl: rawAd?.ctaUrl || rawAd?.destinationUrl || undefined,
+      badgeText: rawAd?.badgeText || undefined,
+      theme: rawAd?.theme || 'emerald',
+      dismissable: typeof rawAd?.dismissable === 'boolean' ? rawAd.dismissable : true,
+      impressions: typeof rawAd?.impressions === 'number' ? rawAd.impressions : 0,
+      clicks: typeof rawAd?.clicks === 'number' ? rawAd.clicks : 0,
+      createdAt:
+        rawAd?.createdAt || new Date().toISOString().replace('T', ' ').substring(0, 16)
+    };
+  }, []);
+
+  // Advertisements State (Single Backend Source of Truth via /api/ads)
+  const [advertisements, setAdvertisements] = useState<Advertisement[]>(INITIAL_ADVERTISEMENTS);
+
+  const loadBackendAds = useCallback(async () => {
+    try {
+      const res = await api.ads.getAll();
+      if (res && res.success && Array.isArray(res.advertisements)) {
+        const seen = new Set<string>();
+        const normalizedAds: Advertisement[] = [];
+        for (const rawAd of res.advertisements) {
+          if (rawAd && rawAd.id && !seen.has(String(rawAd.id))) {
+            seen.add(String(rawAd.id));
+            normalizedAds.push(normalizeBackendAd(rawAd));
+          }
+        }
+        setAdvertisements(normalizedAds);
+        try {
+          localStorage.removeItem('hybrid_portal_ads');
+        } catch {}
+      }
+    } catch (err) {
+      console.error('[App] Failed to load advertisements from backend /api/ads:', err);
+    }
+  }, [normalizeBackendAd]);
 
   // Pricing Matrix Configuration State
   const [pricingConfig, setPricingConfig] = useState<AdPricingConfig>(() => {
@@ -213,35 +307,169 @@ export default function App() {
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
-  const handleAdClick = (ad: Advertisement) => {
-    setAdvertisements((prev) =>
-      prev.map((a) => (a.id === ad.id ? { ...a, clicks: (a.clicks || 0) + 1 } : a))
-    );
+  const handleAdClick = async (ad: Advertisement) => {
+    if (!ad?.id) return;
+    try {
+      await api.ads.recordClick(ad.id);
+      setAdvertisements((prev) =>
+        prev.map((a) => (a.id === ad.id ? { ...a, clicks: (a.clicks || 0) + 1 } : a))
+      );
+    } catch (err) {
+      console.error('[App] Failed to record ad click:', err);
+    }
   };
 
-  const handleAddAd = (newAd: Advertisement) => {
-    setAdvertisements((prev) => [newAd, ...prev]);
+  const handleAddAd = async (newAd: Advertisement) => {
+    try {
+      const res = await api.ads.create(newAd);
+      if (res && res.success && res.advertisement) {
+        let authoritativeAd = res.advertisement;
+        const requestedStatus = newAd.status;
+        const tokenRole = decodeStoredAuthTokenPayload()?.role;
+        const activeRole = currentUser?.role || tokenRole || '';
+        const canManageAds = ['Super Admin', 'Admin', 'Advertisement Manager'].includes(activeRole);
+
+        if (
+          canManageAds &&
+          requestedStatus &&
+          requestedStatus !== 'pending_approval' &&
+          (requestedStatus as string) !== 'pending' &&
+          authoritativeAd.status === 'pending'
+        ) {
+          const updateRes = await api.ads.update(authoritativeAd.id, {
+            ...authoritativeAd,
+            status: requestedStatus,
+            approvalStatus: requestedStatus === 'active' ? 'Approved' : newAd.approvalStatus
+          });
+          if (updateRes && updateRes.success && updateRes.advertisement) {
+            authoritativeAd = updateRes.advertisement;
+          }
+        }
+
+        const normalized = normalizeBackendAd(authoritativeAd);
+        setAdvertisements((prev) => [
+          normalized,
+          ...prev.filter((a) => a.id !== normalized.id)
+        ]);
+      } else {
+        alert(res?.message || 'Failed to create advertisement.');
+      }
+    } catch (err: any) {
+      console.error('Error creating advertisement on backend:', err);
+      alert(err?.message || 'Error creating advertisement.');
+    }
   };
 
-  const handleUpdateAd = (updatedAd: Advertisement) => {
-    setAdvertisements((prev) =>
-      prev.map((a) => (a.id === updatedAd.id ? updatedAd : a))
-    );
+  const handleUpdateAd = async (updatedAd: Advertisement) => {
+    if (!updatedAd?.id) return;
+    try {
+      const syncedApprovalStatus =
+        updatedAd.status === 'active'
+          ? 'Approved'
+          : updatedAd.status === 'pending_approval'
+          ? 'Pending'
+          : updatedAd.status === 'rejected'
+          ? 'Rejected'
+          : updatedAd.approvalStatus;
+
+      const res = await api.ads.update(updatedAd.id, {
+        ...updatedAd,
+        approvalStatus: syncedApprovalStatus
+      });
+      if (res && res.success && res.advertisement) {
+        const normalized = normalizeBackendAd(res.advertisement);
+        setAdvertisements((prev) =>
+          prev.map((a) => (a.id === normalized.id ? normalized : a))
+        );
+      } else {
+        alert(res?.message || 'Failed to update advertisement.');
+      }
+    } catch (err: any) {
+      console.error('Error updating advertisement on backend:', err);
+      alert(err?.message || 'Error updating advertisement.');
+    }
   };
 
-  const handleDeleteAd = (adId: string) => {
-    setAdvertisements((prev) => prev.filter((a) => a.id !== adId));
+  const handleDeleteAd = async (adId: string) => {
+    if (!adId) return;
+    try {
+      const res = await api.ads.delete(adId);
+      if (res && res.success) {
+        setAdvertisements((prev) => prev.filter((a) => a.id !== adId));
+      } else {
+        alert(res?.message || 'Failed to delete advertisement.');
+      }
+    } catch (err: any) {
+      console.error('Error deleting advertisement on backend:', err);
+      alert(err?.message || 'Error deleting advertisement.');
+    }
   };
 
-  const handleResetAdMetrics = (adId?: string) => {
+  const handleResetAdMetrics = async (adId?: string) => {
     if (adId) {
-      setAdvertisements((prev) =>
-        prev.map((a) => (a.id === adId ? { ...a, impressions: 0, clicks: 0 } : a))
-      );
+      const targetAd = advertisements.find((a) => a.id === adId);
+      if (!targetAd) return;
+      try {
+        const res = await api.ads.update(adId, {
+          ...targetAd,
+          impressions: 0,
+          clicks: 0
+        });
+        if (res && res.success && res.advertisement) {
+          const normalized = normalizeBackendAd(res.advertisement);
+          setAdvertisements((prev) =>
+            prev.map((a) => (a.id === adId ? normalized : a))
+          );
+        } else {
+          alert(res?.message || 'Failed to reset advertisement metrics.');
+        }
+      } catch (err: any) {
+        console.error('Error resetting advertisement metrics on backend:', err);
+        alert(err?.message || 'Error resetting advertisement metrics.');
+      }
     } else {
-      setAdvertisements((prev) =>
-        prev.map((a) => ({ ...a, impressions: 0, clicks: 0 }))
-      );
+      if (advertisements.length === 0) return;
+      try {
+        const results = await Promise.all(
+          advertisements.map(async (ad) => {
+            try {
+              const res = await api.ads.update(ad.id, {
+                ...ad,
+                impressions: 0,
+                clicks: 0
+              });
+              if (res && res.success && res.advertisement) {
+                return { id: ad.id, success: true, ad: normalizeBackendAd(res.advertisement) };
+              }
+              return { id: ad.id, success: false, message: res?.message };
+            } catch (err: any) {
+              return { id: ad.id, success: false, message: err?.message };
+            }
+          })
+        );
+
+        const updatedMap = new Map<string, Advertisement>();
+        let failedCount = 0;
+        let firstError = '';
+        for (const r of results) {
+          if (r.success && r.ad) {
+            updatedMap.set(r.id, r.ad);
+          } else {
+            failedCount++;
+            if (!firstError && r.message) firstError = r.message;
+          }
+        }
+
+        if (updatedMap.size > 0) {
+          setAdvertisements((prev) => prev.map((a) => updatedMap.get(a.id) || a));
+        }
+        if (failedCount > 0) {
+          alert(firstError || `Failed to reset metrics for ${failedCount} advertisement(s).`);
+        }
+      } catch (err: any) {
+        console.error('Error resetting all advertisement metrics on backend:', err);
+        alert(err?.message || 'Error resetting advertisement metrics.');
+      }
     }
   };
 
@@ -766,6 +994,10 @@ export default function App() {
       loadBackendAdminUsers();
     }
   }, [isAdminLoggedIn, showAdminView, loadBackendAdminUsers]);
+
+  useEffect(() => {
+    loadBackendAds();
+  }, [loadBackendAds, currentUser?.id, currentUser?.role, isAdminLoggedIn]);
 
   // LocalStorage Persist Effects - Fully guarded with safeLocalStorageSet to prevent QuotaExceeded crashes
   useEffect(() => {
@@ -1879,58 +2111,43 @@ export default function App() {
     setCustomFormFields(prev => prev.filter(f => f.id !== fieldId));
   };
 
-  // Self-Serve Ad Campaign Submissions & Wallet Management
-  const handleSubmitCampaign = (newAd: Advertisement, cost: number) => {
+  // Self-Serve Ad Campaign Submissions
+  const handleSubmitCampaign = async (newAd: Advertisement, cost: number) => {
     if (!currentUser) return;
-    
-    // Add ad to advertisements with pending_approval status
-    const campaignWithUser: Advertisement = {
-      ...newAd,
-      id: newAd.id || 'ad-camp-' + Date.now(),
-      status: 'pending_approval',
-      submittedByUserId: currentUser.id,
-      submittedByUserName: currentUser.name,
-      submittedByUserEmail: currentUser.email,
-      campaignCostPkr: cost
-    };
 
-    setAdvertisements(prev => [campaignWithUser, ...prev]);
+    try {
+      const payload = {
+        ...newAd,
+        submittedByUserId: currentUser.id,
+        submittedByUserName: currentUser.name,
+        submittedByUserEmail: currentUser.email,
+        campaignCostPkr: cost
+      };
 
-    // Deduct from wallet balance
-    const currentBalance = currentUser.walletBalance ?? 25000;
-    const newBalance = Math.max(0, currentBalance - cost);
-    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+      const res = await api.ads.create(payload);
+      if (res && res.success && res.advertisement) {
+        const createdAd = normalizeBackendAd(res.advertisement);
+        setAdvertisements((prev) => [
+          createdAd,
+          ...prev.filter((a) => a.id !== createdAd.id)
+        ]);
 
-    const newTx: PaymentTransaction = {
-      id: 'tx-ad-camp-' + Date.now(),
-      dateTime: nowStr,
-      amount: cost,
-      currency: 'PKR',
-      type: 'Ad Campaign Fee',
-      status: 'Success',
-      paymentMethod: 'Wallet Balance',
-      jobTitleRef: `Campaign: ${newAd.title}`
-    };
-
-    const updatedUser: UserAccount = {
-      ...currentUser,
-      walletBalance: newBalance,
-      transactions: [newTx, ...(currentUser.transactions || [])]
-    };
-
-    setCurrentUser(updatedUser);
-    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
-
-    // Send confirmation message to user chat
-    const confirmMsg: ChatMessage = {
-      id: 'msg-' + Date.now(),
-      userId: currentUser.id,
-      userName: 'Portal Admin',
-      senderRole: 'admin',
-      text: `Your campaign "${newAd.title}" has been submitted for admin approval! Fee deducted: PKR ${cost.toLocaleString()}. Remaining wallet balance: PKR ${newBalance.toLocaleString()}.`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    setChatMessages(prev => [...prev, confirmMsg]);
+        const confirmMsg: ChatMessage = {
+          id: 'msg-' + Date.now(),
+          userId: currentUser.id,
+          userName: 'Portal Admin',
+          senderRole: 'admin',
+          text: `Your campaign "${createdAd.title}" has been submitted for admin approval! Campaign fee: PKR ${cost.toLocaleString()}.`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setChatMessages((prev) => [...prev, confirmMsg]);
+      } else {
+        alert(res?.message || 'Failed to submit advertisement campaign.');
+      }
+    } catch (err: any) {
+      console.error('Error submitting advertisement campaign:', err);
+      alert(err?.message || 'Error submitting advertisement campaign.');
+    }
   };
 
   // Deposit funds into user wallet
@@ -1975,8 +2192,8 @@ export default function App() {
   };
 
   // Admin Approves Ad Campaign
-  const handleApproveAd = (adId: string) => {
-    const adToApprove = advertisements.find(a => a.id === adId);
+  const handleApproveAd = async (adId: string) => {
+    const adToApprove = advertisements.find((a) => a.id === adId);
     if (!adToApprove) return;
 
     const now = new Date();
@@ -1992,96 +2209,87 @@ export default function App() {
       // days
       endDate.setDate(endDate.getDate() + (adToApprove.durationValue || 1));
     }
+    const approvedAt = now.toISOString().replace('T', ' ').substring(0, 16);
 
-    const updatedAd: Advertisement = {
+    const updatePayload = {
       ...adToApprove,
       status: 'active',
+      approvalStatus: 'Approved',
       scheduledStartAt: adToApprove.scheduledStartAt || startDateStr,
       scheduledEndAt: adToApprove.scheduledEndAt || endDate.toISOString().slice(0, 10),
+      approvedAt,
+      approvedBy: currentUser?.name || 'Admin',
       rejectionReason: undefined
     };
 
-    setAdvertisements(prev => prev.map(a => a.id === adId ? updatedAd : a));
+    try {
+      const res = await api.ads.update(adId, updatePayload);
+      if (res && res.success && res.advertisement) {
+        const normalized = normalizeBackendAd(res.advertisement);
+        setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
 
-    if (adToApprove.submittedByUserId) {
-      const msg: ChatMessage = {
-        id: 'msg-' + Date.now(),
-        userId: adToApprove.submittedByUserId,
-        userName: 'Portal Admin',
-        senderRole: 'admin',
-        text: `🎉 Good news! Your campaign "${adToApprove.title}" has been APPROVED by the portal admin and is now LIVE on the platform!`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setChatMessages(prev => [...prev, msg]);
+        if (adToApprove.submittedByUserId) {
+          const msg: ChatMessage = {
+            id: 'msg-' + Date.now(),
+            userId: adToApprove.submittedByUserId,
+            userName: 'Portal Admin',
+            senderRole: 'admin',
+            text: `🎉 Good news! Your campaign "${adToApprove.title}" has been APPROVED by the portal admin and is now LIVE on the platform!`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          };
+          setChatMessages((prev) => [...prev, msg]);
+        }
+
+        alert(`Campaign "${adToApprove.title}" has been approved and activated!`);
+      } else {
+        alert(res?.message || 'Failed to approve advertisement campaign.');
+      }
+    } catch (err: any) {
+      console.error('Error approving advertisement on backend:', err);
+      alert(err?.message || 'Error approving advertisement campaign.');
     }
-
-    alert(`Campaign "${adToApprove.title}" has been approved and activated!`);
   };
 
-  // Admin Rejects Ad Campaign with Reason & Full Wallet Refund
-  const handleRejectAd = (adId: string, reason: string) => {
-    const adToReject = advertisements.find(a => a.id === adId);
+  // Admin Rejects Ad Campaign with Reason (Backend moderation only; no frontend wallet mutation)
+  const handleRejectAd = async (adId: string, reason: string = 'Violates advertising policy') => {
+    const adToReject = advertisements.find((a) => a.id === adId);
     if (!adToReject) return;
 
-    const updatedAd: Advertisement = {
+    const rejectedAt = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    const updatePayload = {
       ...adToReject,
       status: 'rejected',
-      rejectionReason: reason
+      approvalStatus: 'Rejected',
+      rejectionReason: reason,
+      rejectedAt
     };
 
-    setAdvertisements(prev => prev.map(a => a.id === adId ? updatedAd : a));
+    try {
+      const res = await api.ads.update(adId, updatePayload);
+      if (res && res.success && res.advertisement) {
+        const normalized = normalizeBackendAd(res.advertisement);
+        setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
 
-    // Refund wallet balance if user submitted it and paid
-    if (adToReject.submittedByUserId && adToReject.campaignCostPkr && adToReject.campaignCostPkr > 0) {
-      const refundAmount = adToReject.campaignCostPkr;
-      const targetUserId = adToReject.submittedByUserId;
-      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
-
-      const refundTx: PaymentTransaction = {
-        id: 'tx-refund-' + Date.now(),
-        dateTime: nowStr,
-        amount: refundAmount,
-        currency: 'PKR',
-        type: 'Refund',
-        status: 'Success',
-        paymentMethod: 'Wallet Balance',
-        jobTitleRef: `Refund for Rejected Campaign: ${adToReject.title}`
-      };
-
-      setUsers(prev => prev.map(u => {
-        if (u.id === targetUserId) {
-          const currentBal = u.walletBalance ?? 0;
-          return {
-            ...u,
-            walletBalance: currentBal + refundAmount,
-            transactions: [refundTx, ...(u.transactions || [])]
+        if (adToReject.submittedByUserId) {
+          const msg: ChatMessage = {
+            id: 'msg-' + Date.now(),
+            userId: adToReject.submittedByUserId,
+            userName: 'Portal Admin',
+            senderRole: 'admin',
+            text: `⚠️ Campaign Update: Your campaign "${adToReject.title}" was not approved. Reason: ${reason}.`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           };
+          setChatMessages((prev) => [...prev, msg]);
         }
-        return u;
-      }));
 
-      if (currentUser && currentUser.id === targetUserId) {
-        const currentBal = currentUser.walletBalance ?? 0;
-        setCurrentUser(prev => prev ? {
-          ...prev,
-          walletBalance: currentBal + refundAmount,
-          transactions: [refundTx, ...(prev.transactions || [])]
-        } : null);
+        alert(`Campaign "${adToReject.title}" has been rejected.`);
+      } else {
+        alert(res?.message || 'Failed to reject advertisement campaign.');
       }
-
-      // Notify in user's chat thread
-      const msg: ChatMessage = {
-        id: 'msg-' + Date.now(),
-        userId: targetUserId,
-        userName: 'Portal Admin',
-        senderRole: 'admin',
-        text: `⚠️ Campaign Update: Your campaign "${adToReject.title}" was not approved. Reason: ${reason}. A 100% refund of PKR ${refundAmount.toLocaleString()} has been credited back to your wallet balance.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setChatMessages(prev => [...prev, msg]);
+    } catch (err: any) {
+      console.error('Error rejecting advertisement on backend:', err);
+      alert(err?.message || 'Error rejecting advertisement campaign.');
     }
-
-    alert(`Campaign rejected. Reason and full refund of PKR ${adToReject.campaignCostPkr?.toLocaleString() || 0} processed to user.`);
   };
 
   const userJobs = useMemo(() => {

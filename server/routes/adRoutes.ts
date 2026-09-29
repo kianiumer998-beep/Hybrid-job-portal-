@@ -6,17 +6,50 @@ export const adRouter = Router();
 
 const activeAdCreationLocks = new Set<string>();
 
-// 1. Get Ads (Public active ads or all for admin)
+// 1. Get Ads (Public active ads, plus authenticated user's own campaigns, or all for admin)
 adRouter.get('/', async (req, res) => {
   try {
     const { status, placement } = req.query as Record<string, string>;
     const user = (req as any).user;
     const canManageAds = Boolean(user && hasAdminPermission(user.role, 'advertisements.manage'));
-    const effectiveStatus = canManageAds ? status : 'active';
-    const rawAds = await AdRepository.getAllAsync({ status: effectiveStatus, placement });
-    const ads = canManageAds
-      ? rawAds
-      : rawAds.map(({ clientEmail, submittedByUserEmail, submittedByUserId, ...publicAd }: any) => publicAd);
+
+    if (canManageAds) {
+      const rawAds = await AdRepository.getAllAsync({ status, placement });
+      return res.json({ success: true, advertisements: rawAds });
+    }
+
+    const authUserId = user?.userId || user?.id ? String(user.userId || user.id).trim() : '';
+    const publicActiveAds = await AdRepository.getAllAsync({ status: 'active', placement });
+
+    let combinedAds: any[] = [...publicActiveAds];
+    if (authUserId) {
+      const allPlacementAds = await AdRepository.getAllAsync({ status, placement });
+      const ownAds = allPlacementAds.filter(
+        (ad: any) => ad && ad.submittedByUserId && String(ad.submittedByUserId) === authUserId
+      );
+      const seenIds = new Set<string>();
+      const merged: any[] = [];
+      for (const ad of [...ownAds, ...publicActiveAds]) {
+        if (ad && ad.id && !seenIds.has(String(ad.id))) {
+          seenIds.add(String(ad.id));
+          merged.push(ad);
+        }
+      }
+      combinedAds = merged;
+    }
+
+    const ads = combinedAds.map((ad: any) => {
+      const isOwnAd = Boolean(authUserId && ad?.submittedByUserId && String(ad.submittedByUserId) === authUserId);
+      if (isOwnAd) {
+        return {
+          ...ad,
+          submittedByUserId: String(ad.submittedByUserId)
+        };
+      }
+      const { clientEmail, submittedByUserEmail, submittedByUserId, submittedByUserPhone, ...publicAd } = ad || {};
+      return publicAd;
+    });
+
     res.json({ success: true, advertisements: ads });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching advertisements' });
@@ -329,8 +362,33 @@ adRouter.put('/:id', requireAdminPermission('advertisements.manage'), async (req
 });
 
 // 4. Delete Advertisement
-adRouter.delete('/:id', requireAdminPermission('advertisements.manage'), async (req, res) => {
+adRouter.delete('/:id', requireAuth, async (req: any, res) => {
   try {
+    const user = req.user;
+    const authUserId = user?.userId || user?.id ? String(user.userId || user.id).trim() : '';
+    if (!user || !authUserId) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
+
+    const canManageAds =
+      user.role === 'Admin' ||
+      user.role === 'Super Admin' ||
+      Boolean(hasAdminPermission(user.role, 'advertisements.manage'));
+
+    const existingAd = AdRepository.getById(req.params.id);
+    if (!existingAd) {
+      return res.status(404).json({ success: false, message: 'Ad not found.' });
+    }
+
+    if (!canManageAds) {
+      if (!existingAd.submittedByUserId || String(existingAd.submittedByUserId) !== authUserId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: You can only delete your own advertisement campaigns.'
+        });
+      }
+    }
+
     const deleted = await AdRepository.deleteAsync(req.params.id);
     if (!deleted) {
       return res.status(404).json({ success: false, message: 'Ad not found.' });

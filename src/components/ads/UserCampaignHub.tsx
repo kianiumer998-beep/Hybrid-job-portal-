@@ -306,6 +306,20 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
           : result !== false;
 
       if (!isSuccess) {
+        const resObj = typeof result === 'object' && result !== null ? (result as any) : null;
+        const resMessage = typeof resObj?.message === 'string' ? resObj.message : '';
+        const wasCompensated = Boolean(
+          resObj?.compensated === true ||
+          resObj?.alreadyCompensated === true ||
+          resObj?.transaction?.compensated === true ||
+          resObj?.transaction?.refunded === true ||
+          resObj?.transaction?.status === 'Refunded' ||
+          resMessage.includes('has been safely restored') ||
+          resMessage.includes('already refunded/compensated')
+        );
+        if (wasCompensated) {
+          setCampaignDraftSeed(`${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`);
+        }
         return;
       }
 
@@ -318,7 +332,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormTitle('');
       setFormHeadline('');
       setFormBodyText('');
-      setCampaignDraftSeed(`${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`);
       setActiveSubTab('my-campaigns');
       alert(
         `Campaign "${newAd.title}" submitted successfully! PKR ${chargedAmount.toLocaleString()} has been deducted from your wallet balance. ${
@@ -720,8 +733,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
                             <span>Campaign Rejected by Administrator</span>
                           </div>
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                            Wallet Refunded: PKR {(ad.campaignCostPkr || 0).toLocaleString()}
+                          <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold">
+                            Campaign Rejected
                           </span>
                         </div>
                         
@@ -731,7 +744,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                         </div>
                         
                         <div className="text-[11px] text-rose-300/80">
-                          Note: The full campaign fee has been credited back to your wallet balance. You can edit the campaign guidelines and re-submit at any time.
+                          Note: This campaign was not approved by the administrator and is not active on the portal. Please review the reason above and our advertising guidelines before submitting a new campaign.
                         </div>
                       </div>
                     )}
@@ -1427,7 +1440,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   <span>{walletBalance.toLocaleString()}</span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Funds in your wallet are automatically deducted when campaigns or jobs are submitted. Unapproved or rejected campaigns are instantly refunded.
+                  Funds in your wallet are automatically deducted when campaigns or jobs are submitted for administrator review.
                 </p>
                 <button
                   onClick={() => {

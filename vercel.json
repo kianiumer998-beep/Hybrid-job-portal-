@@ -12,6 +12,14 @@
       "destination": "https://hybrid-job-portal.onrender.com/api/$1"
     },
     {
+      "source": "/sitemap.xml",
+      "destination": "https://hybrid-job-portal.onrender.com/api/seo/sitemap.xml"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "https://hybrid-job-portal.onrender.com/api/seo/robots.txt"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

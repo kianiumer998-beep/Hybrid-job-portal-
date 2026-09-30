@@ -57,7 +57,11 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
   const handleGenerateSitemap = () => {
     setSitemapGenerated(true);
     setTimeout(() => {
-      alert(`✅ Sitemap successfully generated with all 2,400+ live jobs, category URLs, and gazette slugs!\nLocation: ${config.canonicalUrl}/sitemap.xml`);
+      const baseOrigin = (
+        config.canonicalUrl?.trim() ||
+        (typeof window !== 'undefined' ? window.location.origin : '')
+      ).replace(/\/+$/, '');
+      alert(`✅ Sitemap successfully generated with all 2,400+ live jobs, category URLs, and gazette slugs!\nLocation: ${baseOrigin}/sitemap.xml`);
       setSitemapGenerated(false);
     }, 800);
   };

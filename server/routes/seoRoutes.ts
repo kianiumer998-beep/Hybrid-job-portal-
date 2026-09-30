@@ -19,12 +19,45 @@ function escapeXml(unsafe: string): string {
   });
 }
 
+// Domain-neutral base URL resolver:
+// 1) process.env.SITE_BASE_URL when non-empty
+// 2) trusted request-derived origin using x-forwarded-proto / x-forwarded-host / req.get('host')
+// 3) http://localhost:3000 fallback
+function resolveRequestBaseUrl(req: any): string {
+  const configuredBase = (process.env.SITE_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (configuredBase) {
+    return configuredBase;
+  }
+
+  const forwardedProtoHeader = req.headers?.['x-forwarded-proto'];
+  const rawProto = Array.isArray(forwardedProtoHeader)
+    ? forwardedProtoHeader[0]
+    : typeof forwardedProtoHeader === 'string'
+      ? forwardedProtoHeader.split(',')[0]
+      : '';
+  const proto = (rawProto || req.protocol || 'http').trim();
+
+  const forwardedHostHeader = req.headers?.['x-forwarded-host'];
+  const rawHost = Array.isArray(forwardedHostHeader)
+    ? forwardedHostHeader[0]
+    : typeof forwardedHostHeader === 'string'
+      ? forwardedHostHeader.split(',')[0]
+      : '';
+  const host = (rawHost || req.get?.('host') || '').trim();
+
+  if (host) {
+    return `${proto}://${host}`.replace(/\/+$/, '');
+  }
+
+  return 'http://localhost:3000';
+}
+
 // 1. Authoritative Dynamic XML Sitemap Generator (Excludes Expired, Duplicate, Rejected, Suspended)
 seoRouter.get('/sitemap.xml', async (req, res) => {
   try {
     // Only include non-expired, approved, non-suspended jobs
     const { jobs: activeApprovedJobs } = await JobRepository.getAll({ limit: 1000, includeExpired: false });
-    const baseUrl = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+    const baseUrl = resolveRequestBaseUrl(req);
 
     interface SitemapEntry {
       url: string;
@@ -77,7 +110,7 @@ ${allUrls.map(u => `  <url>
 
 // 2. Authoritative Robots.txt Generator
 seoRouter.get('/robots.txt', (req, res) => {
-  const baseUrl = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+  const baseUrl = resolveRequestBaseUrl(req);
   const robots = `User-agent: *
 Allow: /
 Allow: /jobs
@@ -109,7 +142,7 @@ seoRouter.get('/job-meta/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
-    const baseUrl = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+    const baseUrl = resolveRequestBaseUrl(req);
     const cleanTitle = (job.title || '').replace(/[^\w\s-]/gi, '').trim();
     const locationStr = [job.city, job.province, job.region].filter(Boolean).join(', ') || 'Pakistan';
     const scaleStr = job.govtScale ? ` (${job.govtScale})` : '';
@@ -231,7 +264,7 @@ seoRouter.get('/public-job/:idOrSlug', async (req, res) => {
       return res.status(404).send(`<!DOCTYPE html><html><head><title>Job Not Found</title></head><body><h1>404 - Job Vacancy Not Found</h1><p>The requested vacancy may have been filled or expired.</p><p><a href="/">Return to Home</a></p></body></html>`);
     }
 
-    const baseUrl = `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+    const baseUrl = resolveRequestBaseUrl(req);
     const canonicalUrl = `${baseUrl}/jobs/${job.slug || job.id}`;
     const cleanTitle = (job.title || '').replace(/[^\w\s-]/gi, '').trim();
     const locationStr = [job.city, job.province, job.region].filter(Boolean).join(', ') || 'Pakistan';

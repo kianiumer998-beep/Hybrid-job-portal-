@@ -9,10 +9,47 @@ export interface JobSeoMetadata {
 }
 
 /**
+ * Resolves the base site URL in a domain-neutral order:
+ * 1) Explicit configured canonical/base URL when supplied and valid
+ * 2) import.meta.env.VITE_SITE_BASE_URL when non-empty
+ * 3) window.location.origin when running in browser
+ * 4) Empty string when no runtime origin is available
+ */
+export function resolveSiteBaseUrl(configuredBaseUrl?: string): string {
+  const cleanConfigured = (configuredBaseUrl || '').trim().replace(/\/+$/, '');
+  if (cleanConfigured && /^https?:\/\//i.test(cleanConfigured)) {
+    try {
+      const parsed = new URL(cleanConfigured);
+      return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
+    } catch {
+      // Fall through if invalid URL
+    }
+  }
+
+  const envBaseUrl = (
+    typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SITE_BASE_URL
+      ? String((import.meta as any).env.VITE_SITE_BASE_URL)
+      : ''
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  if (envBaseUrl) {
+    return envBaseUrl;
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+
+  return '';
+}
+
+/**
  * Automatically generates high-ranking SEO metadata and Schema.org JobPosting structured data
  * for any job post to rank #1 on Google for Pakistan and global queries.
  */
-export function generateJobSeoMetadata(job: Job, siteBaseUrl = 'https://pakjobsportal.com'): JobSeoMetadata {
+export function generateJobSeoMetadata(job: Job, siteBaseUrl?: string): JobSeoMetadata {
+  const resolvedBaseUrl = resolveSiteBaseUrl(siteBaseUrl);
   const cleanTitle = job.title.replace(/[^\w\s-]/gi, '').trim();
   const locationStr = [job.city, job.province, job.region].filter(Boolean).join(', ') || 'Pakistan';
   const scaleStr = job.govtScale ? ` (${job.govtScale})` : '';
@@ -43,7 +80,7 @@ export function generateJobSeoMetadata(job: Job, siteBaseUrl = 'https://pakjobsp
   ].filter(Boolean);
 
   const slug = cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  const canonicalUrl = `${siteBaseUrl}/jobs/${job.id}-${slug}`;
+  const canonicalUrl = resolvedBaseUrl ? `${resolvedBaseUrl}/jobs/${job.id}-${slug}` : `/jobs/${job.id}-${slug}`;
 
   // Parse salary if available and valid
   let baseSalary: any = undefined;
@@ -71,6 +108,7 @@ export function generateJobSeoMetadata(job: Job, siteBaseUrl = 'https://pakjobsp
     '@type': 'JobPosting',
     title: job.title,
     description: job.description || metaDescription,
+    ...(canonicalUrl ? { url: canonicalUrl } : {}),
     identifier: {
       '@type': 'PropertyValue',
       name: job.company,
@@ -87,7 +125,7 @@ export function generateJobSeoMetadata(job: Job, siteBaseUrl = 'https://pakjobsp
     hiringOrganization: {
       '@type': 'Organization',
       name: job.company,
-      sameAs: siteBaseUrl
+      ...(resolvedBaseUrl ? { sameAs: resolvedBaseUrl } : {})
     },
     jobLocation: {
       '@type': 'Place',
@@ -141,6 +179,17 @@ export function injectJobJsonLd(job: Job): void {
     document.head.appendChild(metaKeywords);
   }
   metaKeywords.setAttribute('content', seo.keywords.join(', '));
+
+  // Maintain Canonical Link Tag
+  if (seo.canonicalUrl) {
+    let canonicalLink = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    if (!canonicalLink) {
+      canonicalLink = document.createElement('link');
+      canonicalLink.setAttribute('rel', 'canonical');
+      document.head.appendChild(canonicalLink);
+    }
+    canonicalLink.setAttribute('href', seo.canonicalUrl);
+  }
 
   // Update or inject JSON-LD structured script
   let script = document.getElementById('google-job-schema') as HTMLScriptElement | null;

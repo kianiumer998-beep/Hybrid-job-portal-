@@ -17,6 +17,19 @@ export const JobSeoPreviewModal: React.FC<JobSeoPreviewModalProps> = ({ job, isO
 
   const seo = generateJobSeoMetadata(job);
 
+  let previewHost = typeof window !== 'undefined' ? window.location.host : '';
+  let previewPath = seo.canonicalUrl;
+  try {
+    const parsedUrl = new URL(
+      seo.canonicalUrl,
+      typeof window !== 'undefined' ? window.location.origin : undefined
+    );
+    previewHost = parsedUrl.host || previewHost;
+    previewPath = parsedUrl.pathname.replace(/^\/+/, '');
+  } catch {
+    previewPath = seo.canonicalUrl.replace(/^https?:\/\/[^/]+\/?/i, '').replace(/^\/+/, '');
+  }
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -93,9 +106,9 @@ export const JobSeoPreviewModal: React.FC<JobSeoPreviewModalProps> = ({ job, isO
             {/* Google Search Result Mockup */}
             <div className="p-4 bg-white rounded-xl shadow-lg border border-slate-300 text-slate-800 space-y-1">
               <div className="flex items-center space-x-2 text-[11px] text-slate-500 truncate">
-                <span className="font-semibold text-slate-700">pakjobsportal.com</span>
+                <span className="font-semibold text-slate-700">{previewHost}</span>
                 <span>›</span>
-                <span className="truncate">{seo.canonicalUrl.replace('https://pakjobsportal.com/', '')}</span>
+                <span className="truncate">{previewPath}</span>
               </div>
               <h4 className="text-blue-700 hover:underline text-base font-medium cursor-pointer leading-snug">
                 {seo.metaTitle}

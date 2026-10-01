@@ -309,7 +309,7 @@ applicationRouter.get('/', requireAuth, async (req, res) => {
 });
 
 // 4. Submit Job Application (Server-side settings enforcement)
-applicationRouter.post('/', async (req, res) => {
+applicationRouter.post('/', requireAuth, async (req, res) => {
   try {
     const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
     const rateCheck = checkAndRecordBucketLimit(
@@ -537,8 +537,8 @@ applicationRouter.post('/', async (req, res) => {
     }
 
     AuditRepository.add({
-      user: (req as any).user?.name || 'Candidate',
-      role: (req as any).user?.role || 'Job Seeker',
+      user: (req as any).user.name,
+      role: (req as any).user.role,
       action: 'Job Application Submitted',
       target: `${jobTitle} at ${companyName}`,
       status: 'Success'

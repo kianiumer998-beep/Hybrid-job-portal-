@@ -537,8 +537,8 @@ applicationRouter.post('/', async (req, res) => {
     }
 
     AuditRepository.add({
-      user: applicantName,
-      role: 'Job Seeker',
+      user: (req as any).user?.name || 'Candidate',
+      role: (req as any).user?.role || 'Job Seeker',
       action: 'Job Application Submitted',
       target: `${jobTitle} at ${companyName}`,
       status: 'Success'

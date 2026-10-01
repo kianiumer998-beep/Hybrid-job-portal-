@@ -307,8 +307,8 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
 
         try {
           AuditRepository.add({
-            user: adData.submittedByUserName || adData.clientName || 'Advertiser',
-            role: 'Advertiser',
+            user: req.user?.name || 'Advertiser',
+            role: req.user?.role || 'Advertiser',
             action: 'Ad Campaign Created',
             target: newAd.title,
             status: 'Success',
@@ -328,8 +328,8 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
 
       try {
         AuditRepository.add({
-          user: adData.submittedByUserName || adData.clientName || 'Advertiser',
-          role: 'Advertiser',
+          user: req.user?.name || 'Advertiser',
+          role: req.user?.role || 'Advertiser',
           action: 'Ad Campaign Created',
           target: newAd.title,
           status: 'Success'

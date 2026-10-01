@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { ApplicationRepository, AuditRepository, JobRepository, UserRepository } from '../db/repositories';
 import { Database } from '../db/database';
-import { requireAdminPermission, requireAuth } from '../auth/authManager';
+import { ADMIN_ROLES, hasAdminPermission, requireAdminPermission, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 
 export const applicationRouter = Router();
@@ -575,8 +575,55 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
 });
 
 // 5. Update Application Status (Reviewed, Shortlisted, Rejected)
-applicationRouter.patch('/:id/status', requireAdminPermission('applications.manage'), async (req, res) => {
+applicationRouter.patch('/:id/status', requireAuth, async (req, res) => {
   try {
+    const user = (req as any).user;
+    const currentUserId = String(user?.userId || user?.id || '').trim();
+    if (!user || !currentUserId) {
+      return res.status(401).json({ success: false, message: 'Authentication required. Please log in.' });
+    }
+
+    const isAdminRole = Boolean(user.role && (ADMIN_ROLES as readonly string[]).includes(user.role));
+    const canManageAllApplications = hasAdminPermission(user.role, 'applications.manage');
+
+    if (isAdminRole && !canManageAllApplications) {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied: Role '${user.role}' does not have required permission 'applications.manage'.`
+      });
+    }
+
+    if (!canManageAllApplications) {
+      if (user.role !== 'Employer') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: Employer or administrative privileges required to update application status.'
+        });
+      }
+
+      const existingApplication = await ApplicationRepository.getByIdAsync(req.params.id);
+      if (!existingApplication) {
+        return res.status(404).json({ success: false, message: 'Application not found.' });
+      }
+
+      const targetJobId = existingApplication.jobId ? String(existingApplication.jobId).trim() : '';
+      const job = targetJobId ? await JobRepository.getById(targetJobId) : null;
+      const jobOwnerId = job?.submittedByUserId || job?.postedByUserId || job?.userId;
+      const isJobOwner = Boolean(
+        user.role === 'Employer' &&
+        job &&
+        jobOwnerId &&
+        String(jobOwnerId) === currentUserId
+      );
+
+      if (!isJobOwner) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: You can only update applications for jobs you own.'
+        });
+      }
+    }
+
     const { status, notes } = req.body;
     const updated = await ApplicationRepository.updateStatusAsync(req.params.id, status, notes);
     if (!updated) {

@@ -632,6 +632,19 @@ export const api = {
       return safeFetchJson(`${API_BASE}/audit-logs`, {
         headers: getAuthHeader()
       });
+    },
+    async addLog(payload: {
+      action: string;
+      target?: string;
+      status?: 'Success' | 'Warning' | 'Error';
+      details?: any;
+      metadata?: Record<string, any>;
+    }) {
+      return safeFetchJson(`${API_BASE}/audit-logs`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(payload)
+      });
     }
   },
 

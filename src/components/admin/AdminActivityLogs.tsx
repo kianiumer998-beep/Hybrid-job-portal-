@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Activity, 
   Search, 
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, Job, JobPostingFeeLog, PaymentTransaction } from '../../types/job';
 import { Advertisement } from '../../types/ad';
+import { api } from '../../services/api';
 
 export type ActivityLogCategory = 'all' | 'users' | 'jobs' | 'payments' | 'ads' | 'kyc' | 'security';
 export type ActivityLogSeverity = 'info' | 'success' | 'warning' | 'danger';
@@ -149,19 +150,167 @@ interface AdminActivityLogsProps {
   ads?: Advertisement[];
 }
 
+function mapBackendAuditLog(raw: any, index: number): ActivityLogItem {
+  const validCategories = ['users', 'jobs', 'payments', 'ads', 'kyc', 'security'] as const;
+  const rawCategory = (
+    raw?.category ||
+    raw?.details?.category ||
+    raw?.metadata?.category ||
+    ''
+  )
+    .toString()
+    .toLowerCase();
+
+  let category: ActivityLogItem['category'] = 'security';
+  if ((validCategories as readonly string[]).includes(rawCategory)) {
+    category = rawCategory as ActivityLogItem['category'];
+  } else {
+    const combinedText = `${raw?.action || ''} ${raw?.target || ''}`.toLowerCase();
+    if (
+      combinedText.includes('payment') ||
+      combinedText.includes('transaction') ||
+      combinedText.includes('wallet') ||
+      combinedText.includes('pricing') ||
+      combinedText.includes('fee') ||
+      combinedText.includes('refund') ||
+      combinedText.includes('jazzcash') ||
+      combinedText.includes('easypaisa')
+    ) {
+      category = 'payments';
+    } else if (
+      combinedText.includes('ad ') ||
+      combinedText.includes('ads') ||
+      combinedText.includes('campaign') ||
+      combinedText.includes('banner') ||
+      combinedText.includes('advertis')
+    ) {
+      category = 'ads';
+    } else if (
+      combinedText.includes('kyc') ||
+      combinedText.includes('badge') ||
+      combinedText.includes('ntn') ||
+      combinedText.includes('secp')
+    ) {
+      category = 'kyc';
+    } else if (
+      combinedText.includes('job') ||
+      combinedText.includes('scraper') ||
+      combinedText.includes('scrape') ||
+      combinedText.includes('vacancy') ||
+      combinedText.includes('application') ||
+      combinedText.includes('cv')
+    ) {
+      category = 'jobs';
+    } else if (
+      (combinedText.includes('register') ||
+        combinedText.includes('signup') ||
+        combinedText.includes('user') ||
+        combinedText.includes('profile') ||
+        combinedText.includes('candidate')) &&
+      !combinedText.includes('admin panel')
+    ) {
+      category = 'users';
+    }
+  }
+
+  const validSeverities = ['info', 'success', 'warning', 'danger'] as const;
+  const rawSeverity = (
+    raw?.severity ||
+    raw?.details?.severity ||
+    raw?.metadata?.severity ||
+    ''
+  )
+    .toString()
+    .toLowerCase();
+
+  let severity: ActivityLogSeverity = 'info';
+  if ((validSeverities as readonly string[]).includes(rawSeverity)) {
+    severity = rawSeverity as ActivityLogSeverity;
+  } else {
+    const statusStr = (raw?.status || '').toString().toLowerCase();
+    if (statusStr === 'error' || statusStr === 'failed' || statusStr === 'rejected') {
+      severity = 'danger';
+    } else if (statusStr === 'warning') {
+      severity = 'warning';
+    } else if (statusStr === 'success') {
+      severity = 'success';
+    }
+  }
+
+  const rawRoleStr = (raw?.actorRole || raw?.role || '').toString().toLowerCase();
+  let actorRole: ActivityLogItem['actorRole'] = 'User';
+  if (rawRoleStr.includes('scraper') || rawRoleStr.includes('cron')) {
+    actorRole = 'Scraper Cron';
+  } else if (
+    rawRoleStr.includes('admin') ||
+    rawRoleStr.includes('manager') ||
+    rawRoleStr.includes('moderator')
+  ) {
+    actorRole = 'Admin';
+  } else if (
+    rawRoleStr.includes('employer') ||
+    rawRoleStr.includes('advertiser') ||
+    rawRoleStr.includes('recruiter')
+  ) {
+    actorRole = 'Employer';
+  } else if (rawRoleStr.includes('system')) {
+    actorRole = 'System';
+  }
+
+  const rawTs = (raw?.timestamp || '').toString();
+  const timestamp = rawTs.includes('T')
+    ? rawTs.replace('T', ' ').substring(0, 19)
+    : rawTs || new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+  const actionTitle = String(raw?.actionTitle || raw?.action || 'System Event');
+
+  let details = '';
+  if (typeof raw?.details === 'string' && raw.details.trim()) {
+    details = raw.details.trim();
+  } else if (typeof raw?.details?.description === 'string' && raw.details.description.trim()) {
+    details = raw.details.description.trim();
+  } else if (typeof raw?.target === 'string' && raw.target.trim()) {
+    details = raw.target.trim();
+  } else {
+    details = actionTitle;
+  }
+
+  const metadata =
+    raw?.metadata && typeof raw.metadata === 'object'
+      ? raw.metadata
+      : raw?.details && typeof raw.details === 'object'
+        ? raw.details
+        : {
+            target: raw?.target || 'Portal',
+            status: raw?.status || 'Success',
+            role: raw?.role || actorRole
+          };
+
+  return {
+    id: String(raw?.id || `log-${index}`),
+    timestamp,
+    category,
+    severity,
+    actionTitle,
+    details,
+    actorName: String(raw?.actorName || raw?.user || 'System'),
+    actorRole,
+    ipAddress: raw?.ipAddress || raw?.details?.ipAddress || raw?.metadata?.ipAddress || undefined,
+    metadata
+  };
+}
+
 export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
   users = [],
   jobs = [],
   feeLogs = [],
   ads = []
 }) => {
-  const [logs, setLogs] = useState<ActivityLogItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('hybrid_admin_activity_logs');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_ACTIVITY_LOGS;
-  });
+  const [logs, setLogs] = useState<ActivityLogItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isSubmittingNote, setIsSubmittingNote] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const [selectedCategory, setSelectedCategory] = useState<ActivityLogCategory>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
@@ -175,12 +324,26 @@ export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
   const [manualSeverity, setManualSeverity] = useState<ActivityLogSeverity>('info');
   const [manualDetails, setManualDetails] = useState('');
 
-  // Persist logs
-  React.useEffect(() => {
+  const fetchAuditLogs = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
     try {
-      localStorage.setItem('hybrid_admin_activity_logs', JSON.stringify(logs));
-    } catch (e) {}
-  }, [logs]);
+      const res = await api.audit.getLogs();
+      if (res && res.success && Array.isArray(res.logs)) {
+        setLogs(res.logs.map((item: any, idx: number) => mapBackendAuditLog(item, idx)));
+      } else {
+        setLoadError(res?.message || 'Failed to load audit logs from the backend.');
+      }
+    } catch (err: any) {
+      setLoadError(err?.message || 'Unable to connect to the backend audit log service.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAuditLogs();
+  }, [fetchAuditLogs]);
 
   // Filtered logs
   const filteredLogs = useMemo(() => {
@@ -199,31 +362,46 @@ export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
     });
   }, [logs, selectedCategory, selectedSeverity, searchQuery]);
 
-  // Handle Manual Log Submission
-  const handleCreateManualLog = (e: React.FormEvent) => {
+  // Handle Manual Log Submission via authenticated backend POST /api/audit-logs
+  const handleCreateManualLog = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualTitle.trim() || !manualDetails.trim()) return;
+    if (!manualTitle.trim() || !manualDetails.trim() || isSubmittingNote) return;
 
-    const now = new Date();
-    const nowStr = now.toISOString().replace('T', ' ').substring(0, 19);
+    setIsSubmittingNote(true);
+    setSubmitError(null);
+    try {
+      const status =
+        manualSeverity === 'danger'
+          ? 'Error'
+          : manualSeverity === 'warning'
+            ? 'Warning'
+            : 'Success';
 
-    const newLog: ActivityLogItem = {
-      id: `log-${Date.now()}`,
-      timestamp: nowStr,
-      category: manualCategory,
-      severity: manualSeverity,
-      actionTitle: manualTitle.trim(),
-      details: manualDetails.trim(),
-      actorName: 'Super Admin',
-      actorRole: 'Admin',
-      ipAddress: '127.0.0.1 (Admin Console)',
-      metadata: { source: 'Manual Admin Annotation' }
-    };
+      const res = await api.audit.addLog({
+        action: manualTitle.trim(),
+        target: manualDetails.trim(),
+        status,
+        details: {
+          description: manualDetails.trim(),
+          category: manualCategory,
+          severity: manualSeverity,
+          source: 'Manual Admin Annotation'
+        }
+      });
 
-    setLogs((prev) => [newLog, ...prev]);
-    setIsAddingLog(false);
-    setManualTitle('');
-    setManualDetails('');
+      if (res && res.success) {
+        setIsAddingLog(false);
+        setManualTitle('');
+        setManualDetails('');
+        await fetchAuditLogs();
+      } else {
+        setSubmitError(res?.message || 'Failed to record admin note.');
+      }
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Failed to record admin note.');
+    } finally {
+      setIsSubmittingNote(false);
+    }
   };
 
   // Export CSV
@@ -238,13 +416,6 @@ export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
     link.href = url;
     link.download = `Platform_Activity_Logs_${new Date().toISOString().substring(0, 10)}.csv`;
     link.click();
-  };
-
-  // Clear Logs
-  const handleClearLogs = () => {
-    if (confirm('Are you sure you want to purge older activity logs? This cannot be undone.')) {
-      setLogs(INITIAL_ACTIVITY_LOGS.slice(0, 3));
-    }
   };
 
   const getCategoryIcon = (cat: string) => {
@@ -294,7 +465,10 @@ export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
 
         <div className="flex items-center space-x-2.5">
           <button
-            onClick={() => setIsAddingLog(true)}
+            onClick={() => {
+              setSubmitError(null);
+              setIsAddingLog(true);
+            }}
             className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 cursor-pointer transition-all active:scale-95"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -310,14 +484,30 @@ export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
           </button>
 
           <button
-            onClick={handleClearLogs}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition-all cursor-pointer"
-            title="Purge Old Logs"
+            onClick={fetchAuditLogs}
+            disabled={isLoading}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all cursor-pointer disabled:opacity-50"
+            title="Refresh Audit Logs"
           >
-            <Trash2 className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-indigo-400' : ''}`} />
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between gap-4 text-xs text-rose-300">
+          <div className="flex items-center space-x-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{loadError}</span>
+          </div>
+          <button
+            onClick={fetchAuditLogs}
+            className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 font-bold transition-all cursor-pointer shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Filter & Search Bar */}
       <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
@@ -402,7 +592,12 @@ export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
           <span className="font-mono text-slate-500">Sorted Chronologically (Latest First)</span>
         </div>
 
-        {filteredLogs.length === 0 ? (
+        {isLoading && logs.length === 0 ? (
+          <div className="py-12 text-center text-slate-400 space-y-2">
+            <RefreshCw className="w-7 h-7 text-indigo-400 mx-auto animate-spin" />
+            <p className="text-sm font-semibold">Loading authoritative audit records...</p>
+          </div>
+        ) : filteredLogs.length === 0 ? (
           <div className="py-12 text-center text-slate-500 space-y-2">
             <Activity className="w-8 h-8 text-slate-600 mx-auto" />
             <p className="text-sm font-semibold">No activity logs matched your filter criteria.</p>
@@ -612,18 +807,27 @@ export const AdminActivityLogs: React.FC<AdminActivityLogsProps> = ({
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-2">
+                {submitError && (
+                  <span className="text-xs text-rose-400 font-semibold mr-auto">
+                    {submitError}
+                  </span>
+                )}
                 <button
                   type="button"
-                  onClick={() => setIsAddingLog(false)}
+                  onClick={() => {
+                    setSubmitError(null);
+                    setIsAddingLog(false);
+                  }}
                   className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-600/20"
+                  disabled={isSubmittingNote}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-600/20 disabled:opacity-50"
                 >
-                  Record Entry
+                  {isSubmittingNote ? 'Recording...' : 'Record Entry'}
                 </button>
               </div>
             </form>

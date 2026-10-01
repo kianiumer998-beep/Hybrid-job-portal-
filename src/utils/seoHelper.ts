@@ -8,37 +8,52 @@ export interface JobSeoMetadata {
   jsonLd: Record<string, any>;
 }
 
+function normalizeHttpBaseUrl(rawUrl?: string): string {
+  const cleaned = (rawUrl || '').trim().replace(/\/+$/, '');
+  if (!cleaned || !/^https?:\/\//i.test(cleaned)) {
+    return '';
+  }
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return '';
+    }
+    if (parsed.username || parsed.password) {
+      return '';
+    }
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Resolves the base site URL in a domain-neutral order:
  * 1) Explicit configured canonical/base URL when supplied and valid
- * 2) import.meta.env.VITE_SITE_BASE_URL when non-empty
+ * 2) import.meta.env.VITE_SITE_BASE_URL when configured and valid HTTP/HTTPS URL
  * 3) window.location.origin when running in browser
  * 4) Empty string when no runtime origin is available
  */
 export function resolveSiteBaseUrl(configuredBaseUrl?: string): string {
-  const cleanConfigured = (configuredBaseUrl || '').trim().replace(/\/+$/, '');
-  if (cleanConfigured && /^https?:\/\//i.test(cleanConfigured)) {
-    try {
-      const parsed = new URL(cleanConfigured);
-      return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
-    } catch {
-      // Fall through if invalid URL
-    }
+  const validConfigured = normalizeHttpBaseUrl(configuredBaseUrl);
+  if (validConfigured) {
+    return validConfigured;
   }
 
-  const envBaseUrl = (
+  const rawEnvBaseUrl =
     typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SITE_BASE_URL
       ? String((import.meta as any).env.VITE_SITE_BASE_URL)
-      : ''
-  )
-    .trim()
-    .replace(/\/+$/, '');
-  if (envBaseUrl) {
-    return envBaseUrl;
+      : '';
+  const validEnvBaseUrl = normalizeHttpBaseUrl(rawEnvBaseUrl);
+  if (validEnvBaseUrl) {
+    return validEnvBaseUrl;
   }
 
   if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin.replace(/\/+$/, '');
+    const validWindowOrigin = normalizeHttpBaseUrl(window.location.origin);
+    if (validWindowOrigin) {
+      return validWindowOrigin;
+    }
   }
 
   return '';

@@ -19,37 +19,138 @@ function escapeXml(unsafe: string): string {
   });
 }
 
+// Validates and normalizes an explicit HTTP/HTTPS base URL
+function normalizeHttpBaseUrl(rawUrl?: string): string {
+  const cleaned = (rawUrl || '').trim().replace(/\/+$/, '');
+  if (!cleaned || !/^https?:\/\//i.test(cleaned)) {
+    return '';
+  }
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return '';
+    }
+    if (parsed.username || parsed.password) {
+      return '';
+    }
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+const SAFE_HOST_PATTERN =
+  /^(?:localhost|127\.0\.0\.1|\[::1\]|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)(?::\d{1,5})?$/i;
+
+function isRenderBackendHost(host: string): boolean {
+  return /\.onrender\.com(?::\d+)?$/i.test(host.trim());
+}
+
+function isLocalLoopbackHost(host: string): boolean {
+  return /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i.test(host.trim());
+}
+
 // Domain-neutral base URL resolver:
-// 1) process.env.SITE_BASE_URL when non-empty
-// 2) trusted request-derived origin using x-forwarded-proto / x-forwarded-host / req.get('host')
-// 3) http://localhost:3000 fallback
+// 1) process.env.SITE_BASE_URL when configured and valid (authoritative canonical base URL)
+// 2) Configured canonicalUrl in site SEO config or FRONTEND_URL when valid and non-Render
+// 3) Validated request-derived origin (never trusting arbitrary raw X-Forwarded-Host or Render backend host)
+// 4) http://localhost:3000 only for genuine local development; otherwise empty string for domain-neutral paths
 function resolveRequestBaseUrl(req: any): string {
-  const configuredBase = (process.env.SITE_BASE_URL || '').trim().replace(/\/+$/, '');
+  const configuredBase = normalizeHttpBaseUrl(process.env.SITE_BASE_URL);
   if (configuredBase) {
     return configuredBase;
   }
 
-  const forwardedProtoHeader = req.headers?.['x-forwarded-proto'];
-  const rawProto = Array.isArray(forwardedProtoHeader)
-    ? forwardedProtoHeader[0]
-    : typeof forwardedProtoHeader === 'string'
-      ? forwardedProtoHeader.split(',')[0]
-      : '';
-  const proto = (rawProto || req.protocol || 'http').trim();
-
-  const forwardedHostHeader = req.headers?.['x-forwarded-host'];
-  const rawHost = Array.isArray(forwardedHostHeader)
-    ? forwardedHostHeader[0]
-    : typeof forwardedHostHeader === 'string'
-      ? forwardedHostHeader.split(',')[0]
-      : '';
-  const host = (rawHost || req.get?.('host') || '').trim();
-
-  if (host) {
-    return `${proto}://${host}`.replace(/\/+$/, '');
+  const seoConfigBase = normalizeHttpBaseUrl(Database.getSeoConfig()?.canonicalUrl);
+  if (seoConfigBase && !isRenderBackendHost(new URL(seoConfigBase).host)) {
+    return seoConfigBase;
   }
 
-  return 'http://localhost:3000';
+  const configuredFrontend = normalizeHttpBaseUrl(process.env.FRONTEND_URL);
+  if (configuredFrontend && !isRenderBackendHost(new URL(configuredFrontend).host)) {
+    return configuredFrontend;
+  }
+
+  const rawReqHost = (
+    typeof req?.get === 'function' ? req.get('host') : req?.headers?.host || ''
+  )
+    .trim()
+    .toLowerCase();
+
+  const isProductionEnv =
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.RENDER) ||
+    isRenderBackendHost(rawReqHost);
+
+  // Build allowlist of explicitly configured trusted hosts for any forwarded-host comparison
+  const trustedHosts = new Set<string>();
+  if (!isProductionEnv && (!rawReqHost || isLocalLoopbackHost(rawReqHost))) {
+    trustedHosts.add('localhost');
+    trustedHosts.add('127.0.0.1');
+    trustedHosts.add('[::1]');
+  }
+  for (const rawOrigin of (process.env.CORS_ALLOWED_ORIGINS || '').split(',')) {
+    const normalized = normalizeHttpBaseUrl(rawOrigin);
+    if (normalized) {
+      try {
+        const parsedHost = new URL(normalized).host.toLowerCase();
+        if (!isRenderBackendHost(parsedHost) && (!isProductionEnv || !isLocalLoopbackHost(parsedHost))) {
+          trustedHosts.add(parsedHost);
+        }
+      } catch {
+        // Ignore invalid origin entry
+      }
+    }
+  }
+
+  const protocol = req?.protocol === 'https' ? 'https' : 'http';
+
+  // Only honor X-Forwarded-Host when it matches an explicitly trusted host (never arbitrary raw input)
+  const forwardedHostHeader = req?.headers?.['x-forwarded-host'];
+  const rawForwardedHost = (
+    Array.isArray(forwardedHostHeader)
+      ? forwardedHostHeader[0]
+      : typeof forwardedHostHeader === 'string'
+        ? forwardedHostHeader.split(',')[0]
+        : ''
+  )
+    .trim()
+    .toLowerCase();
+
+  if (
+    rawForwardedHost &&
+    SAFE_HOST_PATTERN.test(rawForwardedHost) &&
+    !isRenderBackendHost(rawForwardedHost) &&
+    (!isProductionEnv || !isLocalLoopbackHost(rawForwardedHost))
+  ) {
+    const forwardedHostOnly = rawForwardedHost.replace(/:\d+$/, '');
+    if (trustedHosts.has(rawForwardedHost) || trustedHosts.has(forwardedHostOnly)) {
+      const candidate = normalizeHttpBaseUrl(`${protocol}://${rawForwardedHost}`);
+      if (candidate) {
+        return candidate;
+      }
+    }
+  }
+
+  // Safe direct request host (excluding Render backend host, and excluding loopback in production)
+  if (
+    rawReqHost &&
+    SAFE_HOST_PATTERN.test(rawReqHost) &&
+    !isRenderBackendHost(rawReqHost) &&
+    (!isProductionEnv || !isLocalLoopbackHost(rawReqHost))
+  ) {
+    const candidate = normalizeHttpBaseUrl(`${protocol}://${rawReqHost}`);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  // Only use http://localhost:3000 as a genuine local-development fallback
+  if (!isProductionEnv && (!rawReqHost || isLocalLoopbackHost(rawReqHost)) && !rawForwardedHost) {
+    return 'http://localhost:3000';
+  }
+
+  return '';
 }
 
 // 1. Authoritative Dynamic XML Sitemap Generator (Excludes Expired, Duplicate, Rejected, Suspended)

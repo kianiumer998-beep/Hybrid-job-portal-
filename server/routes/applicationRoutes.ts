@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import crypto from 'crypto';
-import { ApplicationRepository, AuditRepository, JobRepository } from '../db/repositories';
+import { ApplicationRepository, AuditRepository, JobRepository, UserRepository } from '../db/repositories';
 import { Database } from '../db/database';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
@@ -326,18 +326,39 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       });
     }
 
+    const authUser = (req as any).user;
+    const effectiveApplicantId = String(authUser?.userId || authUser?.id || '').trim();
+    if (!effectiveApplicantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please log in.'
+      });
+    }
+
+    const dbUser = await UserRepository.getByIdAsync(effectiveApplicantId);
+
     const {
       jobId,
       jobTitle,
       companyName,
-      applicantId,
-      applicantName,
-      applicantEmail,
-      applicantPhone,
+      applicantPhone: rawApplicantPhone,
       coverLetter,
       answers,
       cvFileUrl
     } = req.body;
+
+    const applicantName = String(
+      dbUser?.name || dbUser?.fullName || authUser?.name || ''
+    ).trim();
+    const applicantEmail = String(
+      dbUser?.email || authUser?.email || ''
+    ).trim();
+    const profilePhone = String(
+      dbUser?.phone || dbUser?.phoneNumber || authUser?.phone || ''
+    ).trim();
+    const applicantPhone =
+      profilePhone ||
+      (typeof rawApplicantPhone === 'string' ? rawApplicantPhone.trim() : '');
 
     if (!jobId || !applicantName || !applicantEmail) {
       return res.status(400).json({ success: false, message: 'Job ID, applicant name, and email are required.' });
@@ -492,7 +513,6 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
     }
 
     // Duplicate Application Protection
-    const effectiveApplicantId = (req as any).user?.userId || (req as any).user?.id || 'guest';
     const existingApp = await ApplicationRepository.findExistingAsync(
       jobId,
       effectiveApplicantId,
@@ -511,7 +531,7 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       jobId,
       jobTitle: jobTitle || 'Position',
       companyName: companyName || 'Company',
-      applicantId: effectiveApplicantId || 'guest',
+      applicantId: effectiveApplicantId,
       applicantName,
       applicantEmail,
       applicantPhone,

@@ -475,6 +475,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [scrapeStartPage, setScrapeStartPage] = useState<number>(1);
   const [scrapeEndPage, setScrapeEndPage] = useState<number>(5);
   const [autoPublishTrusted, setAutoPublishTrusted] = useState(false);
+  const [duplicateMode, setDuplicateMode] = useState<'with' | 'without'>('with');
   const [selectedSingleSourceId, setSelectedSingleSourceId] = useState('');
   const [runProgressMessage, setRunProgressMessage] = useState('');
   const [scraperLogs, setScraperLogs] = useState<string[]>([]);
@@ -995,6 +996,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         startPage: scrapeScanType === 'page_range' ? validStartPage : undefined,
         endPage: scrapeScanType === 'page_range' ? validEndPage : undefined,
         autoPublishTrusted,
+        duplicateMode,
         sourceIds: options.targetSourceIds
       };
 
@@ -3173,6 +3175,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   </select>
                 </div>
 
+                <div className="flex items-center justify-between text-xs text-slate-300">
+                  <span>Duplicate Mode</span>
+                  <select
+                    value={duplicateMode}
+                    onChange={(e) => setDuplicateMode(e.target.value as 'with' | 'without')}
+                    aria-label="Duplicate Mode"
+                    className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white"
+                  >
+                    <option value="with">With Duplicates</option>
+                    <option value="without">Without Duplicates</option>
+                  </select>
+                </div>
+
                 {scrapeScanType === 'page_range' && (
                   <div className="grid grid-cols-2 gap-2 p-2 bg-slate-950/80 rounded-xl border border-slate-800 text-xs">
                     <div>
@@ -3232,6 +3247,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               </div>
 
               <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between text-xs text-slate-300">
+                  <span>Duplicate Mode</span>
+                  <select
+                    value={duplicateMode}
+                    onChange={(e) => setDuplicateMode(e.target.value as 'with' | 'without')}
+                    aria-label="Duplicate Mode"
+                    className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white"
+                  >
+                    <option value="with">With Duplicates</option>
+                    <option value="without">Without Duplicates</option>
+                  </select>
+                </div>
+
                 <div className="flex items-center justify-between text-xs text-slate-300">
                   <span>Auto-Publish Trusted</span>
                   <input

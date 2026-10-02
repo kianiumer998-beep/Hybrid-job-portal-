@@ -15,6 +15,7 @@ export interface ScraperRunOptions {
   fromTimestamp?: string;
   toTimestamp?: string;
   autoPublishTrusted?: boolean;
+  duplicateMode?: 'with' | 'without';
 }
 
 export interface ActiveRunStatus {
@@ -22,6 +23,7 @@ export interface ActiveRunStatus {
   isPaused: boolean;
   runId?: string;
   mode?: string;
+  duplicateMode?: 'with' | 'without';
   totalSources: number;
   completedSources: number;
   remainingSources: number;
@@ -123,6 +125,7 @@ export function resetActiveRun(): ActiveRunStatus {
 
 export interface ScraperRunSummary {
   runId: string;
+  duplicateMode?: 'with' | 'without';
   startTime: string;
   endTime: string;
   totalFound: number;
@@ -242,11 +245,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     pausePromise = null;
   }
 
+  const duplicateMode: 'with' | 'without' = options.duplicateMode === 'without' ? 'without' : 'with';
+
   activeRunState = {
     isActive: true,
     isPaused: false,
     runId,
     mode: options.mode,
+    duplicateMode,
     totalSources: targets.length,
     completedSources: 0,
     remainingSources: targets.length,
@@ -487,6 +493,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           duplicateJobs.push(standardizedJob);
           activeRunState.totalDuplicates++;
 
+          if (duplicateMode === 'without') {
+            // "Without Duplicates" mode:
+            // Do not create a NEW pending vacancy from this duplicate.
+            // Do not publish it, and do not modify or delete the original job.
+            // Duplicate counter is incremented, continue processing next candidate.
+            continue;
+          }
+
           // Duplicates are NEVER published live. Saved to pending queue with duplicate flags
           try {
             await JobRepository.addPending(standardizedJob);
@@ -649,6 +663,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     startedAt: startTime.toISOString(),
     completedAt: endTime.toISOString(),
     mode: options.mode,
+    duplicateMode,
     targetsScraped: targets.length,
     totalFound: harvestedJobs.length,
     newPublished: publishedJobs.length,
@@ -667,6 +682,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     status: failedCount > 0 ? 'Warning' : 'Success',
     metadata: {
       mode: options.mode,
+      duplicateMode,
       totalFound: harvestedJobs.length,
       published: publishedJobs.length,
       pending: pendingJobs.length,
@@ -677,6 +693,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
   return {
     runId,
+    duplicateMode,
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
     totalFound: harvestedJobs.length,

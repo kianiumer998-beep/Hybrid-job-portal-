@@ -181,6 +181,9 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
 // 6. Trigger Real Scraper Run with Multi-Source & All Modes
 scraperRouter.post('/run', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
+    const rawDupMode = req.body.duplicateMode;
+    const duplicateMode: 'with' | 'without' = rawDupMode === 'without' ? 'without' : 'with';
+
     const options: ScraperRunOptions = {
       mode: req.body.mode || 'complete',
       sourceId: req.body.sourceId,
@@ -190,7 +193,8 @@ scraperRouter.post('/run', requireAdminPermission('scraper.manage'), async (req,
       sinceTimestamp: req.body.sinceTimestamp,
       fromTimestamp: req.body.fromTimestamp,
       toTimestamp: req.body.toTimestamp,
-      autoPublishTrusted: req.body.autoPublishTrusted
+      autoPublishTrusted: req.body.autoPublishTrusted,
+      duplicateMode
     };
 
     const result = await executeScraperWithWizard(options);
@@ -280,9 +284,11 @@ scraperRouter.post('/retry', requireAdminPermission('scraper.manage'), async (re
       return res.json({ success: true, message: 'No failed sources found to retry.', totalFound: 0, newJobsCount: 0, duplicatesFound: 0, sourcesStats: [] });
     }
 
+    const duplicateMode: 'with' | 'without' = req.body.duplicateMode === 'without' ? 'without' : 'with';
     const result = await executeScraperWithWizard({
       mode: 'complete',
-      sourceIds: targetIds
+      sourceIds: targetIds,
+      duplicateMode
     });
 
     AuditRepository.add({
@@ -395,9 +401,11 @@ scraperRouter.post('/groups/:id/run', requireAdminPermission('scraper.manage'), 
       return res.status(400).json({ success: false, message: `Group "${group.name}" contains no sources.` });
     }
 
+    const duplicateMode: 'with' | 'without' = req.body.duplicateMode === 'without' ? 'without' : 'with';
     const result = await executeScraperWithWizard({
       mode: 'complete',
-      sourceIds: group.sourceIds
+      sourceIds: group.sourceIds,
+      duplicateMode
     });
 
     AuditRepository.add({

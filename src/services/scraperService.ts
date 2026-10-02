@@ -820,6 +820,122 @@ function extractHtmlSemanticJobs(html: string, currentUrl: string, config: Scrap
 }
 
 /**
+ * Canonicalizes a PDF/portal URL for consistent deduplication and loop prevention.
+ * Rules:
+ * - Lowercases protocol, host, and path
+ * - Strips query parameters and hash fragments
+ * - Strips trailing slashes
+ * Examples:
+ *  "https://example.gov/file.pdf" -> "https://example.gov/file.pdf"
+ *  "https://example.gov/file.pdf?download=1" -> "https://example.gov/file.pdf"
+ *  "https://example.gov/file.pdf/" -> "https://example.gov/file.pdf"
+ */
+function canonicalizePdfUrl(urlStr: string | undefined | null): string {
+  if (!urlStr || typeof urlStr !== 'string') return '';
+  const trimmed = urlStr.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    const cleanHost = parsed.hostname.toLowerCase();
+    const cleanPort = parsed.port ? `:${parsed.port}` : '';
+    let cleanPath = parsed.pathname.toLowerCase().replace(/\/+$/, '');
+    if (!cleanPath) cleanPath = '/';
+    return `${parsed.protocol}//${cleanHost}${cleanPort}${cleanPath}`;
+  } catch {
+    return trimmed.toLowerCase().split('?')[0].split('#')[0].replace(/\/+$/, '');
+  }
+}
+
+/**
+ * Evaluates whether a Government PDF error qualifies for safe official portal fallback.
+ * Strictly adheres to 58-D.5 rules:
+ * ALLOWED:
+ *  - HTTP 404 (Not Found)
+ *  - HTML returned instead of expected PDF
+ *  - Empty document (0 bytes)
+ *  - Invalid / corrupt PDF / binary decoding failure
+ *  - HTTP 403 ONLY when the official portalUrl is a separate accessible official portal URL passing SSRF validation
+ * DISALLOWED:
+ *  - SSRF or security violations
+ *  - HTTP 429 (Rate Limited)
+ *  - Primary domain DNS failures / connection refused / unreachable network
+ *  - Hard timeouts (>10s/15s / AbortError / ETIMEDOUT)
+ *  - Redirect security violations
+ */
+function isEligibleForPortalFallback(
+  err: any,
+  config: ScraperTargetConfig,
+  targetPdfUrl: string
+): boolean {
+  // 1. Confirm official portalUrl is explicitly configured on source
+  const portalUrl = config.portalUrl?.trim();
+  if (!portalUrl || !portalUrl.startsWith('http')) {
+    return false;
+  }
+
+  // 2. portalUrl must be distinct from the failed PDF URL (canonical comparison)
+  if (canonicalizePdfUrl(portalUrl) === canonicalizePdfUrl(targetPdfUrl)) {
+    return false;
+  }
+
+  // 3. portalUrl must pass existing SSRF protection
+  const ssrfCheck = validateSafeScrapeUrl(portalUrl);
+  if (!ssrfCheck.safe) {
+    return false;
+  }
+
+  // 4. Inspect error message, code, and HTTP status
+  const msg = String(err?.message || err || '').toLowerCase();
+  const status = Number(err?.status || err?.statusCode || err?.httpStatus || 0);
+
+  // STRICT DISALLOWED CONDITIONS:
+  // - SSRF or security rejections
+  if (msg.includes('ssrf') || msg.includes('blocked') || msg.includes('security') || msg.includes('forbidden protocol')) {
+    return false;
+  }
+  // - HTTP 429 Rate Limiting
+  if (status === 429 || msg.includes('429') || msg.includes('rate limit')) {
+    return false;
+  }
+  // - DNS failure or connection refused (remote host completely down)
+  if (msg.includes('enotfound') || msg.includes('eai_again') || msg.includes('dns') || msg.includes('econnrefused') || msg.includes('offline or dns unreachable')) {
+    return false;
+  }
+  // - Hard timeout (>10s/15s)
+  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('etimedout') || msg.includes('aborterror')) {
+    return false;
+  }
+  // - Redirect security violation
+  if (msg.includes('redirect loop') || msg.includes('maximum redirect hops')) {
+    return false;
+  }
+
+  // STRICT ALLOWED CONDITIONS:
+  // - HTTP 404 Not Found
+  if (status === 404 || msg.includes('404') || msg.includes('not found')) {
+    return true;
+  }
+  // - HTML returned instead of expected PDF
+  if (msg.includes('html instead of pdf') || msg.includes('text/html') || msg.includes('received html content')) {
+    return true;
+  }
+  // - Empty document response (0 bytes)
+  if (msg.includes('empty response') || msg.includes('0 bytes')) {
+    return true;
+  }
+  // - Corrupt / invalid PDF binary or parsing extraction failure
+  if (msg.includes('invalid pdf') || msg.includes('failed to parse pdf') || msg.includes('decoding issue') || msg.includes('pdf extraction failed') || msg.includes('exceeds maximum supported size')) {
+    return true;
+  }
+  // - HTTP 403 ONLY when portalUrl is a separate accessible official portal URL
+  if (status === 403 || msg.includes('403') || msg.includes('forbidden')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Universal scraper pipeline for an individual target portal.
  * STRICT POLICY: NEVER invent or synthesize fake jobs.
  * 0 jobs extracted = returns empty array.
@@ -836,9 +952,37 @@ export async function scrapeTargetPortal(
     return [];
   }
 
+  let pdfFallbackAttempted = false;
+  let originalPdfFailureNotice: string | null = null;
+  const failedPdfUrls = new Set<string>();
+
   try {
     // 1. Check Government PDF Adapter
-    const pdfResult = await scrapeGovernmentPdfPortal(config, options);
+    let pdfResult: ScrapeExecutionResult | null = null;
+    try {
+      pdfResult = await scrapeGovernmentPdfPortal(config, options);
+    } catch (pdfErr: any) {
+      const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : effectiveUrl;
+      if (targetPdfUrl) {
+        failedPdfUrls.add(canonicalizePdfUrl(targetPdfUrl));
+      }
+      if (config.pdfUrl && config.pdfUrl.startsWith('http')) {
+        failedPdfUrls.add(canonicalizePdfUrl(config.pdfUrl));
+      }
+
+      // Check if this error is eligible for safe official portal fallback
+      const canFallback = isEligibleForPortalFallback(pdfErr, config, targetPdfUrl);
+      if (!canFallback) {
+        // Disallowed error or no safe distinct portalUrl: rethrow original error immediately
+        throw pdfErr;
+      }
+
+      // Recoverable: proceed to official portalUrl fallback
+      pdfFallbackAttempted = true;
+      originalPdfFailureNotice = pdfErr?.message || 'PDF unreachable';
+      console.log(`[Scraper Pipeline] PDF recovery fallback for "${config.name}": Original PDF (${targetPdfUrl}) failed (${originalPdfFailureNotice}). Recovering via official portal fallback: ${config.portalUrl}`);
+    }
+
     if (pdfResult) {
       return filterByOptions(pdfResult.jobs, options);
     }
@@ -862,7 +1006,8 @@ export async function scrapeTargetPortal(
     }
 
     // 5. Build paginated target URL if page > 1
-    let targetUrl = effectiveUrl;
+    // If fallback is active, targetUrl becomes the validated official portalUrl
+    let targetUrl = (pdfFallbackAttempted && config.portalUrl) ? config.portalUrl.trim() : effectiveUrl;
     if (options.page && options.page > 1) {
       try {
         const urlObj = new URL(targetUrl);
@@ -882,15 +1027,24 @@ export async function scrapeTargetPortal(
       throw httpErr;
     }
 
+    const finalResponseUrl = response.url || targetUrl;
+    // Prevent loop if portal URL or its redirect destination matches the known failed PDF URL
+    if (
+      failedPdfUrls.has(canonicalizePdfUrl(targetUrl)) ||
+      failedPdfUrls.has(canonicalizePdfUrl(finalResponseUrl))
+    ) {
+      throw new Error(`PDF Loop Prevented: Target URL or redirect destination is already known to be a failed PDF (${finalResponseUrl || targetUrl})`);
+    }
+
     // Check if Content-Type is PDF (e.g. redirected or served without .pdf extension)
     const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/pdf')) {
-      const pdfRes = await parsePdfFromUrl(targetUrl, config.name);
+    if (contentType.includes('application/pdf') || finalResponseUrl.toLowerCase().split('?')[0].endsWith('.pdf')) {
+      const pdfRes = await parsePdfFromUrl(finalResponseUrl, config.name);
       if (!pdfRes.success) {
         throw new Error(pdfRes.message ? `Invalid PDF: ${pdfRes.message}` : 'Invalid PDF: Failed to parse PDF response');
       }
       if (pdfRes.formatType === 'html') {
-        throw new Error(`HTML instead of PDF: Expected PDF response from ${targetUrl} but received HTML content`);
+        throw new Error(`HTML instead of PDF: Expected PDF response from ${finalResponseUrl} but received HTML content`);
       }
       if (pdfRes.extractedJobs.length > 0) {
         return filterByOptions(pdfRes.extractedJobs.map(j => ({
@@ -918,7 +1072,11 @@ export async function scrapeTargetPortal(
           href.toLowerCase().split('?')[0].endsWith('.pdf') &&
           (/adv|advertisement|consolidated|gazette|vacancy|recruitment|phase/i.test(href) || /adv|advertisement|gazette/i.test(text))
         ) {
-          linkedPdfUrl = resolveUrl(href, targetUrl);
+          const resolved = resolveUrl(href, targetUrl);
+          // Strictly prevent re-fetching the same failed PDF that triggered fallback (canonical comparison)
+          if (resolved && !failedPdfUrls.has(canonicalizePdfUrl(resolved))) {
+            linkedPdfUrl = resolved;
+          }
         }
       });
 
@@ -938,12 +1096,18 @@ export async function scrapeTargetPortal(
     // 7. Extract JSON-LD Schema.org structured data (highest fidelity)
     const jsonLdJobs = extractJsonLdJobs(html, targetUrl, config, options);
     if (jsonLdJobs.length > 0) {
+      if (pdfFallbackAttempted && originalPdfFailureNotice) {
+        console.log(`[Scraper Pipeline] Successfully recovered ${jsonLdJobs.length} vacancies for "${config.name}" via official portal JSON-LD (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+      }
       return filterByOptions(jsonLdJobs, options);
     }
 
     // 8. Extract JavaScript embedded state (__NEXT_DATA__, etc.)
     const jsJobs = extractEmbeddedStateJobs(html, targetUrl, config, options);
     if (jsJobs.length > 0) {
+      if (pdfFallbackAttempted && originalPdfFailureNotice) {
+        console.log(`[Scraper Pipeline] Successfully recovered ${jsJobs.length} vacancies for "${config.name}" via official portal embedded state (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+      }
       return filterByOptions(jsJobs, options);
     }
 
@@ -956,8 +1120,27 @@ export async function scrapeTargetPortal(
       htmlJobs.forEach(j => { j.nextPageUrl = nextPageUrl; });
     }
 
+    if (pdfFallbackAttempted && originalPdfFailureNotice) {
+      if (htmlJobs.length > 0) {
+        console.log(`[Scraper Pipeline] Successfully recovered ${htmlJobs.length} vacancies for "${config.name}" via official portal semantic HTML (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+      } else {
+        console.log(`[Scraper Pipeline] Note for "${config.name}": Official portal fallback (${targetUrl}) loaded successfully, but no structured vacancies were detected on page.`);
+      }
+    }
+
     return filterByOptions(htmlJobs, options);
   } catch (error: any) {
+    if (pdfFallbackAttempted && originalPdfFailureNotice) {
+      console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): Original PDF failed (${originalPdfFailureNotice}); portal fallback also failed: ${error?.message || 'Remote portal did not respond'}`);
+      const combinedError: any = new Error(`Original PDF failed (${originalPdfFailureNotice}); portal fallback also failed: ${error?.message || 'Remote portal did not respond'}`);
+      if (error?.status || error?.statusCode || error?.httpStatus) {
+        combinedError.status = error.status || error.statusCode || error.httpStatus;
+        combinedError.statusCode = combinedError.status;
+        combinedError.httpStatus = combinedError.status;
+      }
+      throw combinedError;
+    }
+
     console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${error?.message || 'Remote portal did not respond'}`);
 
     // Isolate static test gazette fallback strictly from production and standard real scraper runs

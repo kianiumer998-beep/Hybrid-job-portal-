@@ -9,6 +9,60 @@ export const transactionRouter = Router();
 const activeUserTransactionLocks = new Set<string>();
 const activeTransactionVerificationLocks = new Set<string>();
 
+type WalletMutationState =
+  | 'NONE'
+  | 'DEDUCTING'
+  | 'DEDUCTED'
+  | 'ROLLING_BACK'
+  | 'ROLLED_BACK'
+  | 'ROLLBACK_FAILED'
+  | 'UNCERTAIN';
+
+const UNCERTAIN_OR_ACTIVE_WALLET_STATES = new Set<WalletMutationState>([
+  'DEDUCTING',
+  'DEDUCTED',
+  'ROLLING_BACK',
+  'ROLLBACK_FAILED',
+  'UNCERTAIN'
+]);
+
+function isTransactionWalletStateLocked(tx: any): boolean {
+  if (!tx) return false;
+  const state = String(tx.walletMutationState || '') as WalletMutationState;
+  return UNCERTAIN_OR_ACTIVE_WALLET_STATES.has(state);
+}
+
+function canSafelyMarkTransactionFailed(state: WalletMutationState): boolean {
+  return state === 'NONE' || state === 'ROLLED_BACK';
+}
+
+function persistTransactionState(
+  txId: string,
+  updates: Record<string, any>,
+  verifyField?: { key: string; expected: any }
+): any {
+  const allTxs = Database.getTransactions();
+  const txIdx = allTxs.findIndex((t: any) => t && String(t.id) === String(txId));
+  if (txIdx === -1) {
+    throw new Error(`Transaction ${txId} not found in storage.`);
+  }
+  allTxs[txIdx] = {
+    ...allTxs[txIdx],
+    ...updates
+  };
+  Database.saveTransactions(allTxs);
+
+  if (verifyField) {
+    const reloaded = PaymentRepository.getById(txId);
+    if (!reloaded || reloaded[verifyField.key] !== verifyField.expected) {
+      throw new Error(`Failed to persist durable transaction state (${verifyField.key}=${String(verifyField.expected)}).`);
+    }
+    return reloaded;
+  }
+
+  return allTxs[txIdx];
+}
+
 // 1. Get transactions (all for admin, or scoped to authenticated user)
 transactionRouter.get('/', requireAuth, (req, res) => {
   try {
@@ -266,7 +320,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       // Check idempotency (Failed transactions do not block legitimate retries)
       if (idempotencyKey) {
         const existing = PaymentRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing && existing.status !== 'Failed') {
+        if (existing && (existing.status !== 'Failed' || isTransactionWalletStateLocked(existing))) {
           if (!isAdmin && existing.userId && String(existing.userId) !== String(effectiveUserId)) {
             return res.status(403).json({
               success: false,
@@ -280,6 +334,13 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
               alreadyCompensated: true,
               transaction: existing,
               message: 'Advertisement payment was already refunded/compensated after a previous campaign creation failure (idempotent result).'
+            });
+          }
+          if (existing.status === 'Pending' && existing.paymentMethod === 'Wallet Balance' && isTransactionWalletStateLocked(existing)) {
+            return res.status(409).json({
+              success: false,
+              transaction: existing,
+              message: 'Previous wallet transaction outcome is pending reconciliation and cannot be retried automatically.'
             });
           }
           return res.json({
@@ -297,7 +358,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             t &&
             t.type === 'Advertisement' &&
             String(t.adIdRef) === String(safeAdIdRef) &&
-            (t.status === 'Pending' || t.status === 'Success' || PaymentRepository.isTransactionCompensated(t))
+            (t.status === 'Pending' || t.status === 'Success' || PaymentRepository.isTransactionCompensated(t) || isTransactionWalletStateLocked(t))
         );
         if (existingAdTx) {
           if (!isAdmin && existingAdTx.userId && String(existingAdTx.userId) !== String(effectiveUserId)) {
@@ -315,6 +376,13 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
               message: 'Advertisement payment was already refunded/compensated after a previous campaign creation failure (idempotent result).'
             });
           }
+          if (existingAdTx.status === 'Pending' && existingAdTx.paymentMethod === 'Wallet Balance' && isTransactionWalletStateLocked(existingAdTx)) {
+            return res.status(409).json({
+              success: false,
+              transaction: existingAdTx,
+              message: 'Previous advertisement wallet transaction outcome is pending reconciliation and cannot be retried automatically.'
+            });
+          }
           return res.json({
             success: true,
             transaction: existingAdTx,
@@ -330,7 +398,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             t &&
             t.type === 'Job Posting' &&
             String(t.jobIdRef) === String(safeJobIdRef) &&
-            (t.status === 'Pending' || t.status === 'Success')
+            (t.status === 'Pending' || t.status === 'Success' || isTransactionWalletStateLocked(t))
         );
         if (existingJobTx) {
           return res.status(409).json({
@@ -389,6 +457,7 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
         ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
         status: 'Pending',
         paymentMethod,
+        ...(paymentMethod === 'Wallet Balance' ? { walletMutationState: 'NONE' as WalletMutationState } : {}),
         transactionId: tid,
         idempotencyKey: idempotencyKey || undefined,
         senderName: senderName || effectiveUserName || 'Customer',
@@ -411,48 +480,163 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
       let finalStatus: 'Pending' | 'Success' = 'Pending';
 
       if (paymentMethod === 'Wallet Balance') {
+        let walletMutationState: WalletMutationState = 'NONE';
+        let effectiveBalanceBefore = previousWalletBalance;
+        let effectiveBalanceAfter = previousWalletBalance;
+
         try {
           if (effectiveType === 'Subscription') {
-            // Single atomic user update for wallet deduction + subscription activation
-            const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
-              walletBalance: previousWalletBalance - enforcedAmount,
-              membershipTier: safeSubscriptionPlan || 'Pro Alerts',
-              membershipStatus: 'Active',
-              subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-            });
+            // Persist durable DEDUCTING state BEFORE invoking wallet deduction
+            persistTransactionState(
+              newTx.id,
+              { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },
+              { key: 'walletMutationState', expected: 'DEDUCTING' }
+            );
+            walletMutationState = 'DEDUCTING';
+            newTx.walletMutationState = 'DEDUCTING';
+
+            const subscriptionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+            let updatedUser: any = null;
+            try {
+              updatedUser = await UserRepository.deductWalletBalanceAsync(
+                effectiveUserId,
+                enforcedAmount,
+                {
+                  membershipTier: safeSubscriptionPlan || 'Pro Alerts',
+                  membershipStatus: 'Active',
+                  subscriptionExpiresAt
+                }
+              );
+            } catch (deductErr) {
+              walletMutationState = 'UNCERTAIN';
+              throw deductErr;
+            }
+
             if (!updatedUser) {
+              walletMutationState = 'NONE';
               throw new Error('Failed to deduct wallet balance and activate subscription.');
             }
+
+            walletMutationState = 'DEDUCTED';
+            effectiveBalanceAfter = Number(updatedUser.walletBalance);
+            effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
+            persistTransactionState(
+              newTx.id,
+              {
+                walletMutationState: 'DEDUCTED',
+                balanceBefore: effectiveBalanceBefore,
+                balanceAfter: effectiveBalanceAfter,
+                updatedAt: new Date().toISOString()
+              }
+            );
+            newTx.walletMutationState = 'DEDUCTED';
           } else {
             // Job Posting or Advertisement wallet deduction
             if (enforcedAmount > 0) {
-              const updatedUser = await UserRepository.updateAsync(effectiveUserId, {
-                walletBalance: previousWalletBalance - enforcedAmount
-              });
+              // Persist durable DEDUCTING state BEFORE invoking wallet deduction
+              persistTransactionState(
+                newTx.id,
+                { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },
+                { key: 'walletMutationState', expected: 'DEDUCTING' }
+              );
+              walletMutationState = 'DEDUCTING';
+              newTx.walletMutationState = 'DEDUCTING';
+
+              let updatedUser: any = null;
+              try {
+                updatedUser = await UserRepository.deductWalletBalanceAsync(effectiveUserId, enforcedAmount);
+              } catch (deductErr) {
+                walletMutationState = 'UNCERTAIN';
+                throw deductErr;
+              }
+
               if (!updatedUser) {
+                walletMutationState = 'NONE';
                 throw new Error('Failed to deduct wallet balance.');
               }
+
+              walletMutationState = 'DEDUCTED';
+              effectiveBalanceAfter = Number(updatedUser.walletBalance);
+              effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
+              persistTransactionState(
+                newTx.id,
+                {
+                  walletMutationState: 'DEDUCTED',
+                  balanceBefore: effectiveBalanceBefore,
+                  balanceAfter: effectiveBalanceAfter,
+                  updatedAt: new Date().toISOString()
+                }
+              );
+              newTx.walletMutationState = 'DEDUCTED';
             }
 
             if (effectiveType === 'Job Posting' && safeJobIdRef) {
               let approvedJob: any = null;
+              let jobApproveErrorToThrow: any = null;
+
               try {
                 approvedJob = await JobRepository.approvePending(safeJobIdRef);
               } catch (jobApproveErr) {
+                // Verify whether the job was actually activated despite the thrown error
                 try {
-                  await UserRepository.updateAsync(effectiveUserId, {
-                    walletBalance: previousWalletBalance
-                  });
-                } catch {}
-                throw jobApproveErr;
+                  const verifyJobs = await JobRepository.getJobsByIds([String(safeJobIdRef)]);
+                  const verifiedJob = verifyJobs[0] || null;
+                  if (verifiedJob && verifiedJob.status === 'Approved') {
+                    approvedJob = verifiedJob;
+                  } else {
+                    jobApproveErrorToThrow = jobApproveErr;
+                  }
+                } catch {
+                  // Cannot verify whether job activation succeeded; fail closed without blind refund
+                  if (walletMutationState === 'DEDUCTED') {
+                    walletMutationState = 'UNCERTAIN';
+                  }
+                  throw jobApproveErr;
+                }
               }
+
               if (!approvedJob) {
-                try {
-                  await UserRepository.updateAsync(effectiveUserId, {
-                    walletBalance: previousWalletBalance
-                  });
-                } catch {}
-                throw new Error('Failed to activate job posting after wallet deduction.');
+                if (walletMutationState === 'DEDUCTED' && enforcedAmount > 0) {
+                  walletMutationState = 'ROLLING_BACK';
+                  try {
+                    persistTransactionState(
+                      newTx.id,
+                      { walletMutationState: 'ROLLING_BACK', updatedAt: new Date().toISOString() },
+                      { key: 'walletMutationState', expected: 'ROLLING_BACK' }
+                    );
+                    newTx.walletMutationState = 'ROLLING_BACK';
+
+                    const restoredUser = await UserRepository.creditWalletBalanceAsync(
+                      effectiveUserId,
+                      enforcedAmount
+                    );
+                    if (restoredUser) {
+                      walletMutationState = 'ROLLED_BACK';
+                      persistTransactionState(newTx.id, {
+                        walletMutationState: 'ROLLED_BACK',
+                        updatedAt: new Date().toISOString()
+                      });
+                      newTx.walletMutationState = 'ROLLED_BACK';
+                    } else {
+                      walletMutationState = 'ROLLBACK_FAILED';
+                      persistTransactionState(newTx.id, {
+                        walletMutationState: 'ROLLBACK_FAILED',
+                        updatedAt: new Date().toISOString()
+                      });
+                      newTx.walletMutationState = 'ROLLBACK_FAILED';
+                    }
+                  } catch {
+                    walletMutationState = 'ROLLBACK_FAILED';
+                    try {
+                      persistTransactionState(newTx.id, {
+                        walletMutationState: 'ROLLBACK_FAILED',
+                        updatedAt: new Date().toISOString()
+                      });
+                    } catch {}
+                    newTx.walletMutationState = 'ROLLBACK_FAILED';
+                  }
+                }
+                throw jobApproveErrorToThrow || new Error('Failed to activate job posting after wallet deduction.');
               }
             }
           }
@@ -463,30 +647,36 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
           const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
           if (txIdx !== -1) {
             allTxs[txIdx].status = 'Success';
+            allTxs[txIdx].walletMutationState = walletMutationState;
             allTxs[txIdx].verifiedAt = verifiedAt;
             allTxs[txIdx].updatedAt = verifiedAt;
-            allTxs[txIdx].balanceBefore = previousWalletBalance;
-            allTxs[txIdx].balanceAfter = previousWalletBalance - enforcedAmount;
+            allTxs[txIdx].balanceBefore = effectiveBalanceBefore;
+            allTxs[txIdx].balanceAfter = effectiveBalanceAfter;
             Database.saveTransactions(allTxs);
           }
           newTx.status = 'Success';
+          newTx.walletMutationState = walletMutationState;
           newTx.verifiedAt = verifiedAt;
           newTx.updatedAt = verifiedAt;
-          newTx.balanceBefore = previousWalletBalance;
-          newTx.balanceAfter = previousWalletBalance - enforcedAmount;
+          newTx.balanceBefore = effectiveBalanceBefore;
+          newTx.balanceAfter = effectiveBalanceAfter;
           finalStatus = 'Success';
         } catch (walletProcessingErr: any) {
           const failedAt = new Date().toISOString();
           const failureReason = walletProcessingErr?.message || 'Wallet Balance processing failed.';
+          const nextStatus = canSafelyMarkTransactionFailed(walletMutationState) ? 'Failed' : 'Pending';
+
           const allTxs = Database.getTransactions();
           const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
           if (txIdx !== -1) {
-            allTxs[txIdx].status = 'Failed';
+            allTxs[txIdx].status = nextStatus;
+            allTxs[txIdx].walletMutationState = walletMutationState;
             allTxs[txIdx].rejectionReason = failureReason;
             allTxs[txIdx].updatedAt = failedAt;
             Database.saveTransactions(allTxs);
           }
-          newTx.status = 'Failed';
+          newTx.status = nextStatus;
+          newTx.walletMutationState = walletMutationState;
           newTx.rejectionReason = failureReason;
           newTx.updatedAt = failedAt;
           throw walletProcessingErr;

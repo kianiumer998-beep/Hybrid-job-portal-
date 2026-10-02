@@ -5,6 +5,16 @@ import { AuditRepository } from './AuditRepository';
 
 const activeCompensationLocks = new Set<string>();
 
+export type CompensationStatusState =
+  | 'Compensating'
+  | 'Compensated'
+  | 'CompensationUncertain';
+
+export type DepositVerificationState =
+  | 'Crediting'
+  | 'Completed'
+  | 'CreditUncertain';
+
 export class PaymentRepository {
   static isTransactionCompensated(tx: any): boolean {
     if (!tx) return false;
@@ -15,6 +25,14 @@ export class PaymentRepository {
       tx.compensationStatus === 'Compensated' ||
       tx.compensatedAt ||
       tx.refundReferenceId
+    );
+  }
+
+  static isCompensationInProgressOrUncertain(tx: any): boolean {
+    if (!tx) return false;
+    return Boolean(
+      tx.compensationStatus === 'Compensating' ||
+      tx.compensationStatus === 'CompensationUncertain'
     );
   }
   static getAll(userId?: string): any[] {
@@ -168,6 +186,13 @@ export class PaymentRepository {
         };
       }
 
+      // 3b. Fail closed if a previous compensation attempt is in progress or had an uncertain MongoDB outcome
+      if (this.isCompensationInProgressOrUncertain(tx)) {
+        throw new Error(
+          `Cannot compensate Advertisement transaction: compensation state is ${tx.compensationStatus} and requires reconciliation.`
+        );
+      }
+
       // 4. Ensure no advertisement campaign was actually created and linked to this transaction
       const allAds = Database.getAds() || [];
       const linkedAd = allAds.find(
@@ -216,16 +241,44 @@ export class PaymentRepository {
       }
 
       const rawCurrentBal = Number(user.walletBalance || 0);
-      const currentBal = Number.isFinite(rawCurrentBal) && rawCurrentBal >= 0 ? rawCurrentBal : 0;
-      const restoredBalance = currentBal + originalAmount;
+      let currentBal = Number.isFinite(rawCurrentBal) && rawCurrentBal >= 0 ? rawCurrentBal : 0;
+      let restoredBalance = currentBal + originalAmount;
 
       if (originalAmount > 0) {
-        const updatedUser = await UserRepository.updateAsync(user.id, {
-          walletBalance: restoredBalance
-        });
+        // Persist durable Compensating claim BEFORE invoking wallet credit
+        tx.compensationStatus = 'Compensating' as CompensationStatusState;
+        tx.updatedAt = new Date().toISOString();
+        txs[idx] = tx;
+        Database.saveTransactions(txs);
+
+        const persistedClaim = this.getById(lockKey);
+        if (!persistedClaim || persistedClaim.compensationStatus !== 'Compensating') {
+          throw new Error('Failed to persist durable compensation claim before wallet credit.');
+        }
+
+        let updatedUser: any = null;
+        try {
+          updatedUser = await UserRepository.creditWalletBalanceAsync(user.id, originalAmount);
+        } catch (creditErr) {
+          tx.originalStatus = tx.status;
+          tx.status = 'Pending';
+          tx.compensationStatus = 'CompensationUncertain' as CompensationStatusState;
+          tx.updatedAt = new Date().toISOString();
+          txs[idx] = tx;
+          Database.saveTransactions(txs);
+          throw creditErr;
+        }
+
         if (!updatedUser) {
+          delete tx.compensationStatus;
+          tx.updatedAt = new Date().toISOString();
+          txs[idx] = tx;
+          Database.saveTransactions(txs);
           throw new Error('Failed to restore user wallet balance during Advertisement payment compensation.');
         }
+
+        restoredBalance = Number(updatedUser.walletBalance);
+        currentBal = restoredBalance - originalAmount;
       }
 
       const compensatedAt = new Date().toISOString();
@@ -237,7 +290,7 @@ export class PaymentRepository {
       tx.status = 'Refunded';
       tx.compensated = true;
       tx.refunded = true;
-      tx.compensationStatus = 'Compensated';
+      tx.compensationStatus = 'Compensated' as CompensationStatusState;
       tx.originalChargedAmount = originalAmount;
       tx.refundedAmount = originalAmount;
       tx.compensatedAt = compensatedAt;
@@ -316,6 +369,17 @@ export class PaymentRepository {
       throw new Error(`Transaction is already ${tx.status} and cannot be ${action === 'approve' ? 'approved' : 'rejected'}.`);
     }
 
+    if (
+      tx.type === 'Wallet Deposit' &&
+      (tx.walletCredited === true ||
+        tx.verificationState === 'Crediting' ||
+        tx.verificationState === 'CreditUncertain')
+    ) {
+      throw new Error(
+        `Cannot ${action} Wallet Deposit: verification state is ${tx.verificationState || 'Completed'} and requires reconciliation.`
+      );
+    }
+
     if (action === 'approve') {
       if (tx.paymentMethod === 'Wallet Balance') {
         throw new Error('Wallet Balance transactions cannot be manually approved.');
@@ -337,19 +401,42 @@ export class PaymentRepository {
           throw new Error('Cannot approve Wallet Deposit: target user not found.');
         }
 
-        const rawCurrentBal = Number(user.walletBalance || 0);
-        const currentBal =
-          Number.isFinite(rawCurrentBal) && rawCurrentBal >= 0
-            ? rawCurrentBal
-            : 0;
+        // Persist durable Crediting state BEFORE invoking wallet credit
+        tx.verificationState = 'Crediting' as DepositVerificationState;
+        tx.updatedAt = new Date().toISOString();
+        txs[idx] = tx;
+        Database.saveTransactions(txs);
 
-        const updatedUser = await UserRepository.updateAsync(user.id, {
-          walletBalance: currentBal + depositAmount
-        });
+        const persistedClaim = this.getById(id);
+        if (!persistedClaim || persistedClaim.verificationState !== 'Crediting') {
+          throw new Error('Cannot approve Wallet Deposit: failed to persist verification state before wallet credit.');
+        }
+
+        let updatedUser: any = null;
+        try {
+          updatedUser = await UserRepository.creditWalletBalanceAsync(user.id, depositAmount);
+        } catch (creditErr) {
+          tx.verificationState = 'CreditUncertain' as DepositVerificationState;
+          tx.updatedAt = new Date().toISOString();
+          txs[idx] = tx;
+          Database.saveTransactions(txs);
+          throw creditErr;
+        }
 
         if (!updatedUser) {
+          delete tx.verificationState;
+          tx.updatedAt = new Date().toISOString();
+          txs[idx] = tx;
+          Database.saveTransactions(txs);
           throw new Error('Cannot approve Wallet Deposit: failed to update user wallet balance.');
         }
+
+        const balanceAfterDeposit = Number(updatedUser.walletBalance);
+        const balanceBeforeDeposit = balanceAfterDeposit - depositAmount;
+        tx.walletCredited = true;
+        tx.verificationState = 'Completed' as DepositVerificationState;
+        tx.balanceBefore = balanceBeforeDeposit;
+        tx.balanceAfter = balanceAfterDeposit;
       } else if (tx.type === 'Subscription') {
         if (!tx.userId) {
           throw new Error('Cannot approve Subscription: transaction is missing userId.');

@@ -13,6 +13,7 @@ import { requireAdminPermission } from '../auth/authManager';
 import { ScraperRepository, AuditRepository } from '../db/repositories';
 import { parsePdfFromUrl } from '../services/pdfParserEngine';
 import { scrapeTargetPortal } from '../../src/services/scraperService';
+import { enrichScrapedJobsBatch } from '../services/detailPageEnricher';
 import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
 import { getSchedulerStatus, runSchedulerTick, setGlobalSchedulerState } from '../services/scraperScheduler';
 import { Job } from '../../src/types/job';
@@ -124,9 +125,10 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
     };
 
     const scraped = await scrapeTargetPortal(tempConfig, { runId: `MANUAL-${Date.now().toString(36).toUpperCase()}` });
+    const enrichedScraped = await enrichScrapedJobsBatch(scraped, tempConfig);
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-    const jobs: Job[] = (scraped || []).map((r, idx) => ({
+    const jobs: Job[] = (enrichedScraped || []).map((r, idx) => ({
       id: `scraped-${Date.now().toString(36)}-${idx}`,
       title: r.title,
       company: r.company || organization || domain,
@@ -147,6 +149,11 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
       originalApplyUrl: r.originalApplyUrl || r.sourceUrl || cleanUrl,
       sourceJobId: r.sourceJobId || undefined,
       isGovtJob: r.isGovtJob ?? true,
+      govtDepartment: r.govtDepartment,
+      govtScale: r.govtScale,
+      deadlineDate: r.deadlineDate,
+      pdfTotalVacanciesInCase: r.pdfTotalVacanciesInCase,
+      ageRelaxationNote: r.ageRelaxationNote,
       scrapedSourceDomain: domain,
       scraperSourceName: `${organization || domain} Scraper`,
       sourcePortal: organization || domain,

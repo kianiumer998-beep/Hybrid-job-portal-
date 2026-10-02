@@ -3,6 +3,7 @@ import { JobRepository } from '../db/repositories/JobRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { scrapeTargetPortal, ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
 import { detectJobDuplicate, DuplicateMatchResult } from './duplicateEngine';
+import { enrichScrapedJobsBatch } from './detailPageEnricher';
 
 export interface ScraperRunOptions {
   mode: 'complete' | 'since_last' | 'page_range' | 'custom_date' | 'keyword_drill';
@@ -413,7 +414,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
       sourceFound = filteredResults.length;
 
-      for (const raw of filteredResults) {
+      // Detail page enrichment: fetch linked detail pages to obtain complete job descriptions,
+      // specific employers, grades, deadlines, and requirements before duplicate evaluation.
+      const enrichedResults = await enrichScrapedJobsBatch(filteredResults, target);
+
+      for (const raw of enrichedResults) {
         // Factual integrity: Never invent missing information
         const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable')
           ? raw.salary

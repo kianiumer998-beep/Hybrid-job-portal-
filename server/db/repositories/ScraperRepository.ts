@@ -330,6 +330,40 @@ export class ScraperRepository {
     }
   }
 
+  /**
+   * Updates only scheduling timing fields for a scraper source in MongoDB scraper_sources collection.
+   * Does NOT touch engine-owned fields or replace the document.
+   */
+  static async updateSourceSchedule(sourceId: string, schedule: {
+    lastRunAt?: string;
+    lastCompletedAt?: string;
+    nextRunAt?: string;
+  }): Promise<void> {
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getScraperSourcesCollection();
+        const $set: any = {};
+        if (schedule.lastRunAt !== undefined) $set.lastRunAt = schedule.lastRunAt;
+        if (schedule.lastCompletedAt !== undefined) $set.lastCompletedAt = schedule.lastCompletedAt;
+        if (schedule.nextRunAt !== undefined) $set.nextRunAt = schedule.nextRunAt;
+
+        if (Object.keys($set).length > 0) {
+          await withMongoTimeout(coll.updateOne({ id: sourceId }, { $set }), 10000, 'updateSourceSchedule');
+        }
+      } catch (err: any) {
+        console.warn(`[ScraperRepository] Notice updating source schedule for "${sourceId}" in MongoDB:`, err?.message || err);
+      }
+    }
+
+    // Update in-memory cached representation
+    const idx = this.cachedSources.findIndex(s => s.id === sourceId);
+    if (idx !== -1) {
+      if (schedule.lastRunAt !== undefined) this.cachedSources[idx].lastRunAt = schedule.lastRunAt;
+      if (schedule.lastCompletedAt !== undefined) this.cachedSources[idx].lastCompletedAt = schedule.lastCompletedAt;
+      if (schedule.nextRunAt !== undefined) this.cachedSources[idx].nextRunAt = schedule.nextRunAt;
+    }
+  }
+
   // --- SOURCE GROUPS MANAGEMENT (MongoDB scraper_groups) ---
 
   private static cachedGroups: ScraperSourceGroup[] = getDefaultGroups();

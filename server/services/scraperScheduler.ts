@@ -63,11 +63,8 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
     const sources = await ScraperRepository.getConfigs();
     const now = Date.now();
-    const updatedSources = [...sources];
-    let hasUpdates = false;
 
-    for (let i = 0; i < updatedSources.length; i++) {
-      const src = updatedSources[i];
+    for (const src of sources) {
       try {
         const isActive = src.status === 'Active Scheduled' || src.status === 'Active';
         if (!isActive) {
@@ -81,11 +78,9 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         // Initialize nextRunAt if not set
         if (!nextRunMs || isNaN(nextRunMs)) {
           nextRunMs = now + intervalMs;
-          updatedSources[i] = {
-            ...src,
-            nextRunAt: new Date(nextRunMs).toISOString()
-          };
-          hasUpdates = true;
+          const nextRunAt = new Date(nextRunMs).toISOString();
+          src.nextRunAt = nextRunAt;
+          await ScraperRepository.updateSourceSchedule(src.id, { nextRunAt });
           continue;
         }
 
@@ -108,21 +103,23 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 
           // Schedule next run regardless of single source outcome
           const completedNow = new Date();
-          updatedSources[i] = {
-            ...updatedSources[i],
-            lastRunAt: completedNow.toISOString(),
-            lastCompletedAt: completedNow.toISOString(),
-            nextRunAt: new Date(completedNow.getTime() + intervalMs).toISOString()
-          };
-          hasUpdates = true;
+          const lastRunAt = completedNow.toISOString();
+          const lastCompletedAt = completedNow.toISOString();
+          const nextRunAt = new Date(completedNow.getTime() + intervalMs).toISOString();
+
+          src.lastRunAt = lastRunAt;
+          src.lastCompletedAt = lastCompletedAt;
+          src.nextRunAt = nextRunAt;
+
+          await ScraperRepository.updateSourceSchedule(src.id, {
+            lastRunAt,
+            lastCompletedAt,
+            nextRunAt
+          });
         }
       } catch (sourceLoopErr: any) {
         console.warn(`[Scheduler Engine] Notice processing source "${src.name}" during tick:`, sourceLoopErr?.message || sourceLoopErr);
       }
-    }
-
-    if (hasUpdates) {
-      await ScraperRepository.saveConfigs(updatedSources);
     }
 
     return {

@@ -39,6 +39,11 @@ import { AdminJobDetailModal } from '../AdminJobDetailModal';
 import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
 import { suggestJobMetadata } from '../../utils/jobSuggestionEngine';
 import { isScrapedJob } from '../../utils/jobValidation';
+import {
+  deriveSourceClassification,
+  SourceClassification,
+  ExtractionCapability
+} from '../../services/scraperClassification';
 
 /* ============================================================================
  * INFORMATIONAL AUTO-DETECTION SUGGESTION BADGE
@@ -522,6 +527,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [sourceGroups, setSourceGroups] = useState<SourceGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
   const [healthFilter, setHealthFilter] = useState<string>('all');
+  const [classificationFilter, setClassificationFilter] = useState<'all' | 'working' | 'partial' | 'unavailable'>('all');
+  const [capabilityFilter, setCapabilityFilter] = useState<'all' | 'configured-pdf' | 'proven-pdf' | 'configured-portal' | 'proven-portal'>('all');
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupModalMode, setGroupModalMode] = useState<'create' | 'edit'>('create');
   const [editingGroup, setEditingGroup] = useState<SourceGroup | null>(null);
@@ -633,6 +640,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const sourcesList = useMemo(() => {
     return liveSources.length > 0 ? liveSources : (propsSources || []);
   }, [liveSources, propsSources]);
+
+  // Derived Smart Source Classifications Map (Pure in-memory calculation)
+  const classificationsMap = useMemo(() => {
+    const map = new Map<string, SourceClassification>();
+    for (const source of sourcesList) {
+      map.set(source.id, deriveSourceClassification(source));
+    }
+    return map;
+  }, [sourcesList]);
 
   // Set default selected sources if empty
   useEffect(() => {
@@ -779,9 +795,26 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         }
       }
 
+      // Smart Classification filter
+      if (classificationFilter !== 'all') {
+        const classification = classificationsMap.get(source.id);
+        if (classificationFilter === 'working' && classification?.overallStatus !== 'Working') return false;
+        if (classificationFilter === 'partial' && classification?.overallStatus !== 'Partial') return false;
+        if (classificationFilter === 'unavailable' && classification?.overallStatus !== 'Unavailable') return false;
+      }
+
+      // Smart Capability filter
+      if (capabilityFilter !== 'all') {
+        const classification = classificationsMap.get(source.id);
+        if (capabilityFilter === 'configured-pdf' && !classification?.configuredCapabilities.includes('PDF')) return false;
+        if (capabilityFilter === 'proven-pdf' && !classification?.provenCapabilities.includes('PDF')) return false;
+        if (capabilityFilter === 'configured-portal' && !classification?.configuredCapabilities.includes('Portal')) return false;
+        if (capabilityFilter === 'proven-portal' && !classification?.provenCapabilities.includes('Portal')) return false;
+      }
+
       return true;
     });
-  }, [sourcesList, searchQuery, statusFilter, categoryFilter, regionFilter, selectedGroupId, healthFilter, sourceGroups]);
+  }, [sourcesList, searchQuery, statusFilter, categoryFilter, regionFilter, selectedGroupId, healthFilter, sourceGroups, classificationFilter, capabilityFilter, classificationsMap]);
 
   // -------------------------------------------------------------
   // Filtered Runs for Step 5: History
@@ -958,6 +991,27 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     await executeScraperRun({
       targetSourceIds: selectedSourceIds,
       label: `Selected Sources (${selectedSourceIds.length})`
+    });
+  };
+
+  // Run Working Sources (Smart Classification)
+  const handleRunWorkingSources = async () => {
+    const workingSourceIds = Array.from(
+      new Set(
+        sourcesList
+          .filter(source => classificationsMap.get(source.id)?.overallStatus === 'Working')
+          .map(source => source.id)
+      )
+    );
+
+    if (workingSourceIds.length === 0) {
+      setStatusMessage({ text: 'No sources classified as Working.', type: 'error' });
+      return;
+    }
+
+    await executeScraperRun({
+      targetSourceIds: workingSourceIds,
+      label: `Working Sources (${workingSourceIds.length})`
     });
   };
 
@@ -2647,6 +2701,33 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 <option value="All Failed">All Failed (Errors)</option>
               </select>
 
+              {/* Smart Classification Filter */}
+              <select
+                value={classificationFilter}
+                onChange={(e) => setClassificationFilter(e.target.value as any)}
+                aria-label="Filter by Smart Classification"
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="all">All Classifications</option>
+                <option value="working">Working</option>
+                <option value="partial">Partial / Needs Attention</option>
+                <option value="unavailable">Unavailable</option>
+              </select>
+
+              {/* Capability Filter */}
+              <select
+                value={capabilityFilter}
+                onChange={(e) => setCapabilityFilter(e.target.value as any)}
+                aria-label="Filter by Extraction Capability"
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="all">All Capabilities</option>
+                <option value="configured-pdf">Configured PDF</option>
+                <option value="proven-pdf">Proven PDF</option>
+                <option value="configured-portal">Configured Portal</option>
+                <option value="proven-portal">Proven Portal</option>
+              </select>
+
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
@@ -2712,6 +2793,24 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 {selectedSourceIds.length} sources selected
               </span>
               <div className="flex items-center space-x-2 flex-wrap gap-2">
+                {/* Select All Working Helper */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const workingIds = sourcesList
+                      .filter(source => {
+                        const classification = classificationsMap.get(source.id);
+                        return classification?.overallStatus === 'Working';
+                      })
+                      .map(source => source.id);
+                    setSelectedSourceIds(workingIds);
+                  }}
+                  className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 rounded-lg font-semibold cursor-pointer transition-all"
+                  title="Select all sources classified as Working"
+                >
+                  Select Working
+                </button>
+
                 <button
                   type="button"
                   onClick={() => handleBulkToggleStatus(true)}
@@ -2917,6 +3016,56 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                   {source.lastErrorMessage}
                                 </span>
                               )}
+                              {(() => {
+                                const classification = classificationsMap.get(source.id);
+                                if (!classification) return null;
+                                return (
+                                  <div className="pt-1 flex flex-col space-y-1">
+                                    <span
+                                      title={classification.statusReason}
+                                      className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold w-fit cursor-help ${
+                                        classification.overallStatus === 'Working'
+                                          ? classification.historicallyProven
+                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                            : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                                          : classification.overallStatus === 'Partial'
+                                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                      }`}
+                                    >
+                                      {classification.overallStatus === 'Working'
+                                        ? classification.historicallyProven
+                                          ? 'Working'
+                                          : 'Working (Unverified)'
+                                        : classification.overallStatus === 'Partial'
+                                        ? 'Partial'
+                                        : 'Unavailable'}
+                                    </span>
+
+                                    {/* Capability Indicators */}
+                                    {(classification.configuredCapabilities.length > 0 || classification.provenCapabilities.length > 0) && (
+                                      <div className="flex items-center flex-wrap gap-1 pt-0.5">
+                                        {classification.configuredCapabilities.map((cap) => {
+                                          const isProven = classification.provenCapabilities.includes(cap);
+                                          return (
+                                            <span
+                                              key={cap}
+                                              title={isProven ? `Proven capability: ${cap}` : `Configured capability: ${cap} (unproven)`}
+                                              className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                                                isProven
+                                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-semibold'
+                                                  : 'bg-slate-950 text-slate-400 border border-slate-800'
+                                              }`}
+                                            >
+                                              {cap}{isProven ? ' ✓' : ''}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </td>
                           <td className="p-4 text-slate-400">
@@ -3144,7 +3293,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           )}
 
           {/* Quick Action Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
             {/* Card 1: Run All Enabled */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg flex flex-col justify-between">
               <div className="space-y-2">
@@ -3356,6 +3505,41 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 >
                   <RotateCcw className={`w-4 h-4 ${isScrapingActive ? 'animate-spin' : ''}`} />
                   <span>Retry All Failed</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 5: Run Working Sources (Smart Classification) */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Option E</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300">
+                    {sourcesList.filter(s => classificationsMap.get(s.id)?.overallStatus === 'Working').length} Working
+                  </span>
+                </div>
+                <h4 className="text-base font-bold text-white">Run Working Sources</h4>
+                <p className="text-xs text-slate-400">
+                  Execute crawler exclusively across sources classified as healthy and operational.
+                </p>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <div className="text-[11px] text-slate-400 p-2 bg-slate-950 rounded-lg border border-slate-800">
+                  <span>Targeting: </span>
+                  <span className="font-bold text-teal-300">
+                    {Array.from(new Set(sourcesList.filter(s => classificationsMap.get(s.id)?.overallStatus === 'Working').map(s => s.id))).length} healthy portals
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isScrapingActive || sourcesList.filter(s => classificationsMap.get(s.id)?.overallStatus === 'Working').length === 0}
+                  onClick={handleRunWorkingSources}
+                  className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>Run Working Now</span>
                 </button>
               </div>
             </div>

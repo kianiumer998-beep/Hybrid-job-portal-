@@ -150,6 +150,7 @@ export interface ScraperRunSummary {
     startedAt: string;
     completedAt: string;
     found: number;
+    rawCandidateCount?: number;
     newCount: number;
     dupCount: number;
     pagesAttempted: number;
@@ -309,8 +310,13 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     const sourceRunStart = new Date().toISOString();
 
     let sourceFound = 0;
+    let sourceValid = 0;
     let sourceNew = 0;
     let sourceDup = 0;
+    let sourcePersisted = 0;
+    let sourceSaveFailures = 0;
+    let sourceUniqueSaveFailures = 0;
+    let sourceIntentionalSkips = 0;
     let sourcePagesAttempted = 0;
     let sourcePagesSuccessful = 0;
     let sourceFailed = false;
@@ -437,6 +443,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           continue; // Reject low quality / invalid vacancies
         }
 
+        sourceValid++;
+
         const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
 
         const standardizedJob: any = {
@@ -497,7 +505,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
             // "Without Duplicates" mode:
             // Do not create a NEW pending vacancy from this duplicate.
             // Do not publish it, and do not modify or delete the original job.
-            // Duplicate counter is incremented, continue processing next candidate.
+            // Duplicate counter is incremented, intentional skip recorded, continue processing next candidate.
+            sourceIntentionalSkips++;
             continue;
           }
 
@@ -506,8 +515,10 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
             await JobRepository.addPending(standardizedJob);
             pendingJobs.push(standardizedJob);
             activeRunState.totalPending++;
+            sourcePersisted++;
           } catch (pErr: any) {
             console.error(`[Scraper Engine] Failed saving duplicate pending job (${standardizedJob.title}):`, pErr?.message || pErr);
+            sourceSaveFailures++;
             failedToSaveErrors.push({
               title: standardizedJob.title,
               error: pErr?.message || String(pErr),
@@ -524,8 +535,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
               await JobRepository.create(standardizedJob);
               publishedJobs.push(standardizedJob);
               activeRunState.totalPublished++;
+              sourcePersisted++;
             } catch (cErr: any) {
               console.error(`[Scraper Engine] Failed saving approved job (${standardizedJob.title}):`, cErr?.message || cErr);
+              sourceSaveFailures++;
+              sourceUniqueSaveFailures++;
               failedToSaveErrors.push({
                 title: standardizedJob.title,
                 error: cErr?.message || String(cErr),
@@ -537,8 +551,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
               await JobRepository.addPending(standardizedJob);
               pendingJobs.push(standardizedJob);
               activeRunState.totalPending++;
+              sourcePersisted++;
             } catch (pErr: any) {
               console.error(`[Scraper Engine] Failed saving pending job (${standardizedJob.title}):`, pErr?.message || pErr);
+              sourceSaveFailures++;
+              sourceUniqueSaveFailures++;
               failedToSaveErrors.push({
                 title: standardizedJob.title,
                 error: pErr?.message || String(pErr),
@@ -549,18 +566,56 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         }
       }
 
-      // Update source stats honestly: Jobs Found vs No Jobs
+      // Accurate source success & checkpoint accounting:
+      // 1. Detection success: at least one valid vacancy was detected and either successfully persisted
+      //    OR intentionally skipped from new DB insertion (as in 'without' duplicates mode).
+      const hasValidDetections = sourceValid > 0;
+      const hasSuccessfulHandledVacancies = (sourcePersisted + sourceIntentionalSkips) > 0;
+      const isAllPersistAttemptsFailed = hasValidDetections && !hasSuccessfulHandledVacancies && sourceSaveFailures > 0;
+      const isDetectionSuccessful = hasValidDetections && hasSuccessfulHandledVacancies;
+
+      // 2. Critical Checkpoint Safety Rule:
+      //    Do NOT advance "lastSuccessfulScrapeAt" when a genuine UNIQUE vacancy was detected but its DB persistence failed.
+      //    Doing so would cause future "since_last" runs to skip the unsaved unique vacancy.
+      //    A duplicate proves the source was observed, but it does NOT compensate for an unsaved unique vacancy.
+      const hasUnsavedUniqueVacancies = sourceUniqueSaveFailures > 0;
+      const isCheckpointEligible = isDetectionSuccessful && !hasUnsavedUniqueVacancies;
+
       const sourceCompletedAt = new Date().toISOString();
-      const isJobsFound = sourceFound > 0;
-      const successHealth = isJobsFound ? 'Jobs Found' : 'No Jobs';
+      let successHealth = 'No Jobs';
+      let lastErrorNotice: string | undefined;
+
+      if (isAllPersistAttemptsFailed) {
+        // Valid vacancies detected but 100% of required DB persistence attempts failed.
+        // Record failure so checkpoint does not advance and jobs can be re-scraped.
+        sourceFailed = true;
+        failedCount++;
+        activeRunState.totalFailedSources++;
+        sourceError = `Database save failure: ${sourceSaveFailures} valid vacancies failed to persist`;
+        activeRunState.currentError = sourceError;
+        successHealth = 'Database Error';
+        lastErrorNotice = sourceError;
+      } else if (isDetectionSuccessful) {
+        successHealth = 'Jobs Found';
+        if (hasUnsavedUniqueVacancies) {
+          lastErrorNotice = `${sourceUniqueSaveFailures} unique vacancies failed to save to database (checkpoint preserved)`;
+        } else if (sourceSaveFailures > 0) {
+          lastErrorNotice = `${sourceSaveFailures} of ${sourceValid} vacancies failed to save to database`;
+        }
+      } else {
+        successHealth = 'No Jobs';
+        lastErrorNotice = sourceFound > 0
+          ? `0 valid vacancies extracted (${sourceFound} candidates rejected as invalid/low-quality)`
+          : '0 vacancies extracted from target source';
+      }
 
       await ScraperRepository.updateSourceStats(target.id, {
         lastCompletedAt: sourceCompletedAt,
-        lastSuccessfulScrapeAt: isJobsFound ? sourceCompletedAt : target.lastSuccessfulScrapeAt,
+        lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt,
         lastRunId: runId,
-        scrapedCountIncrement: sourceFound,
+        scrapedCountIncrement: isDetectionSuccessful ? (sourcePersisted + sourceIntentionalSkips) : undefined,
         healthStatus: successHealth,
-        lastErrorMessage: isJobsFound ? undefined : '0 vacancies extracted from target source'
+        lastErrorMessage: lastErrorNotice
       });
 
       sourcesStats.push({
@@ -569,13 +624,15 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         sourceUrl: target.url,
         startedAt: sourceRunStart,
         completedAt: sourceCompletedAt,
-        found: sourceFound,
+        found: sourceValid,
+        rawCandidateCount: sourceFound,
         newCount: sourceNew,
         dupCount: sourceDup,
         pagesAttempted: sourcePagesAttempted,
         pagesSuccessful: sourcePagesSuccessful,
-        failed: false,
-        lastSuccessfulScrapeAt: isJobsFound ? sourceCompletedAt : target.lastSuccessfulScrapeAt
+        failed: sourceFailed,
+        error: sourceError || lastErrorNotice,
+        lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt
       });
     } catch (err: any) {
       failedCount++;

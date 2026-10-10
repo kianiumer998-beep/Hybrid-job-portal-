@@ -316,6 +316,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     let sourcePersisted = 0;
     let sourceSaveFailures = 0;
     let sourceUniqueSaveFailures = 0;
+    let sourceDupSaveFailures = 0;
     let sourceIntentionalSkips = 0;
     let sourcePagesAttempted = 0;
     let sourcePagesSuccessful = 0;
@@ -443,8 +444,6 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           continue; // Reject low quality / invalid vacancies
         }
 
-        sourceValid++;
-
         const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
 
         const standardizedJob: any = {
@@ -495,6 +494,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
 
         harvestedJobs.push(standardizedJob);
         activeRunState.totalFound++;
+        sourceValid++;
 
         if (dupCheck.isDuplicate) {
           sourceDup++;
@@ -519,6 +519,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           } catch (pErr: any) {
             console.error(`[Scraper Engine] Failed saving duplicate pending job (${standardizedJob.title}):`, pErr?.message || pErr);
             sourceSaveFailures++;
+            sourceDupSaveFailures++;
             failedToSaveErrors.push({
               title: standardizedJob.title,
               error: pErr?.message || String(pErr),
@@ -575,11 +576,14 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       const isDetectionSuccessful = hasValidDetections && hasSuccessfulHandledVacancies;
 
       // 2. Critical Checkpoint Safety Rule:
-      //    Do NOT advance "lastSuccessfulScrapeAt" when a genuine UNIQUE vacancy was detected but its DB persistence failed.
-      //    Doing so would cause future "since_last" runs to skip the unsaved unique vacancy.
-      //    A duplicate proves the source was observed, but it does NOT compensate for an unsaved unique vacancy.
+      //    Do NOT advance "lastSuccessfulScrapeAt" when any required vacancy persistence failed:
+      //    - any unique vacancy save failed; OR
+      //    - duplicateMode === 'with' and any duplicate pending save failed.
+      //    In 'Without Duplicates' mode, intentional duplicate skips are valid handling and not failures.
       const hasUnsavedUniqueVacancies = sourceUniqueSaveFailures > 0;
-      const isCheckpointEligible = isDetectionSuccessful && !hasUnsavedUniqueVacancies;
+      const hasUnsavedRequiredDuplicates = duplicateMode === 'with' && sourceDupSaveFailures > 0;
+      const hasUnsavedRequiredVacancies = hasUnsavedUniqueVacancies || hasUnsavedRequiredDuplicates;
+      const isCheckpointEligible = isDetectionSuccessful && !hasUnsavedRequiredVacancies;
 
       const sourceCompletedAt = new Date().toISOString();
       let successHealth = 'No Jobs';
@@ -597,8 +601,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         lastErrorNotice = sourceError;
       } else if (isDetectionSuccessful) {
         successHealth = 'Jobs Found';
-        if (hasUnsavedUniqueVacancies) {
-          lastErrorNotice = `${sourceUniqueSaveFailures} unique vacancies failed to save to database (checkpoint preserved)`;
+        if (hasUnsavedRequiredVacancies) {
+          const failureParts: string[] = [];
+          if (sourceUniqueSaveFailures > 0) failureParts.push(`${sourceUniqueSaveFailures} unique`);
+          if (sourceDupSaveFailures > 0) failureParts.push(`${sourceDupSaveFailures} duplicate`);
+          lastErrorNotice = `${failureParts.join(' and ')} vacancies failed to save to database (checkpoint preserved)`;
         } else if (sourceSaveFailures > 0) {
           lastErrorNotice = `${sourceSaveFailures} of ${sourceValid} vacancies failed to save to database`;
         }

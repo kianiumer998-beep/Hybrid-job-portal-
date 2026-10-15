@@ -213,19 +213,50 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Mobile Hamburger Button */}
-          <div className="md:hidden flex items-center space-x-2">
+          {/* Mobile Hamburger & Quick Action Buttons */}
+          <div className="md:hidden flex items-center space-x-1.5 sm:space-x-2">
+            {/* Country Selector Flag Button on Mobile */}
+            {onOpenCountryModal && (
+              <button
+                type="button"
+                onClick={onOpenCountryModal}
+                className="flex items-center space-x-1 px-2 py-1.5 rounded-xl bg-slate-800/90 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                title="Change Country"
+              >
+                <span className="text-sm">{selectedCountryFlag || '🌐'}</span>
+                <span className="text-slate-300 text-[10px] max-w-[48px] truncate">
+                  {selectedCountryName?.split(' ')[0] || 'Global'}
+                </span>
+                <span className="text-[8px] text-slate-400">▼</span>
+              </button>
+            )}
+
+            {/* Mobile Announcement Bell */}
+            {onOpenAdDrawer && (
+              <button
+                type="button"
+                onClick={onOpenAdDrawer}
+                className="relative p-2 rounded-xl bg-slate-800 text-amber-400 border border-slate-700 hover:border-amber-500/40 transition-all cursor-pointer"
+                title="View Live Announcements"
+              >
+                <Bell className="w-4 h-4" />
+                {activeAdsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-slate-900" />
+                )}
+              </button>
+            )}
+
             {!currentUser && (
               <button
                 onClick={onOpenAuthModal}
-                className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold"
+                className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold"
               >
                 Login
               </button>
             )}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800"
+              className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800"
               aria-label="Toggle Navigation Menu"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -238,6 +269,22 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Mobile Navigation Dropdown */}
       {mobileMenuOpen && (
         <div className="md:hidden bg-slate-900 border-b border-slate-800 px-4 pt-2 pb-6 space-y-2">
+          {/* Mobile Country Switcher in Drawer */}
+          {onOpenCountryModal && (
+            <button
+              type="button"
+              onClick={() => { onOpenCountryModal(); setMobileMenuOpen(false); }}
+              className="w-full text-left px-3.5 py-2.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-xs font-bold flex items-center justify-between text-slate-200 transition-all hover:bg-slate-800 mb-1"
+            >
+              <div className="flex items-center space-x-2">
+                <span className="text-base">{selectedCountryFlag || '🌐'}</span>
+                <span>Country: {selectedCountryName || 'Global / Worldwide'}</span>
+              </div>
+              <span className="text-emerald-400 text-[10px] uppercase tracking-wider font-extrabold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                Change
+              </span>
+            </button>
+          )}
           <button
             onClick={() => { setActiveTab('jobs'); setMobileMenuOpen(false); }}
             className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${

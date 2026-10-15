@@ -2206,8 +2206,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* MODERN ADMIN NAVIGATION: CATEGORIES + 3-DOT ALL MODULES + SUB-TABS */}
       <div className="space-y-3 border-b border-slate-800 pb-4">
         {/* Top Level Category Bar with 3-Dot Quick Menu */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none">
             {[
               { id: 'jobs' as AdminCategory, label: '💼 Jobs & Posts', urdu: 'ملازمتیں', count: pendingJobs.length > 0 ? `${pendingJobs.length} Pending` : undefined, countColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
               { id: 'scraper' as AdminCategory, label: '🤖 Scraper Center', urdu: 'سکریپر سنٹر', count: undefined, countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },

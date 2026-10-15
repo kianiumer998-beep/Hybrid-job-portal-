@@ -87,7 +87,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <div className="mt-4 sm:mt-8 flex flex-row items-center justify-center gap-2 sm:gap-4">
             <button
               onClick={onExploreClick}
-              className="flex-1 sm:flex-initial px-4 py-2.5 sm:px-8 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-bold text-xs sm:text-base shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
+              className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2.5 sm:px-8 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-bold text-xs sm:text-base shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
             >
               <Search className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-slate-950" />
               <span>{heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`}</span>
@@ -96,7 +96,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
             <button
               onClick={onCvClick}
-              className="flex-1 sm:flex-initial px-4 py-2.5 sm:px-8 sm:py-4 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-white border border-slate-700/80 font-semibold text-xs sm:text-base shadow-lg hover:border-indigo-500/50 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
+              className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2.5 sm:px-8 sm:py-4 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-white border border-slate-700/80 font-semibold text-xs sm:text-base shadow-lg hover:border-indigo-500/50 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-indigo-400" />
               <span>{heroConfig.secondaryBtnText || 'Build ATS CV'}</span>
@@ -113,28 +113,28 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none">Province, City & District filter</p>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
-              <div className="flex items-center space-x-2 text-teal-400 font-bold text-sm">
-                <MessageSquare className="w-4 h-4 shrink-0" />
-                <span>{heroConfig.statBadge4Text || 'WhatsApp Job Alerts'}</span>
+            <div className="p-2 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
+              <div className="flex items-center space-x-1.5 sm:space-x-2 text-teal-400 font-bold text-xs sm:text-sm">
+                <MessageSquare className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
+                <span className="truncate">{heroConfig.statBadge4Text || 'WhatsApp Job Alerts'}</span>
               </div>
-              <p className="text-xs text-slate-400 mt-1">Get instant WhatsApp notifications when new matching jobs post</p>
+              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none">Instant WhatsApp alerts when matching jobs post</p>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
-              <div className="flex items-center space-x-2 text-indigo-400 font-bold text-sm">
-                <Sparkles className="w-4 h-4 shrink-0" />
-                <span>{heroConfig.statBadge2Text || 'Automated CV Engine'}</span>
+            <div className="p-2 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
+              <div className="flex items-center space-x-1.5 sm:space-x-2 text-indigo-400 font-bold text-xs sm:text-sm">
+                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span className="truncate">{heroConfig.statBadge2Text || 'Automated CV Engine'}</span>
               </div>
-              <p className="text-xs text-slate-400 mt-1">4 live templates with one-click print and ATS compliance</p>
+              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none">4 live templates with one-click print & ATS compliance</p>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
-              <div className="flex items-center space-x-2 text-amber-400 font-bold text-sm">
-                <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>{heroConfig.statBadge3Text || 'Direct HR Connect'}</span>
+            <div className="p-2 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
+              <div className="flex items-center space-x-1.5 sm:space-x-2 text-amber-400 font-bold text-xs sm:text-sm">
+                <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span className="truncate">{heroConfig.statBadge3Text || 'Direct HR Connect'}</span>
               </div>
-              <p className="text-xs text-slate-400 mt-1">Verified company recruiters and fast application routing</p>
+              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none">Verified recruiters & fast application routing</p>
             </div>
           </div>
 

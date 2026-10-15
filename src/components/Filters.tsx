@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
-import { Search, Filter, MapPin, X, RotateCcw, ChevronDown, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { Search, Filter, MapPin, X, RotateCcw, ChevronDown, Sparkles, SlidersHorizontal, Globe } from 'lucide-react';
 import { JobFilters, Region, JobType } from '../types/job';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
+import { CountryOption, SUPPORTED_COUNTRIES } from '../types/landing';
 
 interface FiltersProps {
   filters: JobFilters;
@@ -10,6 +11,8 @@ interface FiltersProps {
   totalResults: number;
   postsPerPage?: number;
   onPostsPerPageChange?: (postsPerPage: number) => void;
+  userSelectedCountry?: CountryOption | null;
+  onOpenCountryModal?: () => void;
 }
 
 export const Filters: React.FC<FiltersProps> = ({
@@ -18,7 +21,9 @@ export const Filters: React.FC<FiltersProps> = ({
   onReset,
   totalResults,
   postsPerPage = 10,
-  onPostsPerPageChange
+  onPostsPerPageChange,
+  userSelectedCountry,
+  onOpenCountryModal
 }) => {
   // Compute available Cities based on selected Province
   const availableCities = useMemo(() => {
@@ -153,26 +158,36 @@ export const Filters: React.FC<FiltersProps> = ({
           </select>
         </div>
 
-        {/* Region */}
+        {/* Region / Country */}
         <div>
-          <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
-            Region / Location
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              Region / Country
+            </label>
+            {onOpenCountryModal && (
+              <button
+                type="button"
+                onClick={onOpenCountryModal}
+                className="text-[11px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                title="Open country picker dialog"
+              >
+                <span>{userSelectedCountry?.flag || '🌐'}</span>
+                <span className="underline decoration-emerald-500/40 underline-offset-2">Switch</span>
+              </button>
+            )}
+          </div>
           <select
             value={filters.region}
             onChange={(e) => handleRegionChange(e.target.value)}
             className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           >
-            <option value="All">All Regions Worldwide</option>
+            <option value="All">🌐 All Regions Worldwide</option>
             <option value="Global">🌐 Global International Remote</option>
-            <option value="Pakistan">🇵🇰 Pakistan (Provinces & Districts)</option>
-            <option value="US">🇺🇸 United States</option>
-            <option value="UK">🇬🇧 United Kingdom</option>
-            <option value="UAE">🇦🇪 United Arab Emirates</option>
-            <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
-            <option value="Canada">🇨🇦 Canada</option>
-            <option value="Europe">🇪🇺 Europe</option>
-            <option value="Australia">🇦🇺 Australia</option>
+            {SUPPORTED_COUNTRIES.filter(c => c.code !== 'GL').map((c) => (
+              <option key={c.code} value={c.region || c.name}>
+                {c.flag} {c.name} {c.code === 'PK' ? '(Provinces & Districts)' : ''}
+              </option>
+            ))}
           </select>
         </div>
 

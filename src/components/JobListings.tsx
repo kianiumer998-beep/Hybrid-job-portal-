@@ -534,12 +534,12 @@ export const JobListings: React.FC<JobListingsProps> = ({
           </div>
 
           {/* Center: Pagination Buttons */}
-          <div className="flex items-center space-x-1 sm:space-x-1.5">
+          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5">
             {/* First Page Button */}
             <button
               onClick={() => handlePageSelect(1)}
               disabled={safePage === 1}
-              className="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-all cursor-pointer"
+              className="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-all cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
               title="First Page"
             >
               <ChevronsLeft className="w-4 h-4" />
@@ -549,7 +549,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             <button
               onClick={() => handlePageSelect(safePage - 1)}
               disabled={safePage === 1}
-              className="px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-all font-semibold text-xs flex items-center space-x-1 cursor-pointer"
+              className="px-2.5 sm:px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-all font-semibold text-xs flex items-center space-x-1 cursor-pointer min-h-[36px]"
               title="Previous Page"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -557,7 +557,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             </button>
 
             {/* Numbered Page Buttons with Windowing */}
-            <div className="flex items-center space-x-1">
+            <div className="flex flex-wrap items-center justify-center gap-1">
               {getPaginationItems().map((item, idx) => {
                 if (item === '...') {
                   return (

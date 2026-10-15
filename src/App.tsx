@@ -938,6 +938,29 @@ export default function App() {
   const handleFiltersChange = (newFilters: JobFilters) => {
     setFilters(newFilters);
     setCurrentPage(1);
+
+    // Synchronize userSelectedCountry and localStorage if region was changed via Filters dropdown
+    if (newFilters.region !== filters.region) {
+      if (newFilters.region === 'All') {
+        const globalOption = SUPPORTED_COUNTRIES.find((c) => c.code === 'GL') || null;
+        if (globalOption) {
+          setUserSelectedCountry(globalOption);
+          try {
+            localStorage.setItem('hybrid_user_country_preference', JSON.stringify(globalOption));
+          } catch {}
+        }
+      } else {
+        const matched = SUPPORTED_COUNTRIES.find(
+          (c) => c.region === newFilters.region || c.name === newFilters.region
+        );
+        if (matched) {
+          setUserSelectedCountry(matched);
+          try {
+            localStorage.setItem('hybrid_user_country_preference', JSON.stringify(matched));
+          } catch {}
+        }
+      }
+    }
   };
 
   const handleResetFilters = () => {
@@ -2960,6 +2983,8 @@ export default function App() {
                             totalResults={filteredJobs.length}
                             postsPerPage={postsPerPage}
                             onPostsPerPageChange={handlePostsPerPageChange}
+                            userSelectedCountry={userSelectedCountry}
+                            onOpenCountryModal={() => setShowCountryModal(true)}
                           />
 
                           {/* Job Cards Grid with Pagination and Inline Ads */}

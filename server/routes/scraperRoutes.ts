@@ -43,6 +43,14 @@ scraperRouter.put('/configs', requireAdminPermission('scraper.manage'), async (r
     });
     res.json({ success: true, configs: req.body, message: 'Scraper target portals saved successfully!' });
   } catch (err: any) {
+    AuditRepository.add({
+      user: 'Administrator',
+      role: 'Scraper Manager',
+      action: 'Scraper Target Portals Updated',
+      target: `${Array.isArray(req.body) ? req.body.length : 0} Target Configurations`,
+      status: 'Error',
+      metadata: { error: err?.message || 'Error updating scraper configs' }
+    });
     res.status(500).json({ success: false, message: err.message || 'Error updating scraper configs' });
   }
 });

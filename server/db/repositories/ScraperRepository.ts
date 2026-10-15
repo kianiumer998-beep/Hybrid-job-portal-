@@ -198,23 +198,45 @@ export class ScraperRepository {
 
   /**
    * Persists all scraper source configurations directly to MongoDB scraper_sources collection.
+   * In configured-MongoDB mode, in-memory cache is only replaced once all configurations are verified persisted.
+   * If persistence fails or partially fails, last known cache state is retained and an error is thrown.
    */
   static async saveConfigs(configs: any[]): Promise<void> {
     if (!Array.isArray(configs)) return;
-    this.cachedSources = configs;
 
-    if (isMongoConfigured()) {
+    if (!isMongoConfigured()) {
+      this.cachedSources = configs;
+      return;
+    }
+
+    let coll: any;
+    try {
+      coll = await getScraperSourcesCollection();
+    } catch (collErr: any) {
+      const msg = `Failed to get scraper_sources collection: ${collErr?.message || collErr}`;
+      console.warn(`[ScraperRepository] ${msg}`);
+      throw new Error(msg);
+    }
+
+    const validConfigs = configs.filter(cfg => cfg && cfg.id);
+    let persistedCount = 0;
+
+    for (const cfg of validConfigs) {
+      const { _id, ...clean } = cfg;
       try {
-        const coll = await getScraperSourcesCollection();
-        for (const cfg of configs) {
-          if (!cfg || !cfg.id) continue;
-          const { _id, ...clean } = cfg;
-          await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
-        }
+        await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
+        persistedCount++;
       } catch (err: any) {
-        console.warn('[ScraperRepository] Notice saving scraper_sources to MongoDB:', err?.message || err);
+        const errorMsg = persistedCount > 0
+          ? `Partial persistence failure: persisted ${persistedCount}/${validConfigs.length} sources before error on source "${clean.id}": ${err?.message || err}`
+          : `Failed to persist scraper configurations to MongoDB on source "${clean.id}": ${err?.message || err}`;
+        console.warn(`[ScraperRepository] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
     }
+
+    // Only update in-memory cache once all configurations have been successfully persisted to MongoDB
+    this.cachedSources = configs;
   }
 
   /**

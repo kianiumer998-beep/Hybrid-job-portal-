@@ -224,7 +224,10 @@ export class ScraperRepository {
     for (const cfg of validConfigs) {
       const { _id, ...clean } = cfg;
       try {
-        await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
+        const result: any = await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
+        if (result && result.acknowledged === false) {
+          throw new Error(`Write was not acknowledged by MongoDB for source "${clean.id}"`);
+        }
         persistedCount++;
       } catch (err: any) {
         const errorMsg = persistedCount > 0

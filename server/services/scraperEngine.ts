@@ -743,7 +743,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
     role: 'Scraper Hub',
     action: 'Scraper Run Completed',
     target: `${targets.length} Source Portals (${harvestedJobs.length} Jobs Harvested)`,
-    status: failedCount > 0 ? 'Warning' : 'Success',
+    status: (failedCount > 0 || failedToSaveErrors.length > 0) ? 'Warning' : 'Success',
     metadata: {
       mode: options.mode,
       duplicateMode,

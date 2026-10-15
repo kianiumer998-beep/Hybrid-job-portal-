@@ -359,6 +359,7 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       let currentPage = startPage;
       let hasMorePages = true;
       let lastPageError: any = null;
+      let hitSafetyLimit = false;
 
       while (currentPage <= maxAllowedPage && hasMorePages) {
         sourcePagesAttempted++;
@@ -383,11 +384,13 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
             const nextPageDetected = pageResults.some(j => !!j.nextPageUrl);
             if (options.mode === 'complete') {
               // If page returned jobs and next-page was detected, advance
-              if (nextPageDetected && currentPage < maxAllowedPage) {
-                currentPage++;
-              } else if (pageResults.length >= 10 && currentPage < maxAllowedPage) {
-                // Heuristic: full page likely has next page
-                currentPage++;
+              if (nextPageDetected || pageResults.length >= 10) {
+                if (currentPage < maxAllowedPage) {
+                  currentPage++;
+                } else {
+                  hitSafetyLimit = true;
+                  hasMorePages = false;
+                }
               } else {
                 hasMorePages = false;
               }
@@ -576,14 +579,24 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       const isDetectionSuccessful = hasValidDetections && hasSuccessfulHandledVacancies;
 
       // 2. Critical Checkpoint Safety Rule:
-      //    Do NOT advance "lastSuccessfulScrapeAt" when any required vacancy persistence failed:
-      //    - any unique vacancy save failed; OR
-      //    - duplicateMode === 'with' and any duplicate pending save failed.
-      //    In 'Without Duplicates' mode, intentional duplicate skips are valid handling and not failures.
+      //    Do NOT advance "lastSuccessfulScrapeAt" unless:
+      //    - mode is 'complete' (exhaustive crawl from page 1; partial/windowed modes must not overwrite full checkpoint);
+      //    - natural end of pagination was reached without truncation by MAX_SAFETY_PAGES (!hitSafetyLimit);
+      //    - no page fetch or parse errors occurred during crawling (!lastPageError && sourcePagesAttempted === sourcePagesSuccessful);
+      //    - valid vacancies were detected and successfully handled (isDetectionSuccessful);
+      //    - no required vacancy persistence failed (hasUnsavedRequiredVacancies === false).
+      const isCompleteMode = options.mode === 'complete';
+      const hasNoPageErrors = !lastPageError && (sourcePagesAttempted === sourcePagesSuccessful);
+      const isNaturalPaginationEnd = !hitSafetyLimit;
       const hasUnsavedUniqueVacancies = sourceUniqueSaveFailures > 0;
       const hasUnsavedRequiredDuplicates = duplicateMode === 'with' && sourceDupSaveFailures > 0;
       const hasUnsavedRequiredVacancies = hasUnsavedUniqueVacancies || hasUnsavedRequiredDuplicates;
-      const isCheckpointEligible = isDetectionSuccessful && !hasUnsavedRequiredVacancies;
+      const isCheckpointEligible =
+        isCompleteMode &&
+        hasNoPageErrors &&
+        isNaturalPaginationEnd &&
+        isDetectionSuccessful &&
+        !hasUnsavedRequiredVacancies;
 
       const sourceCompletedAt = new Date().toISOString();
       let successHealth = 'No Jobs';
@@ -606,6 +619,12 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           if (sourceUniqueSaveFailures > 0) failureParts.push(`${sourceUniqueSaveFailures} unique`);
           if (sourceDupSaveFailures > 0) failureParts.push(`${sourceDupSaveFailures} duplicate`);
           lastErrorNotice = `${failureParts.join(' and ')} vacancies failed to save to database (checkpoint preserved)`;
+        } else if (lastPageError) {
+          lastErrorNotice = `Crawling interrupted on page ${sourcePagesAttempted} (${lastPageError?.message || lastPageError}) (checkpoint preserved)`;
+        } else if (hitSafetyLimit) {
+          lastErrorNotice = `Pagination truncated at safety limit of ${MAX_SAFETY_PAGES} pages (checkpoint preserved)`;
+        } else if (!isCompleteMode) {
+          // Checkpoint preserved for non-complete modes (e.g. page_range, quick, custom_date, since_last)
         } else if (sourceSaveFailures > 0) {
           lastErrorNotice = `${sourceSaveFailures} of ${sourceValid} vacancies failed to save to database`;
         }

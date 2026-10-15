@@ -94,15 +94,6 @@ export const JobListings: React.FC<JobListingsProps> = ({
     }
   };
 
-  const handlePostsPerPageSelect = (count: number) => {
-    if (onPostsPerPageChange) {
-      onPostsPerPageChange(count);
-    } else {
-      setInternalPostsPerPage(count);
-      setInternalPage(1);
-    }
-  };
-
   const handleJumpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = parseInt(jumpPageInput, 10);
@@ -154,8 +145,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
   return (
     <div className="space-y-6 mb-12">
-      {/* Top Header Summary & Posts Per Page Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-900/60 border border-slate-800/80 rounded-2xl px-5 py-3.5 shadow-md">
+      {/* Top Header Summary */}
+      <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800/80 rounded-2xl px-5 py-3.5 shadow-md">
         <div className="flex items-center space-x-2 text-xs text-slate-300">
           <Layers className="w-4 h-4 text-emerald-400" />
           <span>
@@ -167,31 +158,6 @@ export const JobListings: React.FC<JobListingsProps> = ({
             Page <strong className="text-slate-200">{safePage}</strong> of{' '}
             <strong className="text-slate-200">{totalPages}</strong>
           </span>
-        </div>
-
-        {/* Posts per page filter options: 10, 15, 20 */}
-        <div className="flex items-center space-x-2 self-start sm:self-auto">
-          <span className="text-xs font-semibold text-slate-400">Posts per page:</span>
-          <div className="inline-flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-            {[10, 15, 20].map((count) => {
-              const isActive = postsPerPage === count;
-              return (
-                <button
-                  key={count}
-                  type="button"
-                  onClick={() => handlePostsPerPageSelect(count)}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title={`Show ${count} posts per page`}
-                >
-                  {count}
-                </button>
-              );
-            })}
-          </div>
         </div>
       </div>
 
@@ -505,32 +471,10 @@ export const JobListings: React.FC<JobListingsProps> = ({
       {totalPages > 1 && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
           
-          {/* Left: Summary and Posts-Per-Page Selector */}
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-            <div>
-              Showing <span className="font-bold text-white">{startIndex + 1}–{endIndex}</span> of{' '}
-              <span className="font-bold text-emerald-400">{totalJobs}</span> total jobs
-            </div>
-            
-            <div className="hidden sm:flex items-center space-x-1.5 pl-3 border-l border-slate-800">
-              <span>Per page:</span>
-              <div className="inline-flex bg-slate-950 p-0.5 rounded-lg border border-slate-800">
-                {[10, 15, 20].map((count) => (
-                  <button
-                    key={count}
-                    type="button"
-                    onClick={() => handlePostsPerPageSelect(count)}
-                    className={`px-2 py-0.5 text-xs font-bold rounded ${
-                      postsPerPage === count
-                        ? 'bg-emerald-500 text-slate-950'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {count}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {/* Left: Summary */}
+          <div className="text-xs text-slate-400">
+            Showing <span className="font-bold text-white">{startIndex + 1}–{endIndex}</span> of{' '}
+            <span className="font-bold text-emerald-400">{totalJobs}</span> total jobs
           </div>
 
           {/* Center: Pagination Buttons */}

@@ -2951,30 +2951,6 @@ export default function App() {
                     if (section.id === 'jobs-feed') {
                       return (
                         <div key="section-jobs-feed" id="jobs-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-                          
-                          {/* Active Country Filter Notification Badge */}
-                          {userSelectedCountry && userSelectedCountry.code !== 'GL' && (
-                            <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3 text-xs">
-                              <div className="flex items-center space-x-2.5">
-                                <span className="text-xl">{userSelectedCountry.flag}</span>
-                                <div>
-                                  <span className="font-bold text-white">
-                                    Showing Jobs for {userSelectedCountry.name} ({userSelectedCountry.nameUrdu})
-                                  </span>
-                                  <p className="text-[11px] text-slate-400">
-                                    Sorted by recently updated & priority verified listings.
-                                  </p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => setShowCountryModal(true)}
-                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] border border-amber-500/20 transition-all cursor-pointer shrink-0"
-                              >
-                                Change Country
-                              </button>
-                            </div>
-                          )}
-
                           {/* Filters Bar */}
                           <Filters
                             filters={filters}

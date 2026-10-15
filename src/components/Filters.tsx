@@ -304,7 +304,7 @@ export const Filters: React.FC<FiltersProps> = ({
         </div>
       )}
 
-      {/* Active Filter Badges & Posts Per Page Quick Filter */}
+      {/* Active Filter Badges */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs border-t border-slate-800/80 pt-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-slate-400">Showing <strong className="text-emerald-400 font-bold">{totalResults}</strong> job opportunities</span>
@@ -354,32 +354,6 @@ export const Filters: React.FC<FiltersProps> = ({
             </button>
           )}
         </div>
-
-        {/* Posts Per Page Quick Filter Buttons */}
-        {onPostsPerPageChange && (
-          <div className="flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800">
-            <span className="text-slate-400 font-medium text-[11px]">Posts per page:</span>
-            <div className="flex items-center space-x-1">
-              {[10, 15, 20].map((count) => {
-                const isActive = postsPerPage === count;
-                return (
-                  <button
-                    key={count}
-                    onClick={() => onPostsPerPageChange(count)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      isActive
-                        ? 'bg-emerald-500 text-slate-950 shadow-sm shadow-emerald-500/30'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                    title={`Show ${count} posts per page`}
-                  >
-                    {count}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
     </div>

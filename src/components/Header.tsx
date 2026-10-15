@@ -127,18 +127,17 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Action Controls */}
           <div className="hidden md:flex items-center space-x-3">
-            {/* Selected Country Indicator & Switcher Button */}
+            {/* Selected Country Indicator & Switcher Button (Compact Flag/Globe Control) */}
             {onOpenCountryModal && (
               <button
+                type="button"
                 onClick={onOpenCountryModal}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer group"
-                title="Change Country"
+                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer group"
+                title={`Change Country (Current: ${selectedCountryName || 'Global'})`}
+                aria-label={`Current country: ${selectedCountryName || 'Global'}. Click to change country`}
               >
-                <span className="text-sm">{selectedCountryFlag || '🌐'}</span>
-                <span className="text-slate-300 group-hover:text-emerald-400 max-w-[100px] truncate">
-                  {selectedCountryName || 'Global'}
-                </span>
-                <span className="text-[9px] text-slate-400 font-normal">▼</span>
+                <span className="text-base">{selectedCountryFlag || '🌐'}</span>
+                <span className="text-[10px] text-slate-400 group-hover:text-emerald-400 font-medium">▼</span>
               </button>
             )}
 
@@ -215,18 +214,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Mobile Hamburger & Quick Action Buttons */}
           <div className="md:hidden flex items-center space-x-1.5 sm:space-x-2">
-            {/* Country Selector Flag Button on Mobile */}
+            {/* Country Selector Flag Button on Mobile (Compact Flag/Globe Control) */}
             {onOpenCountryModal && (
               <button
                 type="button"
                 onClick={onOpenCountryModal}
                 className="flex items-center space-x-1 px-2 py-1.5 rounded-xl bg-slate-800/90 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer"
-                title="Change Country"
+                title={`Change Country (Current: ${selectedCountryName || 'Global'})`}
+                aria-label={`Current country: ${selectedCountryName || 'Global'}. Tap to change country`}
               >
                 <span className="text-sm">{selectedCountryFlag || '🌐'}</span>
-                <span className="text-slate-300 text-[10px] max-w-[48px] truncate">
-                  {selectedCountryName?.split(' ')[0] || 'Global'}
-                </span>
                 <span className="text-[8px] text-slate-400">▼</span>
               </button>
             )}

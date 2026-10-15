@@ -290,7 +290,10 @@ export class ScraperRepository {
     lastErrorMessage?: string;
     lastHttpStatus?: number;
   }): Promise<void> {
-    if (isMongoConfigured()) {
+    let mongoWriteSucceeded = false;
+    const mongoConfigured = isMongoConfigured();
+
+    if (mongoConfigured) {
       try {
         const coll = await getScraperSourcesCollection();
         const $set: any = {};
@@ -307,7 +310,14 @@ export class ScraperRepository {
         if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
 
         if (Object.keys(updateOps).length > 0) {
-          await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
+          const updateResult = await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
+          if (updateResult && (updateResult.matchedCount > 0 || updateResult.modifiedCount > 0 || updateResult.upsertedCount > 0)) {
+            mongoWriteSucceeded = true;
+          } else {
+            console.warn(`[ScraperRepository] Warning: updateSourceStats matched 0 documents in MongoDB for source "${sourceId}". Checkpoint write not acknowledged.`);
+          }
+        } else {
+          mongoWriteSucceeded = true;
         }
       } catch (err: any) {
         console.warn(`[ScraperRepository] Notice updating source stats for "${sourceId}" in MongoDB:`, err?.message || err);
@@ -318,7 +328,17 @@ export class ScraperRepository {
     const idx = this.cachedSources.findIndex(s => s.id === sourceId);
     if (idx !== -1) {
       if (stats.lastStartedAt) this.cachedSources[idx].lastStartedAt = stats.lastStartedAt;
-      if (stats.lastSuccessfulScrapeAt) this.cachedSources[idx].lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
+
+      // Checkpoint safety: only advance lastSuccessfulScrapeAt if Mongo is not configured (memory mode)
+      // or if the MongoDB write was confirmed and matched the document.
+      if (stats.lastSuccessfulScrapeAt) {
+        if (!mongoConfigured || mongoWriteSucceeded) {
+          this.cachedSources[idx].lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
+        } else {
+          console.warn(`[ScraperRepository] Skipped advancing in-memory lastSuccessfulScrapeAt for "${sourceId}" due to unpersisted MongoDB write.`);
+        }
+      }
+
       if (stats.lastCompletedAt) this.cachedSources[idx].lastCompletedAt = stats.lastCompletedAt;
       if (stats.lastRunId) this.cachedSources[idx].lastRunId = stats.lastRunId;
       if (stats.scrapedCountIncrement) {

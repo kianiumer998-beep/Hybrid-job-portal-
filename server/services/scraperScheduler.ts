@@ -31,6 +31,7 @@ const INTERVAL_MS_MAP: Record<string, number> = {
   '30m': 30 * 60 * 1000,
   '1h': 60 * 60 * 1000,
   '6h': 6 * 60 * 60 * 1000,
+  '12h': 12 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000
 };
@@ -44,25 +45,62 @@ function parseIntervalToMs(intervalStr?: string): number {
   return INTERVAL_MS_MAP[intervalStr] || INTERVAL_MS_MAP['24h'];
 }
 
+const VALID_SCOPES: ScraperSchedulerSettings['scope'][] = ['all', 'selected', 'group', 'working', 'failed', 'single'];
+
+export function isValidSchedulerScope(scope: any): scope is ScraperSchedulerSettings['scope'] {
+  return VALID_SCOPES.includes(scope);
+}
+
 /**
  * Resolves the eligible source IDs according to the configured scheduled scope.
+ * An unknown/invalid scope will never resolve to all sources.
+ * Missing or empty IDs for selected/group/single return an empty Set (0 sources).
  */
 async function resolveScopedSourceIds(
   settings: ScraperSchedulerSettings,
   allSources: any[]
 ): Promise<Set<string> | null> {
-  const scope = settings.scope || 'all';
+  const scope = settings.scope;
+
+  // Unknown or invalid scope: must never fall back to all sources
+  if (!isValidSchedulerScope(scope)) {
+    console.warn(`[Scheduler Engine] Unknown scheduler scope "${scope}". Rejecting fallback to all sources.`);
+    return new Set<string>();
+  }
+
+  if (scope === 'all') {
+    return null; // null represents all active sources
+  }
 
   if (scope === 'selected') {
-    const selectedIds = Array.isArray(settings.selectedSourceIds) ? settings.selectedSourceIds : [];
+    const selectedIds = Array.isArray(settings.selectedSourceIds) ? settings.selectedSourceIds.filter(Boolean) : [];
+    if (selectedIds.length === 0) {
+      console.warn('[Scheduler Engine] Scope is "selected" but no source IDs are configured. Running 0 sources.');
+      return new Set<string>();
+    }
     return new Set(selectedIds);
   }
 
   if (scope === 'group') {
-    if (!settings.selectedGroupId) return new Set();
+    if (!settings.selectedGroupId || !settings.selectedGroupId.trim()) {
+      console.warn('[Scheduler Engine] Scope is "group" but no groupId is configured. Running 0 sources.');
+      return new Set<string>();
+    }
     const groups = await ScraperRepository.getGroups();
     const targetGroup = groups.find(g => g.id === settings.selectedGroupId);
-    return new Set(targetGroup?.sourceIds || []);
+    if (!targetGroup || !Array.isArray(targetGroup.sourceIds) || targetGroup.sourceIds.length === 0) {
+      console.warn(`[Scheduler Engine] Group "${settings.selectedGroupId}" not found or has 0 sources. Running 0 sources.`);
+      return new Set<string>();
+    }
+    return new Set(targetGroup.sourceIds);
+  }
+
+  if (scope === 'single') {
+    if (!settings.singleSourceId || !settings.singleSourceId.trim()) {
+      console.warn('[Scheduler Engine] Scope is "single" but no singleSourceId is configured. Running 0 sources.');
+      return new Set<string>();
+    }
+    return new Set([settings.singleSourceId.trim()]);
   }
 
   if (scope === 'working') {
@@ -81,12 +119,7 @@ async function resolveScopedSourceIds(
     return new Set(failedIds);
   }
 
-  if (scope === 'single') {
-    return new Set(settings.singleSourceId ? [settings.singleSourceId] : []);
-  }
-
-  // 'all' scope: all active sources are eligible
-  return null;
+  return new Set<string>();
 }
 
 /**
@@ -149,11 +182,24 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
           triggered.push(src.id);
 
           try {
+            // Resolve scheduled mode: preserve 'since_last' as backward-compatible default
+            let scheduledMode: 'since_last' | 'complete' | 'page_range' = 'since_last';
+            if (settings.scanMode === 'complete') {
+              scheduledMode = 'complete';
+            } else if (settings.scanMode === 'page_range') {
+              scheduledMode = 'page_range';
+            }
+
+            const validStartPage = Math.max(1, Number(settings.startPage) || 1);
+            const validEndPage = Math.max(validStartPage, Number(settings.endPage) || validStartPage);
+
             const runResult = await executeScraperWithWizard({
-              mode: 'since_last',
+              mode: scheduledMode,
               sourceId: src.id,
+              startPage: scheduledMode === 'page_range' ? validStartPage : undefined,
+              endPage: scheduledMode === 'page_range' ? validEndPage : undefined,
               autoPublishTrusted: (settings.autoApprove ?? src.autoApprove) && featureFlags.enableScraperAutoApprove,
-              duplicateMode: settings.duplicateMode || 'with'
+              duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with'
             });
 
             console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
@@ -284,24 +330,33 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
 /**
  * Enables or pauses the global scraper scheduler runtime.
  */
-export async function setGlobalSchedulerState(enabled: boolean): Promise<{ isRunning: boolean; message: string }> {
-  try {
-    await ScraperRepository.saveSchedulerSettings({ enabled });
-  } catch (err: any) {
-    console.warn('[Scheduler Engine] Failed to persist scheduler state update:', err?.message || err);
-  }
+export async function setGlobalSchedulerState(enabled: boolean): Promise<{ isRunning: boolean; isPersistedToMongo: boolean; message: string }> {
+  const saved = await ScraperRepository.saveSchedulerSettings({ enabled });
+  const isPersistedToMongo = Boolean((saved as any).isPersistedToMongo);
 
   if (enabled) {
     if (!scheduledTask) {
       initScraperScheduler();
     }
-    return { isRunning: true, message: 'Global scraper scheduler enabled successfully.' };
+    return {
+      isRunning: true,
+      isPersistedToMongo,
+      message: isPersistedToMongo
+        ? 'Global scraper scheduler enabled and saved to MongoDB.'
+        : 'Global scraper scheduler enabled in memory cache (MongoDB not configured).'
+    };
   } else {
     if (scheduledTask) {
       scheduledTask.stop();
       scheduledTask = null;
     }
-    return { isRunning: false, message: 'Global scraper scheduler paused successfully.' };
+    return {
+      isRunning: false,
+      isPersistedToMongo,
+      message: isPersistedToMongo
+        ? 'Global scraper scheduler paused and saved to MongoDB.'
+        : 'Global scraper scheduler paused in memory cache (MongoDB not configured).'
+    };
   }
 }
 

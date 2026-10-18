@@ -528,6 +528,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [scheduledGroupId, setScheduledGroupId] = useState<string>('');
   const [scheduledSingleSourceId, setScheduledSingleSourceId] = useState<string>('');
   const [scheduledSelectedSourceIds, setScheduledSelectedSourceIds] = useState<string[]>([]);
+  const [scheduledScanMode, setScheduledScanMode] = useState<'since_last' | 'complete' | 'page_range'>('since_last');
+  const [scheduledStartPage, setScheduledStartPage] = useState<number>(1);
+  const [scheduledEndPage, setScheduledEndPage] = useState<number>(1);
+  const [scheduledDuplicateMode, setScheduledDuplicateMode] = useState<'with' | 'without'>('with');
 
   // Source Groups State
   const [sourceGroups, setSourceGroups] = useState<SourceGroup[]>([]);
@@ -612,7 +616,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           if (schedSettings.selectedGroupId) setScheduledGroupId(schedSettings.selectedGroupId);
           if (schedSettings.singleSourceId) setScheduledSingleSourceId(schedSettings.singleSourceId);
           if (Array.isArray(schedSettings.selectedSourceIds)) setScheduledSelectedSourceIds(schedSettings.selectedSourceIds);
-          if (schedSettings.duplicateMode) setDuplicateMode(schedSettings.duplicateMode);
+          setScheduledScanMode(schedSettings.scanMode || 'since_last');
+          if (schedSettings.startPage) setScheduledStartPage(schedSettings.startPage);
+          if (schedSettings.endPage) setScheduledEndPage(schedSettings.endPage);
+          if (schedSettings.duplicateMode) setScheduledDuplicateMode(schedSettings.duplicateMode);
         }
       }
 
@@ -1888,7 +1895,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         ? (scheduledSelectedSourceIds.length > 0 ? scheduledSelectedSourceIds : selectedSourceIds)
         : [];
 
-      await api.scraper.saveSchedulerSettings({
+      const saveRes = await api.scraper.saveSchedulerSettings({
         enabled: globalSchedulerEnabled,
         interval: globalInterval,
         depth: globalDepth,
@@ -1898,7 +1905,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         selectedSourceIds: effectiveSelectedIds,
         selectedGroupId: scheduledScope === 'group' ? scheduledGroupId : '',
         singleSourceId: scheduledScope === 'single' ? scheduledSingleSourceId : '',
-        duplicateMode
+        scanMode: scheduledScanMode,
+        startPage: scheduledStartPage,
+        endPage: scheduledEndPage,
+        duplicateMode: scheduledDuplicateMode
       });
 
       // Refresh scheduler status with latest authoritative state
@@ -1907,7 +1917,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         setSchedulerStatus(statusRes.status);
       }
 
-      setStatusMessage({ text: 'Scheduler & crawler settings saved successfully to MongoDB!', type: 'success' });
+      const isPersisted = Boolean(saveRes?.isPersistedToMongo);
+      setStatusMessage({
+        text: saveRes?.message || (isPersisted
+          ? 'Scheduler settings saved successfully to MongoDB!'
+          : 'Scheduler settings saved to memory cache (MongoDB not configured).'),
+        type: isPersisted ? 'success' : 'info'
+      });
     } catch (err: any) {
       setStatusMessage({ text: `Failed to save settings: ${err.message}`, type: 'error' });
     }
@@ -4568,6 +4584,68 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     </button>
                   </div>
                 )}
+
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                    Scheduled Scan Mode
+                  </label>
+                  <select
+                    value={scheduledScanMode}
+                    onChange={(e) => setScheduledScanMode(e.target.value as any)}
+                    aria-label="Scheduled Scan Mode"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  >
+                    <option value="since_last">Since Last Scrape (Incremental, Default)</option>
+                    <option value="complete">Full Scan (All Pages)</option>
+                    <option value="page_range">Page Range (Start - End)</option>
+                  </select>
+                </div>
+
+                {scheduledScanMode === 'page_range' && (
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">Start Page</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={scheduledStartPage}
+                        onChange={(e) => {
+                          const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                          setScheduledStartPage(val);
+                          if (scheduledEndPage < val) setScheduledEndPage(val);
+                        }}
+                        aria-label="Scheduled Start Page"
+                        className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 font-bold">End Page</label>
+                      <input
+                        type="number"
+                        min={scheduledStartPage}
+                        value={scheduledEndPage}
+                        onChange={(e) => setScheduledEndPage(Math.max(scheduledStartPage, parseInt(e.target.value, 10) || scheduledStartPage))}
+                        aria-label="Scheduled End Page"
+                        className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                    Scheduled Duplicate Mode
+                  </label>
+                  <select
+                    value={scheduledDuplicateMode}
+                    onChange={(e) => setScheduledDuplicateMode(e.target.value as any)}
+                    aria-label="Scheduled Duplicate Mode"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  >
+                    <option value="with">With Duplicates (Default)</option>
+                    <option value="without">Without Duplicates (Filter out existing)</option>
+                  </select>
+                </div>
               </div>
             </div>
 

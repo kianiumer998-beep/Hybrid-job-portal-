@@ -80,8 +80,9 @@ scraperRouter.post('/scheduler-state', requireAdminPermission('scraper.manage'),
   try {
     const { enabled } = req.body;
     const isEnabled = Boolean(enabled);
-    const result = setGlobalSchedulerState(isEnabled);
-    await ScraperRepository.saveSchedulerSettings({ enabled: isEnabled });
+    // Awaits runtime state change and persistence to MongoDB without redundant duplicate writes
+    const result = await setGlobalSchedulerState(isEnabled);
+
     AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
@@ -107,18 +108,76 @@ scraperRouter.get('/scheduler-settings', requireAdminPermission('scraper.manage'
 
 scraperRouter.put('/scheduler-settings', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
+    const { scope, scanMode, duplicateMode, selectedSourceIds, selectedGroupId, singleSourceId } = req.body;
+
+    const VALID_SCOPES = ['all', 'selected', 'group', 'working', 'failed', 'single'];
+    if (scope !== undefined && !VALID_SCOPES.includes(scope)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid scheduler scope "${scope}". Supported scopes are: ${VALID_SCOPES.join(', ')}.`
+      });
+    }
+
+    if (scanMode !== undefined && !['since_last', 'complete', 'page_range'].includes(scanMode)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid scanMode "${scanMode}". Supported scan modes are: since_last, complete, page_range.`
+      });
+    }
+
+    if (duplicateMode !== undefined && !['with', 'without'].includes(duplicateMode)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid duplicateMode "${duplicateMode}". Supported values are: with, without.`
+      });
+    }
+
+    // Explicit validation for scoped targets to prevent unsafe fallbacks
+    if (scope === 'selected' && (!Array.isArray(selectedSourceIds) || selectedSourceIds.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Scope "selected" requires a non-empty array of selectedSourceIds.'
+      });
+    }
+
+    if (scope === 'group' && (!selectedGroupId || typeof selectedGroupId !== 'string' || !selectedGroupId.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Scope "group" requires a valid selectedGroupId.'
+      });
+    }
+
+    if (scope === 'single' && (!singleSourceId || typeof singleSourceId !== 'string' || !singleSourceId.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Scope "single" requires a valid singleSourceId.'
+      });
+    }
+
     const updated = await ScraperRepository.saveSchedulerSettings(req.body);
     if (req.body.enabled !== undefined) {
-      setGlobalSchedulerState(Boolean(req.body.enabled));
+      await setGlobalSchedulerState(Boolean(req.body.enabled));
     }
+
     AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Scraper Scheduler Settings Saved',
-      target: `Scope: ${updated.scope || 'all'}, Interval: ${updated.interval || '24h'}`,
+      target: `Scope: ${updated.scope || 'all'}, Interval: ${updated.interval || '24h'}, Mode: ${updated.scanMode || 'since_last'}`,
       status: 'Success'
     });
-    res.json({ success: true, settings: updated, message: 'Scheduler settings saved successfully!' });
+
+    const isPersistedToMongo = Boolean((updated as any).isPersistedToMongo);
+    const saveMessage = isPersistedToMongo
+      ? 'Scheduler settings saved successfully to MongoDB.'
+      : 'Scheduler settings saved to memory cache (MongoDB not configured).';
+
+    res.json({
+      success: true,
+      settings: updated,
+      isPersistedToMongo,
+      message: saveMessage
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Error saving scheduler settings' });
   }

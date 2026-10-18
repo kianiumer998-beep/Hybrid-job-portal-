@@ -76,13 +76,51 @@ scraperRouter.post('/scheduler-tick', requireAdminPermission('scraper.manage'), 
 });
 
 // 5. Update Global Scheduler State (Admin Only)
-scraperRouter.post('/scheduler-state', requireAdminPermission('scraper.manage'), (req, res) => {
+scraperRouter.post('/scheduler-state', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
     const { enabled } = req.body;
-    const result = setGlobalSchedulerState(Boolean(enabled));
+    const isEnabled = Boolean(enabled);
+    const result = setGlobalSchedulerState(isEnabled);
+    await ScraperRepository.saveSchedulerSettings({ enabled: isEnabled });
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: isEnabled ? 'Scraper Scheduler Resumed' : 'Scraper Scheduler Paused',
+      target: 'Automatic Background Scheduler',
+      status: 'Success'
+    });
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err?.message || 'Error updating scheduler state' });
+  }
+});
+
+// 5b. Get & Update Scheduler Settings (Admin Only)
+scraperRouter.get('/scheduler-settings', requireAdminPermission('scraper.manage'), async (req, res) => {
+  try {
+    const settings = await ScraperRepository.getSchedulerSettings();
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error fetching scheduler settings' });
+  }
+});
+
+scraperRouter.put('/scheduler-settings', requireAdminPermission('scraper.manage'), async (req, res) => {
+  try {
+    const updated = await ScraperRepository.saveSchedulerSettings(req.body);
+    if (req.body.enabled !== undefined) {
+      setGlobalSchedulerState(Boolean(req.body.enabled));
+    }
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Scraper Scheduler Settings Saved',
+      target: `Scope: ${updated.scope || 'all'}, Interval: ${updated.interval || '24h'}`,
+      status: 'Success'
+    });
+    res.json({ success: true, settings: updated, message: 'Scheduler settings saved successfully!' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err?.message || 'Error saving scheduler settings' });
   }
 });
 

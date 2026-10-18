@@ -521,6 +521,23 @@ export const api = {
     async getSchedulerStatus() {
       return safeFetchJson(`${API_BASE}/scraper/scheduler-status`, { headers: getAuthHeader() });
     },
+    async getSchedulerSettings() {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-settings`, { headers: getAuthHeader() });
+    },
+    async saveSchedulerSettings(settings: any) {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-settings`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(settings)
+      });
+    },
+    async setSchedulerState(enabled: boolean) {
+      return safeFetchJson(`${API_BASE}/scraper/scheduler-state`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ enabled })
+      });
+    },
     async schedulerTick() {
       return safeFetchJson(`${API_BASE}/scraper/scheduler-tick`, {
         method: 'POST',

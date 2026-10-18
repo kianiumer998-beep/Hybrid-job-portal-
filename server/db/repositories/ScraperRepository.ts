@@ -2,11 +2,42 @@ import {
   getScraperSourcesCollection,
   getScraperRunsCollection,
   getScraperGroupsCollection,
+  getMongoDb,
   isMongoConfigured,
   isMongoAvailable,
   resetMongoClient
 } from '../mongodb';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../../src/data/allScraperPortals';
+
+export interface ScraperSchedulerSettings {
+  enabled: boolean;
+  interval: string;
+  scope: 'all' | 'selected' | 'group' | 'working' | 'failed' | 'single';
+  selectedSourceIds?: string[];
+  selectedGroupId?: string;
+  singleSourceId?: string;
+  duplicateMode?: 'with' | 'without';
+  autoApprove?: boolean;
+  depth?: string;
+  keywords?: string;
+  updatedAt?: string;
+}
+
+export function getDefaultSchedulerSettings(): ScraperSchedulerSettings {
+  return {
+    enabled: true,
+    interval: '24h',
+    scope: 'all',
+    selectedSourceIds: [],
+    selectedGroupId: '',
+    singleSourceId: '',
+    duplicateMode: 'with',
+    autoApprove: false,
+    depth: 'Standard (25 Jobs)',
+    keywords: 'jobs, careers, recruitment, vacancies, officers, lecturer',
+    updatedAt: new Date().toISOString()
+  };
+}
 
 /**
  * Safely executes a promise with an enforced timeout to prevent network stalls.
@@ -124,6 +155,7 @@ function getDefaultSources(): any[] {
 export class ScraperRepository {
   private static cachedSources: any[] = getDefaultSources();
   private static cachedRuns: any[] = [];
+  private static cachedSettings: ScraperSchedulerSettings = getDefaultSchedulerSettings();
 
   /**
    * Retrieves all scraper source configurations from MongoDB scraper_sources collection.
@@ -648,6 +680,88 @@ export class ScraperRepository {
     } catch (err: any) {
       console.warn(`[ScraperRepository] resetStaleSchedules notice: ${err?.message || err}`);
       return { resetCount: 0 };
+    }
+  }
+
+  /**
+   * Retrieves authoritative scraper scheduler settings from MongoDB scraper_settings collection.
+   * If not configured or connection fails, falls back gracefully to cached settings.
+   */
+  static async getSchedulerSettings(): Promise<ScraperSchedulerSettings> {
+    if (isMongoConfigured()) {
+      try {
+        const db = await getMongoDb();
+        const coll = db.collection('scraper_settings');
+        const doc = await withMongoTimeout(
+          coll.findOne({ id: 'global_scheduler_settings' }, { projection: { _id: 0 } }),
+          10000,
+          'getSchedulerSettings'
+        );
+        if (doc) {
+          const merged: ScraperSchedulerSettings = {
+            ...getDefaultSchedulerSettings(),
+            ...(doc as any)
+          };
+          this.cachedSettings = merged;
+          return merged;
+        }
+
+        // Auto-seed default scheduler settings into MongoDB
+        const defaults = getDefaultSchedulerSettings();
+        await withMongoTimeout(
+          coll.replaceOne(
+            { id: 'global_scheduler_settings' },
+            { id: 'global_scheduler_settings', ...defaults },
+            { upsert: true }
+          ),
+          10000,
+          'seedSchedulerSettings'
+        );
+        this.cachedSettings = defaults;
+        return defaults;
+      } catch (err: any) {
+        console.warn('[ScraperRepository] Notice reading scraper_settings from MongoDB, serving cached:', err?.message || err);
+      }
+    }
+    return this.cachedSettings;
+  }
+
+  /**
+   * Authoritatively persists scheduler settings to MongoDB scraper_settings collection.
+   */
+  static async saveSchedulerSettings(settings: Partial<ScraperSchedulerSettings>): Promise<ScraperSchedulerSettings> {
+    const current = await this.getSchedulerSettings();
+    const updated: ScraperSchedulerSettings = {
+      ...current,
+      ...settings,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (!isMongoConfigured()) {
+      this.cachedSettings = updated;
+      return updated;
+    }
+
+    try {
+      const db = await getMongoDb();
+      const coll = db.collection('scraper_settings');
+      const result: any = await withMongoTimeout(
+        coll.replaceOne(
+          { id: 'global_scheduler_settings' },
+          { id: 'global_scheduler_settings', ...updated },
+          { upsert: true }
+        ),
+        10000,
+        'saveSchedulerSettings'
+      );
+      if (result && result.acknowledged === false) {
+        throw new Error('Write was not acknowledged by MongoDB for scraper_settings');
+      }
+      this.cachedSettings = updated;
+      return updated;
+    } catch (err: any) {
+      console.warn(`[ScraperRepository] Failed to persist scraper settings to MongoDB: ${err?.message || err}`);
+      throw err;
     }
   }
 }

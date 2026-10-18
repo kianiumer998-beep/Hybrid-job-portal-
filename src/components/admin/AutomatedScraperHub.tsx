@@ -523,6 +523,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [globalAutoApprove, setGlobalAutoApprove] = useState(false);
   const [globalSchedulerEnabled, setGlobalSchedulerEnabled] = useState(true);
 
+  // Scheduled Scraper Scope State (Authoritative Connection to Background Scheduler)
+  const [scheduledScope, setScheduledScope] = useState<'all' | 'selected' | 'group' | 'working' | 'failed' | 'single'>('all');
+  const [scheduledGroupId, setScheduledGroupId] = useState<string>('');
+  const [scheduledSingleSourceId, setScheduledSingleSourceId] = useState<string>('');
+  const [scheduledSelectedSourceIds, setScheduledSelectedSourceIds] = useState<string[]>([]);
+
   // Source Groups State
   const [sourceGroups, setSourceGroups] = useState<SourceGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
@@ -591,10 +597,23 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         setLiveRuns([]);
       }
 
-      // 3. Fetch Scheduler Status
+      // 3. Fetch Scheduler Status & Authoritative Settings
       const statusRes = await api.scraper.getSchedulerStatus();
       if (statusRes?.success && statusRes.status) {
         setSchedulerStatus(statusRes.status);
+        const schedSettings = statusRes.status.settings;
+        if (schedSettings) {
+          if (schedSettings.enabled !== undefined) setGlobalSchedulerEnabled(schedSettings.enabled);
+          if (schedSettings.interval) setGlobalInterval(schedSettings.interval);
+          if (schedSettings.depth) setGlobalDepth(schedSettings.depth);
+          if (schedSettings.keywords) setGlobalKeywords(schedSettings.keywords);
+          if (schedSettings.autoApprove !== undefined) setGlobalAutoApprove(schedSettings.autoApprove);
+          if (schedSettings.scope) setScheduledScope(schedSettings.scope);
+          if (schedSettings.selectedGroupId) setScheduledGroupId(schedSettings.selectedGroupId);
+          if (schedSettings.singleSourceId) setScheduledSingleSourceId(schedSettings.singleSourceId);
+          if (Array.isArray(schedSettings.selectedSourceIds)) setScheduledSelectedSourceIds(schedSettings.selectedSourceIds);
+          if (schedSettings.duplicateMode) setDuplicateMode(schedSettings.duplicateMode);
+        }
       }
 
       // 4. Fetch Source Groups
@@ -1863,7 +1882,32 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       await api.scraper.saveConfigs(updated);
       setLiveSources(updated);
       if (propsSetSources) propsSetSources(updated);
-      setStatusMessage({ text: 'Settings saved successfully to MongoDB!', type: 'success' });
+
+      // Authoritative Scheduler Settings & Scope Persistence
+      const effectiveSelectedIds = scheduledScope === 'selected'
+        ? (scheduledSelectedSourceIds.length > 0 ? scheduledSelectedSourceIds : selectedSourceIds)
+        : [];
+
+      await api.scraper.saveSchedulerSettings({
+        enabled: globalSchedulerEnabled,
+        interval: globalInterval,
+        depth: globalDepth,
+        keywords: globalKeywords,
+        autoApprove: globalAutoApprove,
+        scope: scheduledScope,
+        selectedSourceIds: effectiveSelectedIds,
+        selectedGroupId: scheduledScope === 'group' ? scheduledGroupId : '',
+        singleSourceId: scheduledScope === 'single' ? scheduledSingleSourceId : '',
+        duplicateMode
+      });
+
+      // Refresh scheduler status with latest authoritative state
+      const statusRes = await api.scraper.getSchedulerStatus();
+      if (statusRes?.success && statusRes.status) {
+        setSchedulerStatus(statusRes.status);
+      }
+
+      setStatusMessage({ text: 'Scheduler & crawler settings saved successfully to MongoDB!', type: 'success' });
     } catch (err: any) {
       setStatusMessage({ text: `Failed to save settings: ${err.message}`, type: 'error' });
     }
@@ -1908,9 +1952,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             <div className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs flex items-center space-x-2.5">
               <span className={`w-2.5 h-2.5 rounded-full ${schedulerStatus?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500'}`} />
               <div>
-                <span className="text-slate-400 text-[10px] uppercase font-bold block leading-none">Background Scheduler</span>
+                <span className="text-slate-400 text-[10px] uppercase font-bold block leading-none">
+                  Scheduler ({scheduledScope.toUpperCase()})
+                </span>
                 <span className="text-white font-bold text-xs mt-0.5 block">
-                  {schedulerStatus?.isRunning ? 'Active & Running' : 'Scheduled (Cron)'}
+                  {schedulerStatus?.isRunning ? 'Active & Running' : 'Paused (Manual)'}
                 </span>
               </div>
             </div>
@@ -2023,7 +2069,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
                     schedulerStatus?.isRunning ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                   }`}>
-                    {schedulerStatus?.isRunning ? 'Scheduler Active (Tick: */2 * * * *)' : 'Scheduler Paused'}
+                    {schedulerStatus?.isRunning ? `Scheduler Active (Scope: ${scheduledScope.toUpperCase()})` : 'Scheduler Paused'}
                   </span>
                 </div>
                 <h3 className="text-lg font-black text-white">Universal Job Scraper & Ingestion Center</h3>
@@ -4404,7 +4450,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     type="checkbox"
                     aria-label="Scheduler Status"
                     checked={globalSchedulerEnabled}
-                    onChange={(e) => setGlobalSchedulerEnabled(e.target.checked)}
+                    onChange={async (e) => {
+                      const checked = e.target.checked;
+                      setGlobalSchedulerEnabled(checked);
+                      try {
+                        await api.scraper.setSchedulerState(checked);
+                        setStatusMessage({
+                          text: checked ? 'Automatic background scheduler enabled.' : 'Automatic background scheduler paused.',
+                          type: 'info'
+                        });
+                      } catch (err: any) {
+                        console.warn('Failed to update scheduler state:', err);
+                      }
+                    }}
                     className="rounded bg-slate-800 border-slate-700 text-indigo-600 cursor-pointer"
                   />
                 </div>
@@ -4428,6 +4486,88 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     <option value="7d">Every 7 days (Weekly)</option>
                   </select>
                 </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                    Scheduled Execution Scope
+                  </label>
+                  <select
+                    value={scheduledScope}
+                    onChange={(e) => setScheduledScope(e.target.value as any)}
+                    aria-label="Scheduled Execution Scope"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  >
+                    <option value="all">All Enabled Sources (Default)</option>
+                    <option value="selected">Selected Sources ({(scheduledSelectedSourceIds.length > 0 ? scheduledSelectedSourceIds : selectedSourceIds).length} sources)</option>
+                    <option value="group">Existing Source Group ({sourceGroups.length} available)</option>
+                    <option value="working">Working Sources Only ({sourcesList.filter(s => classificationsMap.get(s.id)?.overallStatus === 'Working').length} Healthy)</option>
+                    <option value="failed">Failed Sources Retry ({sourcesList.filter(s => ['404', '403', 'Timeout', 'Invalid PDF', 'HTML', 'Fetch Error', 'error', 'warning'].includes(s.healthStatus || '') || (s.lastErrorMessage && s.lastErrorMessage.length > 0 && s.lastErrorMessage !== '0 vacancies extracted from target source')).length} Failed)</option>
+                    <option value="single">Single Target Source</option>
+                  </select>
+                </div>
+
+                {scheduledScope === 'group' && (
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                      Select Target Source Group
+                    </label>
+                    <select
+                      value={scheduledGroupId}
+                      onChange={(e) => setScheduledGroupId(e.target.value)}
+                      aria-label="Select Target Source Group for Schedule"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                    >
+                      <option value="">-- Choose a group --</option>
+                      {sourceGroups.map(g => (
+                        <option key={g.id} value={g.id}>
+                          📁 {g.name} ({g.sourceIds?.length || 0} sources)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {scheduledScope === 'single' && (
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                      Select Single Target Source
+                    </label>
+                    <select
+                      value={scheduledSingleSourceId}
+                      onChange={(e) => setScheduledSingleSourceId(e.target.value)}
+                      aria-label="Select Single Target Source for Schedule"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                    >
+                      <option value="">-- Choose a source --</option>
+                      {sourcesList.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.category || 'General'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {scheduledScope === 'selected' && (
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-400 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span>Scheduled Sources:</span>
+                      <span className="font-bold text-indigo-300">
+                        {(scheduledSelectedSourceIds.length > 0 ? scheduledSelectedSourceIds : selectedSourceIds).length} Selected
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScheduledSelectedSourceIds([...selectedSourceIds]);
+                        setStatusMessage({ text: `Synced ${selectedSourceIds.length} currently selected sources for scheduled runs.`, type: 'info' });
+                      }}
+                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                    >
+                      Sync with Current Selection ({selectedSourceIds.length})
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

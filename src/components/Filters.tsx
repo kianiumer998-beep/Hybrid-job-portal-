@@ -81,18 +81,18 @@ export const Filters: React.FC<FiltersProps> = ({
     filters.sortBy !== 'latest';
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl mb-8 relative z-20">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-6 shadow-2xl mb-6 sm:mb-8 relative z-20">
       
       {/* Top Search Bar */}
-      <div className="flex flex-col md:flex-row gap-3">
+      <div className="flex flex-col md:flex-row gap-2.5 sm:gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+          <Search className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-slate-400" />
           <input
             type="text"
             value={filters.searchQuery}
             onChange={(e) => onChange({ ...filters, searchQuery: e.target.value })}
             placeholder="Search job title, company name, or tech skills (e.g. React, Python, Remote)..."
-            className="w-full pl-11 pr-10 py-3.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-sm"
+            className="w-full pl-9 sm:pl-11 pr-9 sm:pr-10 py-3 sm:py-3.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-xs sm:text-sm"
           />
           {filters.searchQuery && (
             <button
@@ -104,14 +104,14 @@ export const Filters: React.FC<FiltersProps> = ({
           )}
         </div>
 
-        {/* Quick Sort & Posts Per Page Controls */}
-        <div className="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto">
+        {/* Quick Sort & Posts Per Page Controls - Side-by-side on mobile, inline on desktop */}
+        <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-2.5 w-full md:w-auto">
           {/* Quick Sort Control */}
           <div className="w-full sm:w-48">
             <select
               value={filters.sortBy}
               onChange={(e) => onChange({ ...filters, sortBy: e.target.value as any })}
-              className="w-full px-3.5 py-3.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+              className="w-full px-2.5 sm:px-3.5 py-2.5 sm:py-3.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
             >
               <option value="latest">Sort: Most Recent</option>
               <option value="salary-high">Sort: Highest Salary</option>
@@ -126,7 +126,7 @@ export const Filters: React.FC<FiltersProps> = ({
               <select
                 value={postsPerPage}
                 onChange={(e) => onPostsPerPageChange(Number(e.target.value))}
-                className="w-full px-3.5 py-3.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                className="w-full px-2.5 sm:px-3.5 py-2.5 sm:py-3.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
                 title="Select number of job posts per page"
               >
                 <option value={10}>10 / page</option>

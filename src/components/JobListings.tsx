@@ -317,14 +317,14 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 {/* Job Title & Company */}
                 <h3
                   onClick={() => onSelectJob(job)}
-                  className="text-xs sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight sm:leading-snug line-clamp-1 sm:line-clamp-2 mb-1"
+                  className="text-xs sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight sm:leading-snug line-clamp-2 mb-1"
                 >
                   {cleanTitle}
                 </h3>
 
                 {/* Mobile compact company, location and posted line */}
                 <div className="flex sm:hidden items-center justify-between text-[10px] text-slate-400 mb-1.5">
-                  <div className="flex items-center space-x-1 truncate max-w-[70%]">
+                  <div className="flex items-center space-x-1 flex-1 min-w-0 pr-1 truncate">
                     <Building2 className="w-2.5 h-2.5 text-slate-500 shrink-0" />
                     <span className="text-slate-300 font-semibold truncate">{cleanCompany}</span>
                     <span className="text-slate-600">•</span>

@@ -53,10 +53,10 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
+                <span className="font-extrabold text-lg sm:text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
                   HybridJobs<span className="text-emerald-400">.pk</span>
                 </span>
-                <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="hidden min-[420px]:inline-flex text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   Global & PK
                 </span>
               </div>
@@ -213,13 +213,13 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Mobile Hamburger & Quick Action Buttons */}
-          <div className="md:hidden flex items-center space-x-1.5 sm:space-x-2">
+          <div className="md:hidden flex items-center space-x-1 sm:space-x-2 shrink-0">
             {/* Country Selector Flag Button on Mobile (Compact Flag/Globe Control) */}
             {onOpenCountryModal && (
               <button
                 type="button"
                 onClick={onOpenCountryModal}
-                className="flex items-center space-x-1 px-2 py-1.5 rounded-xl bg-slate-800/90 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                className="flex items-center space-x-1 px-1.5 sm:px-2 py-1.5 rounded-xl bg-slate-800/90 text-slate-200 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer shrink-0"
                 title={`Change Country (Current: ${selectedCountryName || 'Global'})`}
                 aria-label={`Current country: ${selectedCountryName || 'Global'}. Tap to change country`}
               >
@@ -233,7 +233,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onOpenAdDrawer}
-                className="relative p-2 rounded-xl bg-slate-800 text-amber-400 border border-slate-700 hover:border-amber-500/40 transition-all cursor-pointer"
+                className="relative p-1.5 sm:p-2 rounded-xl bg-slate-800 text-amber-400 border border-slate-700 hover:border-amber-500/40 transition-all cursor-pointer shrink-0"
                 title="View Live Announcements"
               >
                 <Bell className="w-4 h-4" />
@@ -246,7 +246,7 @@ export const Header: React.FC<HeaderProps> = ({
             {!currentUser && (
               <button
                 onClick={onOpenAuthModal}
-                className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold"
+                className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold shrink-0"
               >
                 Login
               </button>

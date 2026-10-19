@@ -364,8 +364,10 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
       target: `${result.successCount} jobs approved (${result.failureCount} failed, ${duplicateWarnings.length} duplicates skipped, ${missingFieldWarnings.length} missing fields skipped)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
     });
+    const hasFailures = result.failureCount > 0;
+    const isFullySuccessful = !hasFailures && result.successCount > 0;
     res.json({
-      success: true,
+      success: isFullySuccessful,
       successCount: result.successCount,
       failureCount: result.failureCount,
       skippedDuplicatesCount: duplicateWarnings.length,
@@ -375,7 +377,7 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
       errors: result.errors,
       approvedCount: result.successCount,
       approvedJobs: result.approvedJobs,
-      message: `${result.successCount} jobs approved.${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}${missingFieldWarnings.length > 0 ? ` (${missingFieldWarnings.length} skipped with missing fields)` : ''}`
+      message: `${result.successCount} jobs approved.${hasFailures ? ` (${result.failureCount} failed)` : ''}${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}${missingFieldWarnings.length > 0 ? ` (${missingFieldWarnings.length} skipped with missing fields)` : ''}`
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-approve:', err);

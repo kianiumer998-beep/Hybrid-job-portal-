@@ -736,7 +736,7 @@ export class JobRepository {
     const pendingColl = await getPendingJobsCollection();
     const jobsColl = await getJobsCollection();
 
-    const pendingDoc = await pendingColl.findOneAndDelete({ id });
+    const pendingDoc = await pendingColl.findOne({ id });
     if (!pendingDoc) {
       // Check if it was already in jobs
       const existing = await jobsColl.findOne({ id });
@@ -758,7 +758,12 @@ export class JobRepository {
       updatedAt: new Date().toISOString()
     });
 
+    // Write to live jobs collection FIRST before deleting from pending collection
     await jobsColl.updateOne({ id }, { $set: approvedJob }, { upsert: true });
+
+    // Only after live write succeeds, remove from pending collection
+    await pendingColl.deleteOne({ id });
+
     return approvedJob;
   }
 

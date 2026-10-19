@@ -1676,7 +1676,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     setIsProcessingReview(true);
     try {
       const res = await api.jobs.bulkApprove(selectedReviewIds);
-      if (res?.success) {
+      if (res && (res.success || res.successCount > 0)) {
         if (res.failureCount > 0 && Array.isArray(res.errors) && res.errors.length > 0) {
           const errDetails = res.errors.map((e: any) => `${e.id}: ${e.error}`).join('; ');
           setStatusMessage({

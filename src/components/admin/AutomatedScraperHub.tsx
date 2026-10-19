@@ -4595,7 +4595,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     aria-label="Scheduled Scan Mode"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
                   >
-                    <option value="since_last">Since Last Scrape (Incremental, Default)</option>
+                    <option value="since_last">Quick Scan (Recent only / Since Last)</option>
                     <option value="complete">Full Scan (All Pages)</option>
                     <option value="page_range">Page Range (Start - End)</option>
                   </select>

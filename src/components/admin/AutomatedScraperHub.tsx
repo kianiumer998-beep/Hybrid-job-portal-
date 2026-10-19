@@ -1891,8 +1891,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (propsSetSources) propsSetSources(updated);
 
       // Authoritative Scheduler Settings & Scope Persistence
+      if (scheduledScope === 'selected' && scheduledSelectedSourceIds.length === 0) {
+        setStatusMessage({
+          text: 'Selected Sources scope requires at least one scheduled source. Please select or sync sources first.',
+          type: 'error'
+        });
+        return;
+      }
+
       const effectiveSelectedIds = scheduledScope === 'selected'
-        ? (scheduledSelectedSourceIds.length > 0 ? scheduledSelectedSourceIds : selectedSourceIds)
+        ? scheduledSelectedSourceIds
         : [];
 
       const saveRes = await api.scraper.saveSchedulerSettings({
@@ -4514,7 +4522,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
                   >
                     <option value="all">All Enabled Sources (Default)</option>
-                    <option value="selected">Selected Sources ({(scheduledSelectedSourceIds.length > 0 ? scheduledSelectedSourceIds : selectedSourceIds).length} sources)</option>
+                    <option value="selected">Selected Sources ({scheduledSelectedSourceIds.length} sources)</option>
                     <option value="group">Existing Source Group ({sourceGroups.length} available)</option>
                     <option value="working">Working Sources Only ({sourcesList.filter(s => classificationsMap.get(s.id)?.overallStatus === 'Working').length} Healthy)</option>
                     <option value="failed">Failed Sources Retry ({sourcesList.filter(s => ['404', '403', 'Timeout', 'Invalid PDF', 'HTML', 'Fetch Error', 'error', 'warning'].includes(s.healthStatus || '') || (s.lastErrorMessage && s.lastErrorMessage.length > 0 && s.lastErrorMessage !== '0 vacancies extracted from target source')).length} Failed)</option>
@@ -4569,7 +4577,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     <div className="flex items-center justify-between">
                       <span>Scheduled Sources:</span>
                       <span className="font-bold text-indigo-300">
-                        {(scheduledSelectedSourceIds.length > 0 ? scheduledSelectedSourceIds : selectedSourceIds).length} Selected
+                        {scheduledSelectedSourceIds.length} Selected
                       </span>
                     </div>
                     <button

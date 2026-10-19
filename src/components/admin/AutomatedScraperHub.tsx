@@ -1876,6 +1876,14 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   // Settings Handlers (Step 6)
   // -------------------------------------------------------------
   const handleSaveSettings = async () => {
+    if (scheduledScope === 'selected' && scheduledSelectedSourceIds.length === 0) {
+      setStatusMessage({
+        text: 'Selected Sources scope requires at least one scheduled source. Please select or sync sources first.',
+        type: 'error'
+      });
+      return;
+    }
+
     try {
       setStatusMessage({ text: 'Saving scraper settings...', type: 'info' });
       const updated = sourcesList.map(s => ({
@@ -1891,14 +1899,6 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (propsSetSources) propsSetSources(updated);
 
       // Authoritative Scheduler Settings & Scope Persistence
-      if (scheduledScope === 'selected' && scheduledSelectedSourceIds.length === 0) {
-        setStatusMessage({
-          text: 'Selected Sources scope requires at least one scheduled source. Please select or sync sources first.',
-          type: 'error'
-        });
-        return;
-      }
-
       const effectiveSelectedIds = scheduledScope === 'selected'
         ? scheduledSelectedSourceIds
         : [];

@@ -1072,7 +1072,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       const validEndPage = Math.max(validStartPage, Number(scrapeEndPage) || validStartPage);
 
       const payload: any = {
-        mode: scrapeScanType === 'page_range' ? 'page_range' : (scrapeScanType === 'full' ? 'complete' : 'quick'),
+        mode: scrapeScanType === 'page_range' ? 'page_range' : (scrapeScanType === 'full' ? 'complete' : 'since_last'),
         startPage: scrapeScanType === 'page_range' ? validStartPage : undefined,
         endPage: scrapeScanType === 'page_range' ? validEndPage : undefined,
         autoPublishTrusted,

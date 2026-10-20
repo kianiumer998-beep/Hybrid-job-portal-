@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Job, 
+  JobStatus,
   Subscriber, 
   Region, 
   JobType, 
@@ -1943,44 +1944,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Synchronized Approval with Audit Trail & Auto SEO Injection
-  const handleAdminApproveJob = (jobId: string) => {
+  const handleAdminApproveJob = async (jobId: string): Promise<{ success: boolean; message?: string }> => {
     const approvedJob = pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
     if (approvedJob && isScrapedJob(approvedJob)) {
       const missing = calculateJobMissingFields(approvedJob);
       if (missing.length > 0) {
         alert(`Cannot approve "${approvedJob.title}"!\nMissing required factual fields: ${missing.join(', ')}.\n\nPlease edit this job to complete these details before publishing live.`);
-        return;
+        return { success: false, message: `Missing required factual fields: ${missing.join(', ')}` };
       }
     }
 
-    onApproveJob(jobId);
-    
-    // Auto-generate Google Search SEO & inject Schema.org structured data
-    if (approvedJob) {
-      injectJobJsonLd(approvedJob);
-    }
-
-    setScrapedAuditLogs(prev => prev.map(entry => {
-      if (entry.jobId === jobId) {
-        const newAction: ScrapedJobAuditAction = {
-          id: 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-          relativeTime: 'Just now',
-          action: 'Approved by Admin',
-          performedBy: 'Admin User',
-          actorName: 'Admin Operations Desk',
-          notes: 'Job approved from pending queue and published to Live listings.',
-          previousStatus: entry.status,
-          newStatus: 'Approved Live'
-        };
-        return {
-          ...entry,
-          status: 'Approved Live' as const,
-          reviewTimeline: [newAction, ...entry.reviewTimeline]
-        };
+    try {
+      const res: any = await onApproveJob(jobId);
+      
+      // Auto-generate Google Search SEO & inject Schema.org structured data
+      if (approvedJob) {
+        injectJobJsonLd(approvedJob);
       }
-      return entry;
-    }));
+
+      setScrapedAuditLogs(prev => prev.map(entry => {
+        if (entry.jobId === jobId) {
+          const newAction: ScrapedJobAuditAction = {
+            id: 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            relativeTime: 'Just now',
+            action: 'Approved by Admin',
+            performedBy: 'Admin User',
+            actorName: 'Admin Operations Desk',
+            notes: 'Job approved from pending queue and published to Live listings.',
+            previousStatus: entry.status,
+            newStatus: 'Approved Live'
+          };
+          return {
+            ...entry,
+            status: 'Approved Live' as const,
+            reviewTimeline: [newAction, ...entry.reviewTimeline]
+          };
+        }
+        return entry;
+      }));
+
+      if (res && typeof res === 'object' && 'success' in res) {
+        return res;
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error in handleAdminApproveJob:', err);
+      return { success: false, message: err?.message || 'Database error occurred during approval.' };
+    }
   };
 
   // Synchronized Rejection with Audit Trail
@@ -6749,6 +6760,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setSelectedJobIds([]);
           setSelectedPendingIds([]);
           setIsBulkJobEditOpen(false);
+        }}
+        onSaveAndApproveJob={async (updatedJob) => {
+          try {
+            const missing = calculateJobMissingFields(updatedJob);
+            if (missing.length > 0) {
+              alert(`Cannot approve job yet! Missing required factual fields: ${missing.join(', ')}. Please fill in these details before publishing.`);
+              return { success: false, message: `Missing required factual fields: ${missing.join(', ')}` };
+            }
+
+            const pendingToSave: Job = {
+              ...updatedJob,
+              status: 'Pending' as JobStatus,
+              isManuallyCorrected: true,
+              isLocationConfirmed: true
+            };
+            const saveRes = await api.jobs.update(updatedJob.id, pendingToSave);
+            if (saveRes && (saveRes as any).success === false) {
+              const errMsg = `Failed to save job edits before approval: ${(saveRes as any).message || 'Server error'}`;
+              alert(errMsg);
+              return { success: false, message: errMsg };
+            }
+
+            const approveRes = await handleAdminApproveJob(updatedJob.id);
+            if (approveRes && approveRes.success) {
+              if (onReloadJobs) await onReloadJobs();
+              setIsJobQuickEditOpen(false);
+              setEditingJob(null);
+              return { success: true };
+            } else {
+              return { success: false, message: approveRes?.message || 'Approval failed' };
+            }
+          } catch (err: any) {
+            const errMsg = `Error during save & approve: ${err?.message || 'Unknown error'}`;
+            alert(errMsg);
+            return { success: false, message: errMsg };
+          }
         }}
       />
 

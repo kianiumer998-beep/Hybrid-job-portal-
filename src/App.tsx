@@ -2019,10 +2019,12 @@ export default function App() {
         alert(`Approval notice: ${res?.message || 'Failed to approve job. Database may be temporarily unavailable.'}`);
       }
       await loadBackendJobs();
+      return res;
     } catch (err: any) {
       console.error('Error approving job on backend:', err);
       alert(`Approval error: ${err?.message || 'Database error occurred during approval.'}`);
       await loadBackendJobs();
+      return { success: false, message: err?.message || 'Database error occurred during approval.' };
     }
   };
 

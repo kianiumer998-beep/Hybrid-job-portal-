@@ -330,6 +330,25 @@ export class JobRepository {
    * Updates an existing job directly in MongoDB.
    */
   static async update(id: string, updates: any): Promise<any | null> {
+    if (!isMongoConfigured()) {
+      const live = Database.getJobs().find((j: any) => j.id === id);
+      if (live) return Database.updateJob(id, updates);
+      const pending = Database.getPendingJobs().find((j: any) => j.id === id);
+      if (pending) {
+        const safe = { ...updates };
+        if (safe.status === 'Approved' && pending.status !== 'Approved') {
+          safe.status = pending.status || 'Pending';
+        }
+        const allPending = Database.getPendingJobs();
+        const idx = allPending.findIndex((j: any) => j.id === id);
+        if (idx !== -1) {
+          allPending[idx] = { ...allPending[idx], ...safe, updatedAt: new Date().toISOString() };
+          Database.savePendingJobs(allPending);
+          return allPending[idx];
+        }
+      }
+      return null;
+    }
     assertMongoAvailable();
     const jobsColl = await getJobsCollection();
     const pendingColl = await getPendingJobsCollection();
@@ -356,6 +375,12 @@ export class JobRepository {
     const existingPending = await pendingColl.findOne({ id });
     if (existingPending) {
       safeUpdates = JobRepository.applyLocationProtection(safeUpdates, existingPending);
+      // Safeguard: an ordinary update to a pending record must not set status to 'Approved'
+      // in the pending collection, preventing orphaned approved records in pending queue.
+      // Approval must flow through approvePending() to be published to the live jobs collection.
+      if (safeUpdates.status === 'Approved' && existingPending.status !== 'Approved') {
+        safeUpdates.status = existingPending.status || 'Pending';
+      }
       const updatedPending = await pendingColl.findOneAndUpdate(
         { id },
         { $set: safeUpdates },

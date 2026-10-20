@@ -10,10 +10,10 @@ interface AdminQuickEditJobModalProps {
   jobs?: Job[]; // Alias for bulk edit mode
   isOpen: boolean;
   onClose: () => void;
-  onSaveJob: (updatedJob: Job) => void;
-  onBulkSaveJobs?: (updatedJobs: Job[]) => void;
-  onSaveJobs?: (updatedJobs: Job[]) => void;
-  onSaveAndApproveJob?: (updatedJob: Job) => void;
+  onSaveJob: (updatedJob: Job) => void | Promise<any>;
+  onBulkSaveJobs?: (updatedJobs: Job[]) => void | Promise<any>;
+  onSaveJobs?: (updatedJobs: Job[]) => void | Promise<any>;
+  onSaveAndApproveJob?: (updatedJob: Job) => Promise<{ success: boolean; message?: string } | void> | void;
 }
 
 export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
@@ -30,6 +30,7 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   const activeBulkJobs = propSelectedJobs || propJobs || [];
   const isBulkMode = activeBulkJobs.length > 1 || (activeBulkJobs.length === 1 && !job);
   const selectedJobs = activeBulkJobs;
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Single job state
   const [formData, setFormData] = useState<Job>(() => {
@@ -113,11 +114,13 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
     setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tagToRemove) }));
   };
 
-  const handleSingleSubmit = (e: React.FormEvent) => {
+  const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     const now = new Date().toISOString();
     const updatedJob: Job = {
       ...formData,
+      status: job?.status === 'Pending' && formData.status === 'Approved' ? 'Pending' : formData.status,
       isManuallyCorrected: true,
       manuallyCorrectedAt: now,
       isLocationConfirmed: true,
@@ -131,21 +134,31 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
         confirmedBy: 'Admin User'
       }
     };
-    onSaveJob(updatedJob);
-    onClose();
+    try {
+      setIsSubmitting(true);
+      await onSaveJob(updatedJob);
+      onClose();
+    } catch (err: any) {
+      console.error('Error saving job:', err);
+      alert(`Error saving job: ${err?.message || 'Operation failed'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSaveAndApprove = (e: React.MouseEvent) => {
+  const handleSaveAndApprove = async (e: React.MouseEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     const missing = calculateJobMissingFields(formData);
     if (missing.length > 0) {
       alert(`Cannot approve job yet! Missing required factual fields: ${missing.join(', ')}. Please fill in these details before publishing.`);
       return;
     }
     const now = new Date().toISOString();
-    const approvedJob: Job = {
+    // Save edited fields without prematurely marking as approved in the pending queue
+    const updatedJobToApprove: Job = {
       ...formData,
-      status: 'Approved' as JobStatus,
+      status: 'Pending' as JobStatus,
       isManuallyCorrected: true,
       manuallyCorrectedAt: now,
       isLocationConfirmed: true,
@@ -159,12 +172,25 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
         confirmedBy: 'Admin User'
       }
     };
+
     if (onSaveAndApproveJob) {
-      onSaveAndApproveJob(approvedJob);
+      try {
+        setIsSubmitting(true);
+        const result = await onSaveAndApproveJob(updatedJobToApprove);
+        if (result && typeof result === 'object' && 'success' in result && !(result as any).success) {
+          // Validation or server approval failed - do NOT close modal
+          return;
+        }
+        onClose();
+      } catch (err: any) {
+        console.error('Error during save & approve:', err);
+        alert(`Error during save & approve: ${err?.message || 'Operation failed'}`);
+      } finally {
+        setIsSubmitting(false);
+      }
     } else {
-      onSaveJob(approvedJob);
+      alert('Save & Approve to Live is not supported in this view.');
     }
-    onClose();
   };
 
   const currentMissingFields = job ? calculateJobMissingFields(formData) : [];
@@ -757,26 +783,29 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
             <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={onClose}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl cursor-pointer"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2"
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center space-x-2 disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
-                <span>Save Changes</span>
+                <span>{isSubmitting ? 'Saving...' : 'Save Changes'}</span>
               </button>
               {job?.status === 'Pending' && (
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={handleSaveAndApprove}
-                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-2"
+                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-2 disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Save & Approve to Live</span>
+                  <span>{isSubmitting ? 'Publishing...' : 'Save & Approve to Live'}</span>
                 </button>
               )}
             </div>

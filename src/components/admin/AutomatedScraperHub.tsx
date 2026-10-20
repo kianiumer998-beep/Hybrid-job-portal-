@@ -33,12 +33,12 @@ import {
   CheckSquare,
   Square
 } from 'lucide-react';
-import { Job, Region, ScrapedJobAuditEntry } from '../../types/job';
+import { Job, Region, ScrapedJobAuditEntry, JobStatus } from '../../types/job';
 import { api } from '../../services/api';
 import { AdminJobDetailModal } from '../AdminJobDetailModal';
 import { AdminQuickEditJobModal } from './AdminQuickEditJobModal';
 import { suggestJobMetadata } from '../../utils/jobSuggestionEngine';
-import { isScrapedJob } from '../../utils/jobValidation';
+import { isScrapedJob, calculateJobMissingFields } from '../../utils/jobValidation';
 import {
   deriveSourceClassification,
   SourceClassification,
@@ -418,7 +418,7 @@ interface AutomatedScraperHubProps {
   onAddJob: (job: Job) => void;
   onBulkAddJobs?: (jobs: Job[]) => void;
   onReloadJobs?: () => Promise<void>;
-  onApproveJob: (id: string) => void;
+  onApproveJob: (id: string) => Promise<any> | void;
   onRejectJob: (id: string, reason?: string) => void;
   onOverrideDuplicatesToLive?: (jobsToOverride: Job[]) => void;
   scrapedAuditLogs?: ScrapedJobAuditEntry[];
@@ -4216,11 +4216,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           onClick={async () => {
                             setIsProcessingReview(true);
                             try {
-                              const res = await api.jobs.bulkApprove([job.id]);
-                              if (res?.success) {
+                              let res: any;
+                              if (onApproveJob) {
+                                res = await onApproveJob(job.id);
+                              } else {
+                                res = await api.jobs.approvePending(job.id);
+                              }
+                              if (res && (res.success || res.status === 'success')) {
                                 setStatusMessage({ text: `Approved "${job.title}" to live listings!`, type: 'success' });
                                 await fetchPendingQueue();
                                 if (onReloadJobs) await onReloadJobs();
+                              } else {
+                                setStatusMessage({ text: `Approval notice: ${res?.message || 'Could not approve job to live listings.'}`, type: 'error' });
                               }
                             } catch (err: any) {
                               setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
@@ -5308,14 +5315,19 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
           }}
           onApproveJob={async (id) => {
             try {
+              let res: any;
               if (onApproveJob) {
-                await onApproveJob(id);
+                res = await onApproveJob(id);
               } else {
-                await api.jobs.bulkApprove([id]);
+                res = await api.jobs.approvePending(id);
               }
-              setStatusMessage({ text: `Approved "${inspectingJob.title}" to live listings!`, type: 'success' });
-              await fetchPendingQueue();
-              if (onReloadJobs) await onReloadJobs();
+              if (res && (res.success || res.status === 'success')) {
+                setStatusMessage({ text: `Approved "${inspectingJob.title}" to live listings!`, type: 'success' });
+                await fetchPendingQueue();
+                if (onReloadJobs) await onReloadJobs();
+              } else {
+                setStatusMessage({ text: `Approval notice: ${res?.message || 'Could not approve job to live listings.'}`, type: 'error' });
+              }
             } catch (err: any) {
               setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
             } finally {
@@ -5363,6 +5375,56 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               setStatusMessage({ text: `Update error: ${err.message}`, type: 'error' });
             } finally {
               setEditingJob(null);
+            }
+          }}
+          onSaveAndApproveJob={async (updatedJob) => {
+            try {
+              const missing = calculateJobMissingFields(updatedJob);
+              if (missing.length > 0) {
+                const errMsg = `Cannot approve job yet! Missing required factual fields: ${missing.join(', ')}.`;
+                setStatusMessage({ text: errMsg, type: 'error' });
+                alert(errMsg);
+                return { success: false, message: errMsg };
+              }
+
+              const pendingToSave = {
+                ...updatedJob,
+                status: 'Pending' as JobStatus,
+                isManuallyCorrected: true,
+                isLocationConfirmed: true
+              };
+              const saveRes = await api.jobs.update(updatedJob.id, pendingToSave);
+              if (saveRes && (saveRes as any).success === false) {
+                const errMsg = `Failed to save job edits before approval: ${(saveRes as any).message || 'Server error'}`;
+                setStatusMessage({ text: errMsg, type: 'error' });
+                alert(errMsg);
+                return { success: false, message: errMsg };
+              }
+
+              let approveRes: any;
+              if (onApproveJob) {
+                approveRes = await onApproveJob(updatedJob.id);
+              } else {
+                approveRes = await api.jobs.approvePending(updatedJob.id);
+              }
+
+              if (approveRes && approveRes.success) {
+                setStatusMessage({ text: `Approved "${updatedJob.title}" to live listings!`, type: 'success' });
+                await fetchPendingQueue();
+                if (onReloadJobs) await onReloadJobs();
+                setEditingJob(null);
+                return { success: true };
+              } else {
+                const errMsg = `Approval notice: ${approveRes?.message || 'Failed to publish job to live listings.'}`;
+                setStatusMessage({ text: errMsg, type: 'error' });
+                alert(errMsg);
+                return { success: false, message: errMsg };
+              }
+            } catch (err: any) {
+              const errMsg = `Error saving and approving job: ${err?.message || 'Unknown error'}`;
+              setStatusMessage({ text: errMsg, type: 'error' });
+              alert(errMsg);
+              return { success: false, message: errMsg };
             }
           }}
         />

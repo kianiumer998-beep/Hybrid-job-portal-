@@ -1944,24 +1944,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Synchronized Approval with Audit Trail & Auto SEO Injection
-  const handleAdminApproveJob = async (jobId: string): Promise<{ success: boolean; message?: string }> => {
-    const approvedJob = pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
-    if (approvedJob && isScrapedJob(approvedJob)) {
-      const missing = calculateJobMissingFields(approvedJob);
+  const handleAdminApproveJob = async (jobId: string, overrideJob?: Job): Promise<{ success: boolean; message?: string }> => {
+    const targetJob = overrideJob || pendingJobs.find(j => j.id === jobId) || jobs.find(j => j.id === jobId);
+    if (targetJob && isScrapedJob(targetJob)) {
+      const missing = calculateJobMissingFields(targetJob);
       if (missing.length > 0) {
-        alert(`Cannot approve "${approvedJob.title}"!\nMissing required factual fields: ${missing.join(', ')}.\n\nPlease edit this job to complete these details before publishing live.`);
+        alert(`Cannot approve "${targetJob.title}"!\nMissing required factual fields: ${missing.join(', ')}.\n\nPlease edit this job to complete these details before publishing live.`);
         return { success: false, message: `Missing required factual fields: ${missing.join(', ')}` };
       }
     }
 
     try {
       const res: any = await onApproveJob(jobId);
-      
-      // Auto-generate Google Search SEO & inject Schema.org structured data
-      if (approvedJob) {
-        injectJobJsonLd(approvedJob);
+      const isConfirmedSuccess = !!(res && typeof res === 'object' && res.success === true);
+
+      if (!isConfirmedSuccess) {
+        return {
+          success: false,
+          message: res?.message || 'Approval was not confirmed by the server.'
+        };
       }
 
+      // Auto-generate Google Search SEO & inject Schema.org structured data ONLY after confirmed success
+      const publishedJob = res.job || targetJob;
+      if (publishedJob) {
+        injectJobJsonLd(publishedJob);
+      }
+
+      // Record approval audit trail ONLY after confirmed success
       setScrapedAuditLogs(prev => prev.map(entry => {
         if (entry.jobId === jobId) {
           const newAction: ScrapedJobAuditAction = {
@@ -1984,10 +1994,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         return entry;
       }));
 
-      if (res && typeof res === 'object' && 'success' in res) {
-        return res;
-      }
-      return { success: true };
+      return res;
     } catch (err: any) {
       console.error('Error in handleAdminApproveJob:', err);
       return { success: false, message: err?.message || 'Database error occurred during approval.' };
@@ -3351,7 +3358,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => handleAdminApproveJob(pJob.id)}
+                            onClick={() => handleAdminApproveJob(pJob.id, pJob)}
                             className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1 shadow-lg shadow-emerald-500/20 cursor-pointer"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -6707,8 +6714,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           users={users}
           feeLogs={jobPostingFeeLogs}
           onClose={() => setSelectedJobForModal(null)}
-          onApproveJob={(id) => {
-            onApproveJob(id);
+          onApproveJob={async (id) => {
+            await handleAdminApproveJob(id, selectedJobForModal || undefined);
             setSelectedJobForModal(null);
           }}
           onRejectJob={(id, reason) => {
@@ -6782,7 +6789,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               return { success: false, message: errMsg };
             }
 
-            const approveRes = await handleAdminApproveJob(updatedJob.id);
+            const approveRes = await handleAdminApproveJob(updatedJob.id, updatedJob);
             if (approveRes && approveRes.success) {
               if (onReloadJobs) await onReloadJobs();
               setIsJobQuickEditOpen(false);

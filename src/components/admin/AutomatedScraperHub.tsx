@@ -418,7 +418,7 @@ interface AutomatedScraperHubProps {
   onAddJob: (job: Job) => void;
   onBulkAddJobs?: (jobs: Job[]) => void;
   onReloadJobs?: () => Promise<void>;
-  onApproveJob: (id: string) => Promise<any> | void;
+  onApproveJob: (id: string, overrideJob?: Job) => Promise<any> | void;
   onRejectJob: (id: string, reason?: string) => void;
   onOverrideDuplicatesToLive?: (jobsToOverride: Job[]) => void;
   scrapedAuditLogs?: ScrapedJobAuditEntry[];
@@ -4218,7 +4218,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                             try {
                               let res: any;
                               if (onApproveJob) {
-                                res = await onApproveJob(job.id);
+                                res = await onApproveJob(job.id, job);
                               } else {
                                 res = await api.jobs.approvePending(job.id);
                               }
@@ -5317,7 +5317,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
             try {
               let res: any;
               if (onApproveJob) {
-                res = await onApproveJob(id);
+                res = await onApproveJob(id, inspectingJob);
               } else {
                 res = await api.jobs.approvePending(id);
               }
@@ -5403,7 +5403,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
               let approveRes: any;
               if (onApproveJob) {
-                approveRes = await onApproveJob(updatedJob.id);
+                approveRes = await onApproveJob(updatedJob.id, updatedJob);
               } else {
                 approveRes = await api.jobs.approvePending(updatedJob.id);
               }

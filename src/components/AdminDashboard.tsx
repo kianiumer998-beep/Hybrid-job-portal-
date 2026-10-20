@@ -6715,8 +6715,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           feeLogs={jobPostingFeeLogs}
           onClose={() => setSelectedJobForModal(null)}
           onApproveJob={async (id) => {
-            await handleAdminApproveJob(id, selectedJobForModal || undefined);
-            setSelectedJobForModal(null);
+            const res = await handleAdminApproveJob(id, selectedJobForModal || undefined);
+            if (res && res.success === true) {
+              setSelectedJobForModal(null);
+            }
+            return res;
           }}
           onRejectJob={(id, reason) => {
             onRejectJob(id, reason);

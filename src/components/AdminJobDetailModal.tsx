@@ -10,7 +10,7 @@ interface AdminJobDetailModalProps {
   users: UserAccount[];
   feeLogs?: JobPostingFeeLog[];
   onClose: () => void;
-  onApproveJob?: (jobId: string) => void;
+  onApproveJob?: (jobId: string) => Promise<any> | void;
   onRejectJob?: (jobId: string, reason: string) => void;
   onSuspendJob?: (jobId: string, reason?: string) => void;
   onViewUserProfile?: (user: UserAccount) => void;
@@ -614,9 +614,15 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
 
             {onApproveJob && job.status !== 'Approved' && (
               <button
-                onClick={() => {
-                  onApproveJob(job.id);
-                  onClose();
+                onClick={async () => {
+                  const res = await onApproveJob(job.id);
+                  if (res && typeof res === 'object' && 'success' in res) {
+                    if (res.success) {
+                      onClose();
+                    }
+                  } else {
+                    onClose();
+                  }
                 }}
                 className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-1"
               >

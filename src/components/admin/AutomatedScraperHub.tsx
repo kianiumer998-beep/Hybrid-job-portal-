@@ -5325,13 +5325,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                 setStatusMessage({ text: `Approved "${inspectingJob.title}" to live listings!`, type: 'success' });
                 await fetchPendingQueue();
                 if (onReloadJobs) await onReloadJobs();
+                setInspectingJob(null);
+                return res;
               } else {
                 setStatusMessage({ text: `Approval notice: ${res?.message || 'Could not approve job to live listings.'}`, type: 'error' });
+                return res || { success: false };
               }
             } catch (err: any) {
               setStatusMessage({ text: `Approve error: ${err.message}`, type: 'error' });
-            } finally {
-              setInspectingJob(null);
+              return { success: false, message: err.message };
             }
           }}
           onRejectJob={async (id, reason) => {

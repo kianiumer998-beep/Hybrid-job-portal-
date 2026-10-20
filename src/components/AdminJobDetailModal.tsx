@@ -615,13 +615,17 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             {onApproveJob && job.status !== 'Approved' && (
               <button
                 onClick={async () => {
-                  const res = await onApproveJob(job.id);
-                  if (res && typeof res === 'object' && 'success' in res) {
-                    if (res.success) {
+                  try {
+                    const res = await onApproveJob(job.id);
+                    if (res && typeof res === 'object' && res.success === true) {
                       onClose();
+                    } else {
+                      const msg = (res && typeof res === 'object' && 'message' in res && res.message) || 'Approval could not be confirmed. Please check required fields or duplicates.';
+                      alert(`Approval notice: ${msg}`);
                     }
-                  } else {
-                    onClose();
+                  } catch (err: any) {
+                    console.error('Error approving job from modal:', err);
+                    alert(`Approval error: ${err?.message || 'Failed to approve job due to an unexpected error.'}`);
                   }
                 }}
                 className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-1"

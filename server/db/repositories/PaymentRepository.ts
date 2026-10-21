@@ -3,6 +3,7 @@ import { UserRepository } from './UserRepository';
 import { JobRepository } from './JobRepository';
 import { AuditRepository } from './AuditRepository';
 import { AdRepository } from './AdRepository';
+import { getMongoDb, isMongoConfigured } from '../mongodb';
 
 const activeCompensationLocks = new Set<string>();
 
@@ -15,6 +16,11 @@ export type DepositVerificationState =
   | 'Crediting'
   | 'Completed'
   | 'CreditUncertain';
+
+async function getTransactionsCollection() {
+  const db = await getMongoDb();
+  return db.collection('transactions');
+}
 
 export class PaymentRepository {
   static isTransactionCompensated(tx: any): boolean {
@@ -36,51 +42,172 @@ export class PaymentRepository {
       tx.compensationStatus === 'CompensationUncertain'
     );
   }
+
   static getAll(userId?: string): any[] {
     let txs = Database.getTransactions();
     if (userId) {
-      txs = txs.filter(t => t.userId === userId);
+      txs = txs.filter(t => t && String(t.userId || '') === String(userId));
     }
     return txs;
   }
 
+  static async getAllAsync(userId?: string): Promise<any[]> {
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getTransactionsCollection();
+        const query = userId ? { userId: String(userId) } : {};
+        const docs = await coll.find(query).sort({ createdAt: -1 }).toArray();
+        return (docs || []).map(d => {
+          const { _id, ...safe } = d;
+          return safe;
+        });
+      } catch (err: any) {
+        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+      }
+    }
+    return this.getAll(userId);
+  }
+
   static getById(id: string): any | null {
     const txs = Database.getTransactions();
-    return txs.find(t => t.id === id) || null;
+    return txs.find(t => t && String(t.id) === String(id)) || null;
+  }
+
+  static async getByIdAsync(id: string): Promise<any | null> {
+    if (!id) return null;
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getTransactionsCollection();
+        const doc = await coll.findOne({ id: String(id) });
+        if (doc) {
+          const { _id, ...safe } = doc;
+          return safe;
+        }
+        return null;
+      } catch (err: any) {
+        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+      }
+    }
+    return this.getById(id);
   }
 
   static findByIdempotencyKey(key: string): any | null {
     if (!key) return null;
     const txs = Database.getTransactions();
-    return txs.find(t => t.idempotencyKey === key) || null;
+    return txs.find(t => t && String(t.idempotencyKey) === String(key)) || null;
+  }
+
+  static async findByIdempotencyKeyAsync(key: string): Promise<any | null> {
+    if (!key) return null;
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getTransactionsCollection();
+        const doc = await coll.findOne({ idempotencyKey: String(key) });
+        if (doc) {
+          const { _id, ...safe } = doc;
+          return safe;
+        }
+        return null;
+      } catch (err: any) {
+        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+      }
+    }
+    return this.findByIdempotencyKey(key);
   }
 
   static findByTransactionId(tid: string): any | null {
     if (!tid) return null;
     const txs = Database.getTransactions();
-    return txs.find(t => t.transactionId === tid) || null;
+    return txs.find(t => t && String(t.transactionId) === String(tid)) || null;
+  }
+
+  static async findByTransactionIdAsync(tid: string): Promise<any | null> {
+    if (!tid) return null;
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getTransactionsCollection();
+        const doc = await coll.findOne({ transactionId: String(tid) });
+        if (doc) {
+          const { _id, ...safe } = doc;
+          return safe;
+        }
+        return null;
+      } catch (err: any) {
+        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+      }
+    }
+    return this.findByTransactionId(tid);
   }
 
   static create(txData: any): any {
+    if (isMongoConfigured()) {
+      throw new Error('MongoDB is configured. Synchronous create is prohibited; use createAsync.');
+    }
     return Database.addTransaction(txData);
   }
 
-  static linkAdvertisement(txId: string, adId: string, adTitle?: string): any | null {
-    if (!txId || !adId) return null;
-    const txs = Database.getTransactions();
-    const idx = txs.findIndex((t: any) => t && String(t.id) === String(txId));
-    if (idx === -1) return null;
-
-    txs[idx].adIdRef = adId;
-    if (adTitle) {
-      txs[idx].adTitleRef = adTitle;
-      if (!txs[idx].jobTitleRef) {
-        txs[idx].jobTitleRef = adTitle;
+  static async createAsync(txData: any): Promise<any> {
+    const id = txData?.id || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const { _id: _ignored, ...clean } = txData || {};
+    const txToSave = {
+      ...clean,
+      id,
+      createdAt: txData?.createdAt || new Date().toISOString(),
+      updatedAt: txData?.updatedAt || new Date().toISOString()
+    };
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getTransactionsCollection();
+        await coll.insertOne({ ...txToSave });
+        return txToSave;
+      } catch (err: any) {
+        throw new Error(`MongoDB transactions insert failed: ${err.message || err}`);
       }
     }
-    txs[idx].updatedAt = new Date().toISOString();
+    return Database.addTransaction(txToSave);
+  }
+
+  static async updateAsync(id: string, updates: Record<string, any>): Promise<any | null> {
+    const updatedAt = new Date().toISOString();
+    const updatePayload = { ...updates, updatedAt };
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getTransactionsCollection();
+        await coll.updateOne({ id: String(id) }, { $set: updatePayload });
+        const doc = await coll.findOne({ id: String(id) });
+        if (doc) {
+          const { _id, ...safe } = doc;
+          return safe;
+        }
+        return null;
+      } catch (err: any) {
+        throw new Error(`MongoDB transactions update failed: ${err.message || err}`);
+      }
+    }
+    const txs = Database.getTransactions();
+    const idx = txs.findIndex(t => t && String(t.id) === String(id));
+    if (idx === -1) return null;
+    txs[idx] = { ...txs[idx], ...updatePayload };
     Database.saveTransactions(txs);
     return txs[idx];
+  }
+
+  static async linkAdvertisement(txId: string, adId: string, adTitle?: string): Promise<any | null> {
+    if (!txId || !adId) return null;
+    const tx = await this.getByIdAsync(txId);
+    if (!tx) return null;
+
+    const updates: Record<string, any> = {
+      adIdRef: adId,
+      updatedAt: new Date().toISOString()
+    };
+    if (adTitle) {
+      updates.adTitleRef = adTitle;
+      if (!tx.jobTitleRef) {
+        updates.jobTitleRef = adTitle;
+      }
+    }
+    return await this.updateAsync(txId, updates);
   }
 
   static async compensateAdvertisementPayment(
@@ -114,9 +241,9 @@ export class PaymentRepository {
     }
 
     const initialTx =
-      this.getById(lookupKey) ||
-      this.findByTransactionId(lookupKey) ||
-      (options?.idempotencyKey ? this.findByIdempotencyKey(options.idempotencyKey) : null);
+      (await this.getByIdAsync(lookupKey)) ||
+      (await this.findByTransactionIdAsync(lookupKey)) ||
+      (options?.idempotencyKey ? await this.findByIdempotencyKeyAsync(options.idempotencyKey) : null);
 
     if (!initialTx) {
       return {
@@ -134,16 +261,15 @@ export class PaymentRepository {
         compensated: true,
         alreadyCompensated: true,
         restoredAmount: 0,
-        transaction: this.getById(lockKey) || initialTx,
+        transaction: (await this.getByIdAsync(lockKey)) || initialTx,
         reason: 'Compensation is already in progress for this transaction.'
       };
     }
 
     activeCompensationLocks.add(lockKey);
     try {
-      const txs = Database.getTransactions();
-      const idx = txs.findIndex((t: any) => t && String(t.id) === lockKey);
-      if (idx === -1) {
+      const tx = await this.getByIdAsync(lockKey);
+      if (!tx) {
         return {
           compensated: false,
           alreadyCompensated: false,
@@ -153,9 +279,6 @@ export class PaymentRepository {
         };
       }
 
-      const tx = txs[idx];
-
-      // 1. Verify ownership before any state inspection or mutation
       const authUserId = String(options?.authenticatedUserId || '').trim();
       if (!authUserId) {
         throw new Error('Authentication required to compensate advertisement transaction.');
@@ -164,7 +287,6 @@ export class PaymentRepository {
         throw new Error('Forbidden: Payment transaction does not belong to the authenticated user.');
       }
 
-      // 2. Verify transaction is an Advertisement Wallet Balance transaction
       if (tx.type !== 'Advertisement' || tx.paymentMethod !== 'Wallet Balance') {
         return {
           compensated: false,
@@ -175,7 +297,6 @@ export class PaymentRepository {
         };
       }
 
-      // 3. Idempotency: prevent double refund if already compensated
       if (this.isTransactionCompensated(tx)) {
         return {
           compensated: true,
@@ -187,14 +308,12 @@ export class PaymentRepository {
         };
       }
 
-      // 3b. Fail closed if a previous compensation attempt is in progress or had an uncertain MongoDB outcome
       if (this.isCompensationInProgressOrUncertain(tx)) {
         throw new Error(
           `Cannot compensate Advertisement transaction: compensation state is ${tx.compensationStatus} and requires reconciliation.`
         );
       }
 
-      // 4. Ensure no advertisement campaign was actually created and linked to this transaction
       const allAds = Database.getAds() || [];
       const linkedAd = allAds.find(
         (a: any) =>
@@ -214,7 +333,6 @@ export class PaymentRepository {
         };
       }
 
-      // 5. Only compensate transactions that actually succeeded and deducted the wallet
       if (tx.status !== 'Success') {
         return {
           compensated: false,
@@ -225,7 +343,6 @@ export class PaymentRepository {
         };
       }
 
-      // 6. Use authoritative original transaction amount (never client-supplied amount)
       const originalAmount = Number(tx.amount);
       if (!Number.isFinite(originalAmount) || originalAmount < 0) {
         throw new Error('Invalid original transaction amount for compensation.');
@@ -246,13 +363,12 @@ export class PaymentRepository {
       let restoredBalance = currentBal + originalAmount;
 
       if (originalAmount > 0) {
-        // Persist durable Compensating claim BEFORE invoking wallet credit
-        tx.compensationStatus = 'Compensating' as CompensationStatusState;
-        tx.updatedAt = new Date().toISOString();
-        txs[idx] = tx;
-        Database.saveTransactions(txs);
+        await this.updateAsync(lockKey, {
+          compensationStatus: 'Compensating' as CompensationStatusState,
+          updatedAt: new Date().toISOString()
+        });
 
-        const persistedClaim = this.getById(lockKey);
+        const persistedClaim = await this.getByIdAsync(lockKey);
         if (!persistedClaim || persistedClaim.compensationStatus !== 'Compensating') {
           throw new Error('Failed to persist durable compensation claim before wallet credit.');
         }
@@ -261,20 +377,20 @@ export class PaymentRepository {
         try {
           updatedUser = await UserRepository.creditWalletBalanceAsync(user.id, originalAmount);
         } catch (creditErr) {
-          tx.originalStatus = tx.status;
-          tx.status = 'Pending';
-          tx.compensationStatus = 'CompensationUncertain' as CompensationStatusState;
-          tx.updatedAt = new Date().toISOString();
-          txs[idx] = tx;
-          Database.saveTransactions(txs);
+          await this.updateAsync(lockKey, {
+            originalStatus: tx.status,
+            status: 'Pending',
+            compensationStatus: 'CompensationUncertain' as CompensationStatusState,
+            updatedAt: new Date().toISOString()
+          });
           throw creditErr;
         }
 
         if (!updatedUser) {
-          delete tx.compensationStatus;
-          tx.updatedAt = new Date().toISOString();
-          txs[idx] = tx;
-          Database.saveTransactions(txs);
+          await this.updateAsync(lockKey, {
+            compensationStatus: undefined,
+            updatedAt: new Date().toISOString()
+          });
           throw new Error('Failed to restore user wallet balance during Advertisement payment compensation.');
         }
 
@@ -287,37 +403,35 @@ export class PaymentRepository {
       const effectiveReason =
         options?.failureReason || 'Advertisement campaign creation failed after wallet deduction.';
 
-      tx.originalStatus = tx.status;
-      tx.status = 'Refunded';
-      tx.compensated = true;
-      tx.refunded = true;
-      tx.compensationStatus = 'Compensated' as CompensationStatusState;
-      tx.originalChargedAmount = originalAmount;
-      tx.refundedAmount = originalAmount;
-      tx.compensatedAt = compensatedAt;
-      tx.refundedAt = compensatedAt;
-      tx.refundReferenceId = refundReferenceId;
-      tx.compensationReason = effectiveReason;
-      tx.compensationBalanceBefore = currentBal;
-      tx.compensationBalanceAfter = restoredBalance;
-      tx.compensationMetadata = {
-        refundReferenceId,
-        originalTransactionId: tx.transactionId || tx.id,
+      const updatedTx = await this.updateAsync(lockKey, {
+        originalStatus: tx.status,
+        status: 'Refunded',
+        compensated: true,
+        refunded: true,
+        compensationStatus: 'Compensated' as CompensationStatusState,
         originalChargedAmount: originalAmount,
-        restoredAmount: originalAmount,
-        balanceBeforeRefund: currentBal,
-        balanceAfterRefund: restoredBalance,
-        failureReason: effectiveReason,
-        adIdRef: options?.adIdRef || tx.adIdRef,
-        adTitleRef: options?.adTitleRef || tx.adTitleRef || tx.jobTitleRef,
-        idempotencyKey: options?.idempotencyKey || tx.idempotencyKey,
-        compensatedAt
-      };
-      tx.adminNote = `Wallet payment of ${originalAmount} ${tx.currency || 'PKR'} automatically restored due to campaign creation failure (${effectiveReason}). Ref: ${refundReferenceId}`;
-      tx.updatedAt = compensatedAt;
-
-      txs[idx] = tx;
-      Database.saveTransactions(txs);
+        refundedAmount: originalAmount,
+        compensatedAt,
+        refundedAt: compensatedAt,
+        refundReferenceId,
+        compensationReason: effectiveReason,
+        compensationBalanceBefore: currentBal,
+        compensationBalanceAfter: restoredBalance,
+        compensationMetadata: {
+          refundReferenceId,
+          originalTransactionId: tx.transactionId || tx.id,
+          originalChargedAmount: originalAmount,
+          restoredAmount: originalAmount,
+          balanceBeforeRefund: currentBal,
+          balanceAfterRefund: restoredBalance,
+          failureReason: effectiveReason,
+          adIdRef: options?.adIdRef || tx.adIdRef,
+          adTitleRef: options?.adTitleRef || tx.adTitleRef || tx.jobTitleRef,
+          idempotencyKey: options?.idempotencyKey || tx.idempotencyKey,
+          compensatedAt
+        },
+        adminNote: `Wallet payment of ${originalAmount} ${tx.currency || 'PKR'} automatically restored due to campaign creation failure (${effectiveReason}). Ref: ${refundReferenceId}`
+      });
 
       try {
         AuditRepository.add({
@@ -346,7 +460,7 @@ export class PaymentRepository {
         compensated: true,
         alreadyCompensated: false,
         restoredAmount: originalAmount,
-        transaction: tx,
+        transaction: updatedTx,
         refundReferenceId
       };
     } finally {
@@ -355,11 +469,9 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
-    const txs = Database.getTransactions();
-    const idx = txs.findIndex(t => t.id === id);
-    if (idx === -1) return null;
+    const tx = await this.getByIdAsync(id);
+    if (!tx) return null;
 
-    const tx = txs[idx];
     if (tx.status !== 'Pending') {
       if (tx.status === 'Success' && action === 'approve') {
         return tx;
@@ -386,7 +498,6 @@ export class PaymentRepository {
         throw new Error('Wallet Balance transactions cannot be manually approved.');
       }
 
-      // Credit wallet or activate features if applicable
       if (tx.type === 'Wallet Deposit') {
         if (!tx.userId) {
           throw new Error('Cannot approve Wallet Deposit: transaction is missing userId.');
@@ -402,42 +513,42 @@ export class PaymentRepository {
           throw new Error('Cannot approve Wallet Deposit: target user not found.');
         }
 
-        // Persist durable Crediting state BEFORE invoking wallet credit
-        tx.verificationState = 'Crediting' as DepositVerificationState;
-        tx.updatedAt = new Date().toISOString();
-        txs[idx] = tx;
-        Database.saveTransactions(txs);
-
-        const persistedClaim = this.getById(id);
-        if (!persistedClaim || persistedClaim.verificationState !== 'Crediting') {
-          throw new Error('Cannot approve Wallet Deposit: failed to persist verification state before wallet credit.');
-        }
+        await this.updateAsync(id, {
+          verificationState: 'Crediting' as DepositVerificationState,
+          updatedAt: new Date().toISOString()
+        });
 
         let updatedUser: any = null;
         try {
           updatedUser = await UserRepository.creditWalletBalanceAsync(user.id, depositAmount);
         } catch (creditErr) {
-          tx.verificationState = 'CreditUncertain' as DepositVerificationState;
-          tx.updatedAt = new Date().toISOString();
-          txs[idx] = tx;
-          Database.saveTransactions(txs);
+          await this.updateAsync(id, {
+            verificationState: 'CreditUncertain' as DepositVerificationState,
+            updatedAt: new Date().toISOString()
+          });
           throw creditErr;
         }
 
         if (!updatedUser) {
-          delete tx.verificationState;
-          tx.updatedAt = new Date().toISOString();
-          txs[idx] = tx;
-          Database.saveTransactions(txs);
+          await this.updateAsync(id, {
+            verificationState: undefined,
+            updatedAt: new Date().toISOString()
+          });
           throw new Error('Cannot approve Wallet Deposit: failed to update user wallet balance.');
         }
 
         const balanceAfterDeposit = Number(updatedUser.walletBalance);
         const balanceBeforeDeposit = balanceAfterDeposit - depositAmount;
-        tx.walletCredited = true;
-        tx.verificationState = 'Completed' as DepositVerificationState;
-        tx.balanceBefore = balanceBeforeDeposit;
-        tx.balanceAfter = balanceAfterDeposit;
+
+        await this.updateAsync(id, {
+          walletCredited: true,
+          verificationState: 'Completed' as DepositVerificationState,
+          balanceBefore: balanceBeforeDeposit,
+          balanceAfter: balanceAfterDeposit,
+          status: 'Success',
+          verifiedAt: new Date().toISOString(),
+          adminNote: note || 'Verified and approved by administrator'
+        });
       } else if (tx.type === 'Subscription') {
         let user: any = null;
         if (tx.userId) {
@@ -447,20 +558,32 @@ export class PaymentRepository {
           user = await UserRepository.getByEmailAsync(tx.userEmail);
         }
 
-        if (user) {
-          const planName = tx.plan || 'Pro Alerts';
-          const durationDays = planName.toLowerCase().includes('weekly') || planName.toLowerCase().includes('govt') ? 7 : 30;
-          const updatedUser = await UserRepository.updateAsync(user.id, {
-            membershipTier: planName,
-            membershipStatus: 'Active',
-            subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
-          });
-
-          if (!updatedUser) {
-            throw new Error('Cannot approve Subscription: failed to activate user membership.');
-          }
-          tx.userId = user.id;
+        if (!user) {
+          throw new Error('Cannot approve Subscription: explicit verified user account could not be resolved from transaction.');
         }
+
+        const planName = tx.plan || 'Pro Alerts';
+        const durationDays = Number(tx.durationDays || tx.duration || (planName.toLowerCase().includes('weekly') ? 7 : 30));
+        if (!Number.isFinite(durationDays) || durationDays <= 0) {
+          throw new Error(`Cannot determine valid membership duration for plan "${planName}".`);
+        }
+
+        const updatedUser = await UserRepository.updateAsync(user.id, {
+          membershipTier: planName,
+          membershipStatus: 'Active',
+          subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+        });
+
+        if (!updatedUser) {
+          throw new Error('Cannot approve Subscription: failed to activate user membership.');
+        }
+
+        await this.updateAsync(id, {
+          userId: user.id,
+          status: 'Success',
+          verifiedAt: new Date().toISOString(),
+          adminNote: note || 'Verified and approved by administrator'
+        });
       } else if (tx.type === 'Job Posting') {
         if (!tx.jobIdRef) {
           throw new Error('Cannot approve Job Posting: transaction is missing jobIdRef.');
@@ -470,6 +593,12 @@ export class PaymentRepository {
         if (!approvedJob) {
           throw new Error('Cannot approve Job Posting: failed to activate pending job.');
         }
+
+        await this.updateAsync(id, {
+          status: 'Success',
+          verifiedAt: new Date().toISOString(),
+          adminNote: note || 'Verified and approved by administrator'
+        });
       } else if (tx.type === 'Advertisement') {
         if (tx.adIdRef) {
           AdRepository.update(String(tx.adIdRef), {
@@ -478,14 +607,13 @@ export class PaymentRepository {
             status: 'active'
           });
         }
+        await this.updateAsync(id, {
+          status: 'Success',
+          verifiedAt: new Date().toISOString(),
+          adminNote: note || 'Verified and approved by administrator'
+        });
       }
-
-      tx.status = 'Success';
-      tx.verifiedAt = new Date().toISOString();
-      tx.adminNote = note || 'Verified and approved by administrator';
     } else {
-      tx.status = 'Failed';
-      tx.rejectionReason = reason || 'Payment proof verification rejected.';
       if (tx.type === 'Advertisement' && tx.adIdRef) {
         AdRepository.update(String(tx.adIdRef), {
           paymentStatus: 'Refunded',
@@ -493,17 +621,20 @@ export class PaymentRepository {
           status: 'rejected'
         });
       }
+      await this.updateAsync(id, {
+        status: 'Failed',
+        rejectionReason: reason || 'Payment proof verification rejected.',
+        updatedAt: new Date().toISOString()
+      });
     }
 
-    tx.updatedAt = new Date().toISOString();
-    Database.saveTransactions(txs);
-    return tx;
+    return await this.getByIdAsync(id);
   }
 
   static async getUserWalletAsync(userId: string): Promise<any> {
     const user = await UserRepository.getByIdAsync(userId);
     const balance = Number(user?.walletBalance || 0);
-    const txs = this.getAll(userId);
+    const txs = await this.getAllAsync(userId);
     return {
       userId,
       balance,

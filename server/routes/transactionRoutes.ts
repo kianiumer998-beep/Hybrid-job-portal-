@@ -36,35 +36,29 @@ function canSafelyMarkTransactionFailed(state: WalletMutationState): boolean {
   return state === 'NONE' || state === 'ROLLED_BACK';
 }
 
-function persistTransactionState(
+async function persistTransactionState(
   txId: string,
   updates: Record<string, any>,
   verifyField?: { key: string; expected: any }
-): any {
-  const allTxs = Database.getTransactions();
-  const txIdx = allTxs.findIndex((t: any) => t && String(t.id) === String(txId));
-  if (txIdx === -1) {
+): Promise<any> {
+  const updated = await PaymentRepository.updateAsync(txId, updates);
+  if (!updated) {
     throw new Error(`Transaction ${txId} not found in storage.`);
   }
-  allTxs[txIdx] = {
-    ...allTxs[txIdx],
-    ...updates
-  };
-  Database.saveTransactions(allTxs);
 
   if (verifyField) {
-    const reloaded = PaymentRepository.getById(txId);
+    const reloaded = await PaymentRepository.getByIdAsync(txId);
     if (!reloaded || reloaded[verifyField.key] !== verifyField.expected) {
       throw new Error(`Failed to persist durable transaction state (${verifyField.key}=${String(verifyField.expected)}).`);
     }
     return reloaded;
   }
 
-  return allTxs[txIdx];
+  return updated;
 }
 
 // 1. Get transactions (all for admin, or scoped to authenticated user)
-transactionRouter.get('/', requireAuth, (req, res) => {
+transactionRouter.get('/', requireAuth, async (req, res) => {
   try {
     const user = (req as any).user;
     const adminRoles = ['Super Admin', 'Admin', 'Payment Manager', 'Finance Manager'];
@@ -78,7 +72,7 @@ transactionRouter.get('/', requireAuth, (req, res) => {
       targetUserId = user.userId || user.id;
     }
 
-    const txs = PaymentRepository.getAll(targetUserId);
+    const txs = await PaymentRepository.getAllAsync(targetUserId);
     res.json({ success: true, transactions: txs });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching transactions' });
@@ -156,7 +150,6 @@ transactionRouter.post('/', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Payment method is required.' });
       }
 
-      const effectiveType = type || 'Wallet Deposit';
       const ALLOWED_TRANSACTION_TYPES = [
         'Wallet Deposit',
         'Job Posting',
@@ -193,7 +186,6 @@ transactionRouter.post('/', async (req, res) => {
         });
       }
 
-      // Require valid pending job reference and verify job ownership for non-admin users on Job Posting transactions
       let targetJob: any = null;
       if (effectiveType === 'Job Posting') {
         if (!safeJobIdRef) {
@@ -227,7 +219,6 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      // AUTHORITATIVE PRICING CALCULATION
       let enforcedAmount = Number(amount);
       let pricingBreakdown: Array<{ name: string; amount: number }> = [];
       let safeSubscriptionPlan: string | undefined = undefined;
@@ -306,7 +297,6 @@ transactionRouter.post('/', async (req, res) => {
         enforcedAmount = configuredSubPrice;
         pricingBreakdown = [{ name: `${safeSubscriptionPlan} Subscription`, amount: configuredSubPrice }];
       } else {
-        // Wallet deposit: must be a finite positive number with at most 2 decimal places
         const numericAmount = Number(amount);
         if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
           return res.status(400).json({ success: false, message: 'Valid positive deposit amount is required.' });
@@ -327,9 +317,8 @@ transactionRouter.post('/', async (req, res) => {
         });
       }
 
-      // Check idempotency (Failed transactions do not block legitimate retries)
       if (idempotencyKey) {
-        const existing = PaymentRepository.findByIdempotencyKey(idempotencyKey);
+        const existing = await PaymentRepository.findByIdempotencyKeyAsync(idempotencyKey);
         if (existing && (existing.status !== 'Failed' || isTransactionWalletStateLocked(existing))) {
           if (!isAdmin && existing.userId && String(existing.userId) !== String(effectiveUserId)) {
             return res.status(403).json({
@@ -361,9 +350,9 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      // Prevent duplicate pending, completed, or compensated transactions for the same Advertisement draft (idempotent return for same user)
       if (effectiveType === 'Advertisement' && safeAdIdRef) {
-        const existingAdTx = PaymentRepository.getAll().find(
+        const allTxs = await PaymentRepository.getAllAsync();
+        const existingAdTx = allTxs.find(
           (t: any) =>
             t &&
             t.type === 'Advertisement' &&
@@ -401,9 +390,9 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      // Prevent duplicate pending or completed transactions for the same Job Posting (Failed transactions do not block retry)
       if (effectiveType === 'Job Posting' && safeJobIdRef) {
-        const existingJobTx = PaymentRepository.getAll().find(
+        const allTxs = await PaymentRepository.getAllAsync();
+        const existingJobTx = allTxs.find(
           (t: any) =>
             t &&
             t.type === 'Job Posting' &&
@@ -418,9 +407,8 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      // Check duplicate transaction ID if provided
       if (transactionId) {
-        const existingTid = PaymentRepository.findByTransactionId(transactionId);
+        const existingTid = await PaymentRepository.findByTransactionIdAsync(transactionId);
         if (existingTid) {
           return res.status(409).json({
             success: false,
@@ -431,7 +419,6 @@ transactionRouter.post('/', async (req, res) => {
 
       const tid = transactionId || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-      // Pre-validate Wallet Balance requirements before creating the Pending transaction
       let previousWalletBalance = 0;
       if (paymentMethod === 'Wallet Balance') {
         if (!Number.isFinite(enforcedAmount) || (enforcedAmount <= 0 && !isAdFreeOverride)) {
@@ -459,8 +446,7 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      // Create transaction initially as Pending
-      const newTx = PaymentRepository.create({
+      const newTx = await PaymentRepository.createAsync({
         amount: enforcedAmount,
         currency: currency || 'PKR',
         type: effectiveType,
@@ -496,8 +482,7 @@ transactionRouter.post('/', async (req, res) => {
 
         try {
           if (effectiveType === 'Subscription') {
-            // Persist durable DEDUCTING state BEFORE invoking wallet deduction
-            persistTransactionState(
+            await persistTransactionState(
               newTx.id,
               { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },
               { key: 'walletMutationState', expected: 'DEDUCTING' }
@@ -505,7 +490,7 @@ transactionRouter.post('/', async (req, res) => {
             walletMutationState = 'DEDUCTING';
             newTx.walletMutationState = 'DEDUCTING';
 
-            const subDurationDays = (safeSubscriptionPlan || '').toLowerCase().includes('weekly') || (safeSubscriptionPlan || '').toLowerCase().includes('govt') ? 7 : 30;
+            const subDurationDays = (safeSubscriptionPlan || '').toLowerCase().includes('weekly') ? 7 : 30;
             const subscriptionExpiresAt = new Date(Date.now() + subDurationDays * 24 * 60 * 60 * 1000).toISOString();
             let updatedUser: any = null;
             try {
@@ -531,7 +516,7 @@ transactionRouter.post('/', async (req, res) => {
             walletMutationState = 'DEDUCTED';
             effectiveBalanceAfter = Number(updatedUser.walletBalance);
             effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
-            persistTransactionState(
+            await persistTransactionState(
               newTx.id,
               {
                 walletMutationState: 'DEDUCTED',
@@ -542,10 +527,8 @@ transactionRouter.post('/', async (req, res) => {
             );
             newTx.walletMutationState = 'DEDUCTED';
           } else {
-            // Job Posting or Advertisement wallet deduction
             if (enforcedAmount > 0) {
-              // Persist durable DEDUCTING state BEFORE invoking wallet deduction
-              persistTransactionState(
+              await persistTransactionState(
                 newTx.id,
                 { walletMutationState: 'DEDUCTING', updatedAt: new Date().toISOString() },
                 { key: 'walletMutationState', expected: 'DEDUCTING' }
@@ -569,7 +552,7 @@ transactionRouter.post('/', async (req, res) => {
               walletMutationState = 'DEDUCTED';
               effectiveBalanceAfter = Number(updatedUser.walletBalance);
               effectiveBalanceBefore = effectiveBalanceAfter + enforcedAmount;
-              persistTransactionState(
+              await persistTransactionState(
                 newTx.id,
                 {
                   walletMutationState: 'DEDUCTED',
@@ -588,7 +571,6 @@ transactionRouter.post('/', async (req, res) => {
               try {
                 approvedJob = await JobRepository.approvePending(safeJobIdRef);
               } catch (jobApproveErr) {
-                // Verify whether the job was actually activated despite the thrown error
                 try {
                   const verifyJobs = await JobRepository.getJobsByIds([String(safeJobIdRef)]);
                   const verifiedJob = verifyJobs[0] || null;
@@ -598,7 +580,6 @@ transactionRouter.post('/', async (req, res) => {
                     jobApproveErrorToThrow = jobApproveErr;
                   }
                 } catch {
-                  // Cannot verify whether job activation succeeded; fail closed without blind refund
                   if (walletMutationState === 'DEDUCTED') {
                     walletMutationState = 'UNCERTAIN';
                   }
@@ -610,7 +591,7 @@ transactionRouter.post('/', async (req, res) => {
                 if (walletMutationState === 'DEDUCTED' && enforcedAmount > 0) {
                   walletMutationState = 'ROLLING_BACK';
                   try {
-                    persistTransactionState(
+                    await persistTransactionState(
                       newTx.id,
                       { walletMutationState: 'ROLLING_BACK', updatedAt: new Date().toISOString() },
                       { key: 'walletMutationState', expected: 'ROLLING_BACK' }
@@ -623,14 +604,14 @@ transactionRouter.post('/', async (req, res) => {
                     );
                     if (restoredUser) {
                       walletMutationState = 'ROLLED_BACK';
-                      persistTransactionState(newTx.id, {
+                      await persistTransactionState(newTx.id, {
                         walletMutationState: 'ROLLED_BACK',
                         updatedAt: new Date().toISOString()
                       });
                       newTx.walletMutationState = 'ROLLED_BACK';
                     } else {
                       walletMutationState = 'ROLLBACK_FAILED';
-                      persistTransactionState(newTx.id, {
+                      await persistTransactionState(newTx.id, {
                         walletMutationState: 'ROLLBACK_FAILED',
                         updatedAt: new Date().toISOString()
                       });
@@ -639,7 +620,7 @@ transactionRouter.post('/', async (req, res) => {
                   } catch {
                     walletMutationState = 'ROLLBACK_FAILED';
                     try {
-                      persistTransactionState(newTx.id, {
+                      await persistTransactionState(newTx.id, {
                         walletMutationState: 'ROLLBACK_FAILED',
                         updatedAt: new Date().toISOString()
                       });
@@ -652,23 +633,17 @@ transactionRouter.post('/', async (req, res) => {
             }
           }
 
-          // Only mark transaction Success after wallet operation and service activation succeed
           const verifiedAt = new Date().toISOString();
-          const allTxs = Database.getTransactions();
-          const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
-          if (txIdx !== -1) {
-            allTxs[txIdx].status = 'Success';
-            allTxs[txIdx].walletMutationState = walletMutationState;
-            allTxs[txIdx].verifiedAt = verifiedAt;
-            allTxs[txIdx].updatedAt = verifiedAt;
-            allTxs[txIdx].balanceBefore = effectiveBalanceBefore;
-            allTxs[txIdx].balanceAfter = effectiveBalanceAfter;
-            Database.saveTransactions(allTxs);
-          }
+          await PaymentRepository.updateAsync(newTx.id, {
+            status: 'Success',
+            walletMutationState,
+            verifiedAt,
+            balanceBefore: effectiveBalanceBefore,
+            balanceAfter: effectiveBalanceAfter
+          });
           newTx.status = 'Success';
           newTx.walletMutationState = walletMutationState;
           newTx.verifiedAt = verifiedAt;
-          newTx.updatedAt = verifiedAt;
           newTx.balanceBefore = effectiveBalanceBefore;
           newTx.balanceAfter = effectiveBalanceAfter;
           finalStatus = 'Success';
@@ -677,19 +652,14 @@ transactionRouter.post('/', async (req, res) => {
           const failureReason = walletProcessingErr?.message || 'Wallet Balance processing failed.';
           const nextStatus = canSafelyMarkTransactionFailed(walletMutationState) ? 'Failed' : 'Pending';
 
-          const allTxs = Database.getTransactions();
-          const txIdx = allTxs.findIndex((t: any) => t && t.id === newTx.id);
-          if (txIdx !== -1) {
-            allTxs[txIdx].status = nextStatus;
-            allTxs[txIdx].walletMutationState = walletMutationState;
-            allTxs[txIdx].rejectionReason = failureReason;
-            allTxs[txIdx].updatedAt = failedAt;
-            Database.saveTransactions(allTxs);
-          }
+          await PaymentRepository.updateAsync(newTx.id, {
+            status: nextStatus,
+            walletMutationState,
+            rejectionReason: failureReason
+          });
           newTx.status = nextStatus;
           newTx.walletMutationState = walletMutationState;
           newTx.rejectionReason = failureReason;
-          newTx.updatedAt = failedAt;
           throw walletProcessingErr;
         }
       }
@@ -721,7 +691,7 @@ transactionRouter.post('/', async (req, res) => {
 // 3. Admin Approve / Reject Payment Verification Proof
 transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage'), async (req, res) => {
   try {
-    const { action, note, reason } = req.body; // action: 'approve' | 'reject'
+    const { action, note, reason } = req.body;
     if (!['approve', 'reject'].includes(action)) {
       return res.status(400).json({ success: false, message: 'Action must be "approve" or "reject".' });
     }

@@ -612,7 +612,16 @@ export class PaymentRepository {
           throw new Error('Cannot approve Subscription: explicit verified user account could not be resolved from transaction.');
         }
 
-        const planName = tx.plan || 'Pro Alerts';
+        const planName = tx.plan;
+        if (!planName) {
+           await this.updateAsync(id, {
+            status: 'VerificationUncertain',
+            rejectionReason: 'Missing plan information in subscription transaction.',
+            updatedAt: new Date().toISOString()
+          });
+          throw new Error('Cannot approve Subscription: transaction is missing plan information.');
+        }
+        
         const pricing = PricingRepository.get() || {};
         
         // Strict, non-inferential duration lookup

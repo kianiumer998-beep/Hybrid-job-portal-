@@ -439,16 +439,18 @@ export const AdminPricingController: React.FC = () => {
                     value={pricing.subscriptionDurations?.["Pro Alerts"] || ''}
                     onChange={(e) => {
                       const val = e.target.value;
-                      if (val === '') {
-                        const newDur = { ...(pricing.subscriptionDurations || {}) };
-                        delete newDur["Pro Alerts"];
-                        updateNested('subscriptionDurations', undefined, newDur);
-                      } else {
-                        const num = Number(val);
-                        if (num > 0 && Number.isInteger(num)) {
-                          updateNested('subscriptionDurations', "Pro Alerts", num);
+                      setPricing((prev: any) => {
+                        const newDurations = { ...(prev.subscriptionDurations || {}) };
+                        if (val === '') {
+                          delete newDurations["Pro Alerts"];
+                        } else {
+                          const num = Number(val);
+                          if (num > 0 && Number.isInteger(num)) {
+                            newDurations["Pro Alerts"] = num;
+                          }
                         }
-                      }
+                        return { ...prev, subscriptionDurations: newDurations };
+                      });
                     }}
                     className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
                   />
@@ -479,16 +481,18 @@ export const AdminPricingController: React.FC = () => {
                     value={pricing.subscriptionDurations?.["VIP Jobseeker"] || ''}
                     onChange={(e) => {
                       const val = e.target.value;
-                      if (val === '') {
-                        const newDur = { ...(pricing.subscriptionDurations || {}) };
-                        delete newDur["VIP Jobseeker"];
-                        updateNested('subscriptionDurations', undefined, newDur);
-                      } else {
-                        const num = Number(val);
-                        if (num > 0 && Number.isInteger(num)) {
-                          updateNested('subscriptionDurations', "VIP Jobseeker", num);
+                      setPricing((prev: any) => {
+                        const newDurations = { ...(prev.subscriptionDurations || {}) };
+                        if (val === '') {
+                          delete newDurations["VIP Jobseeker"];
+                        } else {
+                          const num = Number(val);
+                          if (num > 0 && Number.isInteger(num)) {
+                            newDurations["VIP Jobseeker"] = num;
+                          }
                         }
-                      }
+                        return { ...prev, subscriptionDurations: newDurations };
+                      });
                     }}
                     className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
                   />

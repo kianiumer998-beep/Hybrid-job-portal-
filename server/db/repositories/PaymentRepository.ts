@@ -23,14 +23,17 @@ async function getTransactionsCollection() {
   return db.collection('transactions');
 }
 
-// Background safe index initialization without crashing on existing duplicates
+// Background safe index initialization with explicit reporting of success or failure
 async function ensureTransactionIndexes() {
   if (!isMongoConfigured()) return;
   try {
     const coll = await getTransactionsCollection();
-    await coll.createIndex({ transactionId: 1 }, { unique: true, sparse: true }).catch(() => {});
-    await coll.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true }).catch(() => {});
-  } catch {}
+    await coll.createIndex({ transactionId: 1 }, { unique: true, sparse: true });
+    await coll.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true });
+    console.log('[PaymentRepository] MongoDB unique indexes verified successfully on transactions collection.');
+  } catch (err: any) {
+    console.warn('[PaymentRepository] Notice: Unique index creation warning on transactions collection:', err?.message || err);
+  }
 }
 
 ensureTransactionIndexes().catch(() => {});
@@ -482,16 +485,16 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
-    // Atomic conditional concurrency claim
+    // 1. Atomic conditional concurrency claim (compatible with MongoDB driver v4/v5/v6/v7)
     if (isMongoConfigured()) {
       try {
         const coll = await getTransactionsCollection();
-        const res = await coll.findOneAndUpdate(
+        const res: any = await coll.findOneAndUpdate(
           { id: String(id), status: 'Pending' },
           { $set: { status: 'Verifying', updatedAt: new Date().toISOString() } },
           { returnDocument: 'after' }
         );
-        const claimed = res?.value;
+        const claimed = res && typeof res === 'object' ? ('value' in res ? res.value : res) : null;
         if (!claimed) {
           const existing = await this.getByIdAsync(id);
           if (!existing) return null;
@@ -523,7 +526,7 @@ export class PaymentRepository {
         tx.verificationState === 'Crediting' ||
         tx.verificationState === 'CreditUncertain')
     ) {
-      await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+      await this.updateAsync(id, { status: 'VerificationUncertain', rejectionReason: 'Wallet deposit verification state conflict.', updatedAt: new Date().toISOString() });
       throw new Error(
         `Cannot ${action} Wallet Deposit: verification state is ${tx.verificationState || 'Completed'} and requires reconciliation.`
       );
@@ -537,19 +540,19 @@ export class PaymentRepository {
 
       if (tx.type === 'Wallet Deposit') {
         if (!tx.userId) {
-          await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+          await this.updateAsync(id, { status: 'VerificationUncertain', rejectionReason: 'Missing userId on Wallet Deposit.', updatedAt: new Date().toISOString() });
           throw new Error('Cannot approve Wallet Deposit: transaction is missing userId.');
         }
 
         const depositAmount = Number(tx.amount);
         if (!Number.isFinite(depositAmount) || depositAmount <= 0) {
-          await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+          await this.updateAsync(id, { status: 'VerificationUncertain', rejectionReason: 'Invalid deposit amount.', updatedAt: new Date().toISOString() });
           throw new Error('Cannot approve Wallet Deposit: invalid deposit amount.');
         }
 
         const user = await UserRepository.getByIdAsync(tx.userId);
         if (!user) {
-          await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+          await this.updateAsync(id, { status: 'VerificationUncertain', rejectionReason: 'Target user not found.', updatedAt: new Date().toISOString() });
           throw new Error('Cannot approve Wallet Deposit: target user not found.');
         }
 
@@ -561,10 +564,11 @@ export class PaymentRepository {
         let updatedUser: any = null;
         try {
           updatedUser = await UserRepository.creditWalletBalanceAsync(user.id, depositAmount);
-        } catch (creditErr) {
+        } catch (creditErr: any) {
           await this.updateAsync(id, {
             verificationState: 'CreditUncertain' as DepositVerificationState,
-            status: 'Pending',
+            status: 'VerificationUncertain',
+            rejectionReason: creditErr?.message || 'Wallet credit failed',
             updatedAt: new Date().toISOString()
           });
           throw creditErr;
@@ -572,8 +576,9 @@ export class PaymentRepository {
 
         if (!updatedUser) {
           await this.updateAsync(id, {
-            verificationState: undefined,
-            status: 'Pending',
+            verificationState: 'CreditUncertain' as DepositVerificationState,
+            status: 'VerificationUncertain',
+            rejectionReason: 'Failed to update user wallet balance.',
             updatedAt: new Date().toISOString()
           });
           throw new Error('Cannot approve Wallet Deposit: failed to update user wallet balance.');
@@ -601,16 +606,20 @@ export class PaymentRepository {
         }
 
         if (!user) {
-          await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+          await this.updateAsync(id, {
+            status: 'VerificationUncertain',
+            rejectionReason: 'Explicit verified user account could not be resolved.',
+            updatedAt: new Date().toISOString()
+          });
           throw new Error('Cannot approve Subscription: explicit verified user account could not be resolved from transaction.');
         }
 
         const planName = tx.plan || 'Pro Alerts';
         const pricing = PricingRepository.get() || {};
         const subPricing = pricing.subscriptions || {};
+        
+        // Strict authoritative server-side plan configuration lookup (no client-supplied duration trust, no name heuristics)
         const authoritativeDuration = Number(
-          tx.durationDays ||
-          tx.duration ||
           subPricing[planName.toLowerCase().replace(/\s+/g, '') + 'DurationDays'] ||
           subPricing[`${planName.toLowerCase()}DurationDays`]
         );
@@ -618,10 +627,10 @@ export class PaymentRepository {
         if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0) {
           await this.updateAsync(id, {
             status: 'Pending',
-            rejectionReason: `Missing authoritative duration configuration for plan "${planName}".`,
+            rejectionReason: `Missing authoritative server-side duration configuration for plan "${planName}".`,
             updatedAt: new Date().toISOString()
           });
-          throw new Error(`Cannot approve Subscription: authoritative duration for plan "${planName}" is not configured.`);
+          throw new Error(`Cannot approve Subscription: authoritative server-side duration for plan "${planName}" is not configured in PricingRepository.`);
         }
         const durationDays = authoritativeDuration;
 
@@ -632,9 +641,10 @@ export class PaymentRepository {
             membershipStatus: 'Active',
             subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
           });
-        } catch (subErr) {
+        } catch (subErr: any) {
           await this.updateAsync(id, {
-            status: 'Pending',
+            status: 'VerificationUncertain',
+            rejectionReason: subErr?.message || 'Membership update uncertain',
             updatedAt: new Date().toISOString()
           });
           throw subErr;
@@ -642,7 +652,8 @@ export class PaymentRepository {
 
         if (!updatedUser) {
           await this.updateAsync(id, {
-            status: 'Pending',
+            status: 'VerificationUncertain',
+            rejectionReason: 'Failed to activate user membership.',
             updatedAt: new Date().toISOString()
           });
           throw new Error('Cannot approve Subscription: failed to activate user membership.');
@@ -656,20 +667,32 @@ export class PaymentRepository {
         });
       } else if (tx.type === 'Job Posting') {
         if (!tx.jobIdRef) {
-          await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+          await this.updateAsync(id, {
+            status: 'VerificationUncertain',
+            rejectionReason: 'Missing jobIdRef on Job Posting transaction.',
+            updatedAt: new Date().toISOString()
+          });
           throw new Error('Cannot approve Job Posting: transaction is missing jobIdRef.');
         }
 
         let approvedJob: any = null;
         try {
           approvedJob = await JobRepository.approvePending(String(tx.jobIdRef));
-        } catch (jobErr) {
-          await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+        } catch (jobErr: any) {
+          await this.updateAsync(id, {
+            status: 'VerificationUncertain',
+            rejectionReason: jobErr?.message || 'Job activation uncertain',
+            updatedAt: new Date().toISOString()
+          });
           throw jobErr;
         }
 
         if (!approvedJob) {
-          await this.updateAsync(id, { status: 'Pending', updatedAt: new Date().toISOString() });
+          await this.updateAsync(id, {
+            status: 'VerificationUncertain',
+            rejectionReason: 'Failed to activate pending job.',
+            updatedAt: new Date().toISOString()
+          });
           throw new Error('Cannot approve Job Posting: failed to activate pending job.');
         }
 

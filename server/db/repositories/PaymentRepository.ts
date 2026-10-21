@@ -615,7 +615,7 @@ export class PaymentRepository {
         const planName = tx.plan;
         if (!planName) {
            await this.updateAsync(id, {
-            status: 'VerificationUncertain',
+            status: 'Pending',
             rejectionReason: 'Missing plan information in subscription transaction.',
             updatedAt: new Date().toISOString()
           });
@@ -629,13 +629,13 @@ export class PaymentRepository {
           pricing.subscriptionDurations?.[planName]
         );
 
-        if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0) {
+        if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0 || !Number.isInteger(authoritativeDuration)) {
           await this.updateAsync(id, {
             status: 'Pending',
-            rejectionReason: `Missing authoritative server-side duration configuration for plan "${planName}".`,
+            rejectionReason: `Invalid or missing authoritative server-side duration configuration for plan "${planName}".`,
             updatedAt: new Date().toISOString()
           });
-          throw new Error(`Cannot approve Subscription: authoritative server-side duration configuration is missing for plan "${planName}".`);
+          throw new Error(`Cannot approve Subscription: authoritative server-side duration configuration is missing or invalid for plan "${planName}".`);
         }
         const durationDays = authoritativeDuration;
 

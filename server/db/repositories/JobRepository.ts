@@ -571,6 +571,44 @@ export class JobRepository {
   }
 
   /**
+   * Retrieves a single pending job directly by ID from pending_jobs.
+   */
+  static async getPendingById(id: string): Promise<any | null> {
+    if (!id) return null;
+    if (!isMongoConfigured()) {
+      const job = Database.getPendingJobs().find((j: any) => j.id === id && j.status === 'Pending');
+      return job || null;
+    }
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const doc = await withMongoTimeout(
+      pendingColl.findOne({ id, status: 'Pending' }),
+      30000,
+      'getPendingById'
+    );
+    return doc ? normalizeMongoJob(doc) : null;
+  }
+
+  /**
+   * Retrieves multiple pending jobs directly by IDs from pending_jobs.
+   */
+  static async getPendingByIds(ids: string[]): Promise<any[]> {
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    if (!isMongoConfigured()) {
+      const idsSet = new Set(ids);
+      return Database.getPendingJobs().filter((j: any) => idsSet.has(j.id) && j.status === 'Pending');
+    }
+    assertMongoAvailable();
+    const pendingColl = await getPendingJobsCollection();
+    const docs = await withMongoTimeout(
+      pendingColl.find({ id: { $in: ids }, status: 'Pending' }).toArray(),
+      30000,
+      'getPendingByIds'
+    );
+    return docs.map(normalizeMongoJob);
+  }
+
+  /**
    * Performs targeted candidate lookup across Live and Pending jobs collections
    * based on exact identifiers (sourceJobId, URLs) and content signals (company, title tokens).
    */

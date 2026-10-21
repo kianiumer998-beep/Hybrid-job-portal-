@@ -121,7 +121,15 @@ jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage
   try {
     const { force } = req.body || {};
     const pendingList = await JobRepository.getPending();
-    const targetJob = pendingList.find(j => j.id === req.params.id);
+    let targetJob = pendingList.find(j => j.id === req.params.id);
+
+    if (!targetJob && !force) {
+      targetJob = await JobRepository.getPendingById(req.params.id);
+    }
+
+    if (!targetJob && !force) {
+      return res.status(404).json({ success: false, message: 'Pending job not found.' });
+    }
 
     if (targetJob && !force) {
       if (isScrapedJob(targetJob)) {
@@ -328,28 +336,46 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
     let idsToApprove = ids;
     let duplicateWarnings: any[] = [];
     let missingFieldWarnings: any[] = [];
+    let unresolvedErrors: { id: string; error: string }[] = [];
 
     if (!force) {
       const liveJobs = (await JobRepository.getAll({ limit: 10000 })).jobs;
       const allPending = await JobRepository.getPending();
+      const pendingMap = new Map<string, any>();
+      for (const j of allPending) {
+        if (j && j.id) pendingMap.set(j.id, j);
+      }
+
+      const missingIds = ids.filter(id => !pendingMap.has(id));
+      if (missingIds.length > 0) {
+        const additionalPending = await JobRepository.getPendingByIds(missingIds);
+        for (const j of additionalPending) {
+          if (j && j.id) pendingMap.set(j.id, j);
+        }
+      }
+
+      const allPendingItems = Array.from(pendingMap.values());
       const validIds: string[] = [];
 
       for (const id of ids) {
-        const pendingJob = allPending.find(j => j.id === id);
-        if (pendingJob) {
-          if (isScrapedJob(pendingJob)) {
-            const missingFields = calculateJobMissingFields(pendingJob);
-            if (missingFields.length > 0) {
-              missingFieldWarnings.push({ id, title: pendingJob.title, missingFields });
-              continue;
-            }
-          }
-          const otherPending = allPending.filter(j => j.id !== id);
-          const dup = detectJobDuplicate(pendingJob, liveJobs, otherPending);
-          if (dup.isDuplicate && dup.confidence >= 80) {
-            duplicateWarnings.push({ id, title: pendingJob.title, match: dup });
+        const pendingJob = pendingMap.get(id);
+        if (!pendingJob) {
+          unresolvedErrors.push({ id, error: `Pending job with ID "${id}" could not be found or processed.` });
+          continue;
+        }
+
+        if (isScrapedJob(pendingJob)) {
+          const missingFields = calculateJobMissingFields(pendingJob);
+          if (missingFields.length > 0) {
+            missingFieldWarnings.push({ id, title: pendingJob.title, missingFields });
             continue;
           }
+        }
+        const otherPending = allPendingItems.filter(j => j.id !== id);
+        const dup = detectJobDuplicate(pendingJob, liveJobs, otherPending);
+        if (dup.isDuplicate && dup.confidence >= 80) {
+          duplicateWarnings.push({ id, title: pendingJob.title, match: dup });
+          continue;
         }
         validIds.push(id);
       }
@@ -357,27 +383,29 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
     }
 
     const result = await JobRepository.bulkApprovePending(idsToApprove);
+    const combinedErrors = [...unresolvedErrors, ...result.errors];
+    const totalFailureCount = combinedErrors.length;
     AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Approved',
-      target: `${result.successCount} jobs approved (${result.failureCount} failed, ${duplicateWarnings.length} duplicates skipped, ${missingFieldWarnings.length} missing fields skipped)`,
-      status: result.failureCount === 0 ? 'Success' : 'Warning'
+      target: `${result.successCount} jobs approved (${totalFailureCount} failed, ${duplicateWarnings.length} duplicates skipped, ${missingFieldWarnings.length} missing fields skipped)`,
+      status: totalFailureCount === 0 ? 'Success' : 'Warning'
     });
-    const hasFailures = result.failureCount > 0;
+    const hasFailures = totalFailureCount > 0;
     const isFullySuccessful = !hasFailures && result.successCount > 0;
     res.json({
       success: isFullySuccessful,
       successCount: result.successCount,
-      failureCount: result.failureCount,
+      failureCount: totalFailureCount,
       skippedDuplicatesCount: duplicateWarnings.length,
       skippedMissingFieldsCount: missingFieldWarnings.length,
       duplicateWarnings,
       missingFieldWarnings,
-      errors: result.errors,
+      errors: combinedErrors,
       approvedCount: result.successCount,
       approvedJobs: result.approvedJobs,
-      message: `${result.successCount} jobs approved.${hasFailures ? ` (${result.failureCount} failed)` : ''}${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}${missingFieldWarnings.length > 0 ? ` (${missingFieldWarnings.length} skipped with missing fields)` : ''}`
+      message: `${result.successCount} jobs approved.${hasFailures ? ` (${totalFailureCount} failed)` : ''}${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}${missingFieldWarnings.length > 0 ? ` (${missingFieldWarnings.length} skipped with missing fields)` : ''}`
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-approve:', err);

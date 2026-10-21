@@ -422,14 +422,38 @@ export const AdminPricingController: React.FC = () => {
                 <span className="font-semibold text-white block">Pro Candidate Monthly</span>
                 <span className="text-xs text-slate-400">Unlimited applications & instant alerts</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.subscriptions?.proMonthlyPkr || 0}
-                  onChange={(e) => updateNested('subscriptions', 'proMonthlyPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                />
-                <span className="text-xs text-slate-400">PKR</span>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    value={pricing.subscriptions?.proMonthlyPkr || 0}
+                    onChange={(e) => updateNested('subscriptions', 'proMonthlyPkr', Number(e.target.value))}
+                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+                  />
+                  <span className="text-xs text-slate-400">PKR</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    placeholder="Days"
+                    value={pricing.subscriptionDurations?.["Pro Alerts"] || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        const newDur = { ...(pricing.subscriptionDurations || {}) };
+                        delete newDur["Pro Alerts"];
+                        updateNested('subscriptionDurations', undefined, newDur);
+                      } else {
+                        const num = Number(val);
+                        if (num > 0 && Number.isInteger(num)) {
+                          updateNested('subscriptionDurations', "Pro Alerts", num);
+                        }
+                      }
+                    }}
+                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+                  />
+                  <span className="text-xs text-slate-400">Days</span>
+                </div>
               </div>
             </div>
 
@@ -438,14 +462,38 @@ export const AdminPricingController: React.FC = () => {
                 <span className="font-semibold text-amber-300 block">VIP Candidate Monthly</span>
                 <span className="text-xs text-slate-400">Top candidate badge + employer direct messaging</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.subscriptions?.vipMonthlyPkr || 0}
-                  onChange={(e) => updateNested('subscriptions', 'vipMonthlyPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                />
-                <span className="text-xs text-slate-400">PKR</span>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    value={pricing.subscriptions?.vipMonthlyPkr || 0}
+                    onChange={(e) => updateNested('subscriptions', 'vipMonthlyPkr', Number(e.target.value))}
+                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+                  />
+                  <span className="text-xs text-slate-400">PKR</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    placeholder="Days"
+                    value={pricing.subscriptionDurations?.["VIP Jobseeker"] || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        const newDur = { ...(pricing.subscriptionDurations || {}) };
+                        delete newDur["VIP Jobseeker"];
+                        updateNested('subscriptionDurations', undefined, newDur);
+                      } else {
+                        const num = Number(val);
+                        if (num > 0 && Number.isInteger(num)) {
+                          updateNested('subscriptionDurations', "VIP Jobseeker", num);
+                        }
+                      }
+                    }}
+                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+                  />
+                  <span className="text-xs text-slate-400">Days</span>
+                </div>
               </div>
             </div>
 

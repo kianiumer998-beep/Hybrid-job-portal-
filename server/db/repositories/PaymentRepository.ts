@@ -614,19 +614,16 @@ export class PaymentRepository {
 
         const planName = tx.plan || 'Pro Alerts';
         const pricing = PricingRepository.get() || {};
-        const subPricing = pricing.subscriptions || {};
         
-        // Strict server-side authoritative configuration lookup for subscription duration
+        // Strict, non-inferential duration lookup
         const authoritativeDuration = Number(
-          subPricing[planName.toLowerCase().replace(/\s+/g, '') + 'DurationDays'] ||
-          subPricing[`${planName.toLowerCase()}DurationDays`] ||
           pricing.subscriptionDurations?.[planName]
         );
 
         if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0) {
           await this.updateAsync(id, {
             status: 'Pending',
-            rejectionReason: `Authoritative server-side subscription duration configuration is missing for plan "${planName}". Approval is blocked.`,
+            rejectionReason: `Missing authoritative server-side duration configuration for plan "${planName}".`,
             updatedAt: new Date().toISOString()
           });
           throw new Error(`Cannot approve Subscription: authoritative server-side duration configuration is missing for plan "${planName}".`);
@@ -664,14 +661,14 @@ export class PaymentRepository {
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });
-      } else if (tx.type === 'Job Posting') {
+      } else if (tx.type === 'Job Posting Fee') {
         if (!tx.jobIdRef) {
           await this.updateAsync(id, {
             status: 'VerificationUncertain',
             rejectionReason: 'Missing jobIdRef on Job Posting transaction.',
             updatedAt: new Date().toISOString()
           });
-          throw new Error('Cannot approve Job Posting: transaction is missing jobIdRef.');
+          throw new Error('Cannot approve Job Posting Fee: transaction is missing jobIdRef.');
         }
 
         let approvedJob: any = null;
@@ -692,7 +689,7 @@ export class PaymentRepository {
             rejectionReason: 'Failed to activate pending job.',
             updatedAt: new Date().toISOString()
           });
-          throw new Error('Cannot approve Job Posting: failed to activate pending job.');
+          throw new Error('Cannot approve Job Posting Fee: failed to activate pending job.');
         }
 
         await this.updateAsync(id, {
@@ -700,7 +697,7 @@ export class PaymentRepository {
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });
-      } else if (tx.type === 'Advertisement') {
+      } else if (tx.type === 'Ad Campaign Fee') {
         if (tx.adIdRef) {
           AdRepository.update(String(tx.adIdRef), {
             paymentStatus: 'Paid',
@@ -715,7 +712,7 @@ export class PaymentRepository {
         });
       }
     } else {
-      if (tx.type === 'Advertisement' && tx.adIdRef) {
+      if (tx.type === 'Ad Campaign Fee' && tx.adIdRef) {
         AdRepository.update(String(tx.adIdRef), {
           paymentStatus: 'Refunded',
           approvalStatus: 'Rejected',

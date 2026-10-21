@@ -233,9 +233,10 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
             >
               <option value="All">All Payment Types</option>
               <option value="Wallet Deposit">Wallet Balance Deposit</option>
-              <option value="Job Posting">Job Posting Fee</option>
-              <option value="Advertisement">Ad Campaign Placement</option>
+              <option value="Job Posting Fee">Job Posting Fee</option>
+              <option value="Ad Campaign Fee">Ad Campaign Fee</option>
               <option value="Subscription">VIP Alert Subscription</option>
+              <option value="Refund">Refund</option>
             </select>
           </div>
 
@@ -324,11 +325,13 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                         <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
                           (tx.type as any) === 'Wallet Deposit' 
                             ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                            : (tx.type as any) === 'Job Posting'
+                            : (tx.type as any) === 'Job Posting Fee'
                             ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                            : (tx.type as any) === 'Advertisement'
+                            : (tx.type as any) === 'Ad Campaign Fee'
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : (tx.type as any) === 'Subscription'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
                         }`}>
                           {tx.type}
                         </span>

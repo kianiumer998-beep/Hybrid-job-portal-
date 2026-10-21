@@ -23,7 +23,6 @@ async function getTransactionsCollection() {
   return db.collection('transactions');
 }
 
-// Background safe index initialization with explicit reporting of success or failure
 async function ensureTransactionIndexes() {
   if (!isMongoConfigured()) return;
   try {
@@ -485,7 +484,6 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
-    // 1. Atomic conditional concurrency claim (compatible with MongoDB driver v4/v5/v6/v7)
     if (isMongoConfigured()) {
       try {
         const coll = await getTransactionsCollection();
@@ -618,19 +616,20 @@ export class PaymentRepository {
         const pricing = PricingRepository.get() || {};
         const subPricing = pricing.subscriptions || {};
         
-        // Strict authoritative server-side plan configuration lookup (no client-supplied duration trust, no name heuristics)
+        // Strict server-side authoritative configuration lookup for subscription duration
         const authoritativeDuration = Number(
           subPricing[planName.toLowerCase().replace(/\s+/g, '') + 'DurationDays'] ||
-          subPricing[`${planName.toLowerCase()}DurationDays`]
+          subPricing[`${planName.toLowerCase()}DurationDays`] ||
+          pricing.subscriptionDurations?.[planName]
         );
 
         if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0) {
           await this.updateAsync(id, {
             status: 'Pending',
-            rejectionReason: `Missing authoritative server-side duration configuration for plan "${planName}".`,
+            rejectionReason: `Authoritative server-side subscription duration configuration is missing for plan "${planName}". Approval is blocked.`,
             updatedAt: new Date().toISOString()
           });
-          throw new Error(`Cannot approve Subscription: authoritative server-side duration for plan "${planName}" is not configured in PricingRepository.`);
+          throw new Error(`Cannot approve Subscription: authoritative server-side duration configuration is missing for plan "${planName}".`);
         }
         const durationDays = authoritativeDuration;
 

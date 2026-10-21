@@ -45,7 +45,7 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
 }) => {
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Success' | 'Failed'>('All');
+  const [statusFilter, setStatusFilter] = useState<string>('All');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [methodFilter, setMethodFilter] = useState<string>('All');
 
@@ -74,10 +74,10 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
       }
 
       // Status
-      if (statusFilter !== 'All' && tx.status !== statusFilter) return false;
+      if (statusFilter !== 'All' && (tx.status as string) !== statusFilter) return false;
 
       // Type
-      if (typeFilter !== 'All' && tx.type !== typeFilter) return false;
+      if (typeFilter !== 'All' && (tx.type as string) !== typeFilter) return false;
 
       // Method
       if (methodFilter !== 'All' && tx.paymentMethod !== methodFilter) return false;
@@ -86,11 +86,12 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
     });
   }, [transactions, searchQuery, statusFilter, typeFilter, methodFilter]);
 
-  // Summary Metrics
+  // Summary Metrics (Ensuring VerificationUncertain is counted separately)
   const stats = useMemo(() => {
     const pending = transactions.filter(t => t.status === 'Pending');
     const approved = transactions.filter(t => t.status === 'Success');
     const rejected = transactions.filter(t => t.status === 'Failed');
+    const uncertain = transactions.filter(t => (t.status as any) === 'VerificationUncertain');
     const totalVolumePkr = approved.reduce((acc, t) => acc + (t.currency === 'PKR' ? t.amount : t.amount * 278), 0);
     const pendingVolumePkr = pending.reduce((acc, t) => acc + (t.currency === 'PKR' ? t.amount : t.amount * 278), 0);
 
@@ -98,6 +99,7 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
       pendingCount: pending.length,
       approvedCount: approved.length,
       rejectedCount: rejected.length,
+      uncertainCount: uncertain.length,
       totalVolumePkr,
       pendingVolumePkr
     };
@@ -164,7 +166,7 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
           </div>
 
           {/* Quick Metric Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-slate-950/70 border border-amber-500/30 rounded-2xl p-3.5 text-center">
               <div className="text-[11px] font-bold text-amber-400">Pending Review</div>
               <div className="text-xl font-black text-white mt-0.5">{stats.pendingCount}</div>
@@ -177,7 +179,13 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
               <div className="text-[9px] text-slate-400">PKR {stats.totalVolumePkr.toLocaleString()}</div>
             </div>
 
-            <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 text-center col-span-2 sm:col-span-1">
+            <div className="bg-slate-950/70 border border-purple-500/30 rounded-2xl p-3.5 text-center">
+              <div className="text-[11px] font-bold text-purple-400">Uncertain State</div>
+              <div className="text-xl font-black text-white mt-0.5">{stats.uncertainCount}</div>
+              <div className="text-[9px] text-slate-400">Reconciliation</div>
+            </div>
+
+            <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 text-center">
               <div className="text-[11px] font-bold text-rose-400">Rejected</div>
               <div className="text-xl font-black text-white mt-0.5">{stats.rejectedCount}</div>
               <div className="text-[9px] text-slate-400">Action Required</div>
@@ -205,12 +213,13 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
           <div>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 font-bold focus:outline-none focus:border-amber-500"
             >
               <option value="All">All Verification Statuses</option>
               <option value="Pending">⏳ Pending Verification Only ({stats.pendingCount})</option>
               <option value="Success">✅ Approved & Verified ({stats.approvedCount})</option>
+              <option value="VerificationUncertain">⚠️ Verification Uncertain ({stats.uncertainCount})</option>
               <option value="Failed">❌ Rejected Submissions ({stats.rejectedCount})</option>
             </select>
           </div>
@@ -224,8 +233,8 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
             >
               <option value="All">All Payment Types</option>
               <option value="Wallet Deposit">Wallet Balance Deposit</option>
-              <option value="Job Posting Fee">Job Posting Fee</option>
-              <option value="Ad Campaign Fee">Ad Campaign Placement</option>
+              <option value="Job Posting">Job Posting Fee</option>
+              <option value="Advertisement">Ad Campaign Placement</option>
               <option value="Subscription">VIP Alert Subscription</option>
             </select>
           </div>
@@ -249,35 +258,24 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
       </div>
 
       {/* Transactions Table / List */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
-        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs font-black text-slate-200 uppercase tracking-wider">
-              Submitted Payments & Deposit Proofs
-            </span>
-            <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-              {filteredTransactions.length} records
-            </span>
-          </div>
-        </div>
-
+      <div className="bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
         {filteredTransactions.length === 0 ? (
-          <div className="p-12 text-center text-slate-500 space-y-3">
-            <Receipt className="w-12 h-12 mx-auto text-slate-600 stroke-[1.5]" />
-            <div className="text-sm font-bold text-slate-400">No payment submissions found matching filters</div>
-            <p className="text-xs text-slate-500">Try adjusting your search criteria or status filter.</p>
+          <div className="p-12 text-center text-slate-400">
+            <Receipt className="w-12 h-12 mx-auto text-slate-600 mb-3 stroke-[1.5]" />
+            <h4 className="text-white font-bold text-base">No payment submissions found</h4>
+            <p className="text-xs text-slate-500 mt-1">Try adjusting your search criteria or verification status filter.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950/80 text-[11px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="p-4">Submission / Date</th>
-                  <th className="p-4">User / Sender</th>
-                  <th className="p-4">Service & Reference</th>
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-950/60 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  <th className="p-4">Timestamp / Ref</th>
+                  <th className="p-4">Customer / User</th>
+                  <th className="p-4">Type & Service</th>
                   <th className="p-4">Amount & Method</th>
-                  <th className="p-4">TID / Slip</th>
-                  <th className="p-4">Status</th>
+                  <th className="p-4">TID / Proof Slip</th>
+                  <th className="p-4">Verification Status</th>
                   <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -286,12 +284,13 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                   const isPending = tx.status === 'Pending';
                   const isApproved = tx.status === 'Success';
                   const isRejected = tx.status === 'Failed';
+                  const isUncertain = (tx.status as string) === 'VerificationUncertain';
 
                   return (
                     <tr 
                       key={tx.id} 
                       className={`hover:bg-slate-800/40 transition-colors ${
-                        isPending ? 'bg-amber-500/5' : ''
+                        isPending ? 'bg-amber-500/5' : isUncertain ? 'bg-purple-500/5' : ''
                       }`}
                     >
                       {/* Date / Time */}
@@ -323,11 +322,11 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                       {/* Service & Ref */}
                       <td className="p-4">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                          tx.type === 'Wallet Deposit' 
+                          (tx.type as any) === 'Wallet Deposit' 
                             ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                            : tx.type === 'Job Posting Fee'
+                            : (tx.type as any) === 'Job Posting'
                             ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                            : tx.type === 'Ad Campaign Fee'
+                            : (tx.type as any) === 'Advertisement'
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                         }`}>
@@ -397,6 +396,12 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                           <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
                             <Clock className="w-3 h-3" />
                             <span>Pending Review</span>
+                          </span>
+                        )}
+                        {isUncertain && (
+                          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                            <AlertTriangle className="w-3 h-3 text-purple-400" />
+                            <span>Verification Uncertain</span>
                           </span>
                         )}
                         {isRejected && (
@@ -500,198 +505,200 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block text-[10px]">Status</span>
+                      <span className="text-slate-500 block text-[10px]">Current Status</span>
                       <span className={`font-black ${
-                        selectedTx.status === 'Success' ? 'text-emerald-400' : selectedTx.status === 'Pending' ? 'text-amber-400' : 'text-rose-400'
+                        selectedTx.status === 'Success' ? 'text-emerald-400' :
+                        selectedTx.status === 'Pending' ? 'text-amber-400' :
+                        (selectedTx.status as string) === 'VerificationUncertain' ? 'text-purple-400' : 'text-rose-400'
                       }`}>
                         {selectedTx.status}
                       </span>
                     </div>
-
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Payment Channel</span>
-                      <span className="font-bold text-white">{selectedTx.paymentMethod}</span>
-                    </div>
-
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Submission Time</span>
-                      <span className="font-bold text-white">{selectedTx.dateTime}</span>
-                    </div>
-
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Sender Name / Phone</span>
-                      <span className="font-bold text-white">
-                        {selectedTx.senderName || selectedTx.userName || 'N/A'} {selectedTx.senderPhoneOrAccount ? `(${selectedTx.senderPhoneOrAccount})` : ''}
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">User Account Email</span>
-                      <span className="font-bold text-slate-300">{selectedTx.userEmail || 'N/A'}</span>
-                    </div>
                   </div>
 
-                  {selectedTx.transactionId && (
-                    <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                      <div className="text-[10px] text-slate-500 font-bold mb-1">Official Bank/Wallet TID / Reference No.</div>
-                      <div className="flex items-center justify-between">
-                        <code className="text-xs font-mono font-black text-amber-300">{selectedTx.transactionId}</code>
-                        <button
-                          onClick={() => handleCopyTid(selectedTx.transactionId!)}
-                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-300 flex items-center space-x-1"
-                        >
-                          <Copy className="w-3 h-3" />
-                          <span>{copiedTid ? 'Copied!' : 'Copy TID'}</span>
-                        </button>
+                  <div className="border-t border-slate-800 pt-3 space-y-2">
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Sender Name / Account</span>
+                      <span className="text-white font-bold">{selectedTx.senderName || selectedTx.userName || 'N/A'}</span>
+                      {selectedTx.senderPhoneOrAccount && (
+                        <span className="text-emerald-400 font-mono text-[11px] block">{selectedTx.senderPhoneOrAccount}</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Deposit Channel</span>
+                      <span className="text-white font-semibold">{selectedTx.paymentMethod || 'N/A'}</span>
+                    </div>
+                    {selectedTx.depositBankOrWalletName && (
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Target Account / Bank</span>
+                        <span className="text-slate-300">{selectedTx.depositBankOrWalletName}</span>
                       </div>
-                    </div>
-                  )}
-
-                  {selectedTx.proofNote && (
-                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block font-bold mb-1">User Note:</span>
-                      <p className="text-xs text-slate-300 italic">"{selectedTx.proofNote}"</p>
-                    </div>
-                  )}
-
-                  {selectedTx.rejectionReason && (
-                    <div className="bg-rose-950/40 p-3 rounded-xl border border-rose-500/30 text-rose-300">
-                      <span className="text-[10px] font-bold block mb-1">Rejection Reason:</span>
-                      <p className="text-xs">{selectedTx.rejectionReason}</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right: Screenshot Viewer / Proof */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-slate-200 uppercase tracking-wider">
-                      Payment Screenshot Proof (رسید کی تصویر)
-                    </span>
-                    {selectedTx.proofScreenshotUrl && (
-                      <div className="flex items-center space-x-1.5">
-                        <button
-                          onClick={() => setZoomLevel(prev => Math.max(0.6, prev - 0.2))}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                          title="Zoom Out"
-                        >
-                          <ZoomOut className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setZoomLevel(prev => Math.min(2.5, prev + 0.2))}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                          title="Zoom In"
-                        >
-                          <ZoomIn className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setRotation(prev => (prev + 90) % 360)}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                          title="Rotate"
-                        >
-                          <RotateCw className="w-3.5 h-3.5" />
-                        </button>
+                    )}
+                    {selectedTx.rejectionReason && (
+                      <div className="bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl text-rose-300">
+                        <span className="block text-[10px] font-black uppercase text-rose-400">Rejection Reason</span>
+                        {selectedTx.rejectionReason}
+                      </div>
+                    )}
+                    {selectedTx.adminNote && (
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl text-emerald-300">
+                        <span className="block text-[10px] font-black uppercase text-emerald-400">Admin Note</span>
+                        {selectedTx.adminNote}
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Right: Proof Screenshot Viewer */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col items-center justify-center relative min-h-[300px]">
+                  <div className="absolute top-3 left-3 text-[11px] font-black text-slate-400 flex items-center space-x-1.5">
+                    <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Payment Receipt / Slip Proof</span>
+                  </div>
 
                   {selectedTx.proofScreenshotUrl ? (
-                    <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 flex items-center justify-center min-h-[260px] max-h-[360px] overflow-auto relative">
-                      <img
-                        src={selectedTx.proofScreenshotUrl}
-                        alt="Payment Receipt Proof"
-                        className="rounded-xl shadow-lg transition-transform duration-200 max-w-full"
-                        style={{
-                          transform: `scale(${zoomLevel}) rotate(${rotation}deg)`
-                        }}
-                      />
+                    <div className="mt-8 flex flex-col items-center w-full">
+                      <div className="relative overflow-hidden rounded-xl border border-slate-700 bg-slate-900 max-h-[320px] flex items-center justify-center w-full">
+                        <img 
+                          src={selectedTx.proofScreenshotUrl} 
+                          alt="Payment Receipt" 
+                          style={{
+                            transform: `scale(${zoomLevel}) rotate(${rotation}deg)`,
+                            transition: 'transform 0.2s ease'
+                          }}
+                          className="max-h-[300px] object-contain"
+                        />
+                      </div>
+
+                      {/* Image Controls */}
+                      <div className="flex items-center space-x-2 mt-3 bg-slate-900/90 border border-slate-800 rounded-xl p-1.5 shadow-lg">
+                        <button
+                          onClick={() => setZoomLevel(prev => Math.min(prev + 0.25, 3))}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                          title="Zoom In"
+                        >
+                          <ZoomIn className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setZoomLevel(prev => Math.max(prev - 0.25, 0.75))}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                          title="Zoom Out"
+                        >
+                          <ZoomOut className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setRotation(prev => (prev + 90) % 360)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                          title="Rotate 90deg"
+                        >
+                          <RotateCw className="w-4 h-4" />
+                        </button>
+                        <a
+                          href={selectedTx.proofScreenshotUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 transition-colors"
+                          title="Open Original in New Tab"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      </div>
                     </div>
                   ) : (
-                    <div className="bg-slate-950 border border-dashed border-slate-800 rounded-2xl p-8 text-center text-slate-500 space-y-2">
-                      <FileText className="w-10 h-10 mx-auto text-slate-600" />
-                      <div className="text-xs font-bold text-slate-400">No screenshot image attached</div>
-                      <p className="text-[11px] text-slate-500">
-                        Payment was submitted via automated direct channel or manual TID reference.
-                      </p>
+                    <div className="text-center text-slate-500 py-12">
+                      <Receipt className="w-10 h-10 mx-auto mb-2 text-slate-600 stroke-[1.5]" />
+                      <p className="text-xs font-bold text-slate-400">No screenshot image attached</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Verification performed using Transaction ID (TID) reference.</p>
                     </div>
                   )}
                 </div>
               </div>
-
-              {/* Rejection Input Box if triggered */}
-              {showRejectBox && (
-                <div className="bg-rose-950/40 border border-rose-500/40 rounded-2xl p-4 space-y-3 animate-in fade-in">
-                  <div className="text-xs font-black text-rose-300">Enter Rejection Reason for Candidate / Employer:</div>
-                  <textarea
-                    rows={2}
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    placeholder="e.g. Transaction ID was not found in bank statement, or amount is insufficient."
-                    className="w-full bg-slate-950 border border-rose-500/30 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 resize-none"
-                  />
-                  <div className="flex items-center justify-end space-x-2">
-                    <button
-                      onClick={() => setShowRejectBox(false)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => handleConfirmReject(selectedTx)}
-                      disabled={!rejectReason.trim()}
-                      className="px-4 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-50 text-white text-xs font-black"
-                    >
-                      Confirm Rejection
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="p-5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between">
-              <span className="text-xs text-slate-400 font-medium">
-                Review carefully before approving financial transactions.
-              </span>
+            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <div className="text-xs text-slate-400">
+                Status: <span className="text-white font-bold">{selectedTx.status}</span>
+              </div>
 
               <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setSelectedTx(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                >
+                  Close Inspection
+                </button>
+
                 {selectedTx.status === 'Pending' && (
                   <>
                     <button
-                      onClick={() => setShowRejectBox(true)}
+                      onClick={() => {
+                        handleApprove(selectedTx);
+                        setSelectedTx(null);
+                      }}
                       disabled={isProcessing === selectedTx.id}
-                      className="px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 text-rose-300 border border-rose-500/30 font-bold text-xs flex items-center space-x-1.5 cursor-pointer"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      <span>Reject Submission</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleApprove(selectedTx)}
-                      disabled={isProcessing === selectedTx.id}
-                      className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs flex items-center space-x-1.5 shadow-xl shadow-emerald-500/20 cursor-pointer"
+                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-black flex items-center space-x-1.5 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>
-                        {isProcessing === selectedTx.id
-                          ? 'Verifying...'
-                          : selectedTx.type === 'Subscription'
-                          ? 'Approve & Activate Subscription'
-                          : selectedTx.type === 'Job Posting Fee'
-                          ? 'Approve & Publish Job'
-                          : 'Approve & Credit Wallet'}
-                      </span>
+                      <span>{isProcessing === selectedTx.id ? 'Processing...' : 'Approve Payment'}</span>
                     </button>
                   </>
                 )}
-
-                <button
-                  onClick={() => setSelectedTx(null)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
-                >
-                  Close
-                </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REJECT REASON MODAL */}
+      {showRejectBox && selectedTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-black text-rose-400 flex items-center space-x-2">
+                <XCircle className="w-5 h-5" />
+                <span>Reject Payment Submission</span>
+              </h4>
+              <button
+                onClick={() => {
+                  setShowRejectBox(false);
+                  setRejectReason('');
+                }}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Please provide a clear reason for rejecting transaction <code className="font-mono text-amber-300">{selectedTx.transactionId || selectedTx.id}</code>. This will be visible to the user.
+            </p>
+
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="e.g. Invalid Transaction ID (TID), mismatched deposit amount, or unverified receipt slip..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 h-28 resize-none"
+            />
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                onClick={() => {
+                  setShowRejectBox(false);
+                  setRejectReason('');
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={() => handleConfirmReject(selectedTx)}
+                disabled={!rejectReason.trim() || isProcessing === selectedTx.id}
+                className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-50 text-slate-950 text-xs font-black shadow-lg shadow-rose-500/20 cursor-pointer"
+              >
+                {isProcessing === selectedTx.id ? 'Processing...' : 'Confirm Rejection'}
+              </button>
             </div>
           </div>
         </div>

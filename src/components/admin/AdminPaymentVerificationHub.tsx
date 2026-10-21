@@ -30,8 +30,8 @@ import { PaymentTransaction, Currency, UserAccount, Job } from '../../types/job'
 
 interface AdminPaymentVerificationHubProps {
   transactions: PaymentTransaction[];
-  onApproveTransaction: (transactionId: string, note?: string) => void;
-  onRejectTransaction: (transactionId: string, reason: string) => void;
+  onApproveTransaction: (transactionId: string, note?: string) => void | Promise<any>;
+  onRejectTransaction: (transactionId: string, reason: string) => void | Promise<any>;
   users?: UserAccount[];
   jobs?: Job[];
 }
@@ -55,6 +55,9 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
   const [rotation, setRotation] = useState<number>(0);
   const [rejectReason, setRejectReason] = useState<string>('');
   const [showRejectBox, setShowRejectBox] = useState<boolean>(false);
+  const [approvalNote, setApprovalNote] = useState<string>('');
+  const [showApproveBox, setShowApproveBox] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<string | null>(null);
   const [copiedTid, setCopiedTid] = useState<boolean>(false);
 
   // Filtered list
@@ -106,20 +109,33 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
     setTimeout(() => setCopiedTid(false), 2000);
   };
 
-  const handleApprove = (tx: PaymentTransaction) => {
-    onApproveTransaction(tx.id, 'Verified and approved by admin');
-    if (selectedTx?.id === tx.id) {
-      setSelectedTx(prev => prev ? { ...prev, status: 'Success' } : null);
+  const handleApprove = async (tx: PaymentTransaction, customNote?: string) => {
+    try {
+      setIsProcessing(tx.id);
+      const note = customNote || approvalNote.trim() || 'Verified and approved by admin';
+      await onApproveTransaction(tx.id, note);
+      if (selectedTx?.id === tx.id) {
+        setSelectedTx(prev => prev ? { ...prev, status: 'Success', adminNote: note } : null);
+      }
+      setShowApproveBox(false);
+      setApprovalNote('');
+    } finally {
+      setIsProcessing(null);
     }
   };
 
-  const handleConfirmReject = (tx: PaymentTransaction) => {
+  const handleConfirmReject = async (tx: PaymentTransaction) => {
     if (!rejectReason.trim()) return;
-    onRejectTransaction(tx.id, rejectReason);
-    setShowRejectBox(false);
-    setRejectReason('');
-    if (selectedTx?.id === tx.id) {
-      setSelectedTx(prev => prev ? { ...prev, status: 'Failed', rejectionReason: rejectReason } : null);
+    try {
+      setIsProcessing(tx.id);
+      await onRejectTransaction(tx.id, rejectReason.trim());
+      setShowRejectBox(false);
+      setRejectReason('');
+      if (selectedTx?.id === tx.id) {
+        setSelectedTx(prev => prev ? { ...prev, status: 'Failed', rejectionReason: rejectReason.trim() } : null);
+      }
+    } finally {
+      setIsProcessing(null);
     }
   };
 
@@ -410,11 +426,12 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                             <>
                               <button
                                 onClick={() => handleApprove(tx)}
-                                className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] flex items-center space-x-1 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
-                                title="Approve & Credit Balance"
+                                disabled={isProcessing === tx.id}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-[11px] flex items-center space-x-1 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+                                title="Approve Transaction"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Approve</span>
+                                <span>{isProcessing === tx.id ? '...' : 'Approve'}</span>
                               </button>
 
                               <button
@@ -422,7 +439,8 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                                   setSelectedTx(tx);
                                   setShowRejectBox(true);
                                 }}
-                                className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold text-[11px] flex items-center space-x-1 transition-all cursor-pointer"
+                                disabled={isProcessing === tx.id}
+                                className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 text-rose-300 border border-rose-500/30 font-bold text-[11px] flex items-center space-x-1 transition-all cursor-pointer"
                                 title="Reject with Reason"
                               >
                                 <XCircle className="w-3.5 h-3.5" />
@@ -641,7 +659,8 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                   <>
                     <button
                       onClick={() => setShowRejectBox(true)}
-                      className="px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold text-xs flex items-center space-x-1.5 cursor-pointer"
+                      disabled={isProcessing === selectedTx.id}
+                      className="px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 text-rose-300 border border-rose-500/30 font-bold text-xs flex items-center space-x-1.5 cursor-pointer"
                     >
                       <XCircle className="w-4 h-4" />
                       <span>Reject Submission</span>
@@ -649,10 +668,19 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
 
                     <button
                       onClick={() => handleApprove(selectedTx)}
-                      className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center space-x-1.5 shadow-xl shadow-emerald-500/20 cursor-pointer"
+                      disabled={isProcessing === selectedTx.id}
+                      className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs flex items-center space-x-1.5 shadow-xl shadow-emerald-500/20 cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Approve & Credit Balance</span>
+                      <span>
+                        {isProcessing === selectedTx.id
+                          ? 'Verifying...'
+                          : selectedTx.type === 'Subscription'
+                          ? 'Approve & Activate Subscription'
+                          : selectedTx.type === 'Job Posting Fee'
+                          ? 'Approve & Publish Job'
+                          : 'Approve & Credit Wallet'}
+                      </span>
                     </button>
                   </>
                 )}

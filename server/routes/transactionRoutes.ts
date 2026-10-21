@@ -86,7 +86,7 @@ transactionRouter.get('/', requireAuth, (req, res) => {
 });
 
 // 2. Submit payment proof with Idempotency Protection & Authoritative Pricing Authority
-transactionRouter.post('/', requireAuth, async (req, res) => {
+transactionRouter.post('/', async (req, res) => {
   try {
     const {
       amount,
@@ -117,22 +117,32 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
     const adminRoles = ['Super Admin', 'Admin', 'Payment Manager', 'Finance Manager'];
     const isAdmin = Boolean(authUser && adminRoles.includes(authUser.role));
 
+    const effectiveType = type || 'Wallet Deposit';
+
     if (!authUserId) {
-      return res.status(401).json({ success: false, message: 'Authentication required.' });
+      if (effectiveType === 'Subscription' && paymentMethod !== 'Wallet Balance' && (userEmail || senderPhoneOrAccount)) {
+        // Guest subscription permitted for manual payment proof submission (Pending admin review)
+      } else {
+        return res.status(401).json({ success: false, message: 'Authentication required.' });
+      }
     }
 
-    if (!isAdmin && userId && String(userId) !== String(authUserId)) {
+    if (authUserId && !isAdmin && userId && String(userId) !== String(authUserId)) {
       return res.status(403).json({
         success: false,
         message: 'Forbidden: Cannot submit a transaction for another user.'
       });
     }
 
-    const effectiveUserId = isAdmin ? (userId || authUserId) : authUserId;
-    const effectiveUserName = isAdmin ? (userName || authUser?.name) : (authUser?.name || userName);
-    const effectiveUserEmail = isAdmin ? (userEmail || authUser?.email) : (authUser?.email || userEmail);
+    const effectiveUserId = authUserId ? (isAdmin ? (userId || authUserId) : authUserId) : undefined;
+    const effectiveUserName = authUserId
+      ? (isAdmin ? (userName || authUser?.name) : (authUser?.name || userName))
+      : (userName || senderName || 'Subscriber');
+    const effectiveUserEmail = authUserId
+      ? (isAdmin ? (userEmail || authUser?.email) : (authUser?.email || userEmail))
+      : (userEmail || '');
 
-    const userLockKey = String(effectiveUserId);
+    const userLockKey = String(effectiveUserId || effectiveUserEmail || senderPhoneOrAccount || 'anon-tx');
     if (activeUserTransactionLocks.has(userLockKey)) {
       return res.status(409).json({
         success: false,
@@ -495,7 +505,8 @@ transactionRouter.post('/', requireAuth, async (req, res) => {
             walletMutationState = 'DEDUCTING';
             newTx.walletMutationState = 'DEDUCTING';
 
-            const subscriptionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+            const subDurationDays = (safeSubscriptionPlan || '').toLowerCase().includes('weekly') || (safeSubscriptionPlan || '').toLowerCase().includes('govt') ? 7 : 30;
+            const subscriptionExpiresAt = new Date(Date.now() + subDurationDays * 24 * 60 * 60 * 1000).toISOString();
             let updatedUser: any = null;
             try {
               updatedUser = await UserRepository.deductWalletBalanceAsync(

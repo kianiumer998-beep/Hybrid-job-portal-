@@ -639,7 +639,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Payment Verification Transactions State
   const [internalTransactions, setInternalTransactions] = useState<PaymentTransaction[]>(() => {
-    if (paymentTransactions && paymentTransactions.length > 0) return paymentTransactions;
+    if (Array.isArray(paymentTransactions) && paymentTransactions.length > 0) return paymentTransactions;
     try {
       const saved = localStorage.getItem('hybrid_payment_transactions');
       if (saved) return JSON.parse(saved);
@@ -648,7 +648,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
 
   const currentWhatsAppConfig = whatsAppSupportConfig || internalWhatsAppConfig;
-  const currentTransactions = paymentTransactions && paymentTransactions.length > 0 ? paymentTransactions : internalTransactions;
+  const currentTransactions = Array.isArray(paymentTransactions) ? paymentTransactions : internalTransactions;
 
   const handleUpdateWhatsApp = (newCfg: WhatsAppSupportConfig) => {
     setInternalWhatsAppConfig(newCfg);
@@ -657,9 +657,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleApproveTx = (txId: string, note?: string) => {
+  const handleApproveTx = async (txId: string, note?: string) => {
     if (onApprovePaymentTransaction) {
-      onApprovePaymentTransaction(txId, note);
+      await onApprovePaymentTransaction(txId, note);
     }
     setInternalTransactions(prev => {
       const updated = prev.map(t => t.id === txId ? { ...t, status: 'Success' as const, verifiedAt: new Date().toISOString(), adminNote: note } : t);
@@ -668,9 +668,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   };
 
-  const handleRejectTx = (txId: string, reason: string) => {
+  const handleRejectTx = async (txId: string, reason: string) => {
     if (onRejectPaymentTransaction) {
-      onRejectPaymentTransaction(txId, reason);
+      await onRejectPaymentTransaction(txId, reason);
     }
     setInternalTransactions(prev => {
       const updated = prev.map(t => t.id === txId ? { ...t, status: 'Failed' as const, rejectionReason: reason } : t);

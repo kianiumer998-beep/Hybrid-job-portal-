@@ -2,6 +2,7 @@ import { Database } from '../database';
 import { UserRepository } from './UserRepository';
 import { JobRepository } from './JobRepository';
 import { AuditRepository } from './AuditRepository';
+import { AdRepository } from './AdRepository';
 
 const activeCompensationLocks = new Set<string>();
 
@@ -438,23 +439,27 @@ export class PaymentRepository {
         tx.balanceBefore = balanceBeforeDeposit;
         tx.balanceAfter = balanceAfterDeposit;
       } else if (tx.type === 'Subscription') {
-        if (!tx.userId) {
-          throw new Error('Cannot approve Subscription: transaction is missing userId.');
+        let user: any = null;
+        if (tx.userId) {
+          user = await UserRepository.getByIdAsync(tx.userId);
+        }
+        if (!user && tx.userEmail) {
+          user = await UserRepository.getByEmailAsync(tx.userEmail);
         }
 
-        const user = await UserRepository.getByIdAsync(tx.userId);
-        if (!user) {
-          throw new Error('Cannot approve Subscription: target user not found.');
-        }
+        if (user) {
+          const planName = tx.plan || 'Pro Alerts';
+          const durationDays = planName.toLowerCase().includes('weekly') || planName.toLowerCase().includes('govt') ? 7 : 30;
+          const updatedUser = await UserRepository.updateAsync(user.id, {
+            membershipTier: planName,
+            membershipStatus: 'Active',
+            subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+          });
 
-        const updatedUser = await UserRepository.updateAsync(user.id, {
-          membershipTier: tx.plan || 'Pro Alerts',
-          membershipStatus: 'Active',
-          subscriptionExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        });
-
-        if (!updatedUser) {
-          throw new Error('Cannot approve Subscription: failed to activate user membership.');
+          if (!updatedUser) {
+            throw new Error('Cannot approve Subscription: failed to activate user membership.');
+          }
+          tx.userId = user.id;
         }
       } else if (tx.type === 'Job Posting') {
         if (!tx.jobIdRef) {
@@ -465,6 +470,14 @@ export class PaymentRepository {
         if (!approvedJob) {
           throw new Error('Cannot approve Job Posting: failed to activate pending job.');
         }
+      } else if (tx.type === 'Advertisement') {
+        if (tx.adIdRef) {
+          AdRepository.update(String(tx.adIdRef), {
+            paymentStatus: 'Paid',
+            approvalStatus: 'Approved',
+            status: 'active'
+          });
+        }
       }
 
       tx.status = 'Success';
@@ -473,6 +486,13 @@ export class PaymentRepository {
     } else {
       tx.status = 'Failed';
       tx.rejectionReason = reason || 'Payment proof verification rejected.';
+      if (tx.type === 'Advertisement' && tx.adIdRef) {
+        AdRepository.update(String(tx.adIdRef), {
+          paymentStatus: 'Refunded',
+          approvalStatus: 'Rejected',
+          status: 'rejected'
+        });
+      }
     }
 
     tx.updatedAt = new Date().toISOString();

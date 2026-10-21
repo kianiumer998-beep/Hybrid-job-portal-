@@ -1321,6 +1321,45 @@ export default function App() {
           normalized,
           ...prev.filter((t) => t.id !== normalized.id)
         ]);
+
+        // If this is a subscription transaction, activate the corresponding subscriber & user plan
+        if (normalized.type === 'Subscription' || res.transaction.type === 'Subscription') {
+          const planName = res.transaction.plan || 'Pro Alerts';
+          const subTrxId = res.transaction.transactionId;
+          const subEmail = (res.transaction.userEmail || '').toLowerCase();
+          const subPhone = (res.transaction.senderPhoneOrAccount || '').replace(/\D/g, '');
+
+          setSubscribers((prev) =>
+            prev.map((sub) => {
+              const matchTid = Boolean(subTrxId && sub.transactionRef === subTrxId);
+              const matchEmail = Boolean(subEmail && sub.email.toLowerCase() === subEmail);
+              const matchPhone = Boolean(subPhone && sub.phone.replace(/\D/g, '') === subPhone);
+              if (matchTid || matchEmail || matchPhone) {
+                return { ...sub, status: 'Active' };
+              }
+              return sub;
+            })
+          );
+
+          if (
+            currentUser &&
+            (currentUser.id === res.transaction.userId ||
+              (currentUser.email && currentUser.email.toLowerCase() === subEmail))
+          ) {
+            setIsSubscribed(true);
+            setCurrentUser((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    membershipStatus: 'Active',
+                    membershipTier: planName,
+                    plan: 'Premium'
+                  }
+                : null
+            );
+          }
+        }
+
         await loadBackendTransactions(currentUser?.id);
         await loadBackendJobs();
       } else {
@@ -1341,6 +1380,23 @@ export default function App() {
           normalized,
           ...prev.filter((t) => t.id !== normalized.id)
         ]);
+
+        // If subscription transaction was rejected, update subscriber status
+        if (normalized.type === 'Subscription' || res.transaction.type === 'Subscription') {
+          const subTrxId = res.transaction.transactionId;
+          const subEmail = (res.transaction.userEmail || '').toLowerCase();
+          setSubscribers((prev) =>
+            prev.map((sub) => {
+              const matchTid = Boolean(subTrxId && sub.transactionRef === subTrxId);
+              const matchEmail = Boolean(subEmail && sub.email.toLowerCase() === subEmail);
+              if (matchTid || matchEmail) {
+                return { ...sub, status: 'Expired' };
+              }
+              return sub;
+            })
+          );
+        }
+
         await loadBackendTransactions(currentUser?.id);
       } else {
         alert(res?.message || 'Failed to reject payment transaction.');
@@ -1687,7 +1743,6 @@ export default function App() {
 
   const handleSubscribeSuccess = (newSub: Subscriber) => {
     setSubscribers((prev) => [newSub, ...prev.filter((s) => s.id !== newSub.id)]);
-    setSubscriptionModalOpen(false);
 
     if (newSub.status === 'Active') {
       setIsSubscribed(true);
@@ -3170,6 +3225,7 @@ export default function App() {
         onClose={() => setSubscriptionModalOpen(false)}
         onSubscribeSuccess={handleSubscribeSuccess}
         initialSelectedJobTitle={selectedJobTitleForSub}
+        currentUser={currentUser}
       />
 
       <CvPaywallModal

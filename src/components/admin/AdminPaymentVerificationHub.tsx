@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Receipt,
   CheckCircle2,
@@ -111,6 +111,21 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
     };
   }, [transactions]);
 
+  // Sync selectedTx with authoritative transactions if updated externally or after reconciliation
+  useEffect(() => {
+    if (selectedTx) {
+      const updated = transactions.find(t => String(t.id) === String(selectedTx.id));
+      if (updated && (
+        updated.status !== selectedTx.status ||
+        updated.adminNote !== selectedTx.adminNote ||
+        updated.rejectionReason !== selectedTx.rejectionReason ||
+        updated.verifiedAt !== selectedTx.verifiedAt
+      )) {
+        setSelectedTx(updated);
+      }
+    }
+  }, [transactions, selectedTx]);
+
   const handleCopyTid = (tid: string) => {
     navigator.clipboard.writeText(tid);
     setCopiedTid(true);
@@ -122,9 +137,13 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
       setIsProcessing(tx.id);
       const note = customNote || approvalNote.trim() || 'Verified and approved by admin';
       const result = await onApproveTransaction(tx.id, note);
-      if (result && result.success && result.transaction) {
-        if (selectedTx?.id === tx.id) {
-          setSelectedTx(result.transaction);
+      const returnedTx = result?.transaction;
+      const matchesId = Boolean(returnedTx && String(returnedTx.id) === String(tx.id));
+      const matchesStatus = Boolean(returnedTx && returnedTx.status === 'Success');
+
+      if (result && result.success && returnedTx && matchesId && matchesStatus) {
+        if (selectedTx && String(selectedTx.id) === String(tx.id)) {
+          setSelectedTx(returnedTx);
         }
         setShowApproveBox(false);
         setApprovalNote('');
@@ -144,11 +163,15 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
     try {
       setIsProcessing(tx.id);
       const result = await onRejectTransaction(tx.id, trimmedReason);
-      if (result && result.success && result.transaction) {
+      const returnedTx = result?.transaction;
+      const matchesId = Boolean(returnedTx && String(returnedTx.id) === String(tx.id));
+      const matchesStatus = Boolean(returnedTx && returnedTx.status === 'Failed');
+
+      if (result && result.success && returnedTx && matchesId && matchesStatus) {
         setShowRejectBox(false);
         setRejectReason('');
-        if (selectedTx?.id === tx.id) {
-          setSelectedTx(result.transaction);
+        if (selectedTx && String(selectedTx.id) === String(tx.id)) {
+          setSelectedTx(returnedTx);
         }
       }
       return result || { success: false, message: 'Rejection failed' };
@@ -656,7 +679,13 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                     <button
                       onClick={async () => {
                         const res = await handleApprove(selectedTx);
-                        if (res && res.success) {
+                        if (
+                          res &&
+                          res.success &&
+                          res.transaction &&
+                          String(res.transaction.id) === String(selectedTx.id) &&
+                          res.transaction.status === 'Success'
+                        ) {
                           setSelectedTx(null);
                         }
                       }}

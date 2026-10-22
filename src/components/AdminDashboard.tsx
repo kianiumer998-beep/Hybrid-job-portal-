@@ -664,15 +664,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (onApprovePaymentTransaction) {
       try {
         const result = await onApprovePaymentTransaction(txId, note);
-        if (result && result.success && result.transaction) {
+        const tx = result?.transaction;
+        const matchesId = Boolean(tx && String(tx.id) === String(txId));
+        const matchesStatus = Boolean(tx && tx.status === 'Success');
+        if (result && result.success && tx && matchesId && matchesStatus) {
           setInternalTransactions(prev => {
-            const updated = prev.map(t => (t.id === txId || t.id === result.transaction?.id) ? result.transaction! : t);
+            const updated = prev.map(t => String(t.id) === String(txId) ? tx : t);
             try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
             return updated;
           });
           return result;
         }
-        return result || { success: false, message: 'Payment approval failed' };
+        return result || { success: false, message: 'Payment approval failed or returned invalid transaction data' };
       } catch (err: any) {
         console.error('Error approving payment transaction in dashboard:', err);
         return { success: false, message: err?.message || 'Error approving payment transaction' };
@@ -688,15 +691,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (onRejectPaymentTransaction) {
       try {
         const result = await onRejectPaymentTransaction(txId, reason);
-        if (result && result.success && result.transaction) {
+        const tx = result?.transaction;
+        const matchesId = Boolean(tx && String(tx.id) === String(txId));
+        const matchesStatus = Boolean(tx && tx.status === 'Failed');
+        if (result && result.success && tx && matchesId && matchesStatus) {
           setInternalTransactions(prev => {
-            const updated = prev.map(t => (t.id === txId || t.id === result.transaction?.id) ? result.transaction! : t);
+            const updated = prev.map(t => String(t.id) === String(txId) ? tx : t);
             try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
             return updated;
           });
           return result;
         }
-        return result || { success: false, message: 'Payment rejection failed' };
+        return result || { success: false, message: 'Payment rejection failed or returned invalid transaction data' };
       } catch (err: any) {
         console.error('Error rejecting payment transaction in dashboard:', err);
         return { success: false, message: err?.message || 'Error rejecting payment transaction' };

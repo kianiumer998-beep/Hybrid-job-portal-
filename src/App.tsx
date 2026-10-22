@@ -640,6 +640,7 @@ export default function App() {
         : (rawTx?.type || 'Wallet Deposit');
     return {
       ...rawTx,
+      id: rawTx?.id || rawTx?._id,
       dateTime: rawTx?.dateTime || fallbackDate,
       type: mappedType
     };
@@ -1246,11 +1247,11 @@ export default function App() {
     }
   }, [currentUser?.id, isAdminLoggedIn, loadBackendApplications]);
 
-  const loadBackendTransactions = useCallback(async (activeUserId?: string) => {
+  const loadBackendTransactions = useCallback(async (activeUserId?: string): Promise<boolean> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
     if (!token) {
       setPaymentTransactions([]);
-      return;
+      return false;
     }
 
     try {
@@ -1259,8 +1260,8 @@ export default function App() {
         const seen = new Set<string>();
         const uniqueTxs: PaymentTransaction[] = [];
         for (const rawTx of res.transactions) {
-          if (rawTx && rawTx.id && !seen.has(rawTx.id)) {
-            seen.add(rawTx.id);
+          if (rawTx && (rawTx.id || rawTx._id) && !seen.has(rawTx.id || rawTx._id)) {
+            seen.add(rawTx.id || rawTx._id);
             uniqueTxs.push(normalizeBackendTransaction(rawTx));
           }
         }
@@ -1299,9 +1300,12 @@ export default function App() {
             };
           });
         }
+        return true;
       }
+      return false;
     } catch (err) {
       console.error('[App] Failed to load transactions from backend /api/transactions:', err);
+      return false;
     }
   }, [currentUser?.id, normalizeBackendTransaction]);
 
@@ -1319,12 +1323,15 @@ export default function App() {
   ): Promise<PaymentVerificationResult> => {
     try {
       const res = await api.transactions.verify(txId, 'approve', note);
+
+      const returnedRawId = res?.transaction ? (res.transaction.id || (res.transaction as any)._id) : undefined;
+      const idMatches = Boolean(returnedRawId && String(returnedRawId) === String(txId));
       const isConfirmedSuccess = Boolean(
         res &&
         res.success === true &&
         res.transaction &&
         typeof res.transaction === 'object' &&
-        res.transaction.id &&
+        idMatches &&
         res.transaction.status === 'Success'
       );
 
@@ -1332,7 +1339,7 @@ export default function App() {
         const normalized = normalizeBackendTransaction(res.transaction);
         setPaymentTransactions((prev) => [
           normalized,
-          ...prev.filter((t) => t.id !== normalized.id)
+          ...prev.filter((t) => String(t.id) !== String(normalized.id))
         ]);
 
         // If this is a subscription transaction, activate the corresponding subscriber & user plan
@@ -1377,20 +1384,48 @@ export default function App() {
         await loadBackendJobs();
         return { success: true, transaction: normalized };
       } else {
-        if (res?.transaction && res.transaction.id) {
-          await loadBackendTransactions(currentUser?.id);
+        // Attempt safe backend reconciliation refresh
+        const refreshed = await loadBackendTransactions(currentUser?.id);
+
+        const isIdentityMismatch = Boolean(
+          res?.transaction &&
+          returnedRawId &&
+          String(returnedRawId) !== String(txId)
+        );
+
+        let errorMsg = res?.message || 'Failed to approve payment transaction.';
+        if (isIdentityMismatch) {
+          errorMsg = `Transaction identity mismatch: requested "${txId}" but server returned "${returnedRawId}". ${
+            refreshed
+              ? 'Latest transactions refreshed from server; please verify status before retrying.'
+              : 'Authoritative status could not be verified from the server; please verify before retrying.'
+          }`;
+        } else if (res?.transaction?.status === 'VerificationUncertain') {
+          errorMsg = `Transaction verification is uncertain (status: VerificationUncertain). ${
+            refreshed
+              ? 'Authoritative status refreshed from server; please review transaction before retrying.'
+              : 'Authoritative status could not be verified from the server; please verify before retrying.'
+          }`;
+        } else if (!refreshed) {
+          errorMsg = `${errorMsg} Authoritative status could not be verified from the server; please verify before retrying.`;
         }
-        const errorMsg = res?.message || 'Failed to approve payment transaction.';
+
         alert(errorMsg);
         return {
           success: false,
           message: errorMsg,
-          transaction: res?.transaction ? normalizeBackendTransaction(res.transaction) : undefined
+          transaction: (res?.transaction && !isIdentityMismatch) ? normalizeBackendTransaction(res.transaction) : undefined
         };
       }
     } catch (err: any) {
       console.error('Error approving payment transaction:', err);
-      const errorMsg = err?.message || 'Error approving payment transaction.';
+      const refreshed = await loadBackendTransactions(currentUser?.id);
+      let errorMsg = err?.message || 'Error approving payment transaction.';
+      if (!refreshed) {
+        errorMsg = `${errorMsg} Authoritative status could not be verified from the server; please verify before retrying.`;
+      } else {
+        errorMsg = `${errorMsg} Transactions refreshed from server; please verify outcome before retrying.`;
+      }
       alert(errorMsg);
       return { success: false, message: errorMsg };
     }
@@ -1402,12 +1437,15 @@ export default function App() {
   ): Promise<PaymentVerificationResult> => {
     try {
       const res = await api.transactions.verify(txId, 'reject', undefined, reason);
+
+      const returnedRawId = res?.transaction ? (res.transaction.id || (res.transaction as any)._id) : undefined;
+      const idMatches = Boolean(returnedRawId && String(returnedRawId) === String(txId));
       const isConfirmedReject = Boolean(
         res &&
         res.success === true &&
         res.transaction &&
         typeof res.transaction === 'object' &&
-        res.transaction.id &&
+        idMatches &&
         res.transaction.status === 'Failed'
       );
 
@@ -1415,7 +1453,7 @@ export default function App() {
         const normalized = normalizeBackendTransaction(res.transaction);
         setPaymentTransactions((prev) => [
           normalized,
-          ...prev.filter((t) => t.id !== normalized.id)
+          ...prev.filter((t) => String(t.id) !== String(normalized.id))
         ]);
 
         // If subscription transaction was rejected, update subscriber status
@@ -1437,20 +1475,48 @@ export default function App() {
         await loadBackendTransactions(currentUser?.id);
         return { success: true, transaction: normalized };
       } else {
-        if (res?.transaction && res.transaction.id) {
-          await loadBackendTransactions(currentUser?.id);
+        // Attempt safe backend reconciliation refresh
+        const refreshed = await loadBackendTransactions(currentUser?.id);
+
+        const isIdentityMismatch = Boolean(
+          res?.transaction &&
+          returnedRawId &&
+          String(returnedRawId) !== String(txId)
+        );
+
+        let errorMsg = res?.message || 'Failed to reject payment transaction.';
+        if (isIdentityMismatch) {
+          errorMsg = `Transaction identity mismatch: requested "${txId}" but server returned "${returnedRawId}". ${
+            refreshed
+              ? 'Latest transactions refreshed from server; please verify status before retrying.'
+              : 'Authoritative status could not be verified from the server; please verify before retrying.'
+          }`;
+        } else if (res?.transaction?.status === 'VerificationUncertain') {
+          errorMsg = `Transaction rejection is uncertain (status: VerificationUncertain). ${
+            refreshed
+              ? 'Authoritative status refreshed from server; please review transaction before retrying.'
+              : 'Authoritative status could not be verified from the server; please verify before retrying.'
+          }`;
+        } else if (!refreshed) {
+          errorMsg = `${errorMsg} Authoritative status could not be verified from the server; please verify before retrying.`;
         }
-        const errorMsg = res?.message || 'Failed to reject payment transaction.';
+
         alert(errorMsg);
         return {
           success: false,
           message: errorMsg,
-          transaction: res?.transaction ? normalizeBackendTransaction(res.transaction) : undefined
+          transaction: (res?.transaction && !isIdentityMismatch) ? normalizeBackendTransaction(res.transaction) : undefined
         };
       }
     } catch (err: any) {
       console.error('Error rejecting payment transaction:', err);
-      const errorMsg = err?.message || 'Error rejecting payment transaction.';
+      const refreshed = await loadBackendTransactions(currentUser?.id);
+      let errorMsg = err?.message || 'Error rejecting payment transaction.';
+      if (!refreshed) {
+        errorMsg = `${errorMsg} Authoritative status could not be verified from the server; please verify before retrying.`;
+      } else {
+        errorMsg = `${errorMsg} Transactions refreshed from server; please verify outcome before retrying.`;
+      }
       alert(errorMsg);
       return { success: false, message: errorMsg };
     }

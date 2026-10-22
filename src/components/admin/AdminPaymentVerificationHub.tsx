@@ -28,10 +28,16 @@ import {
 } from 'lucide-react';
 import { PaymentTransaction, Currency, UserAccount, Job } from '../../types/job';
 
+export interface PaymentVerificationResult {
+  success: boolean;
+  transaction?: PaymentTransaction;
+  message?: string;
+}
+
 interface AdminPaymentVerificationHubProps {
   transactions: PaymentTransaction[];
-  onApproveTransaction: (transactionId: string, note?: string) => void | Promise<any>;
-  onRejectTransaction: (transactionId: string, reason: string) => void | Promise<any>;
+  onApproveTransaction: (transactionId: string, note?: string) => Promise<PaymentVerificationResult>;
+  onRejectTransaction: (transactionId: string, reason: string) => Promise<PaymentVerificationResult>;
   users?: UserAccount[];
   jobs?: Job[];
 }
@@ -111,31 +117,44 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
     setTimeout(() => setCopiedTid(false), 2000);
   };
 
-  const handleApprove = async (tx: PaymentTransaction, customNote?: string) => {
+  const handleApprove = async (tx: PaymentTransaction, customNote?: string): Promise<PaymentVerificationResult> => {
     try {
       setIsProcessing(tx.id);
       const note = customNote || approvalNote.trim() || 'Verified and approved by admin';
-      await onApproveTransaction(tx.id, note);
-      if (selectedTx?.id === tx.id) {
-        setSelectedTx(prev => prev ? { ...prev, status: 'Success', adminNote: note } : null);
+      const result = await onApproveTransaction(tx.id, note);
+      if (result && result.success && result.transaction) {
+        if (selectedTx?.id === tx.id) {
+          setSelectedTx(result.transaction);
+        }
+        setShowApproveBox(false);
+        setApprovalNote('');
       }
-      setShowApproveBox(false);
-      setApprovalNote('');
+      return result || { success: false, message: 'Approval failed' };
+    } catch (err: any) {
+      console.error('Error approving transaction in hub:', err);
+      return { success: false, message: err?.message || 'Error approving payment transaction' };
     } finally {
       setIsProcessing(null);
     }
   };
 
-  const handleConfirmReject = async (tx: PaymentTransaction) => {
-    if (!rejectReason.trim()) return;
+  const handleConfirmReject = async (tx: PaymentTransaction): Promise<PaymentVerificationResult | undefined> => {
+    const trimmedReason = rejectReason.trim();
+    if (!trimmedReason) return;
     try {
       setIsProcessing(tx.id);
-      await onRejectTransaction(tx.id, rejectReason.trim());
-      setShowRejectBox(false);
-      setRejectReason('');
-      if (selectedTx?.id === tx.id) {
-        setSelectedTx(prev => prev ? { ...prev, status: 'Failed', rejectionReason: rejectReason.trim() } : null);
+      const result = await onRejectTransaction(tx.id, trimmedReason);
+      if (result && result.success && result.transaction) {
+        setShowRejectBox(false);
+        setRejectReason('');
+        if (selectedTx?.id === tx.id) {
+          setSelectedTx(result.transaction);
+        }
       }
+      return result || { success: false, message: 'Rejection failed' };
+    } catch (err: any) {
+      console.error('Error rejecting transaction in hub:', err);
+      return { success: false, message: err?.message || 'Error rejecting payment transaction' };
     } finally {
       setIsProcessing(null);
     }
@@ -635,9 +654,11 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                 {selectedTx.status === 'Pending' && (
                   <>
                     <button
-                      onClick={() => {
-                        handleApprove(selectedTx);
-                        setSelectedTx(null);
+                      onClick={async () => {
+                        const res = await handleApprove(selectedTx);
+                        if (res && res.success) {
+                          setSelectedTx(null);
+                        }
                       }}
                       disabled={isProcessing === selectedTx.id}
                       className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-black flex items-center space-x-1.5 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"

@@ -115,7 +115,7 @@ import { AdminActivityLogs } from './admin/AdminActivityLogs';
 import { AdminBulkNotificationTool } from './admin/AdminBulkNotificationTool';
 import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
 import { AdminWhatsAppSettings } from './admin/AdminWhatsAppSettings';
-import { AdminPaymentVerificationHub } from './admin/AdminPaymentVerificationHub';
+import { AdminPaymentVerificationHub, PaymentVerificationResult } from './admin/AdminPaymentVerificationHub';
 import { AdminPricingController } from './admin/AdminPricingController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
 import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
@@ -209,8 +209,8 @@ interface AdminDashboardProps {
   siteSeoConfig?: SiteSeoConfig;
   onUpdateSeoConfig?: (config: SiteSeoConfig) => void;
   paymentTransactions?: PaymentTransaction[];
-  onApprovePaymentTransaction?: (transactionId: string, note?: string) => void;
-  onRejectPaymentTransaction?: (transactionId: string, reason: string) => void;
+  onApprovePaymentTransaction?: (transactionId: string, note?: string) => Promise<PaymentVerificationResult>;
+  onRejectPaymentTransaction?: (transactionId: string, reason: string) => Promise<PaymentVerificationResult>;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -657,26 +657,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleApproveTx = async (txId: string, note?: string) => {
+  const handleApproveTx = async (
+    txId: string,
+    note?: string
+  ): Promise<PaymentVerificationResult> => {
     if (onApprovePaymentTransaction) {
-      await onApprovePaymentTransaction(txId, note);
+      try {
+        const result = await onApprovePaymentTransaction(txId, note);
+        if (result && result.success && result.transaction) {
+          setInternalTransactions(prev => {
+            const updated = prev.map(t => (t.id === txId || t.id === result.transaction?.id) ? result.transaction! : t);
+            try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
+            return updated;
+          });
+          return result;
+        }
+        return result || { success: false, message: 'Payment approval failed' };
+      } catch (err: any) {
+        console.error('Error approving payment transaction in dashboard:', err);
+        return { success: false, message: err?.message || 'Error approving payment transaction' };
+      }
     }
-    setInternalTransactions(prev => {
-      const updated = prev.map(t => t.id === txId ? { ...t, status: 'Success' as const, verifiedAt: new Date().toISOString(), adminNote: note } : t);
-      try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
-      return updated;
-    });
+    return { success: false, message: 'No payment approval handler configured' };
   };
 
-  const handleRejectTx = async (txId: string, reason: string) => {
+  const handleRejectTx = async (
+    txId: string,
+    reason: string
+  ): Promise<PaymentVerificationResult> => {
     if (onRejectPaymentTransaction) {
-      await onRejectPaymentTransaction(txId, reason);
+      try {
+        const result = await onRejectPaymentTransaction(txId, reason);
+        if (result && result.success && result.transaction) {
+          setInternalTransactions(prev => {
+            const updated = prev.map(t => (t.id === txId || t.id === result.transaction?.id) ? result.transaction! : t);
+            try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
+            return updated;
+          });
+          return result;
+        }
+        return result || { success: false, message: 'Payment rejection failed' };
+      } catch (err: any) {
+        console.error('Error rejecting payment transaction in dashboard:', err);
+        return { success: false, message: err?.message || 'Error rejecting payment transaction' };
+      }
     }
-    setInternalTransactions(prev => {
-      const updated = prev.map(t => t.id === txId ? { ...t, status: 'Failed' as const, rejectionReason: reason } : t);
-      try { localStorage.setItem('hybrid_payment_transactions', JSON.stringify(updated)); } catch (e) {}
-      return updated;
-    });
+    return { success: false, message: 'No payment rejection handler configured' };
   };
 
   // Helper for computing duplicate scraped & pending jobs (Pending vs Pending + Pending vs Live)

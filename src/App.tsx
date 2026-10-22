@@ -18,6 +18,7 @@ import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
 import { WhatsAppStickyButton, WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './components/WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
+import { PaymentVerificationResult } from './components/admin/AdminPaymentVerificationHub';
 
 import { TopBannerAd } from './components/ads/TopBannerAd';
 import { PopupAdModal } from './components/ads/PopupAdModal';
@@ -1312,10 +1313,22 @@ export default function App() {
     }
   }, [currentUser?.id, isAdminLoggedIn, loadBackendTransactions]);
 
-  const handleApprovePaymentTransaction = async (txId: string, note?: string) => {
+  const handleApprovePaymentTransaction = async (
+    txId: string,
+    note?: string
+  ): Promise<PaymentVerificationResult> => {
     try {
       const res = await api.transactions.verify(txId, 'approve', note);
-      if (res && res.success && res.transaction) {
+      const isConfirmedSuccess = Boolean(
+        res &&
+        res.success === true &&
+        res.transaction &&
+        typeof res.transaction === 'object' &&
+        res.transaction.id &&
+        res.transaction.status === 'Success'
+      );
+
+      if (isConfirmedSuccess) {
         const normalized = normalizeBackendTransaction(res.transaction);
         setPaymentTransactions((prev) => [
           normalized,
@@ -1362,19 +1375,43 @@ export default function App() {
 
         await loadBackendTransactions(currentUser?.id);
         await loadBackendJobs();
+        return { success: true, transaction: normalized };
       } else {
-        alert(res?.message || 'Failed to approve payment transaction.');
+        if (res?.transaction && res.transaction.id) {
+          await loadBackendTransactions(currentUser?.id);
+        }
+        const errorMsg = res?.message || 'Failed to approve payment transaction.';
+        alert(errorMsg);
+        return {
+          success: false,
+          message: errorMsg,
+          transaction: res?.transaction ? normalizeBackendTransaction(res.transaction) : undefined
+        };
       }
     } catch (err: any) {
       console.error('Error approving payment transaction:', err);
-      alert(err?.message || 'Error approving payment transaction.');
+      const errorMsg = err?.message || 'Error approving payment transaction.';
+      alert(errorMsg);
+      return { success: false, message: errorMsg };
     }
   };
 
-  const handleRejectPaymentTransaction = async (txId: string, reason: string) => {
+  const handleRejectPaymentTransaction = async (
+    txId: string,
+    reason: string
+  ): Promise<PaymentVerificationResult> => {
     try {
       const res = await api.transactions.verify(txId, 'reject', undefined, reason);
-      if (res && res.success && res.transaction) {
+      const isConfirmedReject = Boolean(
+        res &&
+        res.success === true &&
+        res.transaction &&
+        typeof res.transaction === 'object' &&
+        res.transaction.id &&
+        res.transaction.status === 'Failed'
+      );
+
+      if (isConfirmedReject) {
         const normalized = normalizeBackendTransaction(res.transaction);
         setPaymentTransactions((prev) => [
           normalized,
@@ -1398,12 +1435,24 @@ export default function App() {
         }
 
         await loadBackendTransactions(currentUser?.id);
+        return { success: true, transaction: normalized };
       } else {
-        alert(res?.message || 'Failed to reject payment transaction.');
+        if (res?.transaction && res.transaction.id) {
+          await loadBackendTransactions(currentUser?.id);
+        }
+        const errorMsg = res?.message || 'Failed to reject payment transaction.';
+        alert(errorMsg);
+        return {
+          success: false,
+          message: errorMsg,
+          transaction: res?.transaction ? normalizeBackendTransaction(res.transaction) : undefined
+        };
       }
     } catch (err: any) {
       console.error('Error rejecting payment transaction:', err);
-      alert(err?.message || 'Error rejecting payment transaction.');
+      const errorMsg = err?.message || 'Error rejecting payment transaction.';
+      alert(errorMsg);
+      return { success: false, message: errorMsg };
     }
   };
 

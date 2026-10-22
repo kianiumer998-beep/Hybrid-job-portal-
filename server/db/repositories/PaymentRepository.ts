@@ -518,6 +518,24 @@ export class PaymentRepository {
     const tx = await this.getByIdAsync(id);
     if (!tx) return null;
 
+    const supportedVerificationTypes = [
+      'Wallet Deposit',
+      'Subscription',
+      'Job Posting',
+      'Job Posting Fee',
+      'Advertisement',
+      'Ad Campaign Fee'
+    ];
+
+    if (!supportedVerificationTypes.includes(tx.type)) {
+      await this.updateAsync(id, {
+        status: 'Pending',
+        rejectionReason: `Unsupported transaction type "${tx.type}".`,
+        updatedAt: new Date().toISOString()
+      });
+      throw new Error(`Cannot ${action} transaction: unsupported transaction type "${tx.type}".`);
+    }
+
     if (
       tx.type === 'Wallet Deposit' &&
       (tx.walletCredited === true ||
@@ -670,14 +688,14 @@ export class PaymentRepository {
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });
-      } else if (tx.type === 'Job Posting Fee') {
+      } else if (tx.type === 'Job Posting Fee' || tx.type === 'Job Posting') {
         if (!tx.jobIdRef) {
           await this.updateAsync(id, {
             status: 'VerificationUncertain',
             rejectionReason: 'Missing jobIdRef on Job Posting transaction.',
             updatedAt: new Date().toISOString()
           });
-          throw new Error('Cannot approve Job Posting Fee: transaction is missing jobIdRef.');
+          throw new Error('Cannot approve Job Posting: transaction is missing jobIdRef.');
         }
 
         let approvedJob: any = null;
@@ -698,7 +716,7 @@ export class PaymentRepository {
             rejectionReason: 'Failed to activate pending job.',
             updatedAt: new Date().toISOString()
           });
-          throw new Error('Cannot approve Job Posting Fee: failed to activate pending job.');
+          throw new Error('Cannot approve Job Posting: failed to activate pending job.');
         }
 
         await this.updateAsync(id, {
@@ -706,7 +724,7 @@ export class PaymentRepository {
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });
-      } else if (tx.type === 'Ad Campaign Fee') {
+      } else if (tx.type === 'Ad Campaign Fee' || tx.type === 'Advertisement') {
         if (tx.adIdRef) {
           AdRepository.update(String(tx.adIdRef), {
             paymentStatus: 'Paid',
@@ -719,9 +737,16 @@ export class PaymentRepository {
           verifiedAt: new Date().toISOString(),
           adminNote: note || 'Verified and approved by administrator'
         });
+      } else {
+        await this.updateAsync(id, {
+          status: 'Pending',
+          rejectionReason: `Unsupported transaction type "${tx.type}".`,
+          updatedAt: new Date().toISOString()
+        });
+        throw new Error(`Cannot approve transaction: unsupported transaction type "${tx.type}".`);
       }
     } else {
-      if (tx.type === 'Ad Campaign Fee' && tx.adIdRef) {
+      if ((tx.type === 'Ad Campaign Fee' || tx.type === 'Advertisement') && tx.adIdRef) {
         AdRepository.update(String(tx.adIdRef), {
           paymentStatus: 'Refunded',
           approvalStatus: 'Rejected',

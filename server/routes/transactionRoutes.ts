@@ -711,6 +711,15 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
         return res.status(404).json({ success: false, message: 'Transaction not found.' });
       }
 
+      const expectedStatus = action === 'approve' ? 'Success' : 'Failed';
+      if (tx.status !== expectedStatus) {
+        return res.status(422).json({
+          success: false,
+          transaction: tx,
+          message: `Transaction verification did not achieve the required "${expectedStatus}" status (current status: "${tx.status}").`
+        });
+      }
+
       AuditRepository.add({
         user: 'Administrator',
         role: 'Payment Manager',

@@ -1,21 +1,5 @@
 [
   {
-    "id": "TXN-TEST-AD-1",
-    "type": "Advertisement",
-    "amount": 500,
-    "status": "Pending",
-    "paymentMethod": "EasyPaisa",
-    "dateTime": "2026-10-22 09:11"
-  },
-  {
-    "id": "TXN-TEST-UNSUPPORTED",
-    "type": "UnsupportedType",
-    "amount": 100,
-    "status": "Pending",
-    "paymentMethod": "Bank Transfer",
-    "dateTime": "2026-10-22 09:11"
-  },
-  {
     "id": "tx-jazz-109283",
     "userId": "user-emp-techcorp",
     "userName": "Khurram Shehzad",

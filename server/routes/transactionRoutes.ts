@@ -1,5 +1,13 @@
 import { Router } from 'express';
-import { PaymentRepository, AuditRepository, UserRepository, PricingRepository, JobRepository } from '../db/repositories';
+import {
+  PaymentRepository,
+  AuditRepository,
+  UserRepository,
+  PricingRepository,
+  JobRepository,
+  PaymentSettingsRepository
+} from '../db/repositories';
+import type { PublicPaymentSettings, PublicPaymentMethodConfig, CustomProofField } from '../../src/types/adminPayment';
 import { Database } from '../db/database';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
 
@@ -78,6 +86,130 @@ transactionRouter.get('/', requireAuth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Error fetching transactions' });
   }
 });
+
+function resolvePaymentMethod(
+  rawMethod: string,
+  settings: PublicPaymentSettings
+): { method?: PublicPaymentMethodConfig; error?: string } {
+  if (!rawMethod || typeof rawMethod !== 'string') {
+    return { error: 'Payment method is required.' };
+  }
+
+  const cleanRaw = rawMethod.trim().toLowerCase();
+  const allMethods: PublicPaymentMethodConfig[] = Object.values(settings?.methods || {});
+
+  // Collect all currently enabled methods that have an account title and account number
+  const enabledMethods = allMethods.filter(
+    (m) => m && m.enabled && m.accountTitle && m.accountNumber
+  );
+
+  if (enabledMethods.length === 0) {
+    return { error: 'No manual payment methods are currently enabled by the administrator.' };
+  }
+
+  // 1. Exact ID match (case-insensitive)
+  const idMatches = enabledMethods.filter((m) => m.id.toLowerCase() === cleanRaw);
+  if (idMatches.length === 1) {
+    return { method: idMatches[0] };
+  }
+
+  // 2. Exact Name match (case-insensitive)
+  const nameMatches = enabledMethods.filter((m) => m.name.trim().toLowerCase() === cleanRaw);
+  if (nameMatches.length === 1) {
+    return { method: nameMatches[0] };
+  }
+
+  // 3. Fallback normalized match for standard base methods (bank transfer / easypaisa / jazzcash)
+  let aliasMatches: PublicPaymentMethodConfig[] = [];
+  if (cleanRaw === 'bank' || cleanRaw === 'bank transfer' || cleanRaw.startsWith('bank transfer')) {
+    aliasMatches = enabledMethods.filter((m) => m.id === 'bank');
+  } else if (cleanRaw === 'easypaisa' || cleanRaw === 'easy paisa' || cleanRaw.startsWith('easypaisa')) {
+    aliasMatches = enabledMethods.filter((m) => m.id === 'easypaisa');
+  } else if (cleanRaw === 'jazzcash' || cleanRaw === 'jazz cash' || cleanRaw.startsWith('jazzcash')) {
+    aliasMatches = enabledMethods.filter((m) => m.id === 'jazzcash');
+  }
+
+  if (aliasMatches.length === 1) {
+    return { method: aliasMatches[0] };
+  }
+
+  // Check if it matched multiple (ambiguous)
+  const combined = Array.from(new Set([...idMatches, ...nameMatches, ...aliasMatches]));
+  if (combined.length > 1) {
+    return { error: `Ambiguous payment method "${rawMethod}". Multiple enabled methods matched.` };
+  }
+
+  // Check if it's a known method that is disabled
+  const disabledMatch = allMethods.find(
+    (m) =>
+      m &&
+      (m.id.toLowerCase() === cleanRaw || m.name.trim().toLowerCase() === cleanRaw) &&
+      !m.enabled
+  );
+  if (disabledMatch) {
+    return { error: `Payment method "${disabledMatch.name}" is currently disabled.` };
+  }
+
+  return { error: `Payment method "${rawMethod}" is not recognized or not enabled.` };
+}
+
+function extractCustomFieldAnswers(
+  proofNote: any,
+  bodyCustomValues: any,
+  bodyCustomFields: any
+): Map<string, string> {
+  const answers = new Map<string, string>();
+
+  // 1. From body.customFieldValues (if object)
+  if (bodyCustomValues && typeof bodyCustomValues === 'object' && !Array.isArray(bodyCustomValues)) {
+    for (const [k, v] of Object.entries(bodyCustomValues)) {
+      if (k && v !== undefined && v !== null) {
+        answers.set(String(k).trim().toLowerCase(), String(v).trim());
+      }
+    }
+  }
+
+  // 2. From body.customFields (if object or array)
+  if (bodyCustomFields && typeof bodyCustomFields === 'object') {
+    if (Array.isArray(bodyCustomFields)) {
+      for (const item of bodyCustomFields) {
+        if (item && typeof item === 'object') {
+          const key = item.id || item.label;
+          const val = item.value !== undefined ? item.value : item.val;
+          if (key && val !== undefined && val !== null) {
+            answers.set(String(key).trim().toLowerCase(), String(val).trim());
+          }
+        }
+      }
+    } else {
+      for (const [k, v] of Object.entries(bodyCustomFields)) {
+        if (k && v !== undefined && v !== null) {
+          answers.set(String(k).trim().toLowerCase(), String(v).trim());
+        }
+      }
+    }
+  }
+
+  // 3. From proofNote string
+  if (typeof proofNote === 'string' && proofNote.includes('--- Custom Proof Details ---')) {
+    const sep = '--- Custom Proof Details ---';
+    const sepIdx = proofNote.indexOf(sep);
+    const customSection = proofNote.substring(sepIdx + sep.length);
+    const lines = customSection.split('\n').map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx > 0) {
+        const label = line.slice(0, colonIdx).trim().toLowerCase();
+        const val = line.slice(colonIdx + 1).trim();
+        if (label && !answers.has(label)) {
+          answers.set(label, val);
+        }
+      }
+    }
+  }
+
+  return answers;
+}
 
 // 2. Submit payment proof with Idempotency Protection & Authoritative Pricing Authority
 transactionRouter.post('/', async (req, res) => {
@@ -407,17 +539,164 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      if (transactionId) {
-        const existingTid = await PaymentRepository.findByTransactionIdAsync(transactionId);
+      let resolvedPaymentMethodName = paymentMethod;
+      const cleanTid = typeof transactionId === 'string' && transactionId.trim().length > 0 ? transactionId.trim() : undefined;
+      const cleanScreenshot = typeof proofScreenshotUrl === 'string' && proofScreenshotUrl.trim().length > 0 ? proofScreenshotUrl.trim() : undefined;
+      const cleanSenderName = typeof senderName === 'string' && senderName.trim().length > 0 ? senderName.trim() : undefined;
+      const cleanSenderPhone = typeof senderPhoneOrAccount === 'string' && senderPhoneOrAccount.trim().length > 0 ? senderPhoneOrAccount.trim() : undefined;
+
+      // Authoritative manual payment proof validation
+      if (paymentMethod !== 'Wallet Balance') {
+        let savedSettings: PublicPaymentSettings | null = null;
+        let isConfigured = false;
+
+        try {
+          const resSettings = await PaymentSettingsRepository.getPublicSettings();
+          isConfigured = Boolean(resSettings?.isConfigured);
+          savedSettings = resSettings?.settings || null;
+        } catch (err: any) {
+          console.error('[transactionRoutes] Failed to fetch payment settings:', err?.message || err);
+          return res.status(503).json({
+            success: false,
+            message: 'Payment configuration service is temporarily unavailable.'
+          });
+        }
+
+        if (!isConfigured || !savedSettings) {
+          return res.status(400).json({
+            success: false,
+            message: 'Payment instructions are currently unconfigured or unavailable.'
+          });
+        }
+
+        const resolved = resolvePaymentMethod(paymentMethod, savedSettings);
+        if (!resolved.method) {
+          return res.status(400).json({
+            success: false,
+            message: resolved.error || `Payment method "${paymentMethod}" is not enabled or available for payments.`
+          });
+        }
+
+        const methodConfig = resolved.method;
+        resolvedPaymentMethodName = methodConfig.name;
+
+        // 1. Transaction ID requirement
+        if (methodConfig.transactionIdRequired && !cleanTid) {
+          return res.status(400).json({
+            success: false,
+            message: `Please enter the ${methodConfig.transactionIdLabel || 'Transaction ID (TID)'}.`
+          });
+        }
+
+        // 2. Receipt Screenshot requirement
+        if (methodConfig.screenshotRequired && !cleanScreenshot) {
+          return res.status(400).json({
+            success: false,
+            message: `Please upload a ${methodConfig.screenshotLabel || 'Payment Receipt Screenshot'}.`
+          });
+        }
+
+        // At least one proof mechanism must be present for manual payments
+        if (!cleanTid && !cleanScreenshot) {
+          return res.status(400).json({
+            success: false,
+            message: 'Please provide either the Transaction ID or upload a Payment Receipt Screenshot.'
+          });
+        }
+
+        // 3. Sender Name requirement
+        if (methodConfig.senderNameRequired && !cleanSenderName) {
+          return res.status(400).json({
+            success: false,
+            message: `Please enter the ${methodConfig.senderNameLabel || 'Sender Name / Account Holder'}.`
+          });
+        }
+
+        // 4. Sender Phone / Mobile / Account requirement
+        if (methodConfig.senderPhoneRequired && !cleanSenderPhone) {
+          return res.status(400).json({
+            success: false,
+            message: `Please enter the ${methodConfig.senderPhoneLabel || 'Sender Mobile / Account Number'}.`
+          });
+        }
+
+        // 5. Depositor Note requirement
+        if (methodConfig.proofNoteRequired) {
+          let userNoteContent = '';
+          if (typeof proofNote === 'string') {
+            const sepIdx = proofNote.indexOf('--- Custom Proof Details ---');
+            const notePart = sepIdx !== -1 ? proofNote.substring(0, sepIdx) : proofNote;
+            userNoteContent = notePart.replace(/^User Note:\s*/i, '').trim();
+          }
+          if (!userNoteContent) {
+            return res.status(400).json({
+              success: false,
+              message: `Please provide ${methodConfig.proofNoteLabel || 'a deposit note'}.`
+            });
+          }
+        }
+
+        // 6. Custom Proof Fields requirements (validated strictly against authoritative saved definitions)
+        if (Array.isArray(methodConfig.customFields) && methodConfig.customFields.length > 0) {
+          const submittedCustomAnswers = extractCustomFieldAnswers(
+            proofNote,
+            req.body?.customFieldValues,
+            req.body?.customFields
+          );
+
+          for (const cf of methodConfig.customFields) {
+            const cleanId = String(cf.id || '').trim().toLowerCase();
+            const cleanLabel = String(cf.label || '').trim().toLowerCase();
+            const strippedLabel = String(cf.label || '').replace(/[:\r\n]+/g, ' ').trim().toLowerCase();
+
+            const submittedVal =
+              submittedCustomAnswers.get(cleanId) ??
+              submittedCustomAnswers.get(cleanLabel) ??
+              submittedCustomAnswers.get(strippedLabel) ??
+              '';
+
+            const trimmedVal = typeof submittedVal === 'string' ? submittedVal.trim() : String(submittedVal || '').trim();
+            const isMissing = !trimmedVal || trimmedVal === 'N/A';
+
+            if (cf.required && isMissing) {
+              return res.status(400).json({
+                success: false,
+                message: `Please enter the required field "${cf.label}".`
+              });
+            }
+
+            if (!isMissing) {
+              if (cf.type === 'number') {
+                const numericClean = trimmedVal.replace(/[\s,]+/g, '');
+                if (!/^-?\d+(\.\d+)?$/.test(numericClean)) {
+                  return res.status(400).json({
+                    success: false,
+                    message: `Field "${cf.label}" must be a valid number.`
+                  });
+                }
+              }
+              if (trimmedVal.length > 500) {
+                return res.status(400).json({
+                  success: false,
+                  message: `Field "${cf.label}" exceeds maximum allowed length.`
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (cleanTid) {
+        const existingTid = await PaymentRepository.findByTransactionIdAsync(cleanTid);
         if (existingTid) {
           return res.status(409).json({
             success: false,
-            message: `A transaction with reference ID ${transactionId} has already been recorded.`
+            message: `A transaction with reference ID ${cleanTid} has already been recorded.`
           });
         }
       }
 
-      const tid = transactionId || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const tid = cleanTid || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
       let previousWalletBalance = 0;
       if (paymentMethod === 'Wallet Balance') {
@@ -452,14 +731,14 @@ transactionRouter.post('/', async (req, res) => {
         type: effectiveType,
         ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
         status: 'Pending',
-        paymentMethod,
+        paymentMethod: resolvedPaymentMethodName,
         ...(paymentMethod === 'Wallet Balance' ? { walletMutationState: 'NONE' as WalletMutationState } : {}),
         transactionId: tid,
         idempotencyKey: idempotencyKey || undefined,
-        senderName: senderName || effectiveUserName || 'Customer',
-        senderPhoneOrAccount,
+        senderName: cleanSenderName || senderName || effectiveUserName || 'Customer',
+        senderPhoneOrAccount: cleanSenderPhone || senderPhoneOrAccount,
         depositBankOrWalletName,
-        proofScreenshotUrl,
+        proofScreenshotUrl: cleanScreenshot || proofScreenshotUrl,
         proofNote,
         userId: effectiveUserId,
         userName: effectiveUserName,

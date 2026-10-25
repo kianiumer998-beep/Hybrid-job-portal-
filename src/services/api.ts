@@ -600,6 +600,30 @@ export const api = {
     }
   },
 
+  // --- PAYMENT SETTINGS ---
+  paymentSettings: {
+    async get() {
+      return safeFetchJson<{
+        success: boolean;
+        configured: boolean;
+        settings: any | null;
+        message?: string;
+      }>(`${API_BASE}/payment-settings`);
+    },
+    async update(settingsData: any) {
+      return safeFetchJson<{
+        success: boolean;
+        configured: boolean;
+        settings: any;
+        message?: string;
+      }>(`${API_BASE}/payment-settings`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(settingsData)
+      });
+    }
+  },
+
   // --- ADVERTISEMENTS ---
   ads: {
     async getAll(status?: string, placement?: string) {

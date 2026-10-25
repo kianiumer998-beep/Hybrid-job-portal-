@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   CheckCircle2,
@@ -12,11 +12,14 @@ import {
   CreditCard,
   ArrowRight,
   Upload,
-  Image as ImageIcon,
   Receipt,
-  AlertCircle
+  AlertCircle,
+  Building,
+  Smartphone,
+  RefreshCw
 } from 'lucide-react';
 import { Subscriber, UserAccount } from '../types/job';
+import { PublicPaymentMethodConfig, PublicPaymentSettings } from '../types/adminPayment';
 import { api } from '../services/api';
 
 interface SubscriptionModalProps {
@@ -35,7 +38,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   currentUser
 }) => {
   const [plan, setPlan] = useState<'Pro Alerts' | 'VIP Jobseeker'>('Pro Alerts');
-  const [paymentMethod, setPaymentMethod] = useState<'Easypaisa' | 'JazzCash' | 'Bank Transfer' | 'Card'>('JazzCash');
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [email, setEmail] = useState(currentUser?.email || '');
@@ -45,6 +47,52 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedTx, setSubmittedTx] = useState<any | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Server-Persisted Payment Settings
+  const [paymentSettings, setPaymentSettings] = useState<PublicPaymentSettings | null>(null);
+  const [isSettingsConfigured, setIsSettingsConfigured] = useState<boolean>(false);
+  const [isLoadingSettings, setIsLoadingSettings] = useState<boolean>(true);
+  const [selectedMethodKey, setSelectedMethodKey] = useState<string>('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    setIsLoadingSettings(true);
+    setErrorMessage('');
+
+    api.paymentSettings.get().then((res) => {
+      if (!isMounted) return;
+      if (res && res.success && res.configured && res.settings && res.settings.methods) {
+        setPaymentSettings(res.settings);
+        setIsSettingsConfigured(true);
+
+        // Pick first enabled method or defaultMethod
+        const enabledKeys = Object.entries(res.settings.methods)
+          .filter(([_, m]: [string, any]) => m && m.enabled && m.accountNumber)
+          .map(([k]) => k);
+
+        if (res.settings.defaultMethod && enabledKeys.includes(res.settings.defaultMethod)) {
+          setSelectedMethodKey(res.settings.defaultMethod);
+        } else if (enabledKeys.length > 0) {
+          setSelectedMethodKey(enabledKeys[0]);
+        }
+      } else {
+        setPaymentSettings(null);
+        setIsSettingsConfigured(false);
+      }
+    }).catch(() => {
+      if (isMounted) {
+        setPaymentSettings(null);
+        setIsSettingsConfigured(false);
+      }
+    }).finally(() => {
+      if (isMounted) setIsLoadingSettings(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -65,65 +113,64 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const getDepositAccountDetails = () => {
-    switch (paymentMethod) {
-      case 'JazzCash':
-        return {
-          title: 'JazzCash Mobile Account',
-          account: '0300-1234567',
-          accountTitle: 'HybridJobs PK (Official)',
-          note: 'Dial *786# or use JazzCash app to transfer fee and save the 11-digit TID receipt.'
-        };
-      case 'Easypaisa':
-        return {
-          title: 'Easypaisa Direct Wallet',
-          account: '0345-9876543',
-          accountTitle: 'HybridJobs PK (Official)',
-          note: 'Send via Easypaisa mobile app and copy the 11-digit Transaction ID.'
-        };
-      case 'Bank Transfer':
-        return {
-          title: 'Meezan Bank Raast / IBAN',
-          account: 'PK88MEZN00012345678901',
-          accountTitle: 'Hybrid Job Portal PVT LTD',
-          note: '1Link / Raast inter-bank fund transfer. Keep your bank confirmation receipt.'
-        };
-      case 'Card':
-        return {
-          title: 'Visa / Mastercard Processing',
-          account: 'Direct Merchant Settlement',
-          accountTitle: 'Secure Card Deposit Desk',
-          note: 'Submit your card payment confirmation code / bank SMS reference.'
-        };
-      default:
-        return {
-          title: 'Payment Channel',
-          account: 'HybridJobs Official Account',
-          accountTitle: 'HybridJobs PK',
-          note: 'Submit your deposit slip or transaction reference.'
-        };
-    }
-  };
+  const enabledMethods: [string, PublicPaymentMethodConfig][] = paymentSettings?.methods
+    ? Object.entries(paymentSettings.methods).filter(
+        ([_, m]) => m && m.enabled && m.accountNumber && m.accountTitle
+      )
+    : [];
 
-  const depositDetails = getDepositAccountDetails();
+  const selectedMethod: PublicPaymentMethodConfig | null =
+    selectedMethodKey && paymentSettings?.methods
+      ? paymentSettings.methods[selectedMethodKey] || null
+      : enabledMethods.length > 0
+      ? enabledMethods[0][1]
+      : null;
+
   const amountPaid = plan === 'Pro Alerts' ? 300 : 800;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
+    if (!isSettingsConfigured || !selectedMethod) {
+      setErrorMessage('Payment details are currently unavailable. Please check back later.');
+      return;
+    }
+
     if (!name.trim() || !phone.trim() || !email.trim()) {
       setErrorMessage('Please fill out your Full Name, Phone (WhatsApp), and Email address.');
       return;
     }
 
+    // Server-configurable client-side validation
+    if (selectedMethod.transactionIdRequired && !trxId.trim()) {
+      setErrorMessage(`Please enter the ${selectedMethod.transactionIdLabel || 'Transaction ID (TID)'}.`);
+      return;
+    }
+
+    if (selectedMethod.screenshotRequired && !proofScreenshotUrl) {
+      setErrorMessage(`Please upload a ${selectedMethod.screenshotLabel || 'Payment Receipt Screenshot'}.`);
+      return;
+    }
+
+    if (selectedMethod.proofNoteRequired && !proofNote.trim()) {
+      setErrorMessage(`Please provide ${selectedMethod.proofNoteLabel || 'a deposit note'}.`);
+      return;
+    }
+
+    // At least one proof must be provided even if configuration was lenient
     if (!trxId.trim() && !proofScreenshotUrl) {
-      setErrorMessage('Please provide either the Transaction ID (TID) or upload a Payment Receipt Screenshot.');
+      setErrorMessage('Please provide either the Transaction ID or upload a Payment Receipt Screenshot.');
       return;
     }
 
     setIsSubmitting(true);
-    const finalTrxId = trxId.trim() || `SUB-${Date.now().toString(36).toUpperCase()}`;
+    // Never manufacture a fake Transaction ID when user leaves it blank
+    const cleanTrxId = trxId.trim() || undefined;
+
+    const depositAccountDesc = `${selectedMethod.name}: ${selectedMethod.accountNumber}${
+      selectedMethod.bankName ? ` (${selectedMethod.bankName})` : ''
+    }`;
 
     try {
       // Submit payment transaction with explicit Pending status for manual admin verification
@@ -132,18 +179,18 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         currency: 'PKR',
         type: 'Subscription',
         plan,
-        paymentMethod,
-        transactionId: finalTrxId,
+        paymentMethod: selectedMethod.name,
+        transactionId: cleanTrxId,
         senderName: name.trim(),
         senderPhoneOrAccount: phone.trim(),
-        depositBankOrWalletName: `${depositDetails.title}: ${depositDetails.account}`,
+        depositBankOrWalletName: depositAccountDesc,
         proofScreenshotUrl: proofScreenshotUrl.trim() || undefined,
         proofNote: proofNote.trim() || undefined,
         userId: currentUser?.id || undefined,
         userEmail: email.trim(),
         userName: name.trim(),
         jobTitleRef: initialSelectedJobTitle || undefined,
-        idempotencyKey: `sub-${email.trim().toLowerCase()}-${Date.now()}`
+        idempotencyKey: `sub-${email.trim().toLowerCase()}-${cleanTrxId || Date.now()}`
       });
 
       if (txRes && txRes.success && txRes.transaction) {
@@ -154,13 +201,13 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           phone: phone.trim(),
           email: email.trim(),
           plan,
-          paymentMethod,
+          paymentMethod: selectedMethod.name,
           amountPaid: Number(txRes.transaction.amount) || amountPaid,
           currency: 'PKR',
           status: 'Pending', // Pending manual admin verification
           subscribedAt: new Date().toISOString(),
           whatsappEnabled: true,
-          transactionRef: txRes.transaction.transactionId || finalTrxId
+          transactionRef: txRes.transaction.transactionId || cleanTrxId
         };
 
         setSubmittedTx(txRes.transaction);
@@ -184,14 +231,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         <div className="p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 relative">
           <button
             onClick={onClose}
-            className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
 
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold mb-3">
             <Zap className="w-3.5 h-3.5" />
-            <span>Instant WhatsApp & Direct Apply Unlock</span>
+            <span>Instant WhatsApp &amp; Direct Apply Unlock</span>
           </div>
 
           <h2 className="text-2xl font-black text-white leading-snug">
@@ -204,7 +251,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             )}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Subscribe once to receive daily verified remote & hybrid job openings directly on WhatsApp and apply instantly with 1-click.
+            Subscribe once to receive daily verified remote &amp; hybrid job openings directly on WhatsApp and apply instantly with 1-click.
           </p>
         </div>
 
@@ -228,7 +275,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 text-xs text-slate-300 text-left space-y-2.5 max-w-md mx-auto">
               <div className="flex justify-between items-center pb-2 border-b border-slate-800">
                 <span className="text-slate-400">Transaction ID (TID):</span>
-                <code className="font-mono font-bold text-amber-300">{submittedTx.transactionId || trxId}</code>
+                <code className="font-mono font-bold text-amber-300">{submittedTx.transactionId || trxId || 'Pending'}</code>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-400">Review Status:</span>
@@ -238,12 +285,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-slate-400">Package & Fee:</span>
+                <span className="text-slate-400">Package &amp; Fee:</span>
                 <span className="font-bold text-white">{plan} (PKR {amountPaid})</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-slate-400">Payment Gateway:</span>
-                <span className="font-bold text-white">{paymentMethod}</span>
+                <span className="text-slate-400">Payment Channel:</span>
+                <span className="font-bold text-white">{submittedTx.paymentMethod || selectedMethod?.name}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-400">WhatsApp Alert Number:</span>
@@ -282,13 +329,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 }}
                 className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 hover:scale-[1.01] active:scale-95 transition-all cursor-pointer"
               >
-                Done & Return to Portal
+                Done &amp; Return to Portal
               </button>
             </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
-            
             {/* Package Selector */}
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
@@ -347,190 +393,240 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               </div>
             </div>
 
-            {/* Payment Method Tabs */}
-            <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                Select Payment Method
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { id: 'JazzCash', name: 'JazzCash' },
-                  { id: 'Easypaisa', name: 'Easypaisa' },
-                  { id: 'Bank Transfer', name: 'Bank Raast' },
-                  { id: 'Card', name: 'Card / Slip' }
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setPaymentMethod(m.id as any)}
-                    className={`py-2 px-1 text-xs font-bold rounded-lg border text-center transition-all ${
-                      paymentMethod === m.id
-                        ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    {m.name}
-                  </button>
-                ))}
+            {/* Loading / Unconfigured State Check */}
+            {isLoadingSettings ? (
+              <div className="p-8 text-center text-slate-400 space-y-2">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-400" />
+                <p className="text-xs">Loading verified payment accounts...</p>
               </div>
-            </div>
-
-            {/* Payment Account Instructions Box */}
-            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
-              <div className="flex items-center justify-between font-bold text-amber-300 mb-1">
-                <span>{depositDetails.title}</span>
-                <span className="text-emerald-400 font-mono text-sm">PKR {amountPaid}</span>
-              </div>
-              <div className="text-slate-300">
-                Deposit to: <strong className="text-emerald-400 font-mono font-bold text-sm select-all">{depositDetails.account}</strong>
-              </div>
-              <div className="text-slate-400 text-[11px]">
-                Account Title: <span className="text-white font-semibold">{depositDetails.accountTitle}</span>
-              </div>
-              <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-900">
-                {depositDetails.note}
-              </p>
-            </div>
-
-            {/* Input Details */}
-            {errorMessage && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Muhammad Ali"
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">WhatsApp Phone Number</label>
-                  <input
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+92 300 1234567"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+            ) : !isSettingsConfigured || enabledMethods.length === 0 ? (
+              <div className="p-5 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-300 space-y-2">
+                <div className="flex items-center space-x-2 font-bold text-amber-400">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Payment Submission Temporarily Unavailable</span>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ali@example.com"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
+                <p className="leading-relaxed">
+                  Administrator receiving payment accounts are currently unconfigured. Please check back shortly or reach out to support on WhatsApp for manual enrollment.
+                </p>
               </div>
-
-              {/* Transaction ID & Receipt Proof Section */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            ) : (
+              <>
+                {/* Enabled Payment Methods Selector */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Bank / Wallet TID Reference
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Select Receiving Payment Channel
                   </label>
-                  <input
-                    type="text"
-                    value={trxId}
-                    onChange={(e) => setTrxId(e.target.value)}
-                    placeholder="e.g. JC-8829103 or 11-digit TID"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    {enabledMethods.map(([key, method]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setSelectedMethodKey(key)}
+                        className={`py-2.5 px-2 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
+                          (selectedMethodKey === key || (!selectedMethodKey && enabledMethods[0][0] === key))
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {method.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Upload Screenshot Proof
-                  </label>
-                  <label className="flex items-center justify-center space-x-2 px-3 py-2 bg-slate-950 border border-dashed border-slate-700 hover:border-emerald-500 rounded-xl cursor-pointer text-xs text-slate-300 transition-colors">
-                    <Upload className="w-4 h-4 text-emerald-400" />
-                    <span className="truncate">{proofScreenshotUrl ? 'Replace Screenshot' : 'Attach Receipt Image'}</span>
+                {/* Selected Method Details Box */}
+                {selectedMethod && (
+                  <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-2">
+                    <div className="flex items-center justify-between font-bold text-amber-300 border-b border-slate-900 pb-2">
+                      <span className="flex items-center space-x-1.5">
+                        {selectedMethod.id === 'bank' ? (
+                          <Building className="w-4 h-4 text-indigo-400" />
+                        ) : (
+                          <Smartphone className="w-4 h-4 text-emerald-400" />
+                        )}
+                        <span>{selectedMethod.heading || selectedMethod.name}</span>
+                      </span>
+                      <span className="text-emerald-400 font-mono text-sm font-black">PKR {amountPaid}</span>
+                    </div>
+
+                    <div className="space-y-1 pt-1">
+                      {selectedMethod.bankName && (
+                        <div className="text-slate-400 text-[11px]">
+                          Bank Name: <strong className="text-white">{selectedMethod.bankName}</strong>
+                        </div>
+                      )}
+                      <div className="text-slate-400 text-[11px]">
+                        Account Title: <strong className="text-white">{selectedMethod.accountTitle}</strong>
+                      </div>
+                      <div className="text-slate-300 text-xs">
+                        Deposit to: <strong className="text-emerald-400 font-mono font-bold text-sm select-all">{selectedMethod.accountNumber}</strong>
+                      </div>
+                      {selectedMethod.iban && (
+                        <div className="text-slate-400 text-[11px]">
+                          Raast / IBAN: <span className="text-indigo-300 font-mono select-all">{selectedMethod.iban}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 pt-2 border-t border-slate-900 leading-relaxed">
+                      {selectedMethod.instructions}
+                    </p>
+                  </div>
+                )}
+
+                {/* Error Banner */}
+                {errorMessage && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{errorMessage}</span>
+                  </div>
+                )}
+
+                {/* Form Fields */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Full Name *</label>
                     <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageFileChange}
-                      className="hidden"
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Muhammad Ali"
+                      className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                  </label>
-                </div>
-              </div>
+                  </div>
 
-              {/* Screenshot Preview if Attached */}
-              {proofScreenshotUrl && (
-                <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center space-x-2.5">
-                    <img
-                      src={proofScreenshotUrl}
-                      alt="Receipt preview"
-                      className="w-12 h-12 object-cover rounded-lg border border-slate-700"
-                    />
-                    <div className="text-xs">
-                      <span className="text-emerald-400 font-bold block">Payment Receipt Attached</span>
-                      <span className="text-[10px] text-slate-500">Ready for admin verification</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">WhatsApp Phone Number *</label>
+                      <input
+                        type="tel"
+                        required
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="+92 300 1234567"
+                        className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">Email Address *</label>
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="ali@example.com"
+                        className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setProofScreenshotUrl('')}
-                    className="text-xs text-rose-400 hover:text-rose-300 p-1 rounded"
-                  >
-                    Remove
-                  </button>
+
+                  {/* Transaction ID & Receipt Proof Section */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        {selectedMethod?.transactionIdLabel || 'Transaction ID (TID)'}
+                        {selectedMethod?.transactionIdRequired && ' *'}
+                      </label>
+                      <input
+                        type="text"
+                        required={selectedMethod?.transactionIdRequired}
+                        value={trxId}
+                        onChange={(e) => setTrxId(e.target.value)}
+                        placeholder={selectedMethod?.transactionIdPlaceholder || 'e.g. 11-digit TID'}
+                        className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      {selectedMethod?.transactionIdHelpText && (
+                        <p className="text-[10px] text-slate-500 mt-1">{selectedMethod.transactionIdHelpText}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        {selectedMethod?.screenshotLabel || 'Upload Screenshot Proof'}
+                        {selectedMethod?.screenshotRequired && ' *'}
+                      </label>
+                      <label className="flex items-center justify-center space-x-2 px-3 py-2 bg-slate-950 border border-dashed border-slate-700 hover:border-emerald-500 rounded-xl cursor-pointer text-xs text-slate-300 transition-colors">
+                        <Upload className="w-4 h-4 text-emerald-400" />
+                        <span className="truncate">{proofScreenshotUrl ? 'Replace Screenshot' : 'Attach Receipt Image'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageFileChange}
+                          className="hidden"
+                        />
+                      </label>
+                      {selectedMethod?.screenshotHelpText && (
+                        <p className="text-[10px] text-slate-500 mt-1">{selectedMethod.screenshotHelpText}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Screenshot Preview */}
+                  {proofScreenshotUrl && (
+                    <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <img
+                          src={proofScreenshotUrl}
+                          alt="Receipt preview"
+                          className="w-12 h-12 object-cover rounded-lg border border-slate-700"
+                        />
+                        <div className="text-xs">
+                          <span className="text-emerald-400 font-bold block">Payment Receipt Attached</span>
+                          <span className="text-[10px] text-slate-500">Ready for admin verification</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setProofScreenshotUrl('')}
+                        className="text-xs text-rose-400 hover:text-rose-300 p-1 rounded cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Note Field */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      {selectedMethod?.proofNoteLabel || 'Deposit Note / Remarks'}
+                      {selectedMethod?.proofNoteRequired && ' *'}
+                    </label>
+                    <input
+                      type="text"
+                      required={selectedMethod?.proofNoteRequired}
+                      value={proofNote}
+                      onChange={(e) => setProofNote(e.target.value)}
+                      placeholder={selectedMethod?.proofNotePlaceholder || 'e.g. Paid from mobile account registered to Muhammad Ali'}
+                      className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
                 </div>
-              )}
 
-              {/* Optional Note */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">
-                  Optional Note for Administrator
-                </label>
-                <input
-                  type="text"
-                  value={proofNote}
-                  onChange={(e) => setProofNote(e.target.value)}
-                  placeholder="e.g. Paid from JazzCash account registered to Muhammad Ali"
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmitting ? (
+                    <span>Submitting Payment Proof...</span>
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4 text-slate-950" />
+                      <span>Submit Payment Proof for Verification (PKR {amountPaid})</span>
+                      <ArrowRight className="w-4 h-4 text-slate-950 ml-1" />
+                    </>
+                  )}
+                </button>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
-            >
-              {isSubmitting ? (
-                <span>Recording Payment Proof...</span>
-              ) : (
-                <>
-                  <Lock className="w-4 h-4 text-slate-950" />
-                  <span>Submit Payment Proof for Verification (PKR {amountPaid})</span>
-                  <ArrowRight className="w-4 h-4 text-slate-950 ml-1" />
-                </>
-              )}
-            </button>
-
-            <p className="text-[11px] text-center text-slate-500 flex items-center justify-center space-x-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>All payments require manual admin review and approval prior to activation.</span>
-            </p>
+                <p className="text-[11px] text-center text-slate-500 flex items-center justify-center space-x-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>All manual payments enter Pending review and require admin approval before activation.</span>
+                </p>
+              </>
+            )}
 
           </form>
         )}

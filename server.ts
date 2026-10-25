@@ -17,6 +17,7 @@ import { transactionRouter } from './server/routes/transactionRoutes';
 import { userRouter } from './server/routes/userRoutes';
 import { adRouter } from './server/routes/adRoutes';
 import { auditRouter } from './server/routes/auditRoutes';
+import { paymentSettingsRouter } from './server/routes/paymentSettingsRoutes';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -123,6 +124,7 @@ async function startServer() {
   app.use('/api/users', userRouter);
   app.use('/api/ads', adRouter);
   app.use('/api/audit-logs', auditRouter);
+  app.use('/api/payment-settings', paymentSettingsRouter);
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

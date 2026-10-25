@@ -7,3 +7,4 @@ export * from './ScraperRepository';
 export * from './AuditRepository';
 export * from './AdRepository';
 export * from './NotificationRepository';
+export * from './PaymentSettingsRepository';

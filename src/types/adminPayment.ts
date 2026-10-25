@@ -63,3 +63,44 @@ export const DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG: AdminReceivingPaymentConfig
     { id: '30-days', label: '1 Month (30 Days)', days: 30, enabled: true, badge: '💎 Best Value', pricePkr: 18000, isApprovedForDisplay: true }
   ]
 };
+
+export interface PublicPaymentMethodConfig {
+  id: 'easypaisa' | 'jazzcash' | 'bank' | string;
+  name: string;
+  enabled: boolean;
+  heading?: string;
+  accountTitle: string;
+  accountNumber: string;
+  bankName?: string;
+  iban?: string;
+  instructions: string;
+  formTitle?: string;
+  formSubtitle?: string;
+
+  // Proof requirement rules (at least one of transactionIdRequired or screenshotRequired must be true)
+  transactionIdRequired: boolean;
+  transactionIdLabel?: string;
+  transactionIdPlaceholder?: string;
+  transactionIdHelpText?: string;
+
+  screenshotRequired: boolean;
+  screenshotLabel?: string;
+  screenshotHelpText?: string;
+
+  proofNoteRequired?: boolean;
+  proofNoteLabel?: string;
+  proofNotePlaceholder?: string;
+}
+
+export interface PublicPaymentSettings {
+  isConfigured: boolean;
+  methods: {
+    easypaisa: PublicPaymentMethodConfig;
+    jazzcash: PublicPaymentMethodConfig;
+    bank: PublicPaymentMethodConfig;
+    [key: string]: PublicPaymentMethodConfig;
+  };
+  defaultMethod?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}

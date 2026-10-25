@@ -33,7 +33,16 @@ interface UserDashboardProps {
   campaignConfig?: CampaignCustomizationConfig;
   jobPostingPricing?: JobPostingPricingConfig;
   onSubmitCampaign?: (ad: Advertisement, cost: number) => Promise<any> | any;
-  onDepositFunds?: (amount: number, paymentMethod: string) => void;
+  onDepositFunds?: (depositData: {
+    amount: number;
+    paymentMethod: string;
+    transactionId?: string;
+    proofScreenshotUrl?: string;
+    senderName?: string;
+    senderPhoneOrAccount?: string;
+    depositBankOrWalletName?: string;
+    proofNote?: string;
+  }) => Promise<{ success: boolean; transaction?: any; message?: string } | boolean | void> | void;
   onDeleteAd?: (adId: string) => void;
   onDuplicateAd?: (ad: Advertisement) => void;
   onToggleAutoRenew: () => void;
@@ -2371,10 +2380,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             }
             return { success: false };
           }}
-          onDepositWallet={(amount, paymentMethod) => {
+          onDepositWallet={async (depositData) => {
             if (onDepositFunds) {
-              onDepositFunds(amount, paymentMethod);
+              return await onDepositFunds(depositData);
             }
+            return { success: false, message: 'Deposit service unavailable.' };
           }}
           onDeleteCampaign={(adId) => {
             if (onDeleteAd) {

@@ -2539,20 +2539,48 @@ export default function App() {
     }
   };
 
-  // Deposit funds into user wallet
-  const handleDepositFunds = async (amount: number, paymentMethod: string) => {
-    if (!currentUser) return;
+  // Deposit funds into user wallet with payment proof submission
+  const handleDepositFunds = async (depositData: {
+    amount: number;
+    paymentMethod: string;
+    transactionId?: string;
+    proofScreenshotUrl?: string;
+    senderName?: string;
+    senderPhoneOrAccount?: string;
+    depositBankOrWalletName?: string;
+    proofNote?: string;
+  }): Promise<{ success: boolean; transaction?: any; message?: string }> => {
+    if (!currentUser) {
+      return { success: false, message: 'Authentication required. Please log in.' };
+    }
+
+    const {
+      amount,
+      paymentMethod,
+      transactionId,
+      proofScreenshotUrl,
+      senderName,
+      senderPhoneOrAccount,
+      depositBankOrWalletName,
+      proofNote
+    } = depositData;
 
     try {
       const txRes = await api.transactions.submit({
         amount,
         currency: 'PKR',
         type: 'Wallet Deposit',
-        paymentMethod: (paymentMethod as 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer') || 'JazzCash',
-        senderName: currentUser.name,
+        paymentMethod,
+        transactionId: transactionId || undefined,
+        senderName: senderName || currentUser.name,
+        senderPhoneOrAccount: senderPhoneOrAccount || undefined,
+        depositBankOrWalletName: depositBankOrWalletName || undefined,
+        proofScreenshotUrl: proofScreenshotUrl || undefined,
+        proofNote: proofNote || undefined,
+        userId: currentUser.id,
         userName: currentUser.name,
         userEmail: currentUser.email,
-        idempotencyKey: `dep-${currentUser.id}-${Date.now()}`
+        idempotencyKey: `dep-${currentUser.id}-${transactionId || Date.now()}`
       });
 
       if (txRes && txRes.success && txRes.transaction) {
@@ -2563,20 +2591,25 @@ export default function App() {
         ]);
         await loadBackendTransactions(currentUser.id);
 
-        if (normalizedTx.status === 'Success') {
-          alert(`Successfully deposited PKR ${amount.toLocaleString()} via ${paymentMethod}!`);
-        } else {
-          alert(
+        return {
+          success: true,
+          transaction: normalizedTx,
+          message:
             txRes.message ||
-              `Deposit request of PKR ${amount.toLocaleString()} via ${paymentMethod} submitted! Administrator verification is pending.`
-          );
-        }
+            `Deposit request of PKR ${amount.toLocaleString()} via ${paymentMethod} submitted! Administrator verification is pending.`
+        };
       } else {
-        alert(txRes?.message || 'Failed to submit wallet deposit request.');
+        return {
+          success: false,
+          message: txRes?.message || 'Failed to submit wallet deposit request.'
+        };
       }
     } catch (err: any) {
       console.error('Error submitting wallet deposit:', err);
-      alert(err?.message || 'Error submitting wallet deposit.');
+      return {
+        success: false,
+        message: err?.message || 'Error submitting wallet deposit.'
+      };
     }
   };
 

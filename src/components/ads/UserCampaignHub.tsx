@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Advertisement, 
   AdType, 
@@ -25,6 +25,8 @@ import {
   AD_BANNER_PRESETS
 } from '../../types/ad';
 import { UserAccount } from '../../types/job';
+import { PublicPaymentMethodConfig, PublicPaymentSettings } from '../../types/adminPayment';
+import { api } from '../../services/api';
 import { CampaignLiveContextPreview } from './CampaignLiveContextPreview';
 import { 
   Megaphone, 
@@ -68,7 +70,16 @@ interface UserCampaignHubProps {
   allAds?: Advertisement[];
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
-  onDepositWallet: (amount: number, paymentMethod: string) => void;
+  onDepositWallet: (depositData: {
+    amount: number;
+    paymentMethod: string;
+    transactionId?: string;
+    proofScreenshotUrl?: string;
+    senderName?: string;
+    senderPhoneOrAccount?: string;
+    depositBankOrWalletName?: string;
+    proofNote?: string;
+  }) => Promise<{ success: boolean; transaction?: any; message?: string } | boolean | void> | void;
   onSubmitCampaign: (
     ad: Advertisement,
     cost: number
@@ -104,10 +115,49 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   // Deposit Modal State
   const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
   const [depositAmountInput, setDepositAmountInput] = useState<number>(2500);
-  const [depositPaymentMethod, setDepositPaymentMethod] = useState<'JazzCash' | 'Easypaisa' | 'Bank Raast / IBAN' | 'Visa / Mastercard'>('JazzCash');
-  const [depositAccountNumber, setDepositAccountNumber] = useState<string>('0300-1234567');
+  const [depositSelectedMethodKey, setDepositSelectedMethodKey] = useState<string>('');
+  const [depositSenderPhone, setDepositSenderPhone] = useState<string>(currentUser.phone || '');
   const [depositTxRef, setDepositTxRef] = useState<string>('');
+  const [depositProofScreenshotUrl, setDepositProofScreenshotUrl] = useState<string>('');
+  const [depositProofNote, setDepositProofNote] = useState<string>('');
   const [isDepositSuccess, setIsDepositSuccess] = useState<boolean>(false);
+  const [confirmedDepositTx, setConfirmedDepositTx] = useState<any | null>(null);
+  const [isSubmittingDeposit, setIsSubmittingDeposit] = useState<boolean>(false);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [serverPaymentSettings, setServerPaymentSettings] = useState<PublicPaymentSettings | null>(null);
+  const [isLoadingDepositSettings, setIsLoadingDepositSettings] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isDepositModalOpen) return;
+    let isMounted = true;
+    setIsLoadingDepositSettings(true);
+    setDepositError(null);
+
+    api.paymentSettings.get().then((res) => {
+      if (!isMounted) return;
+      if (res && res.success && res.configured && res.settings && res.settings.methods) {
+        setServerPaymentSettings(res.settings);
+        const enabledKeys = Object.entries(res.settings.methods)
+          .filter(([_, m]: [string, any]) => m && m.enabled && m.accountNumber)
+          .map(([k]) => k);
+        if (res.settings.defaultMethod && enabledKeys.includes(res.settings.defaultMethod)) {
+          setDepositSelectedMethodKey(res.settings.defaultMethod);
+        } else if (enabledKeys.length > 0) {
+          setDepositSelectedMethodKey(enabledKeys[0]);
+        }
+      } else {
+        setServerPaymentSettings(null);
+      }
+    }).catch(() => {
+      if (isMounted) setServerPaymentSettings(null);
+    }).finally(() => {
+      if (isMounted) setIsLoadingDepositSettings(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isDepositModalOpen]);
 
   // --- Campaign Creation Wizard State ---
   const [formTitle, setFormTitle] = useState<string>('');
@@ -345,20 +395,103 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     }
   };
 
-  // Process Deposit
-  const handleConfirmDeposit = (e: React.FormEvent) => {
+  const handleDepositImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setDepositError('Receipt screenshot file size must be under 5MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setDepositProofScreenshotUrl(reader.result);
+        setDepositError(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Process Deposit Proof Submission
+  const handleConfirmDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (depositAmountInput < (pricingConfig.minDepositAmountPkr || 500)) {
-      alert(`Minimum deposit amount is PKR ${(pricingConfig.minDepositAmountPkr || 500).toLocaleString()}`);
+    setDepositError(null);
+
+    const minAmount = pricingConfig.minDepositAmountPkr || 500;
+    if (depositAmountInput < minAmount) {
+      setDepositError(`Minimum deposit amount is PKR ${minAmount.toLocaleString()}.`);
       return;
     }
 
-    onDepositWallet(depositAmountInput, depositPaymentMethod);
-    setIsDepositSuccess(true);
-    setTimeout(() => {
-      setIsDepositSuccess(false);
-      setIsDepositModalOpen(false);
-    }, 1200);
+    const enabledMethods: [string, PublicPaymentMethodConfig][] = serverPaymentSettings?.methods
+      ? Object.entries(serverPaymentSettings.methods).filter(
+          ([_, m]) => m && m.enabled && m.accountNumber && m.accountTitle
+        )
+      : [];
+
+    const selectedMethod: PublicPaymentMethodConfig | null =
+      depositSelectedMethodKey && serverPaymentSettings?.methods
+        ? serverPaymentSettings.methods[depositSelectedMethodKey] || null
+        : enabledMethods.length > 0
+        ? enabledMethods[0][1]
+        : null;
+
+    if (!selectedMethod) {
+      setDepositError('Payment accounts are currently unconfigured. Please check back later.');
+      return;
+    }
+
+    if (selectedMethod.transactionIdRequired && !depositTxRef.trim()) {
+      setDepositError(`Please enter the ${selectedMethod.transactionIdLabel || 'Transaction ID (TID)'}.`);
+      return;
+    }
+
+    if (selectedMethod.screenshotRequired && !depositProofScreenshotUrl) {
+      setDepositError(`Please upload the ${selectedMethod.screenshotLabel || 'Payment Receipt Screenshot'}.`);
+      return;
+    }
+
+    if (selectedMethod.proofNoteRequired && !depositProofNote.trim()) {
+      setDepositError(`Please provide ${selectedMethod.proofNoteLabel || 'a deposit note'}.`);
+      return;
+    }
+
+    if (!depositTxRef.trim() && !depositProofScreenshotUrl) {
+      setDepositError('Please provide either the Transaction ID or upload a Receipt Screenshot.');
+      return;
+    }
+
+    setIsSubmittingDeposit(true);
+    try {
+      const depositAccountDesc = `${selectedMethod.name}: ${selectedMethod.accountNumber}${
+        selectedMethod.bankName ? ` (${selectedMethod.bankName})` : ''
+      }`;
+
+      const res = await onDepositWallet({
+        amount: depositAmountInput,
+        paymentMethod: selectedMethod.name,
+        transactionId: depositTxRef.trim() || undefined,
+        proofScreenshotUrl: depositProofScreenshotUrl || undefined,
+        senderName: currentUser.name,
+        senderPhoneOrAccount: depositSenderPhone.trim() || undefined,
+        depositBankOrWalletName: depositAccountDesc,
+        proofNote: depositProofNote.trim() || undefined
+      });
+
+      if (res && typeof res === 'object' && (res as any).success) {
+        setConfirmedDepositTx((res as any).transaction || { id: depositTxRef.trim() || 'Pending', amount: depositAmountInput });
+        setIsDepositSuccess(true);
+      } else if (res && typeof res === 'object' && (res as any).success === false) {
+        setDepositError((res as any).message || 'Failed to submit wallet deposit proof.');
+      } else if (res === false) {
+        setDepositError('Failed to submit wallet deposit proof.');
+      }
+    } catch (err: any) {
+      console.error('Error submitting wallet deposit proof:', err);
+      setDepositError(err?.message || 'Error submitting wallet deposit proof.');
+    } finally {
+      setIsSubmittingDeposit(false);
+    }
   };
 
   // Filter user ads
@@ -1450,29 +1583,25 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add Funds via JazzCash / EasyPaisa / Card</span>
+                  <span>Submit Wallet Deposit Proof</span>
                 </button>
               </div>
 
               {/* Supported Gateways list */}
               <div className="space-y-2 pt-2 border-t border-slate-800">
-                <div className="text-xs font-bold text-slate-300">Supported Instant Payment Gateways:</div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
+                <div className="text-xs font-bold text-slate-300">Supported Manual Channels (Admin Verified):</div>
+                <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
                   <div className="p-2 bg-slate-950 rounded-lg border border-slate-800 flex items-center space-x-2">
                     <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                    <span>JazzCash Instant</span>
+                    <span>JazzCash</span>
                   </div>
                   <div className="p-2 bg-slate-950 rounded-lg border border-slate-800 flex items-center space-x-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span>Easypaisa Mobile</span>
+                    <span>Easypaisa</span>
                   </div>
                   <div className="p-2 bg-slate-950 rounded-lg border border-slate-800 flex items-center space-x-2">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    <span>Raast / IBAN Transfer</span>
-                  </div>
-                  <div className="p-2 bg-slate-950 rounded-lg border border-slate-800 flex items-center space-x-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                    <span>Visa / Mastercard</span>
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    <span>Raast / IBAN</span>
                   </div>
                 </div>
               </div>
@@ -1485,108 +1614,335 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       {/* ========================================================================= */}
       {/* MODAL: DEPOSIT FUNDS INTO WALLET */}
       {/* ========================================================================= */}
-      {isDepositModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-6 relative">
-            <button
-              onClick={() => setIsDepositModalOpen(false)}
-              className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
-            >
-              <XCircle className="w-5 h-5" />
-            </button>
+      {isDepositModalOpen && (() => {
+        const enabledMethods: [string, PublicPaymentMethodConfig][] = serverPaymentSettings?.methods
+          ? Object.entries(serverPaymentSettings.methods).filter(
+              ([_, m]) => m && m.enabled && m.accountNumber && m.accountTitle
+            )
+          : [];
 
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2 text-emerald-400 text-xs font-bold uppercase">
-                <Wallet className="w-4 h-4" />
-                <span>Instant Wallet Top-up</span>
-              </div>
-              <h3 className="text-xl font-black text-white">Deposit Advertising Funds</h3>
-              <p className="text-xs text-slate-400">
-                Select your preferred Pakistani or international payment channel for instant balance credit.
-              </p>
-            </div>
+        const selectedMethod: PublicPaymentMethodConfig | null =
+          depositSelectedMethodKey && serverPaymentSettings?.methods
+            ? serverPaymentSettings.methods[depositSelectedMethodKey] || null
+            : enabledMethods.length > 0
+            ? enabledMethods[0][1]
+            : null;
 
-            <form onSubmit={handleConfirmDeposit} className="space-y-4">
-              
-              {/* Quick Amount Buttons */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Select Amount (PKR)</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[1000, 2500, 5000, 10000, 25000, 50000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setDepositAmountInput(amt)}
-                      className={`py-2 rounded-xl border text-xs font-black transition-all cursor-pointer ${
-                        depositAmountInput === amt
-                          ? 'bg-emerald-500 border-emerald-400 text-slate-950'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      PKR {amt.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
-              </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in overflow-y-auto">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-6 relative my-8">
+              <button
+                onClick={() => {
+                  setIsDepositModalOpen(false);
+                  setIsDepositSuccess(false);
+                  setConfirmedDepositTx(null);
+                  setDepositError(null);
+                }}
+                className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
 
-              {/* Custom Amount Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Custom Amount (PKR)</label>
-                <input
-                  type="number"
-                  min={pricingConfig.minDepositAmountPkr || 500}
-                  step="100"
-                  value={depositAmountInput}
-                  onChange={(e) => setDepositAmountInput(parseInt(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+              {/* Confirmed Pending State */}
+              {isDepositSuccess && confirmedDepositTx ? (
+                <div className="text-center space-y-5 animate-in fade-in py-4">
+                  <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto border border-amber-500/40">
+                    <Clock className="w-9 h-9 animate-pulse" />
+                  </div>
 
-              {/* Payment Gateway Selector */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Payment Gateway</label>
-                <select
-                  value={depositPaymentMethod}
-                  onChange={(e) => setDepositPaymentMethod(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  <option value="JazzCash">🔴 JazzCash Mobile Account / Till ID</option>
-                  <option value="Easypaisa">🟢 Easypaisa Wallet Direct</option>
-                  <option value="Bank Raast / IBAN">🏛️ Raast Instant / 1Link Bank Transfer</option>
-                  <option value="Visa / Mastercard">💳 Visa / Mastercard / Stripe</option>
-                </select>
-              </div>
+                  <div>
+                    <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 text-xs font-bold mb-2">
+                      <span>Verification Pending • تصدیق زیر التواء</span>
+                    </div>
+                    <h3 className="text-2xl font-black text-white">Deposit Proof Submitted</h3>
+                    <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto leading-relaxed">
+                      Your wallet deposit request for <strong className="text-emerald-400 font-mono">PKR {depositAmountInput.toLocaleString()}</strong> has been submitted. An administrator will verify the payment against our merchant statement before crediting your balance.
+                    </p>
+                  </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Account / Mobile Number</label>
-                <input
-                  type="text"
-                  value={depositAccountNumber}
-                  onChange={(e) => setDepositAccountNumber(e.target.value)}
-                  placeholder="0300-1234567"
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
-                />
-              </div>
+                  <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 text-xs text-slate-300 text-left space-y-2.5 max-w-md mx-auto">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+                      <span className="text-slate-400">Transaction Reference:</span>
+                      <code className="font-mono font-bold text-amber-300">
+                        {confirmedDepositTx.transactionId || confirmedDepositTx.id || depositTxRef}
+                      </code>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Status:</span>
+                      <span className="font-bold text-amber-400 flex items-center space-x-1">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Pending Admin Verification</span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Deposit Amount:</span>
+                      <span className="font-bold text-emerald-400 font-mono">PKR {depositAmountInput.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Payment Channel:</span>
+                      <span className="font-bold text-white">{selectedMethod?.name || 'Manual Transfer'}</span>
+                    </div>
+                  </div>
 
-              {isDepositSuccess ? (
-                <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-center text-xs font-black text-emerald-400 flex items-center justify-center space-x-2 animate-in zoom-in">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Deposit Successful! Crediting wallet...</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDepositModalOpen(false);
+                      setIsDepositSuccess(false);
+                      setConfirmedDepositTx(null);
+                      setDepositTxRef('');
+                      setDepositProofScreenshotUrl('');
+                      setDepositProofNote('');
+                    }}
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 hover:scale-[1.01] active:scale-95 transition-all cursor-pointer"
+                  >
+                    Done &amp; Return to Wallet
+                  </button>
                 </div>
               ) : (
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm rounded-2xl shadow-xl shadow-emerald-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Confirm Deposit of PKR {depositAmountInput.toLocaleString()}</span>
-                </button>
-              )}
+                <div className="space-y-6">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2 text-amber-400 text-xs font-bold uppercase">
+                      <Clock className="w-4 h-4" />
+                      <span>Manual Verification Required</span>
+                    </div>
+                    <h3 className="text-xl font-black text-white">Deposit Advertising Funds</h3>
+                    <p className="text-xs text-slate-400">
+                      Select your payment channel, transfer funds to the designated account, and upload your receipt proof. Your wallet balance will be credited after admin review.
+                    </p>
+                  </div>
 
-            </form>
+                  {isLoadingDepositSettings ? (
+                    <div className="p-8 text-center text-slate-400 space-y-2">
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-400" />
+                      <p className="text-xs">Loading payment instructions...</p>
+                    </div>
+                  ) : !serverPaymentSettings || !serverPaymentSettings.isConfigured || enabledMethods.length === 0 ? (
+                    <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-300 space-y-2">
+                      <div className="flex items-center space-x-2 font-bold text-amber-400">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>Deposit Accounts Temporarily Unavailable</span>
+                      </div>
+                      <p className="leading-relaxed">
+                        Public receiving payment accounts are currently unconfigured by the administrator. Please check back later or contact portal support.
+                      </p>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleConfirmDeposit} className="space-y-4">
+                      {/* Quick Amount Buttons */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-300">Select Amount (PKR)</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[1000, 2500, 5000, 10000, 25000, 50000].map((amt) => (
+                            <button
+                              key={amt}
+                              type="button"
+                              onClick={() => setDepositAmountInput(amt)}
+                              className={`py-2 rounded-xl border text-xs font-black transition-all cursor-pointer ${
+                                depositAmountInput === amt
+                                  ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                                  : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              PKR {amt.toLocaleString()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Custom Amount Input */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-300">Deposit Amount (PKR) *</label>
+                        <input
+                          type="number"
+                          min={pricingConfig.minDepositAmountPkr || 500}
+                          step="100"
+                          value={depositAmountInput}
+                          onChange={(e) => setDepositAmountInput(parseInt(e.target.value) || 0)}
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                        />
+                      </div>
+
+                      {/* Channel Selector */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-300">Receiving Payment Channel</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {enabledMethods.map(([key, method]) => (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => setDepositSelectedMethodKey(key)}
+                              className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
+                                (depositSelectedMethodKey === key || (!depositSelectedMethodKey && enabledMethods[0][0] === key))
+                                  ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20'
+                                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              {method.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Selected Channel Instructions Box */}
+                      {selectedMethod && (
+                        <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-2">
+                          <div className="flex items-center justify-between font-bold text-amber-300 border-b border-slate-900 pb-1.5">
+                            <span>{selectedMethod.heading || selectedMethod.name}</span>
+                            <span className="text-emerald-400 font-mono text-sm font-black">
+                              PKR {depositAmountInput.toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            {selectedMethod.bankName && (
+                              <div className="text-slate-400 text-[11px]">
+                                Bank: <strong className="text-white">{selectedMethod.bankName}</strong>
+                              </div>
+                            )}
+                            <div className="text-slate-400 text-[11px]">
+                              Account Title: <strong className="text-white">{selectedMethod.accountTitle}</strong>
+                            </div>
+                            <div className="text-slate-300 text-xs">
+                              Account Number: <strong className="text-emerald-400 font-mono font-bold select-all">{selectedMethod.accountNumber}</strong>
+                            </div>
+                            {selectedMethod.iban && (
+                              <div className="text-slate-400 text-[11px]">
+                                IBAN / Raast: <span className="text-indigo-300 font-mono select-all">{selectedMethod.iban}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-slate-400 pt-1.5 border-t border-slate-900 leading-relaxed">
+                            {selectedMethod.instructions}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Sender Phone */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-300">Sender Account / Mobile Number</label>
+                        <input
+                          type="text"
+                          value={depositSenderPhone}
+                          onChange={(e) => setDepositSenderPhone(e.target.value)}
+                          placeholder="e.g. 0300-1234567"
+                          className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      {/* Transaction ID & Screenshot */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-300">
+                            {selectedMethod?.transactionIdLabel || 'Transaction ID (TID)'}
+                            {selectedMethod?.transactionIdRequired && ' *'}
+                          </label>
+                          <input
+                            type="text"
+                            required={selectedMethod?.transactionIdRequired}
+                            value={depositTxRef}
+                            onChange={(e) => setDepositTxRef(e.target.value)}
+                            placeholder={selectedMethod?.transactionIdPlaceholder || 'e.g. 11-digit TID'}
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-300">
+                            {selectedMethod?.screenshotLabel || 'Receipt Screenshot'}
+                            {selectedMethod?.screenshotRequired && ' *'}
+                          </label>
+                          <label className="flex items-center justify-center space-x-2 px-3 py-2 bg-slate-950 border border-dashed border-slate-700 hover:border-emerald-500 rounded-xl cursor-pointer text-xs text-slate-300 transition-colors">
+                            <Upload className="w-4 h-4 text-emerald-400" />
+                            <span className="truncate">{depositProofScreenshotUrl ? 'Replace Screenshot' : 'Upload Screenshot'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleDepositImageChange}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Screenshot Preview */}
+                      {depositProofScreenshotUrl && (
+                        <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                          <div className="flex items-center space-x-2.5">
+                            <img
+                              src={depositProofScreenshotUrl}
+                              alt="Receipt preview"
+                              className="w-12 h-12 object-cover rounded-lg border border-slate-700"
+                            />
+                            <div className="text-xs">
+                              <span className="text-emerald-400 font-bold block">Payment Receipt Attached</span>
+                              <span className="text-[10px] text-slate-500">Ready for admin verification</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDepositProofScreenshotUrl('')}
+                            className="text-xs text-rose-400 hover:text-rose-300 p-1 rounded cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Optional Note */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-300">
+                          {selectedMethod?.proofNoteLabel || 'Deposit Remarks / Note'}
+                          {selectedMethod?.proofNoteRequired && ' *'}
+                        </label>
+                        <input
+                          type="text"
+                          required={selectedMethod?.proofNoteRequired}
+                          value={depositProofNote}
+                          onChange={(e) => setDepositProofNote(e.target.value)}
+                          placeholder={selectedMethod?.proofNotePlaceholder || 'e.g. Deposited via personal mobile account'}
+                          className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      {depositError && (
+                        <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-center space-x-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>{depositError}</span>
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={isSubmittingDeposit}
+                        className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm rounded-2xl shadow-xl shadow-emerald-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isSubmittingDeposit ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Submitting Deposit Proof...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="w-4 h-4" />
+                            <span>Submit Deposit Proof (PKR {depositAmountInput.toLocaleString()})</span>
+                          </>
+                        )}
+                      </button>
+
+                      <p className="text-[10px] text-center text-slate-500 flex items-center justify-center space-x-1">
+                        <Lock className="w-3 h-3 text-emerald-400" />
+                        <span>All wallet deposits remain Pending until verified by an administrator.</span>
+                      </p>
+                    </form>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* MODAL: LIVE PREVIEW LIGHTBOX */}

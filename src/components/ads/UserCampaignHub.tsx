@@ -116,6 +116,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
   const [depositAmountInput, setDepositAmountInput] = useState<number>(2500);
   const [depositSelectedMethodKey, setDepositSelectedMethodKey] = useState<string>('');
+  const [depositSenderName, setDepositSenderName] = useState<string>(currentUser.name || '');
   const [depositSenderPhone, setDepositSenderPhone] = useState<string>(currentUser.phone || '');
   const [depositTxRef, setDepositTxRef] = useState<string>('');
   const [depositProofScreenshotUrl, setDepositProofScreenshotUrl] = useState<string>('');
@@ -133,6 +134,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     let isMounted = true;
     setIsLoadingDepositSettings(true);
     setDepositError(null);
+    setDepositSenderName(currentUser.name || '');
 
     api.paymentSettings.get().then((res) => {
       if (!isMounted) return;
@@ -442,6 +444,16 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       return;
     }
 
+    if (selectedMethod.senderNameRequired && !depositSenderName.trim()) {
+      setDepositError(`Please enter the ${selectedMethod.senderNameLabel || 'Sender Name / Account Holder'}.`);
+      return;
+    }
+
+    if (selectedMethod.senderPhoneRequired && !depositSenderPhone.trim()) {
+      setDepositError(`Please enter the ${selectedMethod.senderPhoneLabel || 'Sender Mobile / Account Number'}.`);
+      return;
+    }
+
     if (selectedMethod.transactionIdRequired && !depositTxRef.trim()) {
       setDepositError(`Please enter the ${selectedMethod.transactionIdLabel || 'Transaction ID (TID)'}.`);
       return;
@@ -479,16 +491,23 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         selectedMethod.bankName ? ` (${selectedMethod.bankName})` : ''
       }`;
 
-      // Format custom fields cleanly into proof note
+      // Format custom fields cleanly into proof note, sanitizing newlines and delimiter tokens
       const customDetails =
         selectedMethod.customFields && selectedMethod.customFields.length > 0
           ? selectedMethod.customFields
-              .map((f) => `${f.label}: ${(depositCustomFieldValues[f.id] || '').trim() || 'N/A'}`)
+              .map((f) => {
+                const rawVal = (depositCustomFieldValues[f.id] || '').trim();
+                const cleanLabel = f.label.replace(/[:\r\n]+/g, ' ').trim();
+                const cleanVal = rawVal.replace(/[\r\n]+/g, ' ').trim();
+                return `${cleanLabel}: ${cleanVal || 'N/A'}`;
+              })
               .join('\n')
           : '';
 
+      const cleanUserNote = depositProofNote.replace(/--- Custom Proof Details ---/gi, '').trim();
+
       const effectiveProofNote = [
-        depositProofNote.trim() ? `User Note: ${depositProofNote.trim()}` : '',
+        cleanUserNote ? `User Note: ${cleanUserNote}` : '',
         customDetails ? `--- Custom Proof Details ---\n${customDetails}` : ''
       ]
         .filter(Boolean)
@@ -499,7 +518,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         paymentMethod: selectedMethod.name,
         transactionId: depositTxRef.trim() || undefined,
         proofScreenshotUrl: depositProofScreenshotUrl || undefined,
-        senderName: currentUser.name,
+        senderName: depositSenderName.trim() || currentUser.name,
         senderPhoneOrAccount: depositSenderPhone.trim() || undefined,
         depositBankOrWalletName: depositAccountDesc,
         proofNote: effectiveProofNote.trim() || undefined
@@ -1846,16 +1865,37 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                         </div>
                       )}
 
-                      {/* Sender Phone */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-300">Sender Account / Mobile Number</label>
-                        <input
-                          type="text"
-                          value={depositSenderPhone}
-                          onChange={(e) => setDepositSenderPhone(e.target.value)}
-                          placeholder="e.g. 0300-1234567"
-                          className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
-                        />
+                      {/* Sender Details (Name & Phone) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-300">
+                            {selectedMethod?.senderNameLabel || 'Sender Name / Account Holder'}
+                            {selectedMethod?.senderNameRequired && ' *'}
+                          </label>
+                          <input
+                            type="text"
+                            required={selectedMethod?.senderNameRequired}
+                            value={depositSenderName}
+                            onChange={(e) => setDepositSenderName(e.target.value)}
+                            placeholder="e.g. Account Title from receipt"
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-300">
+                            {selectedMethod?.senderPhoneLabel || 'Sender Account / Mobile Number'}
+                            {selectedMethod?.senderPhoneRequired && ' *'}
+                          </label>
+                          <input
+                            type="text"
+                            required={selectedMethod?.senderPhoneRequired}
+                            value={depositSenderPhone}
+                            onChange={(e) => setDepositSenderPhone(e.target.value)}
+                            placeholder={selectedMethod?.senderPhonePlaceholder || 'e.g. 0300-1234567'}
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
+                          />
+                        </div>
                       </div>
 
                       {/* Transaction ID & Screenshot */}

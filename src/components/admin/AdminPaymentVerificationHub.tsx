@@ -42,7 +42,16 @@ interface AdminPaymentVerificationHubProps {
   jobs?: Job[];
 }
 
-function parseProofDetails(rawNote?: string): { userNote: string; customFields: { label: string; value: string }[] } {
+export function isSystemGeneratedReference(tid?: string, id?: string): boolean {
+  if (!tid) return true;
+  const cleanTid = String(tid).trim();
+  if (id && cleanTid === String(id).trim()) return true;
+  // Fallback pattern in transactionRoutes: `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+  if (/^TXN-[A-Z0-9]{6,14}-[A-Z0-9]{3,6}$/i.test(cleanTid)) return true;
+  return false;
+}
+
+export function parseProofDetails(rawNote?: string): { userNote: string; customFields: { label: string; value: string }[] } {
   if (!rawNote || typeof rawNote !== 'string') {
     return { userNote: '', customFields: [] };
   }
@@ -54,7 +63,10 @@ function parseProofDetails(rawNote?: string): { userNote: string; customFields: 
     return { userNote: cleanedNote, customFields: [] };
   }
 
-  const [notePart, customPart] = rawNote.split(separator);
+  const sepIdx = rawNote.indexOf(separator);
+  const notePart = rawNote.substring(0, sepIdx);
+  const customPart = rawNote.substring(sepIdx + separator.length);
+
   let cleanedNote = (notePart || '').trim();
   if (cleanedNote.startsWith('User Note:')) {
     cleanedNote = cleanedNote.replace(/^User Note:\s*/, '').trim();
@@ -66,10 +78,15 @@ function parseProofDetails(rawNote?: string): { userNote: string; customFields: 
     for (const line of lines) {
       const colonIdx = line.indexOf(':');
       if (colonIdx > 0) {
-        customFields.push({
-          label: line.slice(0, colonIdx).trim(),
-          value: line.slice(colonIdx + 1).trim()
-        });
+        const rawLabel = line.slice(0, colonIdx).trim();
+        const rawValue = line.slice(colonIdx + 1).trim();
+        // Prevent forged separator lines, sub-sections, or absurdly long lines
+        if (rawLabel && !rawLabel.includes('---') && rawLabel.length <= 100) {
+          customFields.push({
+            label: rawLabel,
+            value: rawValue
+          });
+        }
       }
     }
   }
@@ -432,21 +449,29 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
 
                       {/* TID & Proof Screenshot Button */}
                       <td className="p-4">
-                        {tx.transactionId ? (
-                          <div className="flex items-center space-x-1">
-                            <code className="text-xs font-mono font-bold text-amber-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                              {tx.transactionId}
-                            </code>
-                            <button
-                              onClick={() => handleCopyTid(tx.transactionId!)}
-                              title="Copy Transaction ID"
-                              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                            >
-                              <Copy className="w-3 h-3" />
-                            </button>
+                        {!isSystemGeneratedReference(tx.transactionId, tx.id) ? (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center space-x-1">
+                              <code className="text-xs font-mono font-bold text-amber-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                                {tx.transactionId}
+                              </code>
+                              <button
+                                onClick={() => handleCopyTid(tx.transactionId!)}
+                                title="Copy Payment TID"
+                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <span className="text-[9px] text-slate-500 font-mono block">Ref: {tx.id.slice(0, 10)}...</span>
                           </div>
                         ) : (
-                          <span className="text-[10px] text-slate-500 italic">No TID provided</span>
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-slate-400 italic block">
+                              No external TID (Screenshot proof)
+                            </span>
+                            <span className="text-[9px] text-slate-500 font-mono block">Ref: {tx.id.slice(0, 10)}...</span>
+                          </div>
                         )}
 
                         {tx.proofScreenshotUrl && (
@@ -556,7 +581,12 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                 </div>
                 <div>
                   <h4 className="text-base font-black text-white">Payment Submission Inspection</h4>
-                  <p className="text-xs text-slate-400">TID: {selectedTx.transactionId || selectedTx.id}</p>
+                  <div className="text-xs text-slate-400 flex items-center space-x-2 mt-0.5">
+                    <span>Internal Ref: <code className="text-slate-300 font-mono font-bold">{selectedTx.id}</code></span>
+                    {!isSystemGeneratedReference(selectedTx.transactionId, selectedTx.id) && (
+                      <span>• External TID: <code className="text-amber-300 font-mono font-bold">{selectedTx.transactionId}</code></span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -601,24 +631,52 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                       </div>
 
                       <div className="border-t border-slate-800 pt-3 space-y-2.5">
-                        {/* Transaction ID */}
-                        <div className="flex items-center justify-between p-2 bg-slate-900/80 rounded-xl border border-slate-800">
+                        {/* User-Provided Payment TID */}
+                        <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">
+                              External Payment TID (User-Provided)
+                            </span>
+                            {!isSystemGeneratedReference(selectedTx.transactionId, selectedTx.id) && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyTid(selectedTx.transactionId!)}
+                                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] flex items-center space-x-1 cursor-pointer transition-colors"
+                              >
+                                <Copy className="w-3 h-3" />
+                                <span>{copiedTid ? 'Copied' : 'Copy TID'}</span>
+                              </button>
+                            )}
+                          </div>
+                          {!isSystemGeneratedReference(selectedTx.transactionId, selectedTx.id) ? (
+                            <span className="text-amber-300 font-mono font-bold text-xs select-all block">
+                              {selectedTx.transactionId}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 italic text-[11px] block">
+                              No external TID provided (Verified via receipt screenshot)
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Internal System Reference ID */}
+                        <div className="flex items-center justify-between p-2.5 bg-slate-900/70 rounded-xl border border-slate-800/80">
                           <div>
-                            <span className="text-slate-500 block text-[10px] font-bold">Transaction Reference / TID</span>
-                            <span className="text-emerald-400 font-mono font-bold text-xs select-all">
-                              {selectedTx.transactionId || 'No TID supplied'}
+                            <span className="text-slate-500 block text-[10px] font-bold uppercase tracking-wider">
+                              Internal System Reference ID
+                            </span>
+                            <span className="text-slate-300 font-mono text-[11px] select-all">
+                              {selectedTx.id}
                             </span>
                           </div>
-                          {selectedTx.transactionId && (
-                            <button
-                              type="button"
-                              onClick={() => handleCopyTid(selectedTx.transactionId!)}
-                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] flex items-center space-x-1 cursor-pointer transition-colors"
-                            >
-                              <Copy className="w-3 h-3" />
-                              <span>{copiedTid ? 'Copied' : 'Copy'}</span>
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleCopyTid(selectedTx.id)}
+                            className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] flex items-center space-x-1 cursor-pointer transition-colors"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Ref</span>
+                          </button>
                         </div>
 
                         <div>
@@ -811,7 +869,11 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
             </div>
 
             <p className="text-xs text-slate-300">
-              Please provide a clear reason for rejecting transaction <code className="font-mono text-amber-300">{selectedTx.transactionId || selectedTx.id}</code>. This will be visible to the user.
+              Please provide a clear reason for rejecting transaction {!isSystemGeneratedReference(selectedTx.transactionId, selectedTx.id) ? (
+                <>TID: <code className="font-mono text-amber-300">{selectedTx.transactionId}</code> (Ref: <code className="font-mono text-slate-400">{selectedTx.id}</code>)</>
+              ) : (
+                <>Ref: <code className="font-mono text-slate-400">{selectedTx.id}</code></>
+              )}. This will be visible to the user.
             </p>
 
             <textarea

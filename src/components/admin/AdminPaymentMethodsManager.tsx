@@ -15,7 +15,9 @@ import {
   RefreshCw,
   Sliders,
   HelpCircle,
-  FileText
+  FileText,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import {
   AdminReceivingPaymentConfig,
@@ -247,6 +249,10 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
   // Custom Proof Fields Management
   const handleAddCustomProofField = (methodId: string) => {
     const currentFields = methods[methodId]?.customFields || [];
+    if (currentFields.length >= 20) {
+      setSaveError(`Maximum limit of 20 custom proof fields reached for ${methods[methodId]?.name || 'this method'}.`);
+      return;
+    }
     const newField: CustomProofField = {
       id: `field_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       label: 'Reference Detail',
@@ -271,9 +277,34 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
     handleUpdateMethod(methodId, { customFields: nextFields });
   };
 
+  const handleMoveCustomProofField = (
+    methodId: string,
+    index: number,
+    direction: 'up' | 'down'
+  ) => {
+    const currentFields = [...(methods[methodId]?.customFields || [])];
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === currentFields.length - 1) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const temp = currentFields[index];
+    currentFields[index] = currentFields[targetIndex];
+    currentFields[targetIndex] = temp;
+
+    // Recalculate order index cleanly while preserving original field IDs and properties
+    const reorderedFields = currentFields.map((f, idx) => ({
+      ...f,
+      order: idx
+    }));
+
+    handleUpdateMethod(methodId, { customFields: reorderedFields });
+  };
+
   const handleRemoveCustomProofField = (methodId: string, fieldId: string) => {
     const currentFields = methods[methodId]?.customFields || [];
-    const nextFields = currentFields.filter((f) => f.id !== fieldId);
+    const nextFields = currentFields
+      .filter((f) => f.id !== fieldId)
+      .map((f, idx) => ({ ...f, order: idx }));
     handleUpdateMethod(methodId, { customFields: nextFields });
   };
 
@@ -308,9 +339,29 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
           return;
         }
         if (m.customFields && m.customFields.length > 0) {
+          if (m.customFields.length > 20) {
+            setSaveError(`A maximum of 20 custom proof fields are allowed for "${m.name}".`);
+            return;
+          }
+          const seenIds = new Set<string>();
           for (let i = 0; i < m.customFields.length; i++) {
-            if (!m.customFields[i].label.trim()) {
+            const cf = m.customFields[i];
+            const cleanLabel = (cf.label || '').trim();
+            if (!cleanLabel) {
               setSaveError(`Custom proof field #${i + 1} in "${m.name}" must have a label.`);
+              return;
+            }
+            if (cleanLabel.length > 100) {
+              setSaveError(`Custom proof field #${i + 1} label in "${m.name}" cannot exceed 100 characters.`);
+              return;
+            }
+            if (!cf.id || seenIds.has(cf.id)) {
+              setSaveError(`Custom proof field #${i + 1} in "${m.name}" has an invalid or duplicate field ID.`);
+              return;
+            }
+            seenIds.add(cf.id);
+            if (cf.type !== 'text' && cf.type !== 'number') {
+              setSaveError(`Custom proof field "${cleanLabel}" has an unsupported input type.`);
               return;
             }
           }
@@ -972,13 +1023,40 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
                                 {method.customFields.map((field, idx) => (
                                   <div
                                     key={field.id}
-                                    className="p-2 bg-slate-950 rounded-lg border border-slate-800 space-y-1.5"
+                                    className="p-2.5 bg-slate-950 rounded-lg border border-slate-800 space-y-2"
                                   >
                                     <div className="flex items-center justify-between">
-                                      <span className="text-[10px] font-bold text-slate-300">
-                                        Field #{idx + 1}
-                                      </span>
-                                      <div className="flex items-center space-x-3">
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-[10px] font-bold text-slate-300">
+                                          Field #{idx + 1}
+                                        </span>
+                                        <span className="text-[9px] font-mono text-slate-500">
+                                          (ID: {field.id})
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        {/* Safe Up/Down Ordering Controls */}
+                                        <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 rounded-md p-0.5">
+                                          <button
+                                            type="button"
+                                            disabled={idx === 0}
+                                            onClick={() => handleMoveCustomProofField(key, idx, 'up')}
+                                            className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed hover:bg-slate-800 cursor-pointer"
+                                            title="Move Up"
+                                          >
+                                            <ArrowUp className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={idx === (method.customFields?.length || 0) - 1}
+                                            onClick={() => handleMoveCustomProofField(key, idx, 'down')}
+                                            className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed hover:bg-slate-800 cursor-pointer"
+                                            title="Move Down"
+                                          >
+                                            <ArrowDown className="w-3 h-3" />
+                                          </button>
+                                        </div>
+
                                         <label className="flex items-center space-x-1 text-[10px] text-slate-300 cursor-pointer">
                                           <input
                                             type="checkbox"
@@ -995,7 +1073,7 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
                                         <button
                                           type="button"
                                           onClick={() => handleRemoveCustomProofField(key, field.id)}
-                                          className="text-slate-500 hover:text-rose-400 p-0.5 cursor-pointer"
+                                          className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-rose-500/10 cursor-pointer"
                                           title="Remove field"
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
@@ -1003,9 +1081,9 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
                                       </div>
                                     </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[10px]">
                                       <div>
-                                        <label className="text-slate-400 block mb-0.5">Field Label *</label>
+                                        <label className="text-slate-400 block mb-0.5 font-semibold">Field Label *</label>
                                         <input
                                           type="text"
                                           value={field.label}
@@ -1015,12 +1093,12 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
                                             })
                                           }
                                           placeholder="e.g. CNIC Number"
-                                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs text-white"
+                                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs text-white outline-none focus:border-cyan-500"
                                         />
                                       </div>
 
                                       <div>
-                                        <label className="text-slate-400 block mb-0.5">Input Type</label>
+                                        <label className="text-slate-400 block mb-0.5 font-semibold">Input Type</label>
                                         <select
                                           value={field.type}
                                           onChange={(e) =>
@@ -1028,7 +1106,7 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
                                               type: e.target.value as 'text' | 'number'
                                             })
                                           }
-                                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs text-white"
+                                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs text-white outline-none focus:border-cyan-500"
                                         >
                                           <option value="text">Text (String)</option>
                                           <option value="number">Number (Digits)</option>
@@ -1036,7 +1114,7 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
                                       </div>
 
                                       <div>
-                                        <label className="text-slate-400 block mb-0.5">Placeholder</label>
+                                        <label className="text-slate-400 block mb-0.5 font-semibold">Placeholder</label>
                                         <input
                                           type="text"
                                           value={field.placeholder || ''}
@@ -1046,7 +1124,22 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
                                             })
                                           }
                                           placeholder="e.g. 12345-1234567-1"
-                                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs text-white"
+                                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs text-white outline-none focus:border-cyan-500"
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label className="text-slate-400 block mb-0.5 font-semibold">Help Text / Instruction</label>
+                                        <input
+                                          type="text"
+                                          value={field.helpText || ''}
+                                          onChange={(e) =>
+                                            handleUpdateCustomProofField(key, field.id, {
+                                              helpText: e.target.value
+                                            })
+                                          }
+                                          placeholder="e.g. Without dashes"
+                                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-xs text-white outline-none focus:border-cyan-500"
                                         />
                                       </div>
                                     </div>

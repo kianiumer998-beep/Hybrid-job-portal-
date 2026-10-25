@@ -41,6 +41,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [email, setEmail] = useState(currentUser?.email || '');
+  const [senderName, setSenderName] = useState(currentUser?.name || '');
+  const [senderPhone, setSenderPhone] = useState('');
   const [trxId, setTrxId] = useState('');
   const [proofScreenshotUrl, setProofScreenshotUrl] = useState('');
   const [proofNote, setProofNote] = useState('');
@@ -62,6 +64,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     setIsLoadingSettings(true);
     setErrorMessage('');
     setCustomFieldValues({});
+    setSenderName(currentUser?.name || '');
+    setSenderPhone('');
 
     api.paymentSettings.get().then((res) => {
       if (!isMounted) return;
@@ -145,6 +149,17 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       return;
     }
 
+    // Sender details validation
+    if (selectedMethod.senderNameRequired && !senderName.trim() && !name.trim()) {
+      setErrorMessage(`Please enter the ${selectedMethod.senderNameLabel || 'Sender Name / Account Holder'}.`);
+      return;
+    }
+
+    if (selectedMethod.senderPhoneRequired && !senderPhone.trim()) {
+      setErrorMessage(`Please enter the ${selectedMethod.senderPhoneLabel || 'Sender Mobile / Account Number'}.`);
+      return;
+    }
+
     // Server-configurable client-side validation
     if (selectedMethod.transactionIdRequired && !trxId.trim()) {
       setErrorMessage(`Please enter the ${selectedMethod.transactionIdLabel || 'Transaction ID (TID)'}.`);
@@ -186,20 +201,30 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       selectedMethod.bankName ? ` (${selectedMethod.bankName})` : ''
     }`;
 
-    // Format custom fields cleanly into proof note
+    // Format custom fields cleanly into proof note, sanitizing newlines and delimiter tokens
     const customDetails =
       selectedMethod.customFields && selectedMethod.customFields.length > 0
         ? selectedMethod.customFields
-            .map((f) => `${f.label}: ${(customFieldValues[f.id] || '').trim() || 'N/A'}`)
+            .map((f) => {
+              const rawVal = (customFieldValues[f.id] || '').trim();
+              const cleanLabel = f.label.replace(/[:\r\n]+/g, ' ').trim();
+              const cleanVal = rawVal.replace(/[\r\n]+/g, ' ').trim();
+              return `${cleanLabel}: ${cleanVal || 'N/A'}`;
+            })
             .join('\n')
         : '';
 
+    const cleanUserNote = proofNote.replace(/--- Custom Proof Details ---/gi, '').trim();
+
     const effectiveProofNote = [
-      proofNote.trim() ? `User Note: ${proofNote.trim()}` : '',
+      cleanUserNote ? `User Note: ${cleanUserNote}` : '',
       customDetails ? `--- Custom Proof Details ---\n${customDetails}` : ''
     ]
       .filter(Boolean)
       .join('\n\n');
+
+    const effectiveSenderName = senderName.trim() || name.trim();
+    const effectiveSenderPhone = senderPhone.trim() || phone.trim();
 
     try {
       // Submit payment transaction with explicit Pending status for manual admin verification
@@ -210,8 +235,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         plan,
         paymentMethod: selectedMethod.name,
         transactionId: cleanTrxId,
-        senderName: name.trim(),
-        senderPhoneOrAccount: phone.trim(),
+        senderName: effectiveSenderName,
+        senderPhoneOrAccount: effectiveSenderPhone,
         depositBankOrWalletName: depositAccountDesc,
         proofScreenshotUrl: proofScreenshotUrl.trim() || undefined,
         proofNote: effectiveProofNote.trim() || undefined,
@@ -548,6 +573,50 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                         placeholder="ali@example.com"
                         className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
+                    </div>
+                  </div>
+
+                  {/* Payment Sender Details Section (Distinct from subscription contact details) */}
+                  <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                        Payment Sender Information
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        Account / wallet sending the transfer
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          {selectedMethod?.senderNameLabel || 'Sender Name / Account Holder'}
+                          {selectedMethod?.senderNameRequired && ' *'}
+                        </label>
+                        <input
+                          type="text"
+                          required={selectedMethod?.senderNameRequired}
+                          value={senderName}
+                          onChange={(e) => setSenderName(e.target.value)}
+                          placeholder="e.g. Account Title from receipt"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">
+                          {selectedMethod?.senderPhoneLabel || 'Sender Mobile / Account Number'}
+                          {selectedMethod?.senderPhoneRequired && ' *'}
+                        </label>
+                        <input
+                          type="text"
+                          required={selectedMethod?.senderPhoneRequired}
+                          value={senderPhone}
+                          onChange={(e) => setSenderPhone(e.target.value)}
+                          placeholder={selectedMethod?.senderPhonePlaceholder || 'e.g. 0300-1234567'}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
                     </div>
                   </div>
 

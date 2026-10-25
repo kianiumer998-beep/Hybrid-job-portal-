@@ -64,6 +64,16 @@ export const DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG: AdminReceivingPaymentConfig
   ]
 };
 
+export interface CustomProofField {
+  id: string;
+  label: string;
+  type: 'text' | 'number';
+  placeholder?: string;
+  helpText?: string;
+  required: boolean;
+  order: number;
+}
+
 export interface PublicPaymentMethodConfig {
   id: 'easypaisa' | 'jazzcash' | 'bank' | string;
   name: string;
@@ -76,6 +86,7 @@ export interface PublicPaymentMethodConfig {
   instructions: string;
   formTitle?: string;
   formSubtitle?: string;
+  isCustom?: boolean;
 
   // Proof requirement rules (at least one of transactionIdRequired or screenshotRequired must be true)
   transactionIdRequired: boolean;
@@ -87,9 +98,18 @@ export interface PublicPaymentMethodConfig {
   screenshotLabel?: string;
   screenshotHelpText?: string;
 
+  senderNameRequired?: boolean;
+  senderNameLabel?: string;
+  senderPhoneRequired?: boolean;
+  senderPhoneLabel?: string;
+  senderPhonePlaceholder?: string;
+
   proofNoteRequired?: boolean;
   proofNoteLabel?: string;
   proofNotePlaceholder?: string;
+
+  // Configurable arbitrary proof fields (e.g. CNIC, Branch Code, Reference Code)
+  customFields?: CustomProofField[];
 }
 
 export interface PublicPaymentSettings {
@@ -100,7 +120,9 @@ export interface PublicPaymentSettings {
     bank: PublicPaymentMethodConfig;
     [key: string]: PublicPaymentMethodConfig;
   };
+  customMethods?: PublicPaymentMethodConfig[];
   defaultMethod?: string;
   updatedAt?: string;
   updatedBy?: string;
 }
+

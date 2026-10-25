@@ -54,11 +54,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [isLoadingSettings, setIsLoadingSettings] = useState<boolean>(true);
   const [selectedMethodKey, setSelectedMethodKey] = useState<string>('');
 
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (!isOpen) return;
     let isMounted = true;
     setIsLoadingSettings(true);
     setErrorMessage('');
+    setCustomFieldValues({});
 
     api.paymentSettings.get().then((res) => {
       if (!isMounted) return;
@@ -158,6 +161,17 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       return;
     }
 
+    // Validate any configured custom fields
+    if (selectedMethod.customFields && selectedMethod.customFields.length > 0) {
+      for (const cf of selectedMethod.customFields) {
+        const val = (customFieldValues[cf.id] || '').trim();
+        if (cf.required && !val) {
+          setErrorMessage(`Please enter the required field "${cf.label}".`);
+          return;
+        }
+      }
+    }
+
     // At least one proof must be provided even if configuration was lenient
     if (!trxId.trim() && !proofScreenshotUrl) {
       setErrorMessage('Please provide either the Transaction ID or upload a Payment Receipt Screenshot.');
@@ -172,6 +186,21 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       selectedMethod.bankName ? ` (${selectedMethod.bankName})` : ''
     }`;
 
+    // Format custom fields cleanly into proof note
+    const customDetails =
+      selectedMethod.customFields && selectedMethod.customFields.length > 0
+        ? selectedMethod.customFields
+            .map((f) => `${f.label}: ${(customFieldValues[f.id] || '').trim() || 'N/A'}`)
+            .join('\n')
+        : '';
+
+    const effectiveProofNote = [
+      proofNote.trim() ? `User Note: ${proofNote.trim()}` : '',
+      customDetails ? `--- Custom Proof Details ---\n${customDetails}` : ''
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
     try {
       // Submit payment transaction with explicit Pending status for manual admin verification
       const txRes = await api.transactions.submit({
@@ -185,7 +214,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         senderPhoneOrAccount: phone.trim(),
         depositBankOrWalletName: depositAccountDesc,
         proofScreenshotUrl: proofScreenshotUrl.trim() || undefined,
-        proofNote: proofNote.trim() || undefined,
+        proofNote: effectiveProofNote.trim() || undefined,
         userId: currentUser?.id || undefined,
         userEmail: email.trim(),
         userName: name.trim(),
@@ -584,6 +613,38 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                       >
                         Remove
                       </button>
+                    </div>
+                  )}
+
+                  {/* Configured Custom Proof Fields */}
+                  {selectedMethod?.customFields && selectedMethod.customFields.length > 0 && (
+                    <div className="space-y-3 p-3 bg-slate-950/80 rounded-2xl border border-slate-800">
+                      <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider">
+                        Additional Required Proof Details
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {selectedMethod.customFields.map((cf) => (
+                          <div key={cf.id} className="space-y-1">
+                            <label className="block text-xs font-semibold text-slate-300">
+                              {cf.label}
+                              {cf.required && ' *'}
+                            </label>
+                            <input
+                              type={cf.type === 'number' ? 'number' : 'text'}
+                              required={cf.required}
+                              value={customFieldValues[cf.id] || ''}
+                              onChange={(e) =>
+                                setCustomFieldValues((prev) => ({ ...prev, [cf.id]: e.target.value }))
+                              }
+                              placeholder={cf.placeholder || `Enter ${cf.label.toLowerCase()}`}
+                              className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-500"
+                            />
+                            {cf.helpText && (
+                              <p className="text-[10px] text-slate-500">{cf.helpText}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 

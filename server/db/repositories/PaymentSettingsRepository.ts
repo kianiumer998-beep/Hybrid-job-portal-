@@ -58,10 +58,28 @@ export class PaymentSettingsRepository {
       };
     }
 
+    const sanitizeCustomFields = (rawList: any): any[] => {
+      if (!Array.isArray(rawList)) return [];
+      return rawList
+        .slice(0, 20)
+        .filter((f) => f && typeof f === 'object' && f.label)
+        .map((f, idx) => ({
+          id: String(f.id || `field-${idx + 1}`).trim().slice(0, 50),
+          label: String(f.label).trim().slice(0, 100),
+          type: f.type === 'number' ? 'number' : 'text',
+          placeholder: f.placeholder ? String(f.placeholder).trim().slice(0, 100) : undefined,
+          helpText: f.helpText ? String(f.helpText).trim().slice(0, 200) : undefined,
+          required: Boolean(f.required),
+          order: typeof f.order === 'number' && Number.isFinite(f.order) ? f.order : idx
+        }))
+        .sort((a, b) => a.order - b.order);
+    };
+
     const sanitizeMethod = (
       id: string,
       defaultName: string,
-      methodRaw: any
+      methodRaw: any,
+      isCustomDefault = false
     ): PublicPaymentMethodConfig => {
       const m = methodRaw && typeof methodRaw === 'object' ? methodRaw : {};
       return {
@@ -76,6 +94,7 @@ export class PaymentSettingsRepository {
         instructions: String(m.instructions || '').trim().slice(0, 1000),
         formTitle: m.formTitle ? String(m.formTitle).trim().slice(0, 100) : undefined,
         formSubtitle: m.formSubtitle ? String(m.formSubtitle).trim().slice(0, 200) : undefined,
+        isCustom: m.isCustom !== undefined ? Boolean(m.isCustom) : isCustomDefault,
         transactionIdRequired: m.transactionIdRequired !== undefined ? Boolean(m.transactionIdRequired) : true,
         transactionIdLabel: m.transactionIdLabel ? String(m.transactionIdLabel).trim().slice(0, 100) : undefined,
         transactionIdPlaceholder: m.transactionIdPlaceholder ? String(m.transactionIdPlaceholder).trim().slice(0, 100) : undefined,
@@ -83,29 +102,64 @@ export class PaymentSettingsRepository {
         screenshotRequired: m.screenshotRequired !== undefined ? Boolean(m.screenshotRequired) : true,
         screenshotLabel: m.screenshotLabel ? String(m.screenshotLabel).trim().slice(0, 100) : undefined,
         screenshotHelpText: m.screenshotHelpText ? String(m.screenshotHelpText).trim().slice(0, 200) : undefined,
+        senderNameRequired: m.senderNameRequired !== undefined ? Boolean(m.senderNameRequired) : false,
+        senderNameLabel: m.senderNameLabel ? String(m.senderNameLabel).trim().slice(0, 100) : undefined,
+        senderPhoneRequired: m.senderPhoneRequired !== undefined ? Boolean(m.senderPhoneRequired) : false,
+        senderPhoneLabel: m.senderPhoneLabel ? String(m.senderPhoneLabel).trim().slice(0, 100) : undefined,
+        senderPhonePlaceholder: m.senderPhonePlaceholder ? String(m.senderPhonePlaceholder).trim().slice(0, 100) : undefined,
         proofNoteRequired: Boolean(m.proofNoteRequired),
         proofNoteLabel: m.proofNoteLabel ? String(m.proofNoteLabel).trim().slice(0, 100) : undefined,
-        proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined
+        proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined,
+        customFields: sanitizeCustomFields(m.customFields)
       };
     };
 
     const rawMethods = raw.methods && typeof raw.methods === 'object' ? raw.methods : {};
 
-    const easypaisa = sanitizeMethod('easypaisa', 'EasyPaisa', rawMethods.easypaisa);
-    const jazzcash = sanitizeMethod('jazzcash', 'JazzCash', rawMethods.jazzcash);
-    const bank = sanitizeMethod('bank', 'Bank Transfer / Raast / IBAN', rawMethods.bank);
+    const easypaisa = sanitizeMethod('easypaisa', 'EasyPaisa', rawMethods.easypaisa, false);
+    const jazzcash = sanitizeMethod('jazzcash', 'JazzCash', rawMethods.jazzcash, false);
+    const bank = sanitizeMethod('bank', 'Bank Transfer / Raast / IBAN', rawMethods.bank, false);
 
-    const hasAnyEnabled = [easypaisa, jazzcash, bank].some(
+    const methodsMap: Record<string, PublicPaymentMethodConfig> = {
+      easypaisa,
+      jazzcash,
+      bank
+    };
+
+    // Sanitize any additional custom methods present in raw.methods
+    for (const [key, rawVal] of Object.entries(rawMethods)) {
+      if (key !== 'easypaisa' && key !== 'jazzcash' && key !== 'bank') {
+        const cleanKey = String(key).trim().slice(0, 50);
+        if (cleanKey && rawVal && typeof rawVal === 'object') {
+          methodsMap[cleanKey] = sanitizeMethod(cleanKey, (rawVal as any).name || cleanKey, rawVal, true);
+        }
+      }
+    }
+
+    // Also support raw.customMethods array if provided
+    if (Array.isArray(raw.customMethods)) {
+      for (const cm of raw.customMethods) {
+        if (cm && typeof cm === 'object' && cm.id) {
+          const cleanKey = String(cm.id).trim().slice(0, 50);
+          if (cleanKey && cleanKey !== 'easypaisa' && cleanKey !== 'jazzcash' && cleanKey !== 'bank') {
+            methodsMap[cleanKey] = sanitizeMethod(cleanKey, cm.name || cleanKey, cm, true);
+          }
+        }
+      }
+    }
+
+    const customMethodsList = Object.values(methodsMap).filter(
+      (m) => m.isCustom || (m.id !== 'easypaisa' && m.id !== 'jazzcash' && m.id !== 'bank')
+    );
+
+    const hasAnyEnabled = Object.values(methodsMap).some(
       (m) => m.enabled && m.accountTitle && m.accountNumber
     );
 
     return {
       isConfigured: Boolean(raw.isConfigured && hasAnyEnabled),
-      methods: {
-        easypaisa,
-        jazzcash,
-        bank
-      },
+      methods: methodsMap as any,
+      customMethods: customMethodsList,
       defaultMethod: raw.defaultMethod ? String(raw.defaultMethod).trim().slice(0, 50) : undefined,
       updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
       updatedBy: raw.updatedBy ? String(raw.updatedBy).trim().slice(0, 100) : undefined
@@ -162,14 +216,28 @@ export class PaymentSettingsRepository {
       throw new Error('Validation Error: "methods" configuration object is required.');
     }
 
-    // Validate each supported method
-    const supportedKeys = ['easypaisa', 'jazzcash', 'bank'] as const;
+    // Collect all methods to validate (base + custom)
+    const methodsToValidate: Record<string, any> = { ...rawMethods };
+    if (Array.isArray(payload.customMethods)) {
+      for (const cm of payload.customMethods) {
+        if (cm && typeof cm === 'object' && cm.id) {
+          methodsToValidate[cm.id] = cm;
+        }
+      }
+    }
+
     const validatedMethods: Record<string, PublicPaymentMethodConfig> = {};
 
-    for (const key of supportedKeys) {
-      const m = rawMethods[key];
+    // Validate base methods and all custom methods
+    for (const [key, m] of Object.entries(methodsToValidate)) {
       if (!m || typeof m !== 'object') {
         throw new Error(`Validation Error: Method configuration for "${key}" is missing.`);
+      }
+
+      const isBaseMethod = key === 'easypaisa' || key === 'jazzcash' || key === 'bank';
+      const cleanKey = String(key).trim().slice(0, 50);
+      if (!cleanKey || !/^[a-zA-Z0-9_-]+$/.test(cleanKey)) {
+        throw new Error(`Validation Error: Invalid payment method ID "${key}". Only alphanumeric, dashes and underscores allowed.`);
       }
 
       const enabled = Boolean(m.enabled);
@@ -226,18 +294,49 @@ export class PaymentSettingsRepository {
         }
       }
 
-      validatedMethods[key] = {
-        id: key,
+      // Validate customFields if provided
+      let customFields: any[] = [];
+      if (Array.isArray(m.customFields)) {
+        if (m.customFields.length > 20) {
+          throw new Error(`Validation Error for "${name}": A maximum of 20 custom proof fields are allowed.`);
+        }
+        customFields = m.customFields.map((f: any, idx: number) => {
+          if (!f || typeof f !== 'object') {
+            throw new Error(`Validation Error for "${name}": Invalid custom proof field at index ${idx}.`);
+          }
+          const label = String(f.label || '').trim();
+          if (!label) {
+            throw new Error(`Validation Error for "${name}": Custom field label is required at field #${idx + 1}.`);
+          }
+          if (label.length > 100) {
+            throw new Error(`Validation Error for "${name}": Custom field label cannot exceed 100 characters.`);
+          }
+          const fieldType = f.type === 'number' ? 'number' : 'text';
+          return {
+            id: String(f.id || `field-${idx + 1}`).trim().slice(0, 50),
+            label,
+            type: fieldType,
+            placeholder: f.placeholder ? String(f.placeholder).trim().slice(0, 100) : undefined,
+            helpText: f.helpText ? String(f.helpText).trim().slice(0, 200) : undefined,
+            required: Boolean(f.required),
+            order: typeof f.order === 'number' && Number.isFinite(f.order) ? f.order : idx
+          };
+        }).sort((a: any, b: any) => a.order - b.order);
+      }
+
+      validatedMethods[cleanKey] = {
+        id: cleanKey,
         name,
         enabled,
         heading: m.heading ? String(m.heading).trim().slice(0, 100) : undefined,
         accountTitle,
         accountNumber,
-        bankName: key === 'bank' && m.bankName ? String(m.bankName).trim().slice(0, 100) : undefined,
-        iban: key === 'bank' && m.iban ? String(m.iban).trim().slice(0, 60) : undefined,
+        bankName: m.bankName ? String(m.bankName).trim().slice(0, 100) : undefined,
+        iban: m.iban ? String(m.iban).trim().slice(0, 60) : undefined,
         instructions,
         formTitle: m.formTitle ? String(m.formTitle).trim().slice(0, 100) : undefined,
         formSubtitle: m.formSubtitle ? String(m.formSubtitle).trim().slice(0, 200) : undefined,
+        isCustom: !isBaseMethod,
         transactionIdRequired,
         transactionIdLabel: m.transactionIdLabel ? String(m.transactionIdLabel).trim().slice(0, 100) : undefined,
         transactionIdPlaceholder: m.transactionIdPlaceholder ? String(m.transactionIdPlaceholder).trim().slice(0, 100) : undefined,
@@ -245,10 +344,21 @@ export class PaymentSettingsRepository {
         screenshotRequired,
         screenshotLabel: m.screenshotLabel ? String(m.screenshotLabel).trim().slice(0, 100) : undefined,
         screenshotHelpText: m.screenshotHelpText ? String(m.screenshotHelpText).trim().slice(0, 200) : undefined,
+        senderNameRequired: m.senderNameRequired !== undefined ? Boolean(m.senderNameRequired) : false,
+        senderNameLabel: m.senderNameLabel ? String(m.senderNameLabel).trim().slice(0, 100) : undefined,
+        senderPhoneRequired: m.senderPhoneRequired !== undefined ? Boolean(m.senderPhoneRequired) : false,
+        senderPhoneLabel: m.senderPhoneLabel ? String(m.senderPhoneLabel).trim().slice(0, 100) : undefined,
+        senderPhonePlaceholder: m.senderPhonePlaceholder ? String(m.senderPhonePlaceholder).trim().slice(0, 100) : undefined,
         proofNoteRequired,
         proofNoteLabel: m.proofNoteLabel ? String(m.proofNoteLabel).trim().slice(0, 100) : undefined,
-        proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined
+        proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined,
+        customFields
       };
+    }
+
+    // Ensure base methods exist
+    if (!validatedMethods.easypaisa || !validatedMethods.jazzcash || !validatedMethods.bank) {
+      throw new Error('Validation Error: Default methods (easypaisa, jazzcash, bank) must be present in settings.');
     }
 
     const defaultMethod = payload.defaultMethod ? String(payload.defaultMethod).trim() : 'easypaisa';
@@ -256,20 +366,22 @@ export class PaymentSettingsRepository {
       (m) => m.enabled && m.accountTitle && m.accountNumber
     );
 
+    const customMethodsList = Object.values(validatedMethods).filter(
+      (m) => m.isCustom || (m.id !== 'easypaisa' && m.id !== 'jazzcash' && m.id !== 'bank')
+    );
+
     const nowIso = new Date().toISOString();
     const updatedBy = user?.name || user?.email || 'Administrator';
 
     const cleanSettings: PublicPaymentSettings = {
       isConfigured: hasAnyEnabled,
-      methods: {
-        easypaisa: validatedMethods.easypaisa,
-        jazzcash: validatedMethods.jazzcash,
-        bank: validatedMethods.bank
-      },
+      methods: validatedMethods as any,
+      customMethods: customMethodsList,
       defaultMethod,
       updatedAt: nowIso,
       updatedBy
     };
+
 
     const coll = await getPaymentSettingsCollection();
     await withMongoTimeout(

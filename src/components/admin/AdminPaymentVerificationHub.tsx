@@ -42,6 +42,41 @@ interface AdminPaymentVerificationHubProps {
   jobs?: Job[];
 }
 
+function parseProofDetails(rawNote?: string): { userNote: string; customFields: { label: string; value: string }[] } {
+  if (!rawNote || typeof rawNote !== 'string') {
+    return { userNote: '', customFields: [] };
+  }
+  const separator = '--- Custom Proof Details ---';
+  if (!rawNote.includes(separator)) {
+    const cleanedNote = rawNote.startsWith('User Note:')
+      ? rawNote.replace(/^User Note:\s*/, '').trim()
+      : rawNote.trim();
+    return { userNote: cleanedNote, customFields: [] };
+  }
+
+  const [notePart, customPart] = rawNote.split(separator);
+  let cleanedNote = (notePart || '').trim();
+  if (cleanedNote.startsWith('User Note:')) {
+    cleanedNote = cleanedNote.replace(/^User Note:\s*/, '').trim();
+  }
+
+  const customFields: { label: string; value: string }[] = [];
+  if (customPart) {
+    const lines = customPart.split('\n').map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx > 0) {
+        customFields.push({
+          label: line.slice(0, colonIdx).trim(),
+          value: line.slice(colonIdx + 1).trim()
+        });
+      }
+    }
+  }
+
+  return { userNote: cleanedNote, customFields };
+}
+
 export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubProps> = ({
   transactions,
   onApproveTransaction,
@@ -537,62 +572,114 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left: Transaction Metadata */}
-                <div className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-4 text-xs">
-                  <div className="text-xs font-black text-amber-400 uppercase tracking-wider">
-                    Transaction Details (ٹرانزیکشن تفصیلات)
-                  </div>
+                {(() => {
+                  const proofData = parseProofDetails(selectedTx.proofNote);
+                  return (
+                    <div className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-4 text-xs">
+                      <div className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center justify-between">
+                        <span>Transaction Details (ٹرانزیکشن تفصیلات)</span>
+                        <span className="text-[10px] text-slate-400 font-mono">ID: {selectedTx.id}</span>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Payment Amount</span>
-                      <span className="text-base font-black text-emerald-400">
-                        {selectedTx.currency} {selectedTx.amount.toLocaleString()}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Current Status</span>
-                      <span className={`font-black ${
-                        selectedTx.status === 'Success' ? 'text-emerald-400' :
-                        selectedTx.status === 'Pending' ? 'text-amber-400' :
-                        (selectedTx.status as string) === 'VerificationUncertain' ? 'text-purple-400' : 'text-rose-400'
-                      }`}>
-                        {selectedTx.status}
-                      </span>
-                    </div>
-                  </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Payment Amount</span>
+                          <span className="text-base font-black text-emerald-400">
+                            {selectedTx.currency} {selectedTx.amount.toLocaleString()}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Current Status</span>
+                          <span className={`font-black ${
+                            selectedTx.status === 'Success' ? 'text-emerald-400' :
+                            selectedTx.status === 'Pending' ? 'text-amber-400' :
+                            (selectedTx.status as string) === 'VerificationUncertain' ? 'text-purple-400' : 'text-rose-400'
+                          }`}>
+                            {selectedTx.status}
+                          </span>
+                        </div>
+                      </div>
 
-                  <div className="border-t border-slate-800 pt-3 space-y-2">
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Sender Name / Account</span>
-                      <span className="text-white font-bold">{selectedTx.senderName || selectedTx.userName || 'N/A'}</span>
-                      {selectedTx.senderPhoneOrAccount && (
-                        <span className="text-emerald-400 font-mono text-[11px] block">{selectedTx.senderPhoneOrAccount}</span>
-                      )}
+                      <div className="border-t border-slate-800 pt-3 space-y-2.5">
+                        {/* Transaction ID */}
+                        <div className="flex items-center justify-between p-2 bg-slate-900/80 rounded-xl border border-slate-800">
+                          <div>
+                            <span className="text-slate-500 block text-[10px] font-bold">Transaction Reference / TID</span>
+                            <span className="text-emerald-400 font-mono font-bold text-xs select-all">
+                              {selectedTx.transactionId || 'No TID supplied'}
+                            </span>
+                          </div>
+                          {selectedTx.transactionId && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyTid(selectedTx.transactionId!)}
+                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] flex items-center space-x-1 cursor-pointer transition-colors"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>{copiedTid ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Sender Name / Account</span>
+                          <span className="text-white font-bold">{selectedTx.senderName || selectedTx.userName || 'N/A'}</span>
+                          {selectedTx.senderPhoneOrAccount && (
+                            <span className="text-emerald-400 font-mono text-[11px] block">{selectedTx.senderPhoneOrAccount}</span>
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Deposit Channel / Method</span>
+                          <span className="text-white font-semibold">{selectedTx.paymentMethod || 'N/A'}</span>
+                        </div>
+                        {selectedTx.depositBankOrWalletName && (
+                          <div>
+                            <span className="text-slate-500 block text-[10px]">Target Account / Bank</span>
+                            <span className="text-slate-300">{selectedTx.depositBankOrWalletName}</span>
+                          </div>
+                        )}
+
+                        {/* Custom Proof Fields */}
+                        {proofData.customFields.length > 0 && (
+                          <div className="bg-slate-900/90 border border-cyan-500/30 rounded-xl p-3 space-y-2 mt-2">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 block">
+                              Custom Proof Fields (اضافی تصدیقی کوائف)
+                            </span>
+                            <div className="space-y-1.5">
+                              {proofData.customFields.map((cf, idx) => (
+                                <div key={idx} className="bg-slate-950 p-2 rounded-lg border border-slate-800 flex items-center justify-between">
+                                  <span className="text-slate-400 text-[11px] font-semibold">{cf.label}:</span>
+                                  <span className="text-cyan-300 font-mono font-bold text-xs select-all">{cf.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Depositor Note */}
+                        {proofData.userNote && (
+                          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 space-y-1 mt-2">
+                            <span className="text-slate-400 block text-[10px] font-bold uppercase">Depositor Note / Sender Remarks</span>
+                            <p className="text-slate-200 text-xs leading-relaxed">{proofData.userNote}</p>
+                          </div>
+                        )}
+
+                        {selectedTx.rejectionReason && (
+                          <div className="bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl text-rose-300">
+                            <span className="block text-[10px] font-black uppercase text-rose-400">Rejection Reason</span>
+                            {selectedTx.rejectionReason}
+                          </div>
+                        )}
+                        {selectedTx.adminNote && (
+                          <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl text-emerald-300">
+                            <span className="block text-[10px] font-black uppercase text-emerald-400">Admin Note</span>
+                            {selectedTx.adminNote}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Deposit Channel</span>
-                      <span className="text-white font-semibold">{selectedTx.paymentMethod || 'N/A'}</span>
-                    </div>
-                    {selectedTx.depositBankOrWalletName && (
-                      <div>
-                        <span className="text-slate-500 block text-[10px]">Target Account / Bank</span>
-                        <span className="text-slate-300">{selectedTx.depositBankOrWalletName}</span>
-                      </div>
-                    )}
-                    {selectedTx.rejectionReason && (
-                      <div className="bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl text-rose-300">
-                        <span className="block text-[10px] font-black uppercase text-rose-400">Rejection Reason</span>
-                        {selectedTx.rejectionReason}
-                      </div>
-                    )}
-                    {selectedTx.adminNote && (
-                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl text-emerald-300">
-                        <span className="block text-[10px] font-black uppercase text-emerald-400">Admin Note</span>
-                        {selectedTx.adminNote}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Right: Proof Screenshot Viewer */}
                 <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col items-center justify-center relative min-h-[300px]">

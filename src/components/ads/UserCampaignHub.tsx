@@ -120,6 +120,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [depositTxRef, setDepositTxRef] = useState<string>('');
   const [depositProofScreenshotUrl, setDepositProofScreenshotUrl] = useState<string>('');
   const [depositProofNote, setDepositProofNote] = useState<string>('');
+  const [depositCustomFieldValues, setDepositCustomFieldValues] = useState<Record<string, string>>({});
   const [isDepositSuccess, setIsDepositSuccess] = useState<boolean>(false);
   const [confirmedDepositTx, setConfirmedDepositTx] = useState<any | null>(null);
   const [isSubmittingDeposit, setIsSubmittingDeposit] = useState<boolean>(false);
@@ -456,6 +457,17 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       return;
     }
 
+    // Validate any configured custom fields
+    if (selectedMethod.customFields && selectedMethod.customFields.length > 0) {
+      for (const cf of selectedMethod.customFields) {
+        const val = (depositCustomFieldValues[cf.id] || '').trim();
+        if (cf.required && !val) {
+          setDepositError(`Please enter the required field "${cf.label}".`);
+          return;
+        }
+      }
+    }
+
     if (!depositTxRef.trim() && !depositProofScreenshotUrl) {
       setDepositError('Please provide either the Transaction ID or upload a Receipt Screenshot.');
       return;
@@ -467,6 +479,21 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         selectedMethod.bankName ? ` (${selectedMethod.bankName})` : ''
       }`;
 
+      // Format custom fields cleanly into proof note
+      const customDetails =
+        selectedMethod.customFields && selectedMethod.customFields.length > 0
+          ? selectedMethod.customFields
+              .map((f) => `${f.label}: ${(depositCustomFieldValues[f.id] || '').trim() || 'N/A'}`)
+              .join('\n')
+          : '';
+
+      const effectiveProofNote = [
+        depositProofNote.trim() ? `User Note: ${depositProofNote.trim()}` : '',
+        customDetails ? `--- Custom Proof Details ---\n${customDetails}` : ''
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
       const res = await onDepositWallet({
         amount: depositAmountInput,
         paymentMethod: selectedMethod.name,
@@ -475,7 +502,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         senderName: currentUser.name,
         senderPhoneOrAccount: depositSenderPhone.trim() || undefined,
         depositBankOrWalletName: depositAccountDesc,
-        proofNote: depositProofNote.trim() || undefined
+        proofNote: effectiveProofNote.trim() || undefined
       });
 
       if (res && typeof res === 'object' && (res as any).success) {
@@ -1887,6 +1914,41 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                           >
                             Remove
                           </button>
+                        </div>
+                      )}
+
+                      {/* Configured Custom Proof Fields */}
+                      {selectedMethod?.customFields && selectedMethod.customFields.length > 0 && (
+                        <div className="space-y-3 p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800">
+                          <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider">
+                            Additional Required Proof Details
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {selectedMethod.customFields.map((cf) => (
+                              <div key={cf.id} className="space-y-1">
+                                <label className="block text-xs font-semibold text-slate-300">
+                                  {cf.label}
+                                  {cf.required && ' *'}
+                                </label>
+                                <input
+                                  type={cf.type === 'number' ? 'number' : 'text'}
+                                  required={cf.required}
+                                  value={depositCustomFieldValues[cf.id] || ''}
+                                  onChange={(e) =>
+                                    setDepositCustomFieldValues((prev) => ({
+                                      ...prev,
+                                      [cf.id]: e.target.value
+                                    }))
+                                  }
+                                  placeholder={cf.placeholder || `Enter ${cf.label.toLowerCase()}`}
+                                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-cyan-500"
+                                />
+                                {cf.helpText && (
+                                  <p className="text-[10px] text-slate-500">{cf.helpText}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
 

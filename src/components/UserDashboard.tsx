@@ -679,6 +679,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-expanded={isMobileMenuOpen}
+            aria-label="Toggle Navigation Menu"
             className="md:hidden p-2.5 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/30 transition-all active:scale-95"
           >
             {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
@@ -709,6 +711,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               return (
                 <button
                   key={t.id}
+                  aria-label={`Switch to ${t.label} tab`}
                   onClick={() => {
                     setActiveTab(t.id as any);
                     setIsMobileMenuOpen(false);

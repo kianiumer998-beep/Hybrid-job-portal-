@@ -331,30 +331,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [moduleSearchQuery, setModuleSearchQuery] = useState('');
   const [seoPreviewJob, setSeoPreviewJob] = useState<Job | null>(null);
 
-  const TAB_CATEGORIES = {
-    analytics: 'stats',
-    'landing-customizer': 'settings',
+  const TAB_CATEGORIES: Record<string, AdminCategory> = {
+    analytics: 'settings',
+    'landing-customizer': 'ads',
     'campaign-center': 'ads',
     'fee-management': 'payments',
     'payment-proofs': 'payments',
     'admin-payment-methods': 'payments',
-    'whatsapp-manager': 'settings',
+    'whatsapp-manager': 'alerts',
     pending: 'jobs',
     'scraped-history': 'scraper',
     advertisements: 'ads',
     'seo-config': 'settings',
-    'currency-forex': 'settings',
+    'currency-forex': 'payments',
     'broadcast-center': 'alerts',
     'bulk-notifications': 'alerts',
     'activity-logs': 'settings',
     'data-backup': 'settings',
-    'ai-enhancer': 'scraper',
+    'ai-enhancer': 'jobs',
     'employer-kyc': 'users',
     'user-audit': 'users',
     'fee-logs': 'payments',
     scraper: 'scraper',
     'url-scraper': 'scraper',
-    'chat-hub': 'alerts',
+    'chat-hub': 'users',
     'form-customizer': 'settings',
     'pricing-controller': 'payments',
     'apply-settings': 'settings',
@@ -362,7 +362,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     jobs: 'jobs',
     subscribers: 'users',
     settings: 'settings',
-    stats: 'stats',
+    stats: 'settings',
   };
 
 
@@ -2286,7 +2286,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="sm:hidden p-2 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/30"
+            aria-expanded={isMobileMenuOpen}
+            aria-label="Toggle Navigation Menu"
+            className="sm:hidden p-2 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/30 transition-all active:scale-95"
           >
             {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Filter className="w-5 h-5" />}
           </button>
@@ -2317,19 +2319,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <button
                 key={cat.id}
                 type="button"
+                aria-label={`View ${cat.label} category`}
                 onClick={() => {
                   setActiveCategory(cat.id);
                   // Auto-switch to first sub-tab of that category if current tab is outside
-                  if (cat.id === 'jobs' && !['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(adminTab)) setAdminTab('jobs');
-                  if (cat.id === 'scraper') setAdminTab('scraper');
-                  if (cat.id === 'ads' && !['campaign-center', 'advertisements', 'landing-customizer'].includes(adminTab)) setAdminTab('campaign-center');
-                  if (cat.id === 'payments' && !['admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'].includes(adminTab)) {
-                    setAdminTab(hasAdminUiPermission('finance.manage') ? 'admin-payment-methods' : 'payment-proofs');
-                  }
-                  if (cat.id === 'users' && !['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(adminTab)) setAdminTab('user-audit');
-                  if (cat.id === 'alerts' && !['whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(adminTab)) setAdminTab('whatsapp-manager');
-                  if (cat.id === 'settings' && !['seo-config', 'settings', 'form-customizer', 'activity-logs', 'data-backup', 'analytics'].includes(adminTab)) {
-                    setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
+                  if (TAB_CATEGORIES[adminTab] !== cat.id) {
+                    if (cat.id === 'jobs') setAdminTab('jobs');
+                    else if (cat.id === 'scraper') setAdminTab('scraper');
+                    else if (cat.id === 'ads') setAdminTab('campaign-center');
+                    else if (cat.id === 'payments') setAdminTab(hasAdminUiPermission('finance.manage') ? 'admin-payment-methods' : 'payment-proofs');
+                    else if (cat.id === 'users') setAdminTab('user-audit');
+                    else if (cat.id === 'alerts') setAdminTab('whatsapp-manager');
+                    else if (cat.id === 'settings') setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
                   }
                   // Close mobile menu on category change for better focus
                   setIsMobileMenuOpen(false);
@@ -2355,6 +2356,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button
               type="button"
               onClick={() => setShowAllModulesMenu(true)}
+              aria-expanded={showAllModulesMenu}
+              aria-haspopup="dialog"
+              aria-label="Open all modules menu"
               className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/40 text-xs font-black flex items-center space-x-1.5 shadow-lg shadow-amber-500/10 transition-all cursor-pointer active:scale-95"
               title="Open full modules matrix with search"
             >
@@ -2615,6 +2619,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAllModulesMenu(false)}
+                aria-label="Close menu"
                 className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -2726,14 +2731,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             type="button"
                             onClick={() => {
                               setAdminTab(item.id as any);
-                              // update category
-                              if (['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(item.id)) setActiveCategory('jobs');
-                              else if (['url-scraper', 'scraper', 'scraped-history'].includes(item.id)) setActiveCategory('scraper');
-                              else if (['campaign-center', 'advertisements', 'landing-customizer'].includes(item.id)) setActiveCategory('ads');
-                              else if (['admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'].includes(item.id)) setActiveCategory('payments');
-                              else if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(item.id)) setActiveCategory('users');
-                              else if (['whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(item.id)) setActiveCategory('alerts');
-                              else setActiveCategory('settings');
+                              // update category using the centralized mapping
+                              if (TAB_CATEGORIES[item.id]) {
+                                setActiveCategory(TAB_CATEGORIES[item.id]);
+                              }
                               setShowAllModulesMenu(false);
                             }}
                             className={`p-3 rounded-2xl border text-left flex items-start space-x-3 transition-all cursor-pointer ${

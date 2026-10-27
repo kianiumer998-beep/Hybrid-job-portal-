@@ -41,7 +41,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [email, setEmail] = useState(currentUser?.email || '');
-  const [senderName, setSenderName] = useState(currentUser?.name || '');
+  const [senderName, setSenderName] = useState('');
   const [senderPhone, setSenderPhone] = useState('');
   const [trxId, setTrxId] = useState('');
   const [proofScreenshotUrl, setProofScreenshotUrl] = useState('');
@@ -64,7 +64,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     setIsLoadingSettings(true);
     setErrorMessage('');
     setCustomFieldValues({});
-    setSenderName(currentUser?.name || '');
+    setSenderName('');
     setSenderPhone('');
 
     api.paymentSettings.get().then((res) => {
@@ -150,7 +150,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     }
 
     // Sender details validation
-    if (selectedMethod.senderNameRequired && !senderName.trim() && !name.trim()) {
+    if (selectedMethod.senderNameRequired && !senderName.trim()) {
       setErrorMessage(`Please enter the ${selectedMethod.senderNameLabel || 'Sender Name / Account Holder'}.`);
       return;
     }
@@ -223,8 +223,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       .filter(Boolean)
       .join('\n\n');
 
-    const effectiveSenderName = senderName.trim() || name.trim();
-    const effectiveSenderPhone = senderPhone.trim() || phone.trim();
+    const cleanSenderName = senderName.trim() || undefined;
+    const cleanSenderPhone = senderPhone.trim() || undefined;
 
     try {
       // Submit payment transaction with explicit Pending status for manual admin verification
@@ -235,8 +235,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         plan,
         paymentMethod: selectedMethod.name,
         transactionId: cleanTrxId,
-        senderName: effectiveSenderName,
-        senderPhoneOrAccount: effectiveSenderPhone,
+        senderName: cleanSenderName,
+        senderPhoneOrAccount: cleanSenderPhone,
         depositBankOrWalletName: depositAccountDesc,
         proofScreenshotUrl: proofScreenshotUrl.trim() || undefined,
         proofNote: effectiveProofNote.trim() || undefined,

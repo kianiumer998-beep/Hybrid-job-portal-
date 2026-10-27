@@ -116,8 +116,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
   const [depositAmountInput, setDepositAmountInput] = useState<number>(2500);
   const [depositSelectedMethodKey, setDepositSelectedMethodKey] = useState<string>('');
-  const [depositSenderName, setDepositSenderName] = useState<string>(currentUser.name || '');
-  const [depositSenderPhone, setDepositSenderPhone] = useState<string>(currentUser.phone || '');
+  const [depositSenderName, setDepositSenderName] = useState<string>('');
+  const [depositSenderPhone, setDepositSenderPhone] = useState<string>('');
   const [depositTxRef, setDepositTxRef] = useState<string>('');
   const [depositProofScreenshotUrl, setDepositProofScreenshotUrl] = useState<string>('');
   const [depositProofNote, setDepositProofNote] = useState<string>('');
@@ -518,7 +518,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         paymentMethod: selectedMethod.name,
         transactionId: depositTxRef.trim() || undefined,
         proofScreenshotUrl: depositProofScreenshotUrl || undefined,
-        senderName: depositSenderName.trim() || currentUser.name,
+        senderName: depositSenderName.trim() || undefined,
         senderPhoneOrAccount: depositSenderPhone.trim() || undefined,
         depositBankOrWalletName: depositAccountDesc,
         proofNote: effectiveProofNote.trim() || undefined
@@ -1683,6 +1683,12 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   setIsDepositSuccess(false);
                   setConfirmedDepositTx(null);
                   setDepositError(null);
+                  setDepositTxRef('');
+                  setDepositProofScreenshotUrl('');
+                  setDepositProofNote('');
+                  setDepositSenderName('');
+                  setDepositSenderPhone('');
+                  setDepositCustomFieldValues({});
                 }}
                 className="absolute top-5 right-5 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
               >
@@ -1736,9 +1742,13 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                       setIsDepositModalOpen(false);
                       setIsDepositSuccess(false);
                       setConfirmedDepositTx(null);
+                      setDepositError(null);
                       setDepositTxRef('');
                       setDepositProofScreenshotUrl('');
                       setDepositProofNote('');
+                      setDepositSenderName('');
+                      setDepositSenderPhone('');
+                      setDepositCustomFieldValues({});
                     }}
                     className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 hover:scale-[1.01] active:scale-95 transition-all cursor-pointer"
                   >

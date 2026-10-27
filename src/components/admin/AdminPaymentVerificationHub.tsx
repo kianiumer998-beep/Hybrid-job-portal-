@@ -463,18 +463,18 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                                 <Copy className="w-3 h-3" />
                               </button>
                             </div>
-                            <span className="text-[9px] text-slate-500 font-mono block">Ref: {tx.id.slice(0, 10)}...</span>
+                            <span className="text-[9px] text-slate-500 font-mono block">Internal Ref: {tx.id.slice(0, 10)}...</span>
                           </div>
                         ) : (
                           <div className="space-y-0.5">
                             <span className="text-[10px] text-slate-400 italic block">
-                              No external TID (Screenshot proof)
+                              No external transaction ID provided
                             </span>
-                            <span className="text-[9px] text-slate-500 font-mono block">Ref: {tx.id.slice(0, 10)}...</span>
+                            <span className="text-[9px] text-slate-500 font-mono block">Internal Ref: {tx.id.slice(0, 10)}...</span>
                           </div>
                         )}
 
-                        {tx.proofScreenshotUrl && (
+                        {tx.proofScreenshotUrl ? (
                           <button
                             onClick={() => {
                               setSelectedTx(tx);
@@ -486,6 +486,10 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                             <Eye className="w-3 h-3" />
                             <span>View Proof Image</span>
                           </button>
+                        ) : (
+                          <span className="mt-1 block text-[10px] text-slate-500 italic">
+                            No receipt screenshot attached
+                          </span>
                         )}
                       </td>
 
@@ -583,8 +587,10 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                   <h4 className="text-base font-black text-white">Payment Submission Inspection</h4>
                   <div className="text-xs text-slate-400 flex items-center space-x-2 mt-0.5">
                     <span>Internal Ref: <code className="text-slate-300 font-mono font-bold">{selectedTx.id}</code></span>
-                    {!isSystemGeneratedReference(selectedTx.transactionId, selectedTx.id) && (
+                    {!isSystemGeneratedReference(selectedTx.transactionId, selectedTx.id) ? (
                       <span>• External TID: <code className="text-amber-300 font-mono font-bold">{selectedTx.transactionId}</code></span>
+                    ) : (
+                      <span className="italic text-slate-500">• No external transaction ID provided</span>
                     )}
                   </div>
                 </div>
@@ -654,7 +660,7 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                             </span>
                           ) : (
                             <span className="text-slate-500 italic text-[11px] block">
-                              No external TID provided (Verified via receipt screenshot)
+                              No external transaction ID provided
                             </span>
                           )}
                         </div>
@@ -680,10 +686,20 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                         </div>
 
                         <div>
+                          <span className="text-slate-500 block text-[10px]">Subscriber / User Account</span>
+                          <span className="text-white font-bold">{selectedTx.userName || 'N/A'}</span>
+                          {selectedTx.userEmail && (
+                            <span className="text-slate-400 text-[11px] block">{selectedTx.userEmail}</span>
+                          )}
+                        </div>
+
+                        <div>
                           <span className="text-slate-500 block text-[10px]">Sender Name / Account</span>
-                          <span className="text-white font-bold">{selectedTx.senderName || selectedTx.userName || 'N/A'}</span>
-                          {selectedTx.senderPhoneOrAccount && (
+                          <span className="text-white font-bold">{selectedTx.senderName || 'Not specified'}</span>
+                          {selectedTx.senderPhoneOrAccount ? (
                             <span className="text-emerald-400 font-mono text-[11px] block">{selectedTx.senderPhoneOrAccount}</span>
+                          ) : (
+                            <span className="text-slate-500 italic text-[11px] block">No sender phone/account provided</span>
                           )}
                         </div>
                         <div>
@@ -797,8 +813,12 @@ export const AdminPaymentVerificationHub: React.FC<AdminPaymentVerificationHubPr
                   ) : (
                     <div className="text-center text-slate-500 py-12">
                       <Receipt className="w-10 h-10 mx-auto mb-2 text-slate-600 stroke-[1.5]" />
-                      <p className="text-xs font-bold text-slate-400">No screenshot image attached</p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Verification performed using Transaction ID (TID) reference.</p>
+                      <p className="text-xs font-bold text-slate-400">No receipt screenshot attached</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        {!isSystemGeneratedReference(selectedTx.transactionId, selectedTx.id)
+                          ? 'Review submitted Transaction ID (TID) and payment details for manual verification.'
+                          : 'No external transaction ID or receipt screenshot provided with this submission.'}
+                      </p>
                     </div>
                   )}
                 </div>

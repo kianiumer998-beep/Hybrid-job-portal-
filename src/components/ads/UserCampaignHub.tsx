@@ -134,7 +134,6 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
     let isMounted = true;
     setIsLoadingDepositSettings(true);
     setDepositError(null);
-    setDepositSenderName(currentUser.name || '');
 
     api.paymentSettings.get().then((res) => {
       if (!isMounted) return;

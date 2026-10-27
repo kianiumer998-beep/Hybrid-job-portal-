@@ -108,6 +108,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onOpenSubscriptionModal
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Job Alert & Document Form State
   const [alertKeyword, setAlertKeyword] = useState('');
@@ -655,27 +656,33 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       
       {/* Header Profile Card - UNIFIED ACCOUNT */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-2xl text-emerald-400">
+        <div className="flex items-center space-x-4 w-full md:w-auto">
+          <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-xl md:text-2xl text-emerald-400">
               {currentUser.name.charAt(0).toUpperCase()}
             </div>
           </div>
 
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center space-x-2">
-              <h2 className="text-2xl font-black">{currentUser.name}</h2>
-              <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
+              <h2 className="text-xl md:text-2xl font-black truncate">{currentUser.name}</h2>
+              <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
                 Unified Portal Member
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Username: <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email} • {currentUser.phone || '+92 300 0000000'}
+            <p className="text-[10px] md:text-xs text-slate-400 mt-0.5 truncate">
+              <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2.5 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/30 transition-all active:scale-95"
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+          </button>
           <button
             onClick={onLogout}
             className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors"
@@ -686,32 +693,39 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-4 overflow-x-auto text-xs font-bold">
-        {[
-          { id: 'overview', label: 'Billing & Membership Metrics', icon: Receipt },
-          { id: 'profile', label: 'My Profile & Security', icon: User },
-          { id: 'applications', label: `My Job Applications (${myApplications.length})`, icon: FileText },
-          { id: 'post-job', label: 'Post a New Job', icon: Plus },
-          { id: 'my-jobs', label: `My Posted Jobs (${userJobs.length})`, icon: Briefcase },
-          { id: 'campaigns', label: `Self-Serve Ads & Wallet (${userAds.length})`, icon: Megaphone },
-          { id: 'chat', label: `Admin Inbox (${myMessages.length})`, icon: MessageSquare }
-        ].map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id as any)}
-              className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === t.id
-                  ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{t.label}</span>
-            </button>
-          );
-        })}
+      <div className={`border-b border-slate-800 pb-4 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+        <div className="flex flex-col md:flex-row gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:flex md:flex-wrap gap-2">
+            {[
+              { id: 'overview', label: 'Dashboard', icon: Receipt },
+              { id: 'profile', label: 'Profile', icon: User },
+              { id: 'applications', label: 'Apps', icon: FileText },
+              { id: 'post-job', label: 'Post Job', icon: Plus },
+              { id: 'my-jobs', label: 'My Jobs', icon: Briefcase },
+              { id: 'campaigns', label: 'Ads/Wallet', icon: Megaphone },
+              { id: 'chat', label: 'Inbox', icon: MessageSquare }
+            ].map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setActiveTab(t.id as any);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`flex items-center space-x-2 px-3 py-2.5 md:py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+                    activeTab === t.id
+                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20 scale-[1.02]'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* TAB 1: ADVANCED SUBSCRIPTION METRICS & PAYMENT HISTORY TABLE */}

@@ -288,6 +288,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onApprovePaymentTransaction,
   onRejectPaymentTransaction
 }) => {
+
+
   const [adminTab, setAdminTab] = useState<
     | 'analytics'
     | 'landing-customizer'
@@ -322,12 +324,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'stats'
   >('analytics');
 
-  // Modern Admin Category & Quick 3-Dot Drawer State
   type AdminCategory = 'jobs' | 'scraper' | 'ads' | 'payments' | 'users' | 'alerts' | 'settings';
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAllModulesMenu, setShowAllModulesMenu] = useState(false);
   const [moduleSearchQuery, setModuleSearchQuery] = useState('');
   const [seoPreviewJob, setSeoPreviewJob] = useState<Job | null>(null);
+
+  const TAB_CATEGORIES = {
+    analytics: 'stats',
+    'landing-customizer': 'settings',
+    'campaign-center': 'ads',
+    'fee-management': 'payments',
+    'payment-proofs': 'payments',
+    'admin-payment-methods': 'payments',
+    'whatsapp-manager': 'settings',
+    pending: 'jobs',
+    'scraped-history': 'scraper',
+    advertisements: 'ads',
+    'seo-config': 'settings',
+    'currency-forex': 'settings',
+    'broadcast-center': 'alerts',
+    'bulk-notifications': 'alerts',
+    'activity-logs': 'settings',
+    'data-backup': 'settings',
+    'ai-enhancer': 'scraper',
+    'employer-kyc': 'users',
+    'user-audit': 'users',
+    'fee-logs': 'payments',
+    scraper: 'scraper',
+    'url-scraper': 'scraper',
+    'chat-hub': 'alerts',
+    'form-customizer': 'settings',
+    'pricing-controller': 'payments',
+    'apply-settings': 'settings',
+    'add-job': 'jobs',
+    jobs: 'jobs',
+    subscribers: 'users',
+    settings: 'settings',
+    stats: 'stats',
+  };
+
+
+
 
   // Authenticated Admin Identity & Role Permissions (UX Guard - Backend remains authoritative)
   const [currentAdminUser, setCurrentAdminUser] = useState<{
@@ -2244,17 +2283,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={onExitAdmin}
-          className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-          <span>Exit Admin Panel</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="sm:hidden p-2 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/30"
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Filter className="w-5 h-5" />}
+          </button>
+          <button
+            onClick={onExitAdmin}
+            className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+            <span>Exit Admin Panel</span>
+          </button>
+        </div>
       </div>
 
       {/* MODERN ADMIN NAVIGATION: CATEGORIES + 3-DOT ALL MODULES + SUB-TABS */}
-      <div className="space-y-3 border-b border-slate-800 pb-4">
+      <div className={`space-y-3 border-b border-slate-800 pb-4 ${isMobileMenuOpen ? 'block' : 'hidden sm:block'}`}>
         {/* Top Level Category Bar with 3-Dot Quick Menu */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none">
@@ -2284,6 +2331,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   if (cat.id === 'settings' && !['seo-config', 'settings', 'form-customizer', 'activity-logs', 'data-backup', 'analytics'].includes(adminTab)) {
                     setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
                   }
+                  // Close mobile menu on category change for better focus
+                  setIsMobileMenuOpen(false);
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer select-none ${
                   activeCategory === cat.id
@@ -2334,7 +2383,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setAdminTab(t.id as any)}
+                    onClick={() => {
+                      setAdminTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
                     className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black shadow-md'
@@ -2384,7 +2436,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setAdminTab(t.id as any)}
+                    onClick={() => {
+                      setAdminTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
                     className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-amber-500 text-slate-950 font-black shadow-md'
@@ -2414,7 +2469,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setAdminTab(t.id as any)}
+                    onClick={() => {
+                      setAdminTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
                     className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black shadow-md'
@@ -2447,7 +2505,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setAdminTab(t.id as any)}
+                    onClick={() => {
+                      setAdminTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
                     className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-purple-500 text-white font-black shadow-md'
@@ -2474,7 +2535,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setAdminTab(t.id as any)}
+                    onClick={() => {
+                      setAdminTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
                     className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-amber-500 text-slate-950 font-black shadow-md'
@@ -2505,7 +2569,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setAdminTab(t.id as any)}
+                    onClick={() => {
+                      setAdminTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
                     className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-indigo-500 text-white font-black shadow-md'

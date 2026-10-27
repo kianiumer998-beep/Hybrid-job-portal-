@@ -769,7 +769,15 @@ transactionRouter.post('/', async (req, res) => {
             walletMutationState = 'DEDUCTING';
             newTx.walletMutationState = 'DEDUCTING';
 
-            const subDurationDays = (safeSubscriptionPlan || '').toLowerCase().includes('weekly') ? 7 : 30;
+            const pricingConfig = PricingRepository.get() || {};
+            const authoritativeSubDuration = Number(
+              pricingConfig.subscriptionDurations?.[safeSubscriptionPlan!]
+            );
+
+            if (!Number.isFinite(authoritativeSubDuration) || authoritativeSubDuration <= 0 || !Number.isInteger(authoritativeSubDuration)) {
+              throw new Error(`Authoritative server-side duration configuration is missing or invalid for subscription plan "${safeSubscriptionPlan}".`);
+            }
+            const subDurationDays = authoritativeSubDuration;
             const subscriptionExpiresAt = new Date(Date.now() + subDurationDays * 24 * 60 * 60 * 1000).toISOString();
             let updatedUser: any = null;
             try {

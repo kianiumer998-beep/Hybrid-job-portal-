@@ -354,6 +354,7 @@ transactionRouter.post('/', async (req, res) => {
       let enforcedAmount = Number(amount);
       let pricingBreakdown: Array<{ name: string; amount: number }> = [];
       let safeSubscriptionPlan: string | undefined = undefined;
+      let authoritativeSubDuration = 30;
       let isAdFreeOverride = false;
       let resolvedAdPricingSnapshot: Record<string, any> | undefined = undefined;
 
@@ -423,6 +424,18 @@ transactionRouter.post('/', async (req, res) => {
           return res.status(400).json({
             success: false,
             message: 'Invalid subscription plan pricing.'
+          });
+        }
+
+        const pricingConfig = PricingRepository.get() || {};
+        const authoritativeSubDuration = Number(
+          pricingConfig.subscriptionDurations?.[safeSubscriptionPlan!]
+        );
+
+        if (!Number.isFinite(authoritativeSubDuration) || authoritativeSubDuration <= 0 || !Number.isInteger(authoritativeSubDuration)) {
+          return res.status(400).json({
+            success: false,
+            message: `Authoritative server-side duration configuration is missing or invalid for subscription plan "${safeSubscriptionPlan}".`
           });
         }
 
@@ -769,14 +782,6 @@ transactionRouter.post('/', async (req, res) => {
             walletMutationState = 'DEDUCTING';
             newTx.walletMutationState = 'DEDUCTING';
 
-            const pricingConfig = PricingRepository.get() || {};
-            const authoritativeSubDuration = Number(
-              pricingConfig.subscriptionDurations?.[safeSubscriptionPlan!]
-            );
-
-            if (!Number.isFinite(authoritativeSubDuration) || authoritativeSubDuration <= 0 || !Number.isInteger(authoritativeSubDuration)) {
-              throw new Error(`Authoritative server-side duration configuration is missing or invalid for subscription plan "${safeSubscriptionPlan}".`);
-            }
             const subDurationDays = authoritativeSubDuration;
             const subscriptionExpiresAt = new Date(Date.now() + subDurationDays * 24 * 60 * 60 * 1000).toISOString();
             let updatedUser: any = null;

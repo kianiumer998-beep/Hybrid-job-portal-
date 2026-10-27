@@ -354,7 +354,7 @@ transactionRouter.post('/', async (req, res) => {
       let enforcedAmount = Number(amount);
       let pricingBreakdown: Array<{ name: string; amount: number }> = [];
       let safeSubscriptionPlan: string | undefined = undefined;
-      let authoritativeSubDuration = 30;
+      let authoritativeSubDuration = 0;
       let isAdFreeOverride = false;
       let resolvedAdPricingSnapshot: Record<string, any> | undefined = undefined;
 
@@ -428,7 +428,7 @@ transactionRouter.post('/', async (req, res) => {
         }
 
         const pricingConfig = PricingRepository.get() || {};
-        const authoritativeSubDuration = Number(
+        authoritativeSubDuration = Number(
           pricingConfig.subscriptionDurations?.[safeSubscriptionPlan!]
         );
 

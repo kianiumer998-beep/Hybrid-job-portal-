@@ -84,22 +84,22 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           </p>
 
           {/* Quick Action Buttons */}
-          <div className="mt-3.5 sm:mt-8 flex flex-row items-center justify-center gap-2 sm:gap-4">
+          <div className="mt-3 sm:mt-8 flex flex-row items-center justify-center gap-2 sm:gap-4">
             <button
               onClick={onExploreClick}
-              className="flex-1 sm:flex-initial min-h-[42px] sm:min-h-[44px] px-3.5 py-2 sm:px-8 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-bold text-xs sm:text-base shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
+              className="flex-1 sm:flex-initial min-h-[38px] sm:min-h-[44px] px-2.5 sm:px-8 py-2 sm:py-4 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-bold text-[11px] min-[360px]:text-xs sm:text-base shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1 sm:space-x-2 cursor-pointer"
             >
-              <Search className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-slate-950" />
-              <span>{heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`}</span>
-              <ArrowRight className="w-3 h-3 sm:w-4 sm:h-4 text-slate-950" />
+              <Search className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-slate-950 shrink-0" />
+              <span className="truncate">{heroConfig.primaryBtnText || `Browse ${totalJobsCount} Jobs`}</span>
+              <ArrowRight className="w-3 h-3 sm:w-4 sm:h-4 text-slate-950 shrink-0" />
             </button>
 
             <button
               onClick={onCvClick}
-              className="flex-1 sm:flex-initial min-h-[42px] sm:min-h-[44px] px-3.5 py-2 sm:px-8 sm:py-4 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-white border border-slate-700/80 font-semibold text-xs sm:text-base shadow-lg hover:border-indigo-500/50 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
+              className="flex-1 sm:flex-initial min-h-[38px] sm:min-h-[44px] px-2.5 sm:px-8 py-2 sm:py-4 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-white border border-slate-700/80 font-semibold text-[11px] min-[360px]:text-xs sm:text-base shadow-lg hover:border-indigo-500/50 hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center space-x-1 sm:space-x-2 cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-indigo-400" />
-              <span>{heroConfig.secondaryBtnText || 'Build ATS CV'}</span>
+              <Sparkles className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-indigo-400 shrink-0" />
+              <span className="truncate">{heroConfig.secondaryBtnText || 'Build ATS CV'}</span>
             </button>
           </div>
 

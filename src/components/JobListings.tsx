@@ -323,12 +323,14 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 </h3>
 
                 {/* Mobile compact company, location and posted line */}
-                <div className="flex sm:hidden items-center justify-between text-[10px] text-slate-400 mb-1.5">
+                <div className="flex sm:hidden items-center justify-between text-[10px] text-slate-400 mb-1">
                   <div className="flex items-center space-x-1 flex-1 min-w-0 pr-1 truncate">
                     <Building2 className="w-2.5 h-2.5 text-slate-500 shrink-0" />
                     <span className="text-slate-300 font-semibold truncate">{cleanCompany}</span>
                     <span className="text-slate-600">•</span>
-                    <span className="text-emerald-400 font-medium truncate">{job.city || (job.region === 'Pakistan' ? 'Pakistan' : job.region)}</span>
+                    <span className="text-emerald-400 font-medium truncate">
+                      {job.city ? `${job.city}${job.province ? `, ${job.province}` : ''}` : (job.region === 'Pakistan' ? (job.province || 'Pakistan') : job.region)}
+                    </span>
                   </div>
                   <span className="text-[9px] text-slate-500 shrink-0">{job.postedAt}</span>
                 </div>
@@ -469,7 +471,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
       {/* BOTTOM PAGINATION CONTROLS BAR */}
       {totalPages > 1 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4 mt-6 sm:mt-8">
           
           {/* Left: Summary */}
           <div className="text-xs text-slate-400">
@@ -483,20 +485,20 @@ export const JobListings: React.FC<JobListingsProps> = ({
             <button
               onClick={() => handlePageSelect(1)}
               disabled={safePage === 1}
-              className="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-all cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
+              className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-all cursor-pointer min-w-[32px] sm:min-w-[36px] min-h-[32px] sm:min-h-[36px] flex items-center justify-center"
               title="First Page"
             >
-              <ChevronsLeft className="w-4 h-4" />
+              <ChevronsLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             {/* Previous Page Button */}
             <button
               onClick={() => handlePageSelect(safePage - 1)}
               disabled={safePage === 1}
-              className="px-2.5 sm:px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-all font-semibold text-xs flex items-center space-x-1 cursor-pointer min-h-[36px]"
+              className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-all font-semibold text-xs flex items-center space-x-1 cursor-pointer min-h-[32px] sm:min-h-[36px]"
               title="Previous Page"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span className="hidden sm:inline">Prev</span>
             </button>
 
@@ -507,7 +509,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   return (
                     <span
                       key={`ellipsis-${idx}`}
-                      className="px-2 py-1 text-slate-500 font-bold text-xs"
+                      className="px-1.5 sm:px-2 py-1 text-slate-500 font-bold text-xs"
                     >
                       ...
                     </span>
@@ -521,7 +523,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   <button
                     key={`page-${pageNum}`}
                     onClick={() => handlePageSelect(pageNum)}
-                    className={`min-w-[36px] h-9 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    className={`min-w-[32px] sm:min-w-[36px] h-8 sm:h-9 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       isCurrent
                         ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30 scale-105 font-black ring-2 ring-emerald-400/40'
                         : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-700'
@@ -537,21 +539,21 @@ export const JobListings: React.FC<JobListingsProps> = ({
             <button
               onClick={() => handlePageSelect(safePage + 1)}
               disabled={safePage === totalPages}
-              className="px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-all font-semibold text-xs flex items-center space-x-1 cursor-pointer"
+              className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-all font-semibold text-xs flex items-center space-x-1 cursor-pointer min-h-[32px] sm:min-h-[36px]"
               title="Next Page"
             >
               <span className="hidden sm:inline">Next</span>
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             {/* Last Page Button */}
             <button
               onClick={() => handlePageSelect(totalPages)}
               disabled={safePage === totalPages}
-              className="p-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-all cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-950 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-all cursor-pointer min-w-[32px] sm:min-w-[36px] min-h-[32px] sm:min-h-[36px] flex items-center justify-center"
               title="Last Page"
             >
-              <ChevronsRight className="w-4 h-4" />
+              <ChevronsRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
 

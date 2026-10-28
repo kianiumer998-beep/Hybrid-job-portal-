@@ -64,11 +64,11 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-1">
+          {/* Desktop Navigation - Active on xl (1280px+) screens to prevent intermediate collision */}
+          <nav className="hidden xl:flex items-center space-x-1">
             <button
               onClick={() => { setActiveTab('jobs'); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
+              className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
                 activeTab === 'jobs' && !showAdminView
                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={() => { setActiveTab('cv'); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
+              className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
                 activeTab === 'cv' && !showAdminView
                   ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -100,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={() => { setActiveTab('alerts'); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
+              className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
                 activeTab === 'alerts' && !showAdminView
                   ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -113,7 +113,7 @@ export const Header: React.FC<HeaderProps> = ({
             {currentUser && (
               <button
                 onClick={() => { setActiveTab('dashboard'); }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
+                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2 ${
                   activeTab === 'dashboard' && !showAdminView
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -125,9 +125,9 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </nav>
 
-          {/* Right Action Controls */}
-          <div className="hidden md:flex items-center space-x-3">
-            {/* Selected Country Indicator & Switcher Button (Compact Flag/Globe Control) */}
+          {/* Desktop Right Action Controls - Active on xl (1280px+) */}
+          <div className="hidden xl:flex items-center space-x-2.5">
+            {/* Selected Country Indicator & Switcher Button */}
             {onOpenCountryModal && (
               <button
                 type="button"
@@ -159,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
             {currentUser ? (
               <button
                 onClick={() => setActiveTab('dashboard')}
-                className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs font-bold transition-all"
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs font-bold transition-all"
               >
                 <div className="w-6 h-6 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center font-black">
                   {currentUser.name.charAt(0).toUpperCase()}
@@ -191,7 +191,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Subscriber Status Badge */}
+            {/* Subscriber Status Badge or Subscription Action */}
             {isSubscribed ? (
               <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold shadow-sm">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -212,9 +212,9 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Mobile Hamburger & Quick Action Buttons */}
-          <div className="md:hidden flex items-center space-x-1 sm:space-x-2 shrink-0">
-            {/* Country Selector Flag Button on Mobile (Compact Flag/Globe Control) */}
+          {/* Mobile & Tablet (Under xl: 1280px) Quick Action Buttons */}
+          <div className="xl:hidden flex items-center space-x-1 sm:space-x-2 shrink-0">
+            {/* Country Selector Flag Button */}
             {onOpenCountryModal && (
               <button
                 type="button"
@@ -228,13 +228,14 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Mobile Announcement Bell */}
+            {/* Mobile / Tablet Announcement Bell */}
             {onOpenAdDrawer && (
               <button
                 type="button"
                 onClick={onOpenAdDrawer}
                 className="relative p-1.5 sm:p-2 rounded-xl bg-slate-800 text-amber-400 border border-slate-700 hover:border-amber-500/40 transition-all cursor-pointer shrink-0"
                 title="View Live Announcements"
+                aria-label="View Live Announcements"
               >
                 <Bell className="w-4 h-4" />
                 {activeAdsCount > 0 && (
@@ -243,7 +244,31 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {!currentUser && (
+            {/* Prominent Quick Subscribe Button on tablet / intermediate widths (sm to xl) */}
+            {!isSubscribed && (
+              <button
+                onClick={onOpenSubscriptionModal}
+                className="hidden sm:inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/20 active:scale-95 transition-all shrink-0 cursor-pointer"
+                title="Subscribe for Job Alerts (PKR 300)"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                <span>Job Alerts (PKR 300)</span>
+              </button>
+            )}
+
+            {/* User Account or Login Button */}
+            {currentUser ? (
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="flex items-center space-x-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white text-xs font-bold transition-all shrink-0"
+                title={`User Dashboard (${currentUser.name})`}
+              >
+                <div className="w-5 h-5 rounded-md bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-[10px]">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+                <span className="hidden md:inline max-w-[80px] truncate">{currentUser.name}</span>
+              </button>
+            ) : (
               <button
                 onClick={onOpenAuthModal}
                 className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold shrink-0"
@@ -251,21 +276,25 @@ export const Header: React.FC<HeaderProps> = ({
                 Login
               </button>
             )}
+
+            {/* Hamburger / Menu Toggle Button with clear visible label on >= 360px */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800"
+              className="p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 flex items-center space-x-1 transition-colors cursor-pointer"
               aria-label="Toggle Navigation Menu"
+              aria-expanded={mobileMenuOpen}
             >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
+              <span className="hidden min-[360px]:inline text-xs font-bold text-slate-300">Menu</span>
             </button>
           </div>
 
         </div>
       </div>
 
-      {/* Mobile Navigation Dropdown */}
+      {/* Mobile & Tablet Navigation Dropdown */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-slate-900 border-b border-slate-800 px-4 pt-2 pb-6 space-y-2">
+        <div className="xl:hidden bg-slate-900 border-b border-slate-800 px-4 pt-2 pb-6 space-y-2">
           {/* Mobile Country Switcher in Drawer */}
           {onOpenCountryModal && (
             <button

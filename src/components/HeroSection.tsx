@@ -19,11 +19,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   heroConfig = DEFAULT_LANDING_PAGE_CONFIG.hero
 }) => {
   return (
-    <section className="relative overflow-hidden bg-slate-950 pt-3.5 pb-5 sm:pt-14 sm:pb-16 border-b border-slate-800/80">
+    <section className="relative overflow-hidden bg-slate-950 pt-2.5 pb-4 sm:pt-14 sm:pb-16 border-b border-slate-800/80">
       {/* Subtle Background Glow Elements */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-emerald-500/10 via-indigo-500/10 to-transparent blur-3xl pointer-events-none rounded-full" />
       
-      <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 relative z-10 space-y-3 sm:space-y-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 relative z-10 space-y-2.5 sm:space-y-8">
         
         {/* PROMINENT HIRING / EMPLOYER CTA BANNER */}
         <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 border border-emerald-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-2.5 sm:gap-4">
@@ -104,34 +104,34 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           </div>
 
           {/* Key Feature Anchors */}
-          <div className="mt-4 sm:mt-10 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-left">
-            <div className="p-2 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
-              <div className="flex items-center space-x-1.5 sm:space-x-2 text-emerald-400 font-bold text-xs sm:text-sm">
+          <div className="mt-3 sm:mt-10 grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-3 text-left">
+            <div className="p-1.5 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
+              <div className="flex items-center space-x-1 sm:space-x-2 text-emerald-400 font-bold text-[11px] sm:text-sm">
                 <MapPin className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
                 <span className="truncate">{heroConfig.statBadge1Text || 'Localized PK'}</span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none hidden sm:block">Province, City & District filter</p>
             </div>
 
-            <div className="p-2 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
-              <div className="flex items-center space-x-1.5 sm:space-x-2 text-teal-400 font-bold text-xs sm:text-sm">
+            <div className="p-1.5 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
+              <div className="flex items-center space-x-1 sm:space-x-2 text-teal-400 font-bold text-[11px] sm:text-sm">
                 <MessageSquare className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
                 <span className="truncate">{heroConfig.statBadge4Text || 'WhatsApp Job Alerts'}</span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none hidden sm:block">Instant WhatsApp alerts when matching jobs post</p>
             </div>
 
-            <div className="p-2 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
-              <div className="flex items-center space-x-1.5 sm:space-x-2 text-indigo-400 font-bold text-xs sm:text-sm">
-                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <div className="p-1.5 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
+              <div className="flex items-center space-x-1 sm:space-x-2 text-indigo-400 font-bold text-[11px] sm:text-sm">
+                <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
                 <span className="truncate">{heroConfig.statBadge2Text || 'Automated CV Engine'}</span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none hidden sm:block">4 live templates with one-click print & ATS compliance</p>
             </div>
 
-            <div className="p-2 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
-              <div className="flex items-center space-x-1.5 sm:space-x-2 text-amber-400 font-bold text-xs sm:text-sm">
-                <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <div className="p-1.5 sm:p-3.5 rounded-lg sm:rounded-xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm">
+              <div className="flex items-center space-x-1 sm:space-x-2 text-amber-400 font-bold text-[11px] sm:text-sm">
+                <ShieldCheck className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
                 <span className="truncate">{heroConfig.statBadge3Text || 'Direct HR Connect'}</span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-none hidden sm:block">Verified recruiters & fast application routing</p>

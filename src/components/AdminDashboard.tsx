@@ -2264,46 +2264,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const selectedUserMessages = chatMessages.filter((m) => m.userId === selectedChatUserId);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6">
       
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border border-amber-500/40 rounded-3xl p-6 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
-          <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center border border-amber-500/30">
-            <ShieldCheck className="w-7 h-7" />
+      <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border border-amber-500/40 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+        <div className="flex items-center space-x-3 w-full sm:w-auto">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-500/20 text-amber-400 rounded-xl sm:rounded-2xl flex items-center justify-center border border-amber-500/30 shrink-0">
+            <ShieldCheck className="w-6 h-6 sm:w-7 sm:h-7" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center space-x-2">
-              <h2 className="text-2xl font-black">Portal Secret Control Hub</h2>
-              <span className="bg-amber-500 text-slate-950 text-[10px] uppercase font-bold px-2 py-0.5 rounded">
+              <h2 className="text-lg sm:text-2xl font-black truncate">Portal Secret Control Hub</h2>
+              <span className="bg-amber-500 text-slate-950 text-[9px] sm:text-[10px] uppercase font-bold px-2 py-0.5 rounded shrink-0">
                 Admin Authorized
               </span>
             </div>
-            <p className="text-xs text-slate-400">Manage approvals, per-job posting fees, user audits, and custom registration forms</p>
+            <p className="text-[10px] sm:text-xs text-slate-400 truncate sm:whitespace-normal">Manage approvals, per-job posting fees, user audits, and custom registration forms</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-expanded={isMobileMenuOpen}
             aria-label="Toggle Navigation Menu"
-            className="sm:hidden p-2 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/30 transition-all active:scale-95"
+            className="sm:hidden flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/30 font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-sm"
           >
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Filter className="w-5 h-5" />}
+            {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Filter className="w-4 h-4" />}
+            <span>Menu</span>
           </button>
           <button
             onClick={onExitAdmin}
-            className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer"
+            className="px-3.5 sm:px-5 py-1.5 sm:py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer"
           >
-            <X className="w-4 h-4" />
-            <span>Exit Admin Panel</span>
+            <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Exit Admin</span>
           </button>
         </div>
       </div>
 
       {/* MODERN ADMIN NAVIGATION: CATEGORIES + 3-DOT ALL MODULES + SUB-TABS */}
-      <div className={`space-y-3 border-b border-slate-800 pb-4 ${isMobileMenuOpen ? 'block' : 'hidden sm:block'}`}>
+      <div className={`space-y-2.5 sm:space-y-3 border-b border-slate-800 pb-3 sm:pb-4 ${isMobileMenuOpen ? 'block' : 'hidden sm:block'}`}>
         {/* Top Level Category Bar with 3-Dot Quick Menu */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none">

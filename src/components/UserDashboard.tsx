@@ -652,42 +652,43 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-8">
       
       {/* Header Profile Card - UNIFIED ACCOUNT */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="flex items-center space-x-4 w-full md:w-auto">
-          <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-xl md:text-2xl text-emerald-400">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-6">
+        <div className="flex items-center space-x-3 sm:space-x-4 w-full md:w-auto">
+          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-lg sm:text-2xl text-emerald-400">
               {currentUser.name.charAt(0).toUpperCase()}
             </div>
           </div>
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center space-x-2">
-              <h2 className="text-xl md:text-2xl font-black truncate">{currentUser.name}</h2>
+              <h2 className="text-lg sm:text-2xl font-black truncate">{currentUser.name}</h2>
               <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
                 Unified Portal Member
               </span>
             </div>
-            <p className="text-[10px] md:text-xs text-slate-400 mt-0.5 truncate">
+            <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">
               <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
+        <div className="flex items-center space-x-2 sm:space-x-3 w-full md:w-auto justify-end">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-expanded={isMobileMenuOpen}
             aria-label="Toggle Navigation Menu"
-            className="md:hidden p-2.5 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/30 transition-all active:scale-95"
+            className="md:hidden flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
           >
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+            {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+            <span>Menu</span>
           </button>
           <button
             onClick={onLogout}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors"
+            className="px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
           >
             Log Out
           </button>
@@ -695,9 +696,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       </div>
 
       {/* Navigation Tabs */}
-      <div className={`border-b border-slate-800 pb-4 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+      <div className={`border-b border-slate-800 pb-3 sm:pb-4 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
         <div className="flex flex-col md:flex-row gap-2">
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:flex md:flex-wrap gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:flex md:flex-wrap gap-1.5 sm:gap-2">
             {[
               { id: 'overview', label: 'Dashboard', icon: Receipt },
               { id: 'profile', label: 'Profile', icon: User },
@@ -716,7 +717,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     setActiveTab(t.id as any);
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`flex items-center space-x-2 px-3 py-2.5 md:py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+                  className={`flex items-center space-x-2 px-3 py-2 md:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
                     activeTab === t.id
                       ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20 scale-[1.02]'
                       : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'

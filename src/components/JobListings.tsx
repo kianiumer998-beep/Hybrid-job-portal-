@@ -144,9 +144,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
   }
 
   return (
-    <div className="space-y-6 mb-12">
+    <div className="space-y-3 sm:space-y-6 mb-8 sm:mb-12">
       {/* Top Header Summary */}
-      <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800/80 rounded-2xl px-5 py-3.5 shadow-md">
+      <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800/80 rounded-xl sm:rounded-2xl px-3.5 py-2 sm:px-5 sm:py-3.5 shadow-md">
         <div className="flex items-center space-x-2 text-xs text-slate-300">
           <Layers className="w-4 h-4 text-emerald-400" />
           <span>
@@ -162,7 +162,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
       </div>
 
       {/* Main Job Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6">
         {currentJobs.map((job, index) => {
           const isSaved = savedJobIds.includes(job.id);
           const cleanTitle = sanitizeJobTitle(job.title);

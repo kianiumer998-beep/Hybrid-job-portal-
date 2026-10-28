@@ -2264,38 +2264,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const selectedUserMessages = chatMessages.filter((m) => m.userId === selectedChatUserId);
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6">
+    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-8 space-y-2.5 sm:space-y-6">
       
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border border-amber-500/40 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
-        <div className="flex items-center space-x-3 w-full sm:w-auto">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-500/20 text-amber-400 rounded-xl sm:rounded-2xl flex items-center justify-center border border-amber-500/30 shrink-0">
-            <ShieldCheck className="w-6 h-6 sm:w-7 sm:h-7" />
+      <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border border-amber-500/40 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-4">
+        <div className="flex items-center space-x-2.5 sm:space-x-3 w-full sm:w-auto">
+          <div className="w-9 h-9 sm:w-12 sm:h-12 bg-amber-500/20 text-amber-400 rounded-lg sm:rounded-2xl flex items-center justify-center border border-amber-500/30 shrink-0">
+            <ShieldCheck className="w-5 h-5 sm:w-7 sm:h-7" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center space-x-2">
-              <h2 className="text-lg sm:text-2xl font-black truncate">Portal Secret Control Hub</h2>
-              <span className="bg-amber-500 text-slate-950 text-[9px] sm:text-[10px] uppercase font-bold px-2 py-0.5 rounded shrink-0">
-                Admin Authorized
+            <div className="flex items-center space-x-1.5 sm:space-x-2">
+              <h2 className="text-sm sm:text-2xl font-black truncate">Portal Secret Control Hub</h2>
+              <span className="bg-amber-500 text-slate-950 text-[9px] sm:text-[10px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0">
+                Admin
               </span>
             </div>
             <p className="text-[10px] sm:text-xs text-slate-400 truncate sm:whitespace-normal">Manage approvals, per-job posting fees, user audits, and custom registration forms</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-end">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-expanded={isMobileMenuOpen}
             aria-label="Toggle Navigation Menu"
-            className="sm:hidden flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/30 font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-sm"
+            className="sm:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-amber-400 border border-amber-500/30 font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-sm"
           >
-            {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Filter className="w-4 h-4" />}
+            {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Filter className="w-3.5 h-3.5" />}
             <span>Menu</span>
           </button>
           <button
             onClick={onExitAdmin}
-            className="px-3.5 sm:px-5 py-1.5 sm:py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer"
+            className="px-3 sm:px-5 py-1 sm:py-2.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer"
           >
             <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Exit Admin</span>
@@ -2304,10 +2304,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
 
       {/* MODERN ADMIN NAVIGATION: CATEGORIES + 3-DOT ALL MODULES + SUB-TABS */}
-      <div className={`space-y-2.5 sm:space-y-3 border-b border-slate-800 pb-3 sm:pb-4 ${isMobileMenuOpen ? 'block' : 'hidden sm:block'}`}>
+      <div className={`space-y-2 sm:space-y-3 border-b border-slate-800 pb-2 sm:pb-4 ${isMobileMenuOpen ? 'block' : 'hidden sm:block'}`}>
         {/* Top Level Category Bar with 3-Dot Quick Menu */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 sm:gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none">
             {[
               { id: 'jobs' as AdminCategory, label: '💼 Jobs & Posts', urdu: 'ملازمتیں', count: pendingJobs.length > 0 ? `${pendingJobs.length} Pending` : undefined, countColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
               { id: 'scraper' as AdminCategory, label: '🤖 Scraper Center', urdu: 'سکریپر سنٹر', count: undefined, countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
@@ -2336,7 +2336,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   // Close mobile menu on category change for better focus
                   setIsMobileMenuOpen(false);
                 }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer select-none ${
+                className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all flex items-center space-x-1 sm:space-x-1.5 cursor-pointer select-none ${
                   activeCategory === cat.id
                     ? 'bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20 scale-[1.02]'
                     : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800/80 border border-slate-800'
@@ -2344,7 +2344,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 <span>{cat.label}</span>
                 {cat.count && (
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-bold border ${activeCategory === cat.id ? 'bg-slate-950 text-amber-400 border-slate-900' : cat.countColor}`}>
+                  <span className={`text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-md font-bold border ${activeCategory === cat.id ? 'bg-slate-950 text-amber-400 border-slate-900' : cat.countColor}`}>
                     {cat.count}
                   </span>
                 )}
@@ -2360,18 +2360,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               aria-expanded={showAllModulesMenu}
               aria-haspopup="dialog"
               aria-label="Open all modules menu"
-              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/40 text-xs font-black flex items-center space-x-1.5 shadow-lg shadow-amber-500/10 transition-all cursor-pointer active:scale-95"
+              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/40 text-[11px] sm:text-xs font-black flex items-center space-x-1 sm:space-x-1.5 shadow-md shadow-amber-500/10 transition-all cursor-pointer active:scale-95"
               title="Open full modules matrix with search"
             >
-              <MoreVertical className="w-4 h-4 text-amber-400" />
+              <MoreVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
               <span>⋮ All Modules (تمام ماڈیولز)</span>
             </button>
           </div>
         </div>
 
         {/* ACTIVE CATEGORY SUB-TABS ROW */}
-        <div className="flex items-center space-x-2 overflow-x-auto py-1.5 px-2 bg-slate-950/70 border border-slate-800/80 rounded-xl scrollbar-none text-xs">
-          <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500 shrink-0 pl-1">
+        <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto py-1 sm:py-1.5 px-1.5 sm:px-2 bg-slate-950/70 border border-slate-800/80 rounded-lg sm:rounded-xl scrollbar-none text-[11px] sm:text-xs">
+          <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-bold text-slate-500 shrink-0 pl-0.5 sm:pl-1">
             Sub-Modules:
           </span>
 
@@ -2392,7 +2392,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setAdminTab(t.id as any);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black shadow-md'
                         : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -2415,7 +2415,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button
               type="button"
               onClick={() => setAdminTab('scraper')}
-              className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
                 adminTab === 'scraper' || adminTab === 'url-scraper' || adminTab === 'scraped-history'
                   ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-black shadow-md'
                   : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -2445,7 +2445,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setAdminTab(t.id as any);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-amber-500 text-slate-950 font-black shadow-md'
                         : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -2478,7 +2478,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setAdminTab(t.id as any);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black shadow-md'
                         : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -2514,7 +2514,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setAdminTab(t.id as any);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-purple-500 text-white font-black shadow-md'
                         : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -2544,7 +2544,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setAdminTab(t.id as any);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-amber-500 text-slate-950 font-black shadow-md'
                         : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -2578,7 +2578,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setAdminTab(t.id as any);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all whitespace-nowrap cursor-pointer ${
+                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === t.id
                         ? 'bg-indigo-500 text-white font-black shadow-md'
                         : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -2596,22 +2596,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* 3-DOT ALL MODULES QUICK MODAL OVERLAY */}
       {showAllModulesMenu && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-6 shadow-2xl space-y-5 text-white max-h-[90vh] flex flex-col animate-fadeIn">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-4xl w-full p-3.5 sm:p-6 shadow-2xl space-y-3 sm:space-y-5 text-white max-h-[92vh] flex flex-col animate-fadeIn">
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  <MoreVertical className="w-6 h-6" />
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 sm:pb-4">
+              <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+                <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                  <MoreVertical className="w-4 h-4 sm:w-6 sm:h-6" />
                 </div>
-                <div>
-                  <h3 className="text-lg font-black text-white flex items-center space-x-2">
-                    <span>Admin Control Hub: All Modules (تمام ماڈیولز)</span>
-                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[10px] font-bold">
-                      Quick Switcher
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-lg font-black text-white flex items-center space-x-1.5 sm:space-x-2 truncate">
+                    <span className="truncate">Admin Modules (تمام ماڈیولز)</span>
+                    <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] sm:text-[10px] font-bold shrink-0">
+                      Switcher
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-[10px] sm:text-xs text-slate-400 truncate">
                     Filter by module name or purpose to jump instantly without horizontal scrolling.
                   </p>
                 </div>
@@ -2621,21 +2621,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 type="button"
                 onClick={() => setShowAllModulesMenu(false)}
                 aria-label="Close menu"
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
             {/* Instant Filter Search Bar */}
             <div className="relative">
-              <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
+              <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 absolute left-3 sm:left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
                 value={moduleSearchQuery}
                 onChange={(e) => setModuleSearchQuery(e.target.value)}
-                placeholder="Search any module by English or Urdu keywords (e.g. 'jazzcash', 'scraper', 'seo', 'fees', 'whatsapp', 'kyc')..."
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 shadow-inner"
+                placeholder="Search any module by English or Urdu keywords (e.g. 'jazzcash', 'scraper', 'seo', 'fees')..."
+                className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-xl sm:rounded-2xl text-[11px] sm:text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 shadow-inner"
                 autoFocus
               />
             </div>
@@ -2738,25 +2738,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               }
                               setShowAllModulesMenu(false);
                             }}
-                            className={`p-3 rounded-2xl border text-left flex items-start space-x-3 transition-all cursor-pointer ${
+                            className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl border text-left flex items-start space-x-2 sm:space-x-3 transition-all cursor-pointer ${
                               isCurrent
-                                ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                                ? 'bg-amber-500/20 border-amber-500 text-white shadow-md sm:shadow-lg shadow-amber-500/10'
                                 : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-300'
                             }`}
                           >
-                            <div className={`p-2 rounded-xl shrink-0 ${isCurrent ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400 border border-slate-800'}`}>
-                              <Icon className="w-4 h-4" />
+                            <div className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl shrink-0 ${isCurrent ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400 border border-slate-800'}`}>
+                              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-1">
-                                <span className="text-xs font-bold text-white truncate block">{item.label}</span>
+                                <span className="text-[11px] sm:text-xs font-bold text-white truncate block">{item.label}</span>
                                 {item.badge && (
-                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0">
+                                  <span className="text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0">
                                     {item.badge}
                                   </span>
                                 )}
                               </div>
-                              <span className="text-[10px] text-slate-400 block mt-0.5">{item.urdu}</span>
+                              <span className="text-[9px] sm:text-[10px] text-slate-400 block mt-0.5 truncate">{item.urdu}</span>
                             </div>
                           </button>
                         );

@@ -652,20 +652,20 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-8">
+    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-8">
       
       {/* Header Profile Card - UNIFIED ACCOUNT */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-6">
-        <div className="flex items-center space-x-3 sm:space-x-4 w-full md:w-auto">
-          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-lg sm:text-2xl text-emerald-400">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-2.5 sm:gap-6">
+        <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto">
+          <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+            <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center font-black text-base sm:text-2xl text-emerald-400">
               {currentUser.name.charAt(0).toUpperCase()}
             </div>
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-center space-x-2">
-              <h2 className="text-lg sm:text-2xl font-black truncate">{currentUser.name}</h2>
+            <div className="flex items-center space-x-1.5 sm:space-x-2">
+              <h2 className="text-sm sm:text-2xl font-black truncate">{currentUser.name}</h2>
               <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
                 Unified Portal Member
               </span>
@@ -676,29 +676,29 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 sm:space-x-3 w-full md:w-auto justify-end">
+        <div className="flex items-center space-x-1.5 sm:space-x-3 w-full md:w-auto justify-end">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-expanded={isMobileMenuOpen}
             aria-label="Toggle Navigation Menu"
-            className="md:hidden flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+            className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
           >
-            {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+            {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
             <span>Menu</span>
           </button>
           <button
             onClick={onLogout}
-            className="px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
+            className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
           >
             Log Out
           </button>
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className={`border-b border-slate-800 pb-3 sm:pb-4 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
-        <div className="flex flex-col md:flex-row gap-2">
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:flex md:flex-wrap gap-1.5 sm:gap-2">
+      {/* Navigation Tabs - 4-column compact grid on mobile */}
+      <div className={`border-b border-slate-800 pb-2 sm:pb-4 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+        <div className="flex flex-col md:flex-row gap-1.5 sm:gap-2">
+          <div className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-2">
             {[
               { id: 'overview', label: 'Dashboard', icon: Receipt },
               { id: 'profile', label: 'Profile', icon: User },
@@ -717,14 +717,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     setActiveTab(t.id as any);
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`flex items-center space-x-2 px-3 py-2 md:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  className={`flex flex-col sm:flex-row items-center justify-center space-y-0.5 sm:space-y-0 sm:space-x-1.5 px-1 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-bold transition-all text-center cursor-pointer ${
                     activeTab === t.id
-                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20 scale-[1.02]'
+                      ? 'bg-emerald-500 text-slate-950 shadow-md sm:shadow-lg shadow-emerald-500/20 scale-[1.02]'
                       : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  <span>{t.label}</span>
+                  <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span className="truncate max-w-full">{t.label}</span>
                 </button>
               );
             })}
@@ -734,45 +734,45 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 1: ADVANCED SUBSCRIPTION METRICS & PAYMENT HISTORY TABLE */}
       {activeTab === 'overview' && (
-        <div className="space-y-6">
+        <div className="space-y-3 sm:space-y-6">
           
-          {/* Subscription Metrics Dashboard Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Subscription Metrics Dashboard Cards - 2x2 on Mobile, 4 columns on Desktop */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
             
-            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-2 shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase">
-                <span>Plan Type</span>
-                <Sparkles className="w-4 h-4 text-emerald-400" />
+            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
+              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
+                <span className="truncate">Plan Type</span>
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               </div>
-              <div className="text-xl font-black text-emerald-400">{currentUser.plan} Monthly Pro</div>
-              <div className="text-[11px] text-slate-400">Full Access to Job Portal & CV Engine</div>
+              <div className="text-sm sm:text-xl font-black text-emerald-400 truncate">{currentUser.plan} Monthly Pro</div>
+              <div className="text-[9px] sm:text-[11px] text-slate-400 truncate">Job Portal & CV Engine</div>
             </div>
 
-            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-2 shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase">
-                <span>Activation Timestamp</span>
-                <Clock className="w-4 h-4 text-teal-400" />
+            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
+              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
+                <span className="truncate">Activation</span>
+                <Clock className="w-3.5 h-3.5 text-teal-400 shrink-0" />
               </div>
-              <div className="text-base font-black text-white font-mono">{activationTimeStr}</div>
-              <div className="text-[11px] text-teal-400 font-semibold">Active & Verified</div>
+              <div className="text-xs sm:text-base font-black text-white font-mono truncate">{activationTimeStr}</div>
+              <div className="text-[9px] sm:text-[11px] text-teal-400 font-semibold truncate">Active & Verified</div>
             </div>
 
-            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-2 shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase">
-                <span>Expiry Timestamp (30 Days)</span>
-                <Calendar className="w-4 h-4 text-amber-400" />
+            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
+              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
+                <span className="truncate">Expiry Date</span>
+                <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               </div>
-              <div className="text-base font-black text-amber-400 font-mono">{expiryTimeStr}</div>
-              <div className="text-[11px] text-slate-400">Calculated 30 days from activation</div>
+              <div className="text-xs sm:text-base font-black text-amber-400 font-mono truncate">{expiryTimeStr}</div>
+              <div className="text-[9px] sm:text-[11px] text-slate-400 truncate">30-day validity window</div>
             </div>
 
-            <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-2 shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase">
-                <span>Total Renewals</span>
-                <RefreshCw className="w-4 h-4 text-indigo-400" />
+            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
+              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
+                <span className="truncate">Renewals</span>
+                <RefreshCw className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
               </div>
-              <div className="text-2xl font-black text-indigo-400">{renewalCount} Counter</div>
-              <div className="text-[11px] text-slate-400">Times membership was renewed</div>
+              <div className="text-sm sm:text-2xl font-black text-indigo-400 truncate">{renewalCount} Counter</div>
+              <div className="text-[9px] sm:text-[11px] text-slate-400 truncate">Renewals counter</div>
             </div>
 
           </div>
@@ -958,21 +958,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 2: MY PROFILE & SECURITY */}
       {activeTab === 'profile' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-white">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 text-white">
           
           {/* PROFILE EDIT FORM */}
-          <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
+          <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 sm:space-y-6 shadow-xl">
             <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-white flex items-center space-x-2">
-                  <User className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
+                  <User className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
                   <span>My Profile Details</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
                   Update your contact details and company representation.
                 </p>
               </div>
-              <span className="text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+              <span className="text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full">
                 Active Member
               </span>
             </div>
@@ -1072,13 +1072,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           {/* CHANGE PASSWORD & SECURITY FORM */}
-          <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
+          <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 sm:space-y-6 shadow-xl">
             <div className="border-b border-slate-800 pb-3">
-              <h3 className="text-lg font-black text-white flex items-center space-x-2">
-                <Key className="w-5 h-5 text-amber-400" />
+              <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
+                <Key className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
                 <span>Security & Change Password</span>
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
                 Update your login password securely.
               </p>
             </div>
@@ -1132,9 +1132,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           {/* SAVED JOBS, JOB ALERTS & DOCUMENTS (BACKEND AUTHORITATIVE) */}
-          <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* 1. Saved Jobs */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 className="text-sm font-black text-white flex items-center space-x-2">
                   <Bookmark className="w-4 h-4 text-amber-400" />
@@ -1149,7 +1149,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     ? savedJobsList
                     : allJobs.filter((j) => savedJobIds.includes(j.id))
                   ).map((sj: any) => (
-                    <div key={sj.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                    <div key={sj.id} className="p-2.5 sm:p-3 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl flex items-center justify-between gap-2 text-xs">
                       <div className="min-w-0">
                         <div className="font-bold text-white truncate">{sj.title || sj.id}</div>
                         <div className="text-[11px] text-slate-400 truncate">{sj.company || ''} {sj.city ? `• ${sj.city}` : ''}</div>
@@ -1170,7 +1170,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
 
             {/* 2. Job Alerts */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 className="text-sm font-black text-white flex items-center space-x-2">
                   <Sparkles className="w-4 h-4 text-emerald-400" />
@@ -1269,7 +1269,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
 
             {/* 3. User Documents */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 className="text-sm font-black text-white flex items-center space-x-2">
                   <FileText className="w-4 h-4 text-teal-400" />
@@ -1352,19 +1352,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 3: MY JOB APPLICATIONS */}
       {activeTab === 'applications' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4 shadow-xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 text-white space-y-3 sm:space-y-4 shadow-xl">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div>
-              <h3 className="text-lg font-black flex items-center space-x-2">
-                <FileText className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-base sm:text-lg font-black flex items-center space-x-2">
+                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
                 <span>My Submitted Job Applications ({myApplications.length})</span>
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
                 Track all your job submissions and employer response status.
               </p>
             </div>
-            <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full border border-emerald-500/30">
-              Total Applications: {myApplications.length}
+            <span className="bg-emerald-500/10 text-emerald-400 text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full border border-emerald-500/30">
+              Total: {myApplications.length}
             </span>
           </div>
 
@@ -1413,30 +1413,30 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 4: POST NEW JOB FORM */}
       {activeTab === 'post-job' && (
-        <form onSubmit={handleJobSubmitInitiate} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6 text-white max-w-4xl shadow-2xl">
-          <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <form onSubmit={handleJobSubmitInitiate} className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-8 space-y-4 sm:space-y-6 text-white max-w-4xl shadow-2xl">
+          <div className="border-b border-slate-800 pb-3 sm:pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
             <div>
-              <h3 className="text-xl font-black text-white flex items-center space-x-2">
-                <Briefcase className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-base sm:text-xl font-black text-white flex items-center space-x-2">
+                <Briefcase className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
                 <span>Create Detailed Job Post</span>
               </h3>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1">
                 Post corporate openings, public sector government positions, or newspaper classified clipping ads.
               </p>
             </div>
             {jobPostingFeePkr > 0 && (
-              <span className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold px-3.5 py-1.5 rounded-full self-start sm:self-auto">
+              <span className="text-[11px] sm:text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full self-start sm:self-auto">
                 Posting Fee: PKR {jobPostingFeePkr.toLocaleString()}
               </span>
             )}
           </div>
 
-          {/* SECTION 1: SECTOR & CATEGORY SELECTION */}
-          <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+          {/* SECTION 1: SECTOR & CATEGORY SELECTION - 2x2 on Mobile */}
+          <div className="space-y-1.5 sm:space-y-2">
+            <label className="block text-[11px] sm:text-xs font-bold text-slate-300 uppercase tracking-wider">
               1. Select Job Sector / Category
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
               {[
                 { id: 'Private Corporate', label: 'Corporate / Private', desc: 'Standard company roles', icon: '🏢' },
                 { id: 'Government Sector', label: 'Government / FPSC', desc: 'Public sector & BPS scales', icon: '🏛️' },
@@ -1456,15 +1456,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       setCurrency('USD');
                     }
                   }}
-                  className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  className={`p-2.5 sm:p-3.5 rounded-lg sm:rounded-xl border text-left transition-all cursor-pointer ${
                     jobCategory === cat.id
-                      ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
+                      ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-md sm:shadow-lg shadow-emerald-500/10'
                       : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                   }`}
                 >
-                  <div className="text-xl mb-1">{cat.icon}</div>
-                  <div className="font-bold text-xs text-white">{cat.label}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{cat.desc}</div>
+                  <div className="text-base sm:text-xl mb-0.5 sm:mb-1">{cat.icon}</div>
+                  <div className="font-bold text-[11px] sm:text-xs text-white truncate">{cat.label}</div>
+                  <div className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5 truncate">{cat.desc}</div>
                 </button>
               ))}
             </div>
@@ -2120,7 +2120,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 3: MY SUBMITTED JOBS */}
       {activeTab === 'my-jobs' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-white shadow-xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 text-white shadow-xl">
           <h3 className="text-base font-bold">My Submitted Job Listings</h3>
           {userJobs.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs bg-slate-950 rounded-xl border border-slate-800">
@@ -2320,7 +2320,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 4: TWO-WAY USER-ADMIN CHAT INBOX SYSTEM */}
       {activeTab === 'chat' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4 max-w-3xl shadow-2xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 text-white space-y-3 sm:space-y-4 max-w-3xl shadow-2xl">
           <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold flex items-center space-x-2">

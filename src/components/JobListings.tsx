@@ -211,7 +211,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           return (
             <React.Fragment key={job.id ? `${job.id}-${index}` : `job-${index}`}>
               <div
-                className={`group relative rounded-xl sm:rounded-2xl p-2.5 sm:p-5 shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${
+                className={`group relative rounded-xl sm:rounded-2xl p-2 sm:p-5 shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${
                   isTopPriority
                     ? 'bg-gradient-to-b from-slate-900 via-slate-900 to-amber-950/20 border-2 border-amber-500/50 shadow-amber-500/10 hover:border-amber-400 hover:shadow-amber-500/20'
                     : job.urgent
@@ -317,7 +317,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 {/* Job Title & Company */}
                 <h3
                   onClick={() => onSelectJob(job)}
-                  className="text-xs sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight sm:leading-snug line-clamp-2 mb-1"
+                  className="text-xs sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight sm:leading-snug line-clamp-1 sm:line-clamp-2 mb-1"
                 >
                   {cleanTitle}
                 </h3>

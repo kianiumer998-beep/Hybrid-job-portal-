@@ -565,64 +565,64 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   const userCtr = totalUserImpressions > 0 ? ((totalUserClicks / totalUserImpressions) * 100).toFixed(2) : '0.00';
 
   return (
-    <div className="space-y-6 text-white">
+    <div className="space-y-4 sm:space-y-6 text-white">
       
       {/* Wallet Balance & Financial Header Card */}
-      <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+      <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-3 sm:p-6 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
         <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-        <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-          <div className="space-y-2">
+        <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 sm:gap-6">
+          <div className="space-y-1 sm:space-y-2">
             <div className="flex items-center space-x-2">
-              <div className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex items-center space-x-1.5">
-                <Megaphone className="w-3.5 h-3.5" />
+              <div className="px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] sm:text-xs font-bold flex items-center space-x-1 sm:space-x-1.5">
+                <Megaphone className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 <span>Advertiser & Campaign Portal</span>
               </div>
-              <span className="text-xs text-slate-400 font-medium">Self-Service Ad Manager</span>
+              <span className="text-[10px] sm:text-xs text-slate-400 font-medium">Self-Service Ad Manager</span>
             </div>
             
-            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+            <h2 className="text-base sm:text-3xl font-black text-white tracking-tight">
               Promote Your Jobs, Academy & Services
             </h2>
-            <p className="text-xs sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
+            <p className="text-[11px] sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
               Launch targeted banners, job feed cards, modal lightboxes, and SMS text message broadcasts across the portal. Admin-approved with transparent hourly, daily, weekly, or monthly rate cards.
             </p>
           </div>
 
           {/* User Wallet Balance Box */}
-          <div className="bg-slate-900/90 border border-slate-700/80 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row items-start sm:items-center gap-5 w-full lg:w-auto backdrop-blur-md">
-            <div className="space-y-1">
-              <div className="text-[11px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1.5">
-                <Wallet className="w-4 h-4 text-emerald-400" />
+          <div className="bg-slate-900/90 border border-slate-700/80 rounded-xl sm:rounded-2xl p-3 sm:p-5 shadow-xl flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-5 w-full lg:w-auto backdrop-blur-md">
+            <div className="space-y-0.5 sm:space-y-1">
+              <div className="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1 sm:space-x-1.5">
+                <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
                 <span>My Wallet Balance</span>
               </div>
-              <div className="text-3xl font-black text-emerald-400 flex items-baseline space-x-1">
+              <div className="text-2xl sm:text-3xl font-black text-emerald-400 flex items-baseline space-x-1">
                 <span>PKR</span>
                 <span>{walletBalance.toLocaleString()}</span>
               </div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[10px] sm:text-[11px] text-slate-400">
                 Available for instant campaign publishing
               </div>
             </div>
 
-            <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
+            <div className="flex sm:flex-col gap-1.5 sm:gap-2 w-full sm:w-auto">
               <button
                 onClick={() => {
                   setDepositAmountInput(2500);
                   setIsDepositModalOpen(true);
                 }}
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+                className="flex-1 sm:flex-none px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-xs shadow-md sm:shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-1 sm:space-x-1.5 transition-all cursor-pointer active:scale-95"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 <span>Deposit Funds</span>
               </button>
 
               <button
                 onClick={() => setActiveSubTab('create')}
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+                className="flex-1 sm:flex-none px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md sm:shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-1 sm:space-x-1.5 transition-all cursor-pointer active:scale-95"
               >
-                <Sparkles className="w-4 h-4 text-indigo-200" />
+                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-200" />
                 <span>New Campaign</span>
               </button>
             </div>
@@ -630,64 +630,64 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         </div>
 
         {/* Aggregate KPI Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 mt-6 border-t border-slate-800/80 text-xs">
-          <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800">
-            <div className="text-slate-400 text-[11px] font-semibold">Total Campaigns</div>
-            <div className="text-lg font-black text-white mt-0.5">{userAds.length}</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 pt-3 sm:pt-6 mt-3 sm:mt-6 border-t border-slate-800/80 text-xs">
+          <div className="bg-slate-950/60 rounded-lg sm:rounded-xl p-2 sm:p-3 border border-slate-800">
+            <div className="text-slate-400 text-[10px] sm:text-[11px] font-semibold truncate">Total Campaigns</div>
+            <div className="text-base sm:text-lg font-black text-white mt-0.5">{userAds.length}</div>
           </div>
-          <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800">
-            <div className="text-slate-400 text-[11px] font-semibold">Active Running</div>
-            <div className="text-lg font-black text-emerald-400 mt-0.5">
+          <div className="bg-slate-950/60 rounded-lg sm:rounded-xl p-2 sm:p-3 border border-slate-800">
+            <div className="text-slate-400 text-[10px] sm:text-[11px] font-semibold truncate">Active Running</div>
+            <div className="text-base sm:text-lg font-black text-emerald-400 mt-0.5">
               {userAds.filter((a) => a.status === 'active').length}
             </div>
           </div>
-          <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800">
-            <div className="text-slate-400 text-[11px] font-semibold">Total Ad Impressions</div>
-            <div className="text-lg font-black text-indigo-300 mt-0.5">{totalUserImpressions.toLocaleString()}</div>
+          <div className="bg-slate-950/60 rounded-lg sm:rounded-xl p-2 sm:p-3 border border-slate-800">
+            <div className="text-slate-400 text-[10px] sm:text-[11px] font-semibold truncate">Impressions</div>
+            <div className="text-base sm:text-lg font-black text-indigo-300 mt-0.5 truncate">{totalUserImpressions.toLocaleString()}</div>
           </div>
-          <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800">
-            <div className="text-slate-400 text-[11px] font-semibold">Ad Clicks & CTR</div>
-            <div className="text-lg font-black text-amber-300 mt-0.5">{totalUserClicks.toLocaleString()} ({userCtr}%)</div>
+          <div className="bg-slate-950/60 rounded-lg sm:rounded-xl p-2 sm:p-3 border border-slate-800">
+            <div className="text-slate-400 text-[10px] sm:text-[11px] font-semibold truncate">Clicks (CTR)</div>
+            <div className="text-base sm:text-lg font-black text-amber-300 mt-0.5 truncate">{totalUserClicks.toLocaleString()} ({userCtr}%)</div>
           </div>
         </div>
       </div>
 
       {/* Sub-Tabs Navigation */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto text-xs font-bold">
+      <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2 sm:pb-3 overflow-x-auto text-[11px] sm:text-xs font-bold scrollbar-none">
         <button
           onClick={() => setActiveSubTab('my-campaigns')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'my-campaigns'
-              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
+              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-md shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
           }`}
         >
-          <Layers className="w-4 h-4" />
-          <span>My Campaigns & Status ({userAds.length})</span>
+          <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <span>My Campaigns ({userAds.length})</span>
         </button>
 
         <button
           onClick={() => setActiveSubTab('create')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'create'
-              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
+              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-md shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
           }`}
         >
-          <Plus className="w-4 h-4" />
-          <span>Create & Submit Campaign</span>
+          <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <span>+ Create Campaign</span>
         </button>
 
         <button
           onClick={() => setActiveSubTab('wallet')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'wallet'
-              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20'
+              ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-md shadow-emerald-500/20'
               : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
           }`}
         >
-          <Receipt className="w-4 h-4" />
-          <span>Wallet Ledger & Rate Card</span>
+          <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <span>Wallet Ledger</span>
         </button>
       </div>
 

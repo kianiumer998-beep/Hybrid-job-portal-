@@ -1605,7 +1605,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           {/* SECTION 4: BASIC JOB INFORMATION */}
           <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">Job Title *</label>
                 <input
@@ -1614,7 +1614,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="e.g. Senior Accounts Officer or Full Stack Engineer"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                  className="w-full px-3 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl text-white text-xs sm:text-sm"
                 />
               </div>
 
@@ -1626,37 +1626,37 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
                   placeholder="Company or Recruiting Agency"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                  className="w-full px-3 sm:px-3.5 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl text-white text-xs sm:text-sm"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Job Arrangement</label>
+                <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1 truncate">Job Arrangement</label>
                 <select
                   value={jobType}
                   onChange={(e) => setJobType(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                  className="w-full px-2 sm:px-3.5 py-1.5 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl text-white text-xs sm:text-sm"
                 >
-                  <option value="Remote">100% Remote Work</option>
-                  <option value="Hybrid">Hybrid (Office + Remote)</option>
-                  <option value="On-site">On-site Office</option>
+                  <option value="Remote">100% Remote</option>
+                  <option value="Hybrid">Hybrid</option>
+                  <option value="On-site">On-site</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Target Region</label>
+                <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1 truncate">Target Region</label>
                 <select
                   value={region}
                   onChange={(e) => setRegion(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                  className="w-full px-2 sm:px-3.5 py-1.5 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl text-white text-xs sm:text-sm"
                 >
                   <option value="Pakistan">🇵🇰 Pakistan</option>
-                  <option value="Global">🌐 Global International Remote</option>
+                  <option value="Global">🌐 Global Remote</option>
                   <option value="US">🇺🇸 United States</option>
                   <option value="UK">🇬🇧 United Kingdom</option>
-                  <option value="UAE">🇦🇪 United Arab Emirates</option>
+                  <option value="UAE">🇦🇪 UAE</option>
                   <option value="Saudi Arabia">🇸🇦 Saudi Arabia</option>
                   <option value="Canada">🇨🇦 Canada</option>
                   <option value="Europe">🇪🇺 Europe</option>
@@ -1664,12 +1664,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Department / Discipline</label>
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1 truncate">Discipline / Sector</label>
                 <select
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                  className="w-full px-2 sm:px-3.5 py-1.5 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl text-white text-xs sm:text-sm"
                 >
                   <option value="Software Development">Software & Technology</option>
                   <option value="Public Administration">Public Administration / Govt</option>
@@ -1683,15 +1683,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </div>
 
-            {/* PAKISTAN SUB-DISTRICT UNLOCKED LOCATION SELECTOR */}
+            {/* PAKISTAN SUB-DISTRICT UNLOCKED LOCATION SELECTOR - 2 cols on mobile */}
             {region === 'Pakistan' && (
-              <div className="p-4 bg-slate-950 rounded-xl border border-emerald-500/30 space-y-3">
-                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+              <div className="p-3 sm:p-4 bg-slate-950 rounded-xl border border-emerald-500/30 space-y-2.5 sm:space-y-3">
+                <span className="text-[11px] sm:text-xs font-bold text-emerald-400 uppercase tracking-wider block">
                   🇵🇰 Detailed Location Mapping (Pakistan Sub-Districts)
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Province</label>
+                    <label className="block text-[10px] sm:text-xs text-slate-400 mb-1 truncate">Province</label>
                     <select
                       value={province}
                       onChange={(e) => {
@@ -1702,7 +1702,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           setDistrict(p.cities[0].districts[0] || '');
                         }
                       }}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                      className="w-full px-2 sm:px-3 py-1.5 sm:py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
                     >
                       {(PAKISTAN_LOCATIONS || []).map((p) => (
                         <option key={p.province} value={p.province}>{p.province}</option>
@@ -1711,7 +1711,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">City</label>
+                    <label className="block text-[10px] sm:text-xs text-slate-400 mb-1 truncate">City</label>
                     <select
                       value={city}
                       onChange={(e) => {
@@ -1721,7 +1721,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           setDistrict(c.districts[0]);
                         }
                       }}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                      className="w-full px-2 sm:px-3 py-1.5 sm:py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
                     >
                       {(formCities || []).map((c) => (
                         <option key={c.name} value={c.name}>{c.name}</option>
@@ -1729,12 +1729,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">Sub-District / Area</label>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-[10px] sm:text-xs text-slate-400 mb-1 truncate">Sub-District / Area</label>
                     <select
                       value={district}
                       onChange={(e) => setDistrict(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs"
+                      className="w-full px-2 sm:px-3 py-1.5 sm:py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
                     >
                       {formDistricts.map((d) => (
                         <option key={d} value={d}>{d}</option>
@@ -1745,34 +1745,34 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             )}
 
-            {/* SALARY & CURRENCY SELECTION */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* SALARY & CURRENCY SELECTION - 2 cols on mobile */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Currency</label>
+                <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1 truncate">Currency</label>
                 <select
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value as Currency)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold"
+                  className="w-full px-2 sm:px-3.5 py-1.5 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl text-white text-xs sm:text-sm font-bold"
                 >
-                  <option value="PKR">PKR (Pakistani Rupee)</option>
-                  <option value="USD">USD ($ United States)</option>
-                  <option value="GBP">GBP (£ United Kingdom)</option>
+                  <option value="PKR">PKR (₨ Rupee)</option>
+                  <option value="USD">USD ($ USA)</option>
+                  <option value="GBP">GBP (£ UK)</option>
                   <option value="EUR">EUR (€ Europe)</option>
-                  <option value="AED">AED (UAE Dirham)</option>
-                  <option value="SAR">SAR (Saudi Riyal)</option>
+                  <option value="AED">AED (Dirham)</option>
+                  <option value="SAR">SAR (Riyal)</option>
                   <option value="CAD">CAD ($ Canada)</option>
                   <option value="AUD">AUD ($ Australia)</option>
                 </select>
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-300 mb-1">Salary Range / Compensation Package</label>
+              <div className="col-span-1 sm:col-span-2">
+                <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1 truncate">Salary Range / Package</label>
                 <input
                   type="text"
                   value={salary}
                   onChange={(e) => setSalary(e.target.value)}
-                  placeholder="e.g. PKR 250,000 - PKR 350,000 / month or AED 18,000 / month"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                  placeholder="e.g. PKR 150k - 250k / month"
+                  className="w-full px-2.5 sm:px-3.5 py-1.5 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl text-white text-xs sm:text-sm"
                 />
               </div>
             </div>
@@ -2419,38 +2419,38 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* JOB POSTING FEE PAYMENT INVOICE MODAL */}
       {showFeeInvoiceModal && pendingJobData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-5 text-white shadow-2xl relative animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-2.5 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-md w-full p-3.5 sm:p-6 space-y-3 sm:space-y-5 text-white shadow-2xl relative animate-in fade-in zoom-in duration-200">
             
             <button
               onClick={() => setShowFeeInvoiceModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
+              className="absolute top-3 sm:top-4 right-3 sm:right-4 text-slate-400 hover:text-white p-1 rounded-lg"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
 
-            <div className="flex items-center space-x-3 border-b border-slate-800 pb-4">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center font-bold">
-                <Receipt className="w-5 h-5" />
+            <div className="flex items-center space-x-2.5 sm:space-x-3 border-b border-slate-800 pb-3 sm:pb-4">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center font-bold shrink-0">
+                <Receipt className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <div>
-                <h3 className="font-extrabold text-base text-white">Job Posting Fee Required</h3>
-                <p className="text-xs text-slate-400">Admin configured per-job posting fee</p>
+              <div className="min-w-0">
+                <h3 className="font-extrabold text-sm sm:text-base text-white truncate">Job Posting Fee Required</h3>
+                <p className="text-[11px] sm:text-xs text-slate-400 truncate">Admin configured per-job posting fee</p>
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5 text-xs">
+            <div className="p-3 sm:p-4 bg-slate-950 rounded-xl sm:rounded-2xl border border-slate-800 space-y-2 sm:space-y-2.5 text-xs">
               <div className="flex justify-between text-slate-400">
                 <span>Job Opening:</span>
                 <span className="font-bold text-white text-right line-clamp-1">{pendingJobData.title}</span>
               </div>
               <div className="flex justify-between text-slate-400">
                 <span>Employer / Company:</span>
-                <span className="font-bold text-white">{pendingJobData.company}</span>
+                <span className="font-bold text-white truncate max-w-[50%]">{pendingJobData.company}</span>
               </div>
               <div className="flex justify-between text-slate-400">
                 <span>Selected Placement:</span>
-                <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px] bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                <span className="font-bold text-amber-300 uppercase tracking-wider text-[9px] sm:text-[10px] bg-amber-500/10 px-1.5 sm:px-2 py-0.5 rounded border border-amber-500/20">
                   {pendingJobData.priorityTier ? pendingJobData.priorityTier.replace('_', ' ') : 'Standard Listing'}
                 </span>
               </div>
@@ -2462,21 +2462,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               )}
               <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
                 <span className="font-bold text-slate-300">Total Posting Fee:</span>
-                <span className="font-black text-emerald-400 font-mono text-base">
+                <span className="font-black text-emerald-400 font-mono text-sm sm:text-base">
                   PKR {(calculatedPostingFee || computeJobPostingCost(priorityTier)).toLocaleString()}
                 </span>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-2">Select Payment Method</label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1.5 sm:mb-2">Select Payment Method</label>
+              <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs">
                 {(['JazzCash', 'Easypaisa', 'Credit Card', 'Bank Transfer'] as const).map((method) => (
                   <button
                     key={method}
                     type="button"
                     onClick={() => setPaymentMethod(method)}
-                    className={`py-2.5 px-3 rounded-xl font-bold border transition-all ${
+                    className={`py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold border transition-all text-[11px] sm:text-xs ${
                       paymentMethod === method
                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
@@ -2488,11 +2488,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-1.5 sm:pt-2">
               <button
                 type="button"
                 onClick={handleConfirmFeePayment}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs shadow-xl shadow-emerald-500/20 cursor-pointer"
+                className="w-full py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs shadow-xl shadow-emerald-500/20 cursor-pointer active:scale-95 transition-all"
               >
                 Pay PKR {(calculatedPostingFee || computeJobPostingCost(priorityTier)).toLocaleString()} & Submit Job
               </button>

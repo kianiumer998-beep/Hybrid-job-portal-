@@ -49,6 +49,13 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Demo fallback ad if no active banner is available
   const demoBannerAd: Advertisement = {
@@ -199,14 +206,6 @@ export const TopBannerAd: React.FC<TopBannerAdProps> = ({
 
   const style = themeClasses[activeBanner.theme] || themeClasses.indigo;
   const isDemo = activeBanner.id === 'demo-your-ad-here';
-
-  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 640);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const targetWidth = isMobile
     ? (bannerDimensions?.mobileWidth && bannerDimensions.mobileWidth !== '100%' ? bannerDimensions.mobileWidth : undefined)

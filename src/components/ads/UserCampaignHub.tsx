@@ -70,6 +70,9 @@ interface UserCampaignHubProps {
   allAds?: Advertisement[];
   pricingConfig?: AdPricingConfig;
   campaignConfig?: CampaignCustomizationConfig;
+  initialSubTab?: 'my-campaigns' | 'create' | 'wallet';
+  openDepositModal?: boolean;
+  onDepositModalClose?: () => void;
   onDepositWallet: (depositData: {
     amount: number;
     paymentMethod: string;
@@ -95,13 +98,31 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   allAds = [],
   pricingConfig = DEFAULT_AD_PRICING_CONFIG,
   campaignConfig = DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+  initialSubTab = 'my-campaigns',
+  openDepositModal = false,
+  onDepositModalClose,
   onDepositWallet,
   onSubmitCampaign,
   onDeleteCampaign,
   onDuplicateCampaign,
   onOpenGlobalDepositModal
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(initialSubTab);
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  useEffect(() => {
+    if (openDepositModal) {
+      setIsDepositModalOpen(true);
+      if (onDepositModalClose) {
+        onDepositModalClose();
+      }
+    }
+  }, [openDepositModal, onDepositModalClose]);
   
   // Status Filter for My Campaigns
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'rejected' | 'completed'>('all');

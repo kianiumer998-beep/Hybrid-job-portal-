@@ -4,7 +4,7 @@ import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCust
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check } from 'lucide-react';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
@@ -109,6 +109,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
+  const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
+  const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
 
   // Job Alert & Document Form State
   const [alertKeyword, setAlertKeyword] = useState('');
@@ -651,8 +655,23 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   ];
 
+  // Subscription Plan Expiry & Days Remaining
+  const isPlanExpired = useMemo(() => {
+    if (currentUser.membershipStatus === 'Expired') return true;
+    if (!currentUser.expiryDate) return false;
+    const expiryTime = new Date(currentUser.expiryDate).getTime();
+    return !isNaN(expiryTime) && expiryTime < Date.now();
+  }, [currentUser.membershipStatus, currentUser.expiryDate]);
+
+  const daysRemaining = useMemo(() => {
+    if (!currentUser.expiryDate) return 30;
+    const expiryTime = new Date(currentUser.expiryDate).getTime();
+    if (isNaN(expiryTime)) return 30;
+    return Math.ceil((expiryTime - Date.now()) / (1000 * 60 * 60 * 24));
+  }, [currentUser.expiryDate]);
+
   return (
-    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-8">
+    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
       
       {/* Header Profile Card - UNIFIED ACCOUNT */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-2.5 sm:gap-6">
@@ -695,17 +714,67 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </div>
       </div>
 
+      {/* PERSISTENT GLOBAL QUICK ACTION BAR (VISIBLE ACROSS ALL DASHBOARD TABS) */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-2 sm:p-3 shadow-lg flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+            <Wallet className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-300">Wallet:</span>
+            <span className="text-xs sm:text-sm font-black font-mono">
+              PKR {(currentUser.walletBalance ?? 0).toLocaleString()}
+            </span>
+          </div>
+
+          <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">
+            <span className="text-slate-400">Membership:</span>
+            <span className={`font-bold flex items-center space-x-1 ${isPlanExpired ? 'text-rose-400' : 'text-emerald-400'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isPlanExpired ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
+              <span>{isPlanExpired ? 'Expired' : `${daysRemaining > 0 ? `${daysRemaining}d Left` : 'Active Pro'}`}</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-1.5 sm:space-x-2">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('campaigns');
+              setCampaignSubTab('wallet');
+              setOpenDepositModalTrigger(true);
+            }}
+            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md shadow-emerald-500/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
+            title="Deposit funds into your wallet"
+          >
+            <Plus className="w-3.5 h-3.5 stroke-[3]" />
+            <span>Deposit Funds</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('campaigns');
+              setCampaignSubTab('create');
+            }}
+            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-[11px] sm:text-xs shadow-md shadow-indigo-600/20 flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
+            title="Create and launch a new ad campaign"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
+            <span>Create Campaign</span>
+          </button>
+        </div>
+      </div>
+
       {/* Navigation Tabs - 4-column compact grid on mobile */}
-      <div className={`border-b border-slate-800 pb-2 sm:pb-4 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+      <div className={`border-b border-slate-800 pb-2 sm:pb-3 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
         <div className="flex flex-col md:flex-row gap-1.5 sm:gap-2">
           <div className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-2">
             {[
               { id: 'overview', label: 'Dashboard', icon: Receipt },
-              { id: 'profile', label: 'Profile', icon: User },
-              { id: 'applications', label: 'Apps', icon: FileText },
+              { id: 'applications', label: 'Job Center', icon: FileText },
               { id: 'post-job', label: 'Post Job', icon: Plus },
-              { id: 'my-jobs', label: 'My Jobs', icon: Briefcase },
-              { id: 'campaigns', label: 'Ads/Wallet', icon: Megaphone },
+              { id: 'my-jobs', label: 'My Listings', icon: Briefcase },
+              { id: 'campaigns', label: 'Ads & Wallet', icon: Megaphone },
+              { id: 'profile', label: 'Profile', icon: User },
               { id: 'chat', label: 'Inbox', icon: MessageSquare }
             ].map((t) => {
               const Icon = t.icon;
@@ -735,94 +804,332 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {/* TAB 1: ADVANCED SUBSCRIPTION METRICS & PAYMENT HISTORY TABLE */}
       {activeTab === 'overview' && (
         <div className="space-y-3 sm:space-y-6">
-          
-          {/* Subscription Metrics Dashboard Cards - 2x2 on Mobile, 4 columns on Desktop */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
-            
-            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
-                <span className="truncate">Plan Type</span>
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              </div>
-              <div className="text-sm sm:text-xl font-black text-emerald-400 truncate">{currentUser.plan} Monthly Pro</div>
-              <div className="text-[9px] sm:text-[11px] text-slate-400 truncate">Job Portal & CV Engine</div>
-            </div>
 
-            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
-                <span className="truncate">Activation</span>
-                <Clock className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-              </div>
-              <div className="text-xs sm:text-base font-black text-white font-mono truncate">{activationTimeStr}</div>
-              <div className="text-[9px] sm:text-[11px] text-teal-400 font-semibold truncate">Active & Verified</div>
-            </div>
+          {/* CINEMATIC SUBSCRIPTION & PLAN HERO CARD */}
+          <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-3.5 sm:p-6 shadow-2xl text-white">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+            <div className="absolute bottom-0 left-1/4 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
-                <span className="truncate">Expiry Date</span>
-                <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              </div>
-              <div className="text-xs sm:text-base font-black text-amber-400 font-mono truncate">{expiryTimeStr}</div>
-              <div className="text-[9px] sm:text-[11px] text-slate-400 truncate">30-day validity window</div>
-            </div>
+            <div className="relative z-10 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3 sm:pb-4">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] sm:text-xs font-black tracking-wider uppercase flex items-center space-x-1">
+                      <Sparkles className="w-3 h-3" />
+                      <span>{currentUser.plan || 'Premium'} Pro Pass</span>
+                    </span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${
+                      isPlanExpired
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse'
+                        : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                    }`}>
+                      {isPlanExpired ? '⚠️ Subscription Expired' : '✓ Active & Verified'}
+                    </span>
+                  </div>
 
-            <div className="p-2.5 sm:p-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-1 sm:space-y-2 shadow-md sm:shadow-lg">
-              <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase">
-                <span className="truncate">Renewals</span>
-                <RefreshCw className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              </div>
-              <div className="text-sm sm:text-2xl font-black text-indigo-400 truncate">{renewalCount} Counter</div>
-              <div className="text-[9px] sm:text-[11px] text-slate-400 truncate">Renewals counter</div>
-            </div>
+                  <h3 className="text-base sm:text-2xl font-black text-white tracking-tight flex items-center space-x-2">
+                    <span>{currentUser.plan || 'Premium'} Pro Membership</span>
+                    <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
+                  </h3>
+                  <p className="text-[11px] sm:text-xs text-slate-400">
+                    Unlimited job submissions, automated CV builder access & verified applicant tier.
+                  </p>
+                </div>
 
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                  <button
+                    onClick={onRenewSubscription}
+                    className={`px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-black text-xs transition-all active:scale-95 cursor-pointer shadow-lg flex items-center space-x-1.5 ${
+                      isPlanExpired
+                        ? 'bg-gradient-to-r from-rose-500 via-amber-500 to-rose-600 text-slate-950 shadow-rose-500/30 animate-pulse'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'
+                    }`}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                    <span>{isPlanExpired ? '⚡ Renew Plan Now (+30 Days) - PKR 300' : 'Renew Plan (+30 Days)'}</span>
+                  </button>
+
+                  <button
+                    onClick={onOpenSubscriptionModal}
+                    className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs transition-all cursor-pointer"
+                  >
+                    Upgrade Plan
+                  </button>
+                </div>
+              </div>
+
+              {/* Expired Alert Notice Banner */}
+              {isPlanExpired && (
+                <div className="p-3 sm:p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span className="font-semibold">
+                      Your Pro subscription expired on {expiryTimeStr}. Renew now to submit new applications, maintain top visibility, and publish job listings.
+                    </span>
+                  </div>
+                  <button
+                    onClick={onRenewSubscription}
+                    className="px-3 py-1.5 rounded-lg bg-rose-500 text-slate-950 font-black text-xs shrink-0 cursor-pointer shadow-md"
+                  >
+                    Renew for PKR 300
+                  </button>
+                </div>
+              )}
+
+              {/* 4 Compact Metric Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+                <div className="p-2.5 sm:p-3.5 bg-slate-950/70 border border-slate-800 rounded-lg sm:rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
+                    <span>Plan Type</span>
+                    <Sparkles className="w-3 h-3 text-emerald-400" />
+                  </div>
+                  <div className="text-xs sm:text-base font-black text-emerald-400 mt-1 truncate">
+                    {currentUser.plan || 'Premium'} Pro
+                  </div>
+                  <div className="text-[9px] text-slate-400 mt-0.5 truncate">Job Portal & CV Engine</div>
+                </div>
+
+                <div className="p-2.5 sm:p-3.5 bg-slate-950/70 border border-slate-800 rounded-lg sm:rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
+                    <span>Activation</span>
+                    <Clock className="w-3 h-3 text-teal-400" />
+                  </div>
+                  <div className="text-xs sm:text-sm font-black text-white font-mono mt-1 truncate">
+                    {activationTimeStr}
+                  </div>
+                  <div className="text-[9px] text-teal-400 mt-0.5 truncate">Verified on Record</div>
+                </div>
+
+                <div className="p-2.5 sm:p-3.5 bg-slate-950/70 border border-slate-800 rounded-lg sm:rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
+                    <span>Expiry Date</span>
+                    <Calendar className="w-3 h-3 text-amber-400" />
+                  </div>
+                  <div className={`text-xs sm:text-sm font-black font-mono mt-1 truncate ${isPlanExpired ? 'text-rose-400' : 'text-amber-400'}`}>
+                    {expiryTimeStr}
+                  </div>
+                  <div className="text-[9px] text-slate-400 mt-0.5 truncate">
+                    {isPlanExpired ? 'Validity Ended' : `${daysRemaining > 0 ? `${daysRemaining} days left` : 'Active'}`}
+                  </div>
+                </div>
+
+                <div className="p-2.5 sm:p-3.5 bg-slate-950/70 border border-slate-800 rounded-lg sm:rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
+                    <span>Renewals</span>
+                    <RefreshCw className="w-3 h-3 text-indigo-400" />
+                  </div>
+                  <div className="text-xs sm:text-base font-black text-indigo-400 mt-1 truncate">
+                    {renewalCount} Cycles
+                  </div>
+                  <div className="text-[9px] text-slate-400 mt-0.5 truncate">Loyalty Counter</div>
+                </div>
+              </div>
+
+              {/* 1-Term Contract & Monthly Auto-Renewal Control */}
+              <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-white text-xs sm:text-sm">
+                      {currentUser.autoRenew ? 'Continuous Monthly Auto-Renewal' : '1-Term Fixed Contract'}
+                    </span>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                      currentUser.autoRenew
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}>
+                      {currentUser.autoRenew ? 'Auto-Charge Enabled' : 'Fixed 1-Term'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] sm:text-xs text-slate-400">
+                    {currentUser.autoRenew
+                      ? 'Subscription auto-renews for 30 days upon reaching expiry date without manual intervention.'
+                      : 'Subscription will terminate exactly on expiry date without any automatic debit.'}
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-3 self-end sm:self-auto">
+                  <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
+                    {currentUser.autoRenew ? 'Toggle to 1-Term' : 'Toggle to Auto-Renew'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onToggleAutoRenew}
+                    aria-label="Toggle Auto Renewal"
+                    className={`w-12 sm:w-14 h-6 sm:h-7 flex items-center rounded-full p-1 transition-colors duration-300 cursor-pointer ${
+                      currentUser.autoRenew ? 'bg-emerald-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <div
+                      className={`bg-white w-4 sm:w-5 h-4 sm:h-5 rounded-full shadow-md transform transition-transform duration-300 ${
+                        currentUser.autoRenew ? 'translate-x-6 sm:translate-x-7' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Subscription Control & Auto-Renew Card */}
-          <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-5 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
-              <div>
-                <h3 className="text-lg font-black text-white flex items-center space-x-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                  <span>Membership Auto-Renewal & Renewal Actions</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Manage your subscription timeline and extend your validity anytime.
-                </p>
-              </div>
+          {/* OVERVIEW SUB-VIEW NAVIGATION PILLS */}
+          <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2.5">
+            <button
+              onClick={() => setOverviewSubView('metrics')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                overviewSubView === 'metrics'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Plan & Summary</span>
+            </button>
 
-              <button
-                onClick={onRenewSubscription}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
-              >
-                Renew Membership (+30 Days)
-              </button>
-            </div>
+            <button
+              onClick={() => setOverviewSubView('recommendations')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                overviewSubView === 'recommendations'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Job Recommendations ({recommendedJobs.length})</span>
+            </button>
 
-            <div className="flex items-center justify-between py-3 bg-slate-950 px-4 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-bold text-white text-sm block">Monthly Auto-Renewal Switch</span>
-                <span className="text-xs text-slate-400">When enabled, subscription auto-renews at expiry date</span>
-              </div>
-
-              <button
-                type="button"
-                onClick={onToggleAutoRenew}
-                className={`w-14 h-7 flex items-center rounded-full p-1 transition-colors duration-300 cursor-pointer ${
-                  currentUser.autoRenew ? 'bg-emerald-500' : 'bg-slate-700'
-                }`}
-              >
-                <div
-                  className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-300 ${
-                    currentUser.autoRenew ? 'translate-x-7' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
+            <button
+              onClick={() => setOverviewSubView('history')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                overviewSubView === 'history'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <History className="w-3.5 h-3.5 text-teal-400" />
+              <span>Payment History ({userTransactions.length})</span>
+            </button>
           </div>
 
-          {/* RECOMMENDED JOBS BASED ON PROFILE & SAVED TAGS */}
-          {recommendedJobs.length > 0 && (
-            <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-4 shadow-xl">
+          {/* SUB-VIEW 1: METRICS SNEAK-PEEKS */}
+          {overviewSubView === 'metrics' && (
+            <div className="space-y-4 sm:space-y-6">
+              
+              {/* Quick Preview of Personalized Job Recommendations */}
+              {recommendedJobs.length > 0 && (
+                <div className="p-3.5 sm:p-6 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-3 sm:space-y-4 shadow-xl">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center space-x-2">
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <h4 className="text-sm sm:text-base font-black">Recommended Openings For You</h4>
+                    </div>
+                    <button
+                      onClick={() => setOverviewSubView('recommendations')}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 font-bold flex items-center space-x-1 cursor-pointer"
+                    >
+                      <span>View All ({recommendedJobs.length})</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {recommendedJobs.slice(0, 3).map(({ job, fitPercent, reasons }) => (
+                      <div
+                        key={`rec-mini-${job.id}`}
+                        className="p-3 bg-slate-950 border border-slate-800 hover:border-emerald-500/50 rounded-xl flex flex-col justify-between space-y-2.5 transition-all text-xs"
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              {fitPercent}% Match
+                            </span>
+                            <span className="text-[10px] text-slate-400">{job.jobType}</span>
+                          </div>
+                          <div className="font-bold text-white truncate text-xs sm:text-sm">{job.title}</div>
+                          <div className="text-[11px] text-slate-400 truncate">{job.company} • {job.city || job.region}</div>
+                          <div className="text-[11px] font-bold text-emerald-400 font-mono">{job.salary}</div>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-900 flex items-center justify-between gap-2">
+                          {onToggleSaveJob && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleSaveJob(job.id)}
+                              className={`p-1.5 rounded-lg border text-xs ${
+                                savedJobIds.includes(job.id)
+                                  ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                                  : 'bg-slate-900 border-slate-800 text-slate-400'
+                              }`}
+                              title="Save Job"
+                            >
+                              <Bookmark className="w-3 h-3" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onSelectJob && onSelectJob(job)}
+                            className="flex-1 py-1.5 px-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-black flex items-center justify-center space-x-1 transition-all"
+                          >
+                            <span>View Details</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Preview of Recent Billing Transactions */}
+              <div className="p-3.5 sm:p-6 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-3 sm:space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center space-x-2">
+                    <History className="w-4 h-4 text-emerald-400" />
+                    <h4 className="text-sm sm:text-base font-black">Recent Billing Transactions</h4>
+                  </div>
+                  <button
+                    onClick={() => setOverviewSubView('history')}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 font-bold flex items-center space-x-1 cursor-pointer"
+                  >
+                    <span>View All ({userTransactions.length})</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase text-[9px] font-bold border-b border-slate-800">
+                      <tr>
+                        <th className="py-2 px-3">Date</th>
+                        <th className="py-2 px-3">Item</th>
+                        <th className="py-2 px-3">Amount</th>
+                        <th className="py-2 px-3">Method</th>
+                        <th className="py-2 px-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {userTransactions.slice(0, 3).map((tx) => (
+                        <tr key={tx.id} className="hover:bg-slate-800/40">
+                          <td className="py-2.5 px-3 font-mono text-white text-[11px]">{tx.dateTime}</td>
+                          <td className="py-2.5 px-3 text-slate-300 font-medium truncate max-w-[160px]">{tx.jobTitleRef || tx.type}</td>
+                          <td className="py-2.5 px-3 font-bold text-emerald-400 font-mono">{tx.currency} {tx.amount.toLocaleString()}</td>
+                          <td className="py-2.5 px-3 text-slate-400">{tx.paymentMethod}</td>
+                          <td className="py-2.5 px-3">
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              {tx.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* SUB-VIEW 2: FULL PERSONALIZED RECOMMENDATIONS */}
+          {overviewSubView === 'recommendations' && (
+            <div className="p-3.5 sm:p-6 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-4 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
                 <div>
                   <h3 className="text-base font-black flex items-center space-x-2 text-white">
@@ -834,124 +1141,130 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </p>
                 </div>
                 <span className="text-xs text-amber-400 font-bold bg-amber-400/10 px-2.5 py-1 rounded-full border border-amber-400/20 self-start sm:self-auto">
-                  {recommendedJobs.length} Recommended Openings
+                  {recommendedJobs.length} Recommendations Found
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {recommendedJobs.map(({ job, fitPercent, reasons }) => (
-                  <div
-                    key={`rec-job-${job.id}`}
-                    className="p-4 bg-slate-950/80 border border-slate-800 hover:border-emerald-500/50 rounded-xl flex flex-col justify-between space-y-3 transition-all hover:shadow-lg group"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {fitPercent}% Match
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {job.jobType} • {job.region}
-                        </span>
-                      </div>
+              {recommendedJobs.length === 0 ? (
+                <div className="p-8 text-center bg-slate-950 rounded-xl border border-slate-800 text-slate-400 text-xs">
+                  No personalized jobs calculated yet. Add skills to your profile or save jobs from the main feed to train recommendations!
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {recommendedJobs.map(({ job, fitPercent, reasons }) => (
+                    <div
+                      key={`rec-full-${job.id}`}
+                      className="p-4 bg-slate-950/80 border border-slate-800 hover:border-emerald-500/50 rounded-xl flex flex-col justify-between space-y-3 transition-all hover:shadow-lg group"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            {fitPercent}% Match
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {job.jobType} • {job.region}
+                          </span>
+                        </div>
 
-                      <div>
-                        <h4 className="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors line-clamp-1">
-                          {job.title}
-                        </h4>
-                        <p className="text-xs text-slate-400 font-medium">
-                          {job.company} • <span className="text-slate-300">{job.city || job.region}</span>
+                        <div>
+                          <h4 className="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors line-clamp-1">
+                            {job.title}
+                          </h4>
+                          <p className="text-xs text-slate-400 font-medium">
+                            {job.company} • <span className="text-slate-300">{job.city || job.region}</span>
+                          </p>
+                        </div>
+
+                        <p className="text-xs font-semibold text-emerald-400 font-mono">
+                          {job.salary}
                         </p>
+
+                        <div className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 flex items-center space-x-1.5">
+                          <ThumbsUp className="w-3 h-3 shrink-0 text-amber-400" />
+                          <span className="truncate">{reasons[0]}</span>
+                        </div>
                       </div>
 
-                      <p className="text-xs font-semibold text-emerald-400 font-mono">
-                        {job.salary}
-                      </p>
+                      <div className="pt-2 border-t border-slate-900 flex items-center justify-between gap-2">
+                        {onToggleSaveJob && (
+                          <button
+                            type="button"
+                            onClick={() => onToggleSaveJob(job.id)}
+                            className={`p-2 rounded-lg border text-xs font-medium transition-all ${
+                              savedJobIds.includes(job.id)
+                                ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                            title="Save Job"
+                          >
+                            <Bookmark className="w-3.5 h-3.5" />
+                          </button>
+                        )}
 
-                      <div className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 flex items-center space-x-1.5">
-                        <ThumbsUp className="w-3 h-3 shrink-0 text-amber-400" />
-                        <span className="truncate">{reasons[0]}</span>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-900 flex items-center justify-between gap-2">
-                      {onToggleSaveJob && (
                         <button
                           type="button"
-                          onClick={() => onToggleSaveJob(job.id)}
-                          className={`p-2 rounded-lg border text-xs font-medium transition-all ${
-                            savedJobIds.includes(job.id)
-                              ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                          }`}
-                          title="Save Job"
+                          onClick={() => onSelectJob && onSelectJob(job)}
+                          className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-extrabold flex items-center justify-center space-x-1 transition-all shadow-md"
                         >
-                          <Bookmark className="w-3.5 h-3.5" />
+                          <span>View Details</span>
+                          <ArrowRight className="w-3 h-3" />
                         </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onSelectJob) onSelectJob(job);
-                        }}
-                        className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-extrabold flex items-center justify-center space-x-1 transition-all shadow-md"
-                      >
-                        <span>View Details</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* PAYMENT HISTORY TABLE */}
-          <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-white space-y-4 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-black flex items-center space-x-2">
-                  <History className="w-5 h-5 text-emerald-400" />
-                  <span>Payment History & Billing Transactions</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Timeline of all subscription renewals and per-job posting fees paid.</p>
+          {/* SUB-VIEW 3: FULL PAYMENT HISTORY */}
+          {overviewSubView === 'history' && (
+            <div className="p-3.5 sm:p-6 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl text-white space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-base font-black flex items-center space-x-2">
+                    <History className="w-5 h-5 text-emerald-400" />
+                    <span>Payment History & Billing Transactions</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Timeline of all subscription renewals and per-job posting fees paid.</p>
+                </div>
+                <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                  {userTransactions.length} Transactions
+                </span>
               </div>
-              <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                {userTransactions.length} Transactions
-              </span>
-            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold border-b border-slate-800">
-                  <tr>
-                    <th className="py-3 px-4">Date & Time</th>
-                    <th className="py-3 px-4">Type</th>
-                    <th className="py-3 px-4">Reference / Item</th>
-                    <th className="py-3 px-4">Amount</th>
-                    <th className="py-3 px-4">Payment Method</th>
-                    <th className="py-3 px-4">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {userTransactions.map((tx) => (
-                    <tr key={tx.id} className="hover:bg-slate-800/50 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-semibold text-white">{tx.dateTime}</td>
-                      <td className="py-3.5 px-4 font-bold text-emerald-400">{tx.type}</td>
-                      <td className="py-3.5 px-4 text-slate-300">{tx.jobTitleRef || 'Monthly Pro Subscription'}</td>
-                      <td className="py-3.5 px-4 font-black text-white font-mono">{tx.currency} {tx.amount.toLocaleString()}</td>
-                      <td className="py-3.5 px-4 font-medium text-slate-300">{tx.paymentMethod}</td>
-                      <td className="py-3.5 px-4">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {tx.status}
-                        </span>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">Date & Time</th>
+                      <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Reference / Item</th>
+                      <th className="py-3 px-4">Amount</th>
+                      <th className="py-3 px-4">Payment Method</th>
+                      <th className="py-3 px-4">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {userTransactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-800/50 transition-colors">
+                        <td className="py-3.5 px-4 font-mono font-semibold text-white">{tx.dateTime}</td>
+                        <td className="py-3.5 px-4 font-bold text-emerald-400">{tx.type}</td>
+                        <td className="py-3.5 px-4 text-slate-300">{tx.jobTitleRef || 'Monthly Pro Subscription'}</td>
+                        <td className="py-3.5 px-4 font-black text-white font-mono">{tx.currency} {tx.amount.toLocaleString()}</td>
+                        <td className="py-3.5 px-4 font-medium text-slate-300">{tx.paymentMethod}</td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            {tx.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
       )}
@@ -1131,283 +1444,404 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </form>
           </div>
 
-          {/* SAVED JOBS, JOB ALERTS & DOCUMENTS (BACKEND AUTHORITATIVE) */}
-          <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-            {/* 1. Saved Jobs */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-black text-white flex items-center space-x-2">
-                  <Bookmark className="w-4 h-4 text-amber-400" />
-                  <span>Saved Jobs ({savedJobsList.length || savedJobIds.length})</span>
-                </h3>
-              </div>
-              {savedJobIds.length === 0 && savedJobsList.length === 0 ? (
-                <p className="text-xs text-slate-400 italic">No saved jobs yet. Click the bookmark icon on any job card to save it to your account.</p>
+        </div>
+      )}
+
+      {/* TAB 3: JOB CENTER — SUBMITTED APPLICATIONS, SAVED JOBS, ALERTS & DOCUMENTS */}
+      {activeTab === 'applications' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 text-white space-y-4 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-base sm:text-lg font-black flex items-center space-x-2">
+                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+                <span>Job Center & Career Management</span>
+              </h3>
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                Track submitted job applications, your saved job watchlist, customized job alerts, and uploaded CV documents.
+              </p>
+            </div>
+          </div>
+
+          {/* Sub-Tabs: Submitted Apps | Saved Jobs | Job Alerts | My Documents */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 border-b border-slate-800 pb-3">
+            <button
+              onClick={() => setAppSubTab('submitted')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                appSubTab === 'submitted'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Submitted Applications ({myApplications.length})</span>
+            </button>
+
+            <button
+              onClick={() => setAppSubTab('saved')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                appSubTab === 'saved'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              <span>Saved Jobs ({savedJobsList.length || savedJobIds.length})</span>
+            </button>
+
+            <button
+              onClick={() => setAppSubTab('alerts')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                appSubTab === 'alerts'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Job Alerts ({jobAlerts.length})</span>
+            </button>
+
+            <button
+              onClick={() => setAppSubTab('documents')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                appSubTab === 'documents'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-teal-400" />
+              <span>My Documents & CV ({userDocuments.length})</span>
+            </button>
+          </div>
+
+          {/* SUB-TAB 1: SUBMITTED JOB APPLICATIONS */}
+          {appSubTab === 'submitted' && (
+            <div className="space-y-3">
+              {myApplications.length === 0 ? (
+                <div className="p-10 text-center bg-slate-950 border border-slate-800 rounded-xl text-slate-500 italic space-y-2">
+                  <p className="font-bold text-slate-400 text-sm">No job applications submitted yet.</p>
+                  <p className="text-xs">Browse the live job board and click "Apply Now" to submit your CV and application!</p>
+                </div>
               ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+                <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-900 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
+                      <tr>
+                        <th className="p-3.5">Job Title & Company</th>
+                        <th className="p-3.5">Applied Timestamp</th>
+                        <th className="p-3.5">Application Status</th>
+                        <th className="p-3.5">Subscription Tier</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {myApplications.map((app) => (
+                        <tr key={app.id} className="hover:bg-slate-900/50">
+                          <td className="p-3.5">
+                            <div className="font-bold text-white text-sm">{app.jobTitle}</div>
+                            <div className="text-slate-400 text-xs">{app.companyName}</div>
+                          </td>
+                          <td className="p-3.5 font-mono text-slate-300">{app.appliedAt}</td>
+                          <td className="p-3.5 font-bold text-emerald-400">
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px]">
+                              {app.status}
+                            </span>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold text-[10px]">
+                              {app.paymentStatus || 'Subscription Active'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SUB-TAB 2: SAVED JOBS WATCHLIST */}
+          {appSubTab === 'saved' && (
+            <div className="space-y-3">
+              {savedJobIds.length === 0 && savedJobsList.length === 0 ? (
+                <div className="p-10 text-center bg-slate-950 border border-slate-800 rounded-xl text-slate-500 italic space-y-2">
+                  <p className="font-bold text-slate-400 text-sm">No saved jobs in your watchlist yet.</p>
+                  <p className="text-xs">Click the bookmark icon on any job card from the main feed to pin it here!</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {(savedJobsList.length > 0
                     ? savedJobsList
                     : allJobs.filter((j) => savedJobIds.includes(j.id))
                   ).map((sj: any) => (
-                    <div key={sj.id} className="p-2.5 sm:p-3 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl flex items-center justify-between gap-2 text-xs">
-                      <div className="min-w-0">
-                        <div className="font-bold text-white truncate">{sj.title || sj.id}</div>
-                        <div className="text-[11px] text-slate-400 truncate">{sj.company || ''} {sj.city ? `• ${sj.city}` : ''}</div>
+                    <div key={sj.id} className="p-3.5 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl flex flex-col justify-between space-y-3 text-xs">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            Saved Job
+                          </span>
+                          <span className="text-[10px] text-slate-400">{sj.jobType || 'Remote'}</span>
+                        </div>
+                        <div className="font-bold text-white text-sm truncate">{sj.title || sj.id}</div>
+                        <div className="text-[11px] text-slate-400 truncate">{sj.company || 'Direct Employer'} {sj.city ? `• ${sj.city}` : ''}</div>
+                        {sj.salary && <div className="text-emerald-400 font-mono font-bold text-[11px]">{sj.salary}</div>}
                       </div>
-                      {onToggleSaveJob && (
+
+                      <div className="pt-2 border-t border-slate-900 flex items-center gap-2">
+                        {onToggleSaveJob && (
+                          <button
+                            type="button"
+                            onClick={() => onToggleSaveJob(sj.id)}
+                            className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => onToggleSaveJob(sj.id)}
-                          className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
+                          onClick={() => {
+                            if (onSelectJob) {
+                              const found = allJobs.find((j) => String(j.id) === String(sj.id)) || sj;
+                              onSelectJob(found);
+                            }
+                          }}
+                          className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-black flex items-center justify-center space-x-1 transition-all"
                         >
-                          Remove
+                          <span>View Details</span>
+                          <ArrowRight className="w-3 h-3" />
                         </button>
-                      )}
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
-
-            {/* 2. Job Alerts */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-black text-white flex items-center space-x-2">
-                  <Sparkles className="w-4 h-4 text-emerald-400" />
-                  <span>My Job Alerts ({jobAlerts.length})</span>
-                </h3>
-              </div>
-              {onCreateJobAlert && (
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!alertKeyword.trim() && !alertCity.trim()) return;
-                    const ok = await onCreateJobAlert({
-                      keyword: alertKeyword.trim() || undefined,
-                      city: alertCity.trim() || undefined,
-                      jobType: alertJobType,
-                      frequency: alertFrequency,
-                      email: currentUser.email
-                    });
-                    if (ok) {
-                      setAlertKeyword('');
-                      setAlertCity('');
-                    }
-                  }}
-                  className="space-y-2 text-xs"
-                >
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={alertKeyword}
-                      onChange={(e) => setAlertKeyword(e.target.value)}
-                      placeholder="Keyword (e.g. React)"
-                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
-                    />
-                    <input
-                      type="text"
-                      value={alertCity}
-                      onChange={(e) => setAlertCity(e.target.value)}
-                      placeholder="City (e.g. Lahore)"
-                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={alertJobType}
-                      onChange={(e) => setAlertJobType(e.target.value)}
-                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
-                    >
-                      <option value="Remote">Remote</option>
-                      <option value="Hybrid">Hybrid</option>
-                      <option value="On-site">On-site</option>
-                    </select>
-                    <select
-                      value={alertFrequency}
-                      onChange={(e) => setAlertFrequency(e.target.value)}
-                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
-                    >
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                    </select>
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer"
-                  >
-                    + Create Job Alert
-                  </button>
-                </form>
-              )}
-              <div className="space-y-2 max-h-44 overflow-y-auto">
-                {jobAlerts.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No active job alerts configured.</p>
-                ) : (
-                  jobAlerts.map((al: any) => (
-                    <div key={al.id} className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
-                      <div className="min-w-0">
-                        <div className="font-bold text-white truncate">
-                          {al.keyword || 'All Keywords'} {al.city ? `• ${al.city}` : ''}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {al.jobType || 'Any'} • {al.frequency || 'daily'}
-                        </div>
-                      </div>
-                      {onDeleteJobAlert && (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteJobAlert(al.id)}
-                          className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* 3. User Documents */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-3 sm:space-y-4 shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-black text-white flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-teal-400" />
-                  <span>My Documents ({userDocuments.length})</span>
-                </h3>
-              </div>
-              {onAddDocument && (
-                <div className="space-y-2 text-xs">
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={docTitle}
-                      onChange={(e) => setDocTitle(e.target.value)}
-                      placeholder="Document Title (optional)"
-                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
-                    />
-                    <select
-                      value={docType}
-                      onChange={(e) => setDocType(e.target.value)}
-                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs"
-                    >
-                      <option value="CV">CV / Resume</option>
-                      <option value="Cover Letter">Cover Letter</option>
-                      <option value="Certificate">Certificate</option>
-                    </select>
-                  </div>
-                  <label className="block w-full py-2 px-3 text-center rounded-lg bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 font-bold text-xs cursor-pointer">
-                    {docUploading ? 'Uploading...' : '+ Upload PDF/DOC/DOCX'}
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      className="hidden"
-                      disabled={docUploading}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setDocUploading(true);
-                        try {
-                          await onAddDocument(file, docTitle.trim() || file.name, docType);
-                          setDocTitle('');
-                        } finally {
-                          setDocUploading(false);
-                          e.target.value = '';
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              )}
-              <div className="space-y-2 max-h-44 overflow-y-auto">
-                {userDocuments.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No uploaded documents yet.</p>
-                ) : (
-                  userDocuments.map((doc: any) => (
-                    <div key={doc.id} className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
-                      <div className="min-w-0">
-                        <div className="font-bold text-white truncate">{doc.title || doc.fileName || doc.id}</div>
-                        <div className="text-[10px] text-slate-400 truncate">
-                          {doc.type || 'CV'} {doc.fileName ? `• ${doc.fileName}` : ''}
-                        </div>
-                      </div>
-                      {onDeleteDocument && (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteDocument(doc.id)}
-                          className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* TAB 3: MY JOB APPLICATIONS */}
-      {activeTab === 'applications' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 text-white space-y-3 sm:space-y-4 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div>
-              <h3 className="text-base sm:text-lg font-black flex items-center space-x-2">
-                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
-                <span>My Submitted Job Applications ({myApplications.length})</span>
-              </h3>
-              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
-                Track all your job submissions and employer response status.
-              </p>
-            </div>
-            <span className="bg-emerald-500/10 text-emerald-400 text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full border border-emerald-500/30">
-              Total: {myApplications.length}
-            </span>
-          </div>
-
-          {myApplications.length === 0 ? (
-            <div className="p-12 text-center bg-slate-950 border border-slate-800 rounded-2xl text-slate-500 italic space-y-2">
-              <p className="font-bold text-slate-400 text-sm">No job applications submitted yet.</p>
-              <p className="text-xs">Browse the live job board and click "Apply Now" to submit your CV and application!</p>
-            </div>
-          ) : (
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-900 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
-                  <tr>
-                    <th className="p-3.5">Job Title & Company</th>
-                    <th className="p-3.5">Applied Timestamp</th>
-                    <th className="p-3.5">Application Status</th>
-                    <th className="p-3.5">Subscription Tier</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {myApplications.map((app) => (
-                    <tr key={app.id} className="hover:bg-slate-900/50">
-                      <td className="p-3.5">
-                        <div className="font-bold text-white text-sm">{app.jobTitle}</div>
-                        <div className="text-slate-400 text-xs">{app.companyName}</div>
-                      </td>
-                      <td className="p-3.5 font-mono text-slate-300">{app.appliedAt}</td>
-                      <td className="p-3.5 font-bold text-emerald-400">
-                        <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px]">
-                          {app.status}
-                        </span>
-                      </td>
-                      <td className="p-3.5">
-                        <span className="px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold text-[10px]">
-                          {app.paymentStatus || 'Subscription Active'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           )}
+
+          {/* SUB-TAB 3: MY JOB ALERTS */}
+          {appSubTab === 'alerts' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div className="lg:col-span-5 bg-slate-950 border border-slate-800 rounded-xl p-3.5 sm:p-5 space-y-3">
+                <div className="border-b border-slate-800 pb-2">
+                  <h4 className="font-bold text-sm text-white flex items-center space-x-1.5">
+                    <Plus className="w-4 h-4 text-emerald-400" />
+                    <span>Create New Job Alert</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Receive instant matching openings in your email inbox.</p>
+                </div>
+
+                {onCreateJobAlert && (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!alertKeyword.trim() && !alertCity.trim()) return;
+                      const ok = await onCreateJobAlert({
+                        keyword: alertKeyword.trim() || undefined,
+                        city: alertCity.trim() || undefined,
+                        jobType: alertJobType,
+                        frequency: alertFrequency,
+                        email: currentUser.email
+                      });
+                      if (ok) {
+                        setAlertKeyword('');
+                        setAlertCity('');
+                      }
+                    }}
+                    className="space-y-2.5 text-xs"
+                  >
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-300 mb-1">Target Keyword / Role</label>
+                      <input
+                        type="text"
+                        value={alertKeyword}
+                        onChange={(e) => setAlertKeyword(e.target.value)}
+                        placeholder="e.g. React Developer, Account Officer"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-300 mb-1">City / Region Filter</label>
+                      <input
+                        type="text"
+                        value={alertCity}
+                        onChange={(e) => setAlertCity(e.target.value)}
+                        placeholder="e.g. Lahore, Islamabad, Karachi"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">Work Type</label>
+                        <select
+                          value={alertJobType}
+                          onChange={(e) => setAlertJobType(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
+                        >
+                          <option value="Remote">Remote</option>
+                          <option value="Hybrid">Hybrid</option>
+                          <option value="On-site">On-site</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">Frequency</label>
+                        <select
+                          value={alertFrequency}
+                          onChange={(e) => setAlertFrequency(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
+                        >
+                          <option value="daily">Daily Digest</option>
+                          <option value="weekly">Weekly Round-up</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow-md transition-all active:scale-95"
+                    >
+                      + Save & Activate Alert
+                    </button>
+                  </form>
+                )}
+              </div>
+
+              <div className="lg:col-span-7 bg-slate-950 border border-slate-800 rounded-xl p-3.5 sm:p-5 space-y-3">
+                <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
+                  <h4 className="font-bold text-sm text-white">Active Subscribed Alerts ({jobAlerts.length})</h4>
+                  <span className="text-[10px] text-slate-400">Direct Notification Engine</span>
+                </div>
+
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {jobAlerts.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-6 text-center">No active job alerts configured yet.</p>
+                  ) : (
+                    jobAlerts.map((al: any) => (
+                      <div key={al.id} className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <div className="font-bold text-white truncate text-xs sm:text-sm">
+                            {al.keyword || 'All Target Roles'} {al.city ? `• ${al.city}` : ''}
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            Work: {al.jobType || 'Any'} • Schedule: {al.frequency || 'daily'}
+                          </div>
+                        </div>
+                        {onDeleteJobAlert && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteJobAlert(al.id)}
+                            className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-TAB 4: MY DOCUMENTS & CV */}
+          {appSubTab === 'documents' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div className="lg:col-span-5 bg-slate-950 border border-slate-800 rounded-xl p-3.5 sm:p-5 space-y-3">
+                <div className="border-b border-slate-800 pb-2">
+                  <h4 className="font-bold text-sm text-white flex items-center space-x-1.5">
+                    <FileText className="w-4 h-4 text-teal-400" />
+                    <span>Upload New Career Document</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Store resumes, certificates, and cover letters for 1-click applications.</p>
+                </div>
+
+                {onAddDocument && (
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-300 mb-1">Document Title (Optional)</label>
+                      <input
+                        type="text"
+                        value={docTitle}
+                        onChange={(e) => setDocTitle(e.target.value)}
+                        placeholder="e.g. Senior Frontend Resume 2026"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-300 mb-1">Document Category</label>
+                      <select
+                        value={docType}
+                        onChange={(e) => setDocType(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
+                      >
+                        <option value="CV">CV / Resume</option>
+                        <option value="Cover Letter">Cover Letter</option>
+                        <option value="Certificate">Certificate / Degree</option>
+                      </select>
+                    </div>
+
+                    <label className="block w-full py-3 px-3 text-center rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 font-bold text-xs cursor-pointer transition-all active:scale-95 shadow-md">
+                      {docUploading ? 'Uploading Document...' : '+ Choose PDF / DOC / DOCX File'}
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        className="hidden"
+                        disabled={docUploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setDocUploading(true);
+                          try {
+                            await onAddDocument(file, docTitle.trim() || file.name, docType);
+                            setDocTitle('');
+                          } finally {
+                            setDocUploading(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="lg:col-span-7 bg-slate-950 border border-slate-800 rounded-xl p-3.5 sm:p-5 space-y-3">
+                <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
+                  <h4 className="font-bold text-sm text-white">Stored Career Documents ({userDocuments.length})</h4>
+                  <span className="text-[10px] text-slate-400">Vault & Cloud Documents</span>
+                </div>
+
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {userDocuments.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-6 text-center">No uploaded documents in your vault yet.</p>
+                  ) : (
+                    userDocuments.map((doc: any) => (
+                      <div key={doc.id} className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <div className="font-bold text-white truncate text-xs sm:text-sm">{doc.title || doc.fileName || doc.id}</div>
+                          <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                            Type: <span className="text-teal-400 font-semibold">{doc.type || 'CV'}</span> {doc.fileName ? `• ${doc.fileName}` : ''}
+                          </div>
+                        </div>
+                        {onDeleteDocument && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteDocument(doc.id)}
+                            className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-bold shrink-0 cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       )}
 
@@ -2392,6 +2826,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           allAds={allAds}
           pricingConfig={pricingConfig}
           campaignConfig={campaignConfig}
+          initialSubTab={campaignSubTab}
+          openDepositModal={openDepositModalTrigger}
+          onDepositModalClose={() => setOpenDepositModalTrigger(false)}
           onSubmitCampaign={(newAd, cost) => {
             if (onSubmitCampaign) {
               return onSubmitCampaign(newAd, cost);

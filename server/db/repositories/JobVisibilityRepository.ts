@@ -1,36 +1,27 @@
-import fs from 'fs';
-import path from 'path';
-import { getMongoDb, isMongoConfigured } from '../mongodb';
+import { getMongoDb, isMongoConfigured, getUsersCollection } from '../mongodb';
 
 export type FieldVisibility = 'Free' | 'Premium' | 'Hidden';
 export type JobSourceType = 'user_posted' | 'scraped' | 'admin_created';
 
 export interface VisibilityPolicy {
   source: JobSourceType;
-  sourceKey?: string; // Optional source-specific key for scrapers
+  sourceKey?: string;
   fieldRules: Record<string, FieldVisibility>;
   updatedAt: string;
-}
-
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const POLICIES_FILE = path.join(DATA_DIR, 'job_visibility_policies.json');
-
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 const DEFAULT_SUPPORTED_FIELDS = [
   'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
   'city', 'district', 'salary', 'experienceLevel', 'department', 'tags',
   'description', 'requirements', 'responsibilities', 'benefits', 'deadlineDate',
-  'attachments', 'applicationUrl', 'contactEmail'
+  'attachments', 'applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'externalApplyUrl',
+  'sourceUrl', 'pdfSourceUrl', 'clippingImageUrl', 'mediaUrl', 'govtDepartment', 'govtScale'
 ];
 
 function getDefaultPolicy(source: JobSourceType): VisibilityPolicy {
   const fieldRules: Record<string, FieldVisibility> = {};
   for (const f of DEFAULT_SUPPORTED_FIELDS) {
-    // Default sensitive fields to Free or Premium as appropriate, others Free
-    if (['applicationUrl', 'contactEmail', 'attachments'].includes(f)) {
+    if (['applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl'].includes(f)) {
       fieldRules[f] = 'Premium';
     } else {
       fieldRules[f] = 'Free';
@@ -50,56 +41,28 @@ export class JobVisibilityRepository {
     ['admin_created', getDefaultPolicy('admin_created')]
   ]);
 
-  static {
-    try {
-      if (fs.existsSync(POLICIES_FILE)) {
-        const content = fs.readFileSync(POLICIES_FILE, 'utf-8');
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed)) {
-          for (const p of parsed) {
-            if (p && p.source) {
-              const key = p.sourceKey ? `${p.source}:${p.sourceKey}` : p.source;
-              JobVisibilityRepository.localPolicies.set(key, p);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[JobVisibilityRepository] Failed to load local visibility policies:', err);
-    }
-  }
-
-  private static saveLocalPolicies(): void {
-    try {
-      const arr = Array.from(JobVisibilityRepository.localPolicies.values());
-      fs.writeFileSync(POLICIES_FILE, JSON.stringify(arr, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('[JobVisibilityRepository] Failed to save local visibility policies:', err);
-    }
-  }
-
   /**
    * Retrieves the active policy for a given source and optional sourceKey.
    */
   static async getPolicy(source: JobSourceType, sourceKey?: string): Promise<VisibilityPolicy> {
     if (isMongoConfigured()) {
-      try {
-        const db = await getMongoDb();
-        const coll = db.collection('job_visibility_policies');
-        const query: any = { source };
-        if (sourceKey) query.sourceKey = sourceKey;
-        const doc = await coll.findOne(query);
-        if (doc) {
-          return {
-            source: doc.source,
-            sourceKey: doc.sourceKey,
-            fieldRules: doc.fieldRules || {},
-            updatedAt: doc.updatedAt || new Date().toISOString()
-          };
-        }
-      } catch (err) {
-        console.warn('[JobVisibilityRepository] Mongo policy get error, falling back:', err);
+      const db = await getMongoDb();
+      const coll = db.collection('job_visibility_policies');
+      const query: any = { source };
+      if (sourceKey) query.sourceKey = sourceKey;
+      else query.sourceKey = { $exists: false };
+
+      const doc = await coll.findOne(query);
+      if (doc) {
+        return {
+          source: doc.source,
+          sourceKey: doc.sourceKey,
+          fieldRules: doc.fieldRules || {},
+          updatedAt: doc.updatedAt || new Date().toISOString()
+        };
       }
+      // If no specific policy found in Mongo, return default for source
+      return getDefaultPolicy(source);
     }
 
     const key = sourceKey ? `${source}:${sourceKey}` : source;
@@ -111,21 +74,15 @@ export class JobVisibilityRepository {
    */
   static async getAllPolicies(): Promise<VisibilityPolicy[]> {
     if (isMongoConfigured()) {
-      try {
-        const db = await getMongoDb();
-        const coll = db.collection('job_visibility_policies');
-        const docs = await coll.find({}).toArray();
-        if (docs.length > 0) {
-          return docs.map(d => ({
-            source: d.source,
-            sourceKey: d.sourceKey,
-            fieldRules: d.fieldRules || {},
-            updatedAt: d.updatedAt || new Date().toISOString()
-          }));
-        }
-      } catch (err) {
-        console.warn('[JobVisibilityRepository] Mongo get all policies error:', err);
-      }
+      const db = await getMongoDb();
+      const coll = db.collection('job_visibility_policies');
+      const docs = await coll.find({}).toArray();
+      return docs.map(d => ({
+        source: d.source,
+        sourceKey: d.sourceKey,
+        fieldRules: d.fieldRules || {},
+        updatedAt: d.updatedAt || new Date().toISOString()
+      }));
     }
     return Array.from(JobVisibilityRepository.localPolicies.values());
   }
@@ -142,23 +99,17 @@ export class JobVisibilityRepository {
     };
 
     if (isMongoConfigured()) {
-      try {
-        const db = await getMongoDb();
-        const coll = db.collection('job_visibility_policies');
-        const query: any = { source };
-        if (sourceKey) query.sourceKey = sourceKey;
-        else query.sourceKey = { $exists: false };
+      const db = await getMongoDb();
+      const coll = db.collection('job_visibility_policies');
+      const query: any = { source };
+      if (sourceKey) query.sourceKey = sourceKey;
+      else query.sourceKey = { $exists: false };
 
-        await coll.updateOne(query, { $set: policy }, { upsert: true });
-      } catch (err) {
-        console.error('[JobVisibilityRepository] Mongo policy save error:', err);
-        throw new Error('Failed to persist visibility policy to MongoDB.');
-      }
+      await coll.updateOne(query, { $set: policy }, { upsert: true });
+    } else {
+      const key = sourceKey ? `${source}:${sourceKey}` : source;
+      JobVisibilityRepository.localPolicies.set(key, policy);
     }
-
-    const key = sourceKey ? `${source}:${sourceKey}` : source;
-    JobVisibilityRepository.localPolicies.set(key, policy);
-    JobVisibilityRepository.saveLocalPolicies();
 
     return policy;
   }
@@ -178,15 +129,12 @@ export class JobVisibilityRepository {
   }
 
   /**
-   * Applies the appropriate default policy to a job during approval or creation.
+   * Applies the appropriate default policy to a job.
+   * Merges defaults and existing overrides field-by-field.
    */
   static async applyPolicyToJob(job: any): Promise<any> {
     if (!job) return job;
-    // If job already has explicit fieldVisibility rules set, respect individual overrides
-    if (job.fieldVisibility && typeof job.fieldVisibility === 'object' && Object.keys(job.fieldVisibility).length > 0) {
-      return job;
-    }
-
+    
     const source = JobVisibilityRepository.deriveJobSource(job);
     let policy: VisibilityPolicy;
 
@@ -199,17 +147,63 @@ export class JobVisibilityRepository {
       policy = await JobVisibilityRepository.getPolicy(source);
     }
 
+    const mergedRules = { ...(policy.fieldRules || {}) };
+    
+    // Respect existing individual overrides field-by-field
+    if (job.fieldVisibility && typeof job.fieldVisibility === 'object') {
+      Object.assign(mergedRules, job.fieldVisibility);
+    }
+
     return {
       ...job,
-      fieldVisibility: { ...(policy.fieldRules || {}) },
+      fieldVisibility: mergedRules,
       visibilitySource: source
     };
   }
 
   /**
+   * Authoritatively verifies user's premium status from the database.
+   */
+  static async isUserPremiumAuthoritative(userId: string | undefined): Promise<boolean> {
+    if (!userId) return false;
+    
+    if (isMongoConfigured()) {
+      try {
+        const coll = await getUsersCollection();
+        const userDoc = await coll.findOne({ id: userId });
+        if (!userDoc) return false;
+
+        // Strict criteria: MembershipStatus === 'Active' AND expiryDate is in the future
+        if (userDoc.membershipStatus === 'Active' && userDoc.expiryDate) {
+          const expiryMs = new Date(userDoc.expiryDate).getTime();
+          return !isNaN(expiryMs) && expiryMs > Date.now();
+        }
+        return false;
+      } catch (err: any) {
+        console.error('[JobVisibilityRepository] Authoritative Premium Check Failed (MongoDB):', err);
+        throw new Error(`Authoritative subscription verification failed: ${err.message || 'Database connection error'}`);
+      }
+    } else {
+      // Fallback for non-Mongo environments (development)
+      try {
+        const { Database } = await import('../database');
+        const user = Database.getUserById(userId);
+        if (user && user.membershipStatus === 'Active' && user.expiryDate) {
+          const expiryMs = new Date(user.expiryDate).getTime();
+          return !isNaN(expiryMs) && expiryMs > Date.now();
+        }
+        return false;
+      } catch (err) {
+        console.error('[JobVisibilityRepository] Fallback Premium Check Failed:', err);
+        return false;
+      }
+    }
+  }
+
+  /**
    * Filters job fields based on requester's role and authoritative subscription status.
    */
-  static filterJobForUser(job: any, user: any): any {
+  static filterJobForUser(job: any, user: any, authoritativePremium: boolean = false): any {
     if (!job) return job;
 
     const isAdmin = Boolean(
@@ -219,39 +213,44 @@ export class JobVisibilityRepository {
       return job;
     }
 
-    // Rigorous authoritative subscription verification:
-    // User must have plan === 'Premium', membershipStatus === 'Active', and a valid unexpired expiryDate.
-    // Missing, null, invalid, or expired expiryDate strictly denies premium access.
-    let isPremiumActive = false;
-    if (user && user.plan === 'Premium' && user.membershipStatus === 'Active' && user.expiryDate) {
-      const expiryMs = new Date(user.expiryDate).getTime();
-      if (!isNaN(expiryMs) && expiryMs > Date.now()) {
-        isPremiumActive = true;
-      }
-    }
-
     const rules = job.fieldVisibility || {};
     const filtered = { ...job };
 
-    // Complete field registry spanning all schema fields
+    // Central Field Registry
     const ALL_REGISTRY_FIELDS = [
       'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
-      'city', 'district', 'salary', 'experienceLevel', 'department', 'tags',
-      'description', 'requirements', 'responsibilities', 'benefits', 'deadlineDate',
-      'attachments', 'applicationUrl', 'contactEmail', 'externalApplyUrl',
-      'pdfSourceUrl', 'extractedText', 'responsibilitiesList'
+      'city', 'district', 'salary', 'salaryNumericMin', 'currency', 'experienceLevel', 
+      'department', 'tags', 'description', 'requirements', 'responsibilities', 
+      'benefits', 'postedAt', 'featured', 'urgent', 'isPinnedTop', 'isFutureJob', 
+      'futureIntakeDate', 'priorityTier', 'applicationsCount', 'status', 
+      'rejectionReason', 'suspensionReason', 'isSuspended', 'submittedByUserId', 
+      'paymentStatus', 'jobCategory', 'sourceUrl', 'scraperSourceId', 'scraperSourceName', 
+      'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', 'applicationUrl', 
+      'contactEmailOrPhone', 'contactEmail', 'deadlineDate', 'scraperBatchId', 'scraperRunType', 
+      'scrapedTimezone', 'scrapedRawSalary', 'deduplicationScore', 'reviewTimeline', 
+      'lastScrapedAt', 'isGovtJob', 'govtDepartment', 'govtScale', 'govtCategory', 
+      'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 'mediaUrl', 'newspaperDate', 
+      'attachments', 'externalApplyUrl', 'pdfSourceUrl', 'extractedText', 'responsibilitiesList',
+      'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase', 'domicileQuota', 'challanFee',
+      'ageRelaxationNote', 'pdfParserEngine', 'extractionSourceType', 'isDuplicate', 
+      'duplicateScore', 'duplicateCategory', 'duplicateTags', 'duplicateMatchReason',
+      'duplicateOfJobId', 'duplicateOfJobTitle', 'duplicateMatchedCompany', 'isDuplicateOverride',
+      'duplicateOverrideNote', 'duplicateDetectedAt', 'applicationType', 'isLocationConfirmed',
+      'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 'metadata', 'createdAt', 'updatedAt'
     ];
 
     for (const field of ALL_REGISTRY_FIELDS) {
-      const visibility: FieldVisibility = rules[field] || (['applicationUrl', 'contactEmail', 'attachments', 'externalApplyUrl'].includes(field) ? 'Premium' : 'Free');
+      // Default to Premium for known sensitive fields if no specific rule exists
+      const sensitiveFields = ['applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl', 'mediaUrl'];
+      const visibility: FieldVisibility = rules[field] || (sensitiveFields.includes(field) ? 'Premium' : 'Free');
 
       if (visibility === 'Hidden') {
         delete filtered[field];
-      } else if (visibility === 'Premium' && !isPremiumActive) {
+      } else if (visibility === 'Premium' && !authoritativePremium) {
         // Redact premium field for free or unauthenticated users
         if (field === 'attachments') {
           filtered[field] = [];
-        } else if (field === 'applicationUrl' || field === 'contactEmail' || field === 'externalApplyUrl') {
+        } else if (sensitiveFields.includes(field)) {
           filtered[field] = '🔒 Unlock with Premium Subscription';
         } else {
           filtered[field] = '🔒 [Premium Content - Upgrade to View]';

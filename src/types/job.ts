@@ -163,6 +163,7 @@ export interface Job {
   isSuspended?: boolean;
   fieldVisibility?: Record<string, FieldVisibility>;
   sourceType?: JobSourceType;
+  isScraped?: boolean;
   isAdminCreated?: boolean;
   submittedByUserId?: string;
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue' | 'Exempt';

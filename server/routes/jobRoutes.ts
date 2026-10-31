@@ -53,11 +53,11 @@ jobRouter.get('/', async (req, res) => {
     });
 
     const user = (req as any).user;
-    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
 
     let sanitizedJobs = result.jobs;
     if (Array.isArray(sanitizedJobs)) {
-      sanitizedJobs = sanitizedJobs.map((job: any) => JobVisibilityRepository.filterJobForUser(job, user));
+      sanitizedJobs = sanitizedJobs.map((job: any) => JobVisibilityRepository.filterJobForUser(job, user, isPremium));
     }
 
     res.json({
@@ -896,7 +896,8 @@ jobRouter.get('/slug/:slug', async (req, res) => {
     }
 
     const user = (req as any).user;
-    job = JobVisibilityRepository.filterJobForUser(job, user);
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    job = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
 
     res.json({ success: true, job });
   } catch (err: any) {
@@ -986,16 +987,27 @@ jobRouter.get('/attachments/:filename', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Attachment file not found.' });
     }
 
-    // Check attachment visibility
+    // Authoritative check for Premium content access
     const isPublic = await JobRepository.isAttachmentPublic(safeFileName);
     const user = (req as any).user;
-    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
 
-    if (!isPublic && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. This document attachment is private and only accessible to authorized administrators.'
-      });
+    if (!isAdmin && !isPublic) {
+      // If not globally public, check if user is authoritatively premium
+      const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+      
+      // If user is not premium, verify if there's any job where this attachment is explicitly 'Free'
+      // or if it's strictly 'Premium'
+      if (!isPremium) {
+        // We'll perform a strict lookup: is there ANY job that has this attachment AND allows Free access?
+        const allowsFreeAccess = await JobRepository.isAttachmentAccessibleForFree(safeFileName);
+        if (!allowsFreeAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied. This document requires a Premium subscription to view or download.'
+          });
+        }
+      }
     }
 
     const isDownload = req.query.download === '1' || req.query.download === 'true';
@@ -1183,7 +1195,8 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
     }
 
     const user = (req as any).user;
-    job = JobVisibilityRepository.filterJobForUser(job, user);
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    job = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
 
     res.json({ success: true, job });
   } catch (err: any) {
@@ -1539,6 +1552,33 @@ jobRouter.post('/convert-to-job', requireAdminPermission('jobs.manage'), async (
   } catch (err: any) {
     console.error('Error in POST /api/jobs/convert-to-job:', err);
     res.status(500).json({ success: false, message: err.message || 'Error converting record to job' });
+  }
+});
+
+// 17. Admin Universal Job List (Live + Pending) for Central Visibility Management
+jobRouter.get('/admin/all', requireAdminPermission('jobs.manage'), async (req, res) => {
+  try {
+    const [liveResult, pendingResult] = await Promise.all([
+      JobRepository.getAll({ limit: 2000, includeExpired: true }),
+      JobRepository.getPending({ limit: 1000 })
+    ]);
+    
+    const liveJobs = liveResult.jobs || [];
+    const pendingJobs = Array.isArray(pendingResult) ? pendingResult : ((pendingResult as any).pendingJobs || []);
+    
+    const combined = [
+      ...liveJobs.map((j: any) => ({ ...j, _isAdminView: true })),
+      ...pendingJobs.map((j: any) => ({ ...j, _isAdminView: true, status: j.status || 'Pending' }))
+    ];
+    
+    res.json({
+      success: true,
+      jobs: combined,
+      count: combined.length
+    });
+  } catch (err: any) {
+    console.error('Error in GET /api/jobs/admin/all:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch universal job list for administration.' });
   }
 });
 

@@ -1771,6 +1771,52 @@ export class JobRepository {
           if (match) return true;
         }
       }
+    } catch (err) {}
+
+    return false;
+  }
+
+  /**
+   * Checks if an attachment filename belongs to any job where 'attachments' visibility is 'Free'.
+   */
+  static async isAttachmentAccessibleForFree(filename: string): Promise<boolean> {
+    const cleanFilename = path.basename(filename);
+    if (!cleanFilename) return false;
+
+    if (isMongoConfigured()) {
+      try {
+        const jobsColl = await getJobsCollection();
+        const pendingColl = await getPendingJobsCollection();
+
+        const query = {
+          attachments: {
+            $elemMatch: {
+              fileUrl: { $regex: cleanFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+            }
+          },
+          "fieldVisibility.attachments": "Free"
+        };
+
+        const [freeLive, freePending] = await Promise.all([
+          jobsColl.findOne(query, { projection: { id: 1 } }),
+          pendingColl.findOne(query, { projection: { id: 1 } })
+        ]);
+
+        return Boolean(freeLive || freePending);
+      } catch (err) {
+        console.error('[JobRepository] Error checking isAttachmentAccessibleForFree in MongoDB:', err);
+      }
+    }
+
+    // Local fallback
+    try {
+      const allJobs = [...Database.getJobs(), ...Database.getPendingJobs()];
+      for (const j of allJobs) {
+        if (j.fieldVisibility?.attachments === 'Free' && Array.isArray(j.attachments)) {
+          const match = j.attachments.find((a: any) => a && a.fileUrl && a.fileUrl.includes(cleanFilename));
+          if (match) return true;
+        }
+      }
     } catch {}
 
     return false;

@@ -5,6 +5,40 @@ import { AuditRepository, JobRepository } from '../db/repositories';
 
 export const jobVisibilityRouter = Router();
 
+const ALLOWED_FIELDS = [
+  'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
+  'city', 'district', 'salary', 'salaryNumericMin', 'currency', 'experienceLevel', 
+  'department', 'tags', 'description', 'requirements', 'responsibilities', 
+  'benefits', 'postedAt', 'featured', 'urgent', 'isPinnedTop', 'isFutureJob', 
+  'futureIntakeDate', 'priorityTier', 'applicationsCount', 'status', 
+  'rejectionReason', 'suspensionReason', 'isSuspended', 'submittedByUserId', 
+  'paymentStatus', 'jobCategory', 'sourceUrl', 'scraperSourceId', 'scraperSourceName', 
+  'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', 'applicationUrl', 
+  'contactEmailOrPhone', 'contactEmail', 'deadlineDate', 'scraperBatchId', 'scraperRunType', 
+  'scrapedTimezone', 'scrapedRawSalary', 'deduplicationScore', 'reviewTimeline', 
+  'lastScrapedAt', 'isGovtJob', 'govtDepartment', 'govtScale', 'govtCategory', 
+  'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 'mediaUrl', 'newspaperDate', 
+  'attachments', 'externalApplyUrl', 'pdfSourceUrl', 'extractedText', 'responsibilitiesList',
+  'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase', 'domicileQuota', 'challanFee',
+  'ageRelaxationNote', 'pdfParserEngine', 'extractionSourceType', 'isDuplicate', 
+  'duplicateScore', 'duplicateCategory', 'duplicateTags', 'duplicateMatchReason',
+  'duplicateOfJobId', 'duplicateOfJobTitle', 'duplicateMatchedCompany', 'isDuplicateOverride',
+  'duplicateOverrideNote', 'duplicateDetectedAt', 'applicationType', 'isLocationConfirmed',
+  'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 'metadata', 'createdAt', 'updatedAt'
+];
+
+const ALLOWED_VISIBILITIES = ['Free', 'Premium', 'Hidden'];
+const ALLOWED_SOURCES = ['user_posted', 'scraped', 'admin_created'];
+
+function validateFieldRules(rules: any) {
+  if (!rules || typeof rules !== 'object') return 'fieldRules must be an object';
+  for (const [field, visibility] of Object.entries(rules)) {
+    if (!ALLOWED_FIELDS.includes(field)) return `Invalid field name: "${field}"`;
+    if (!ALLOWED_VISIBILITIES.includes(visibility as string)) return `Invalid visibility value: "${visibility}" for field "${field}"`;
+  }
+  return null;
+}
+
 // 1. Get all policies (Admin)
 jobVisibilityRouter.get('/policies', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
@@ -12,7 +46,7 @@ jobVisibilityRouter.get('/policies', requireAdminPermission('settings.manage'), 
     res.json({ success: true, policies });
   } catch (err: any) {
     console.error('Error fetching visibility policies:', err);
-    res.status(500).json({ success: false, message: err.message || 'Failed to fetch visibility policies.' });
+    res.status(500).json({ success: false, message: 'Failed to fetch visibility policies from authoritative source.' });
   }
 });
 
@@ -20,8 +54,13 @@ jobVisibilityRouter.get('/policies', requireAdminPermission('settings.manage'), 
 jobVisibilityRouter.post('/policies', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const { source, fieldRules, sourceKey } = req.body;
-    if (!source || !fieldRules || typeof fieldRules !== 'object') {
-      return res.status(400).json({ success: false, message: 'Valid source and fieldRules object are required.' });
+    if (!ALLOWED_SOURCES.includes(source)) {
+      return res.status(400).json({ success: false, message: `Invalid source. Must be one of: ${ALLOWED_SOURCES.join(', ')}` });
+    }
+
+    const validationError = validateFieldRules(fieldRules);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
     }
 
     const saved = await JobVisibilityRepository.savePolicy(source as JobSourceType, fieldRules, sourceKey);
@@ -36,7 +75,7 @@ jobVisibilityRouter.post('/policies', requireAdminPermission('settings.manage'),
     res.json({ success: true, policy: saved, message: 'Visibility policy saved successfully.' });
   } catch (err: any) {
     console.error('Error saving visibility policy:', err);
-    res.status(500).json({ success: false, message: err.message || 'Failed to save visibility policy.' });
+    res.status(500).json({ success: false, message: 'Failed to persist visibility policy.' });
   }
 });
 
@@ -46,19 +85,18 @@ jobVisibilityRouter.patch('/jobs/:id/visibility', requireAdminPermission('jobs.m
     const { id } = req.params;
     const { fieldVisibility } = req.body;
 
-    if (!fieldVisibility || typeof fieldVisibility !== 'object') {
-      return res.status(400).json({ success: false, message: 'fieldVisibility object is required.' });
+    const validationError = validateFieldRules(fieldVisibility);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
     }
 
     let job = await JobRepository.getById(id);
-    let isLive = true;
     if (!job) {
       job = (await JobRepository.getPending()).find(j => j.id === id);
-      isLive = false;
     }
 
     if (!job) {
-      return res.status(404).json({ success: false, message: 'Job not found.' });
+      return res.status(404).json({ success: false, message: 'Job not found in live or pending records.' });
     }
 
     const updated = await JobRepository.update(id, { fieldVisibility });
@@ -73,7 +111,7 @@ jobVisibilityRouter.patch('/jobs/:id/visibility', requireAdminPermission('jobs.m
     res.json({ success: true, job: updated, message: 'Job visibility updated successfully.' });
   } catch (err: any) {
     console.error('Error updating individual job visibility:', err);
-    res.status(500).json({ success: false, message: err.message || 'Failed to update job visibility.' });
+    res.status(500).json({ success: false, message: 'Failed to update job visibility record.' });
   }
 });
 
@@ -81,19 +119,21 @@ jobVisibilityRouter.patch('/jobs/:id/visibility', requireAdminPermission('jobs.m
 jobVisibilityRouter.post('/jobs/bulk-visibility', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const { jobIds, fieldVisibility, selectedFields } = req.body;
-    if (!Array.isArray(jobIds) || jobIds.length === 0 || !fieldVisibility || typeof fieldVisibility !== 'object') {
-      return res.status(400).json({ success: false, message: 'Valid non-empty jobIds array and fieldVisibility object are required.' });
+    if (!Array.isArray(jobIds) || jobIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Non-empty jobIds array is required.' });
     }
 
     if (jobIds.length > 500) {
       return res.status(400).json({ success: false, message: 'Maximum batch size is 500 jobs per request.' });
     }
 
-    const ALLOWED_VISIBILITIES = ['Free', 'Premium', 'Hidden'];
-    for (const [k, v] of Object.entries(fieldVisibility)) {
-      if (!ALLOWED_VISIBILITIES.includes(v as string)) {
-        return res.status(400).json({ success: false, message: `Invalid visibility value "${v}" for field "${k}". Must be Free, Premium, or Hidden.` });
-      }
+    const validationError = validateFieldRules(fieldVisibility);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
+    if (selectedFields && (!Array.isArray(selectedFields) || selectedFields.some(f => !ALLOWED_FIELDS.includes(f)))) {
+      return res.status(400).json({ success: false, message: 'Invalid selectedFields array provided.' });
     }
 
     const safeIds = jobIds.map(String);
@@ -147,6 +187,6 @@ jobVisibilityRouter.post('/jobs/bulk-visibility', requireAdminPermission('jobs.m
     });
   } catch (err: any) {
     console.error('Error in bulk visibility update:', err);
-    res.status(500).json({ success: false, message: err.message || 'Failed to execute bulk visibility update.' });
+    res.status(500).json({ success: false, message: 'Failed to execute bulk visibility update.' });
   }
 });

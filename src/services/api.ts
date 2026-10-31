@@ -193,6 +193,9 @@ export const api = {
       const qs = params ? new URLSearchParams(params).toString() : '';
       return safeFetchJson(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`);
     },
+    async getAdminAll() {
+      return safeFetchJson(`${API_BASE}/jobs/admin/all`, { headers: getAuthHeader() });
+    },
     async getById(id: string) {
       return safeFetchJson(`${API_BASE}/jobs/${id}`);
     },

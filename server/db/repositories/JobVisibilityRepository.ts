@@ -84,7 +84,7 @@ export class JobVisibilityRepository {
   static async getPolicy(source: JobSourceType, sourceKey?: string): Promise<VisibilityPolicy> {
     if (isMongoConfigured()) {
       try {
-        const db = getMongoDb();
+        const db = await getMongoDb();
         const coll = db.collection('job_visibility_policies');
         const query: any = { source };
         if (sourceKey) query.sourceKey = sourceKey;
@@ -112,7 +112,7 @@ export class JobVisibilityRepository {
   static async getAllPolicies(): Promise<VisibilityPolicy[]> {
     if (isMongoConfigured()) {
       try {
-        const db = getMongoDb();
+        const db = await getMongoDb();
         const coll = db.collection('job_visibility_policies');
         const docs = await coll.find({}).toArray();
         if (docs.length > 0) {
@@ -143,7 +143,7 @@ export class JobVisibilityRepository {
 
     if (isMongoConfigured()) {
       try {
-        const db = getMongoDb();
+        const db = await getMongoDb();
         const coll = db.collection('job_visibility_policies');
         const query: any = { source };
         if (sourceKey) query.sourceKey = sourceKey;
@@ -219,19 +219,31 @@ export class JobVisibilityRepository {
       return job;
     }
 
-    // Check authoritative premium entitlement
-    const isPremiumActive = Boolean(
-      user &&
-      user.plan === 'Premium' &&
-      user.membershipStatus === 'Active' &&
-      (!user.expiryDate || new Date(user.expiryDate).getTime() > Date.now())
-    );
+    // Rigorous authoritative subscription verification:
+    // User must have plan === 'Premium', membershipStatus === 'Active', and a valid unexpired expiryDate.
+    // Missing, null, invalid, or expired expiryDate strictly denies premium access.
+    let isPremiumActive = false;
+    if (user && user.plan === 'Premium' && user.membershipStatus === 'Active' && user.expiryDate) {
+      const expiryMs = new Date(user.expiryDate).getTime();
+      if (!isNaN(expiryMs) && expiryMs > Date.now()) {
+        isPremiumActive = true;
+      }
+    }
 
     const rules = job.fieldVisibility || {};
     const filtered = { ...job };
 
-    for (const field of DEFAULT_SUPPORTED_FIELDS) {
-      const visibility: FieldVisibility = rules[field] || (['applicationUrl', 'contactEmail', 'attachments'].includes(field) ? 'Premium' : 'Free');
+    // Complete field registry spanning all schema fields
+    const ALL_REGISTRY_FIELDS = [
+      'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
+      'city', 'district', 'salary', 'experienceLevel', 'department', 'tags',
+      'description', 'requirements', 'responsibilities', 'benefits', 'deadlineDate',
+      'attachments', 'applicationUrl', 'contactEmail', 'externalApplyUrl',
+      'pdfSourceUrl', 'extractedText', 'responsibilitiesList'
+    ];
+
+    for (const field of ALL_REGISTRY_FIELDS) {
+      const visibility: FieldVisibility = rules[field] || (['applicationUrl', 'contactEmail', 'attachments', 'externalApplyUrl'].includes(field) ? 'Premium' : 'Free');
 
       if (visibility === 'Hidden') {
         delete filtered[field];
@@ -239,12 +251,17 @@ export class JobVisibilityRepository {
         // Redact premium field for free or unauthenticated users
         if (field === 'attachments') {
           filtered[field] = [];
-        } else if (field === 'applicationUrl' || field === 'contactEmail') {
+        } else if (field === 'applicationUrl' || field === 'contactEmail' || field === 'externalApplyUrl') {
           filtered[field] = '🔒 Unlock with Premium Subscription';
         } else {
           filtered[field] = '🔒 [Premium Content - Upgrade to View]';
         }
       }
+    }
+
+    // Preserve existing attachment Public/Private permission filtering independently
+    if (Array.isArray(filtered.attachments)) {
+      filtered.attachments = filtered.attachments.filter((a: any) => a && a.isPublic === true);
     }
 
     return filtered;

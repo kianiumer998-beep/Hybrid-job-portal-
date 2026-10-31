@@ -82,20 +82,32 @@ jobVisibilityRouter.post('/jobs/bulk-visibility', requireAdminPermission('jobs.m
   try {
     const { jobIds, fieldVisibility, selectedFields } = req.body;
     if (!Array.isArray(jobIds) || jobIds.length === 0 || !fieldVisibility || typeof fieldVisibility !== 'object') {
-      return res.status(400).json({ success: false, message: 'Valid jobIds array and fieldVisibility object are required.' });
+      return res.status(400).json({ success: false, message: 'Valid non-empty jobIds array and fieldVisibility object are required.' });
     }
 
+    if (jobIds.length > 500) {
+      return res.status(400).json({ success: false, message: 'Maximum batch size is 500 jobs per request.' });
+    }
+
+    const ALLOWED_VISIBILITIES = ['Free', 'Premium', 'Hidden'];
+    for (const [k, v] of Object.entries(fieldVisibility)) {
+      if (!ALLOWED_VISIBILITIES.includes(v as string)) {
+        return res.status(400).json({ success: false, message: `Invalid visibility value "${v}" for field "${k}". Must be Free, Premium, or Hidden.` });
+      }
+    }
+
+    const safeIds = jobIds.map(String);
     let successCount = 0;
     let failureCount = 0;
+    const errors: { id: string; error: string }[] = [];
 
-    for (const id of jobIds) {
+    for (const id of safeIds) {
       try {
         const job = await JobRepository.getById(id) || (await JobRepository.getPending()).find(j => j.id === id);
         if (job) {
           const currentRules = job.fieldVisibility || {};
           const mergedRules = { ...currentRules };
           
-          // If specific fields are targeted, update only those fields
           if (Array.isArray(selectedFields) && selectedFields.length > 0) {
             for (const f of selectedFields) {
               if (fieldVisibility[f]) {
@@ -110,9 +122,11 @@ jobVisibilityRouter.post('/jobs/bulk-visibility', requireAdminPermission('jobs.m
           successCount++;
         } else {
           failureCount++;
+          errors.push({ id, error: 'Job not found in live or pending queues.' });
         }
-      } catch {
+      } catch (err: any) {
         failureCount++;
+        errors.push({ id, error: err?.message || 'Failed to update record.' });
       }
     }
 
@@ -125,10 +139,11 @@ jobVisibilityRouter.post('/jobs/bulk-visibility', requireAdminPermission('jobs.m
     });
 
     res.json({
-      success: true,
+      success: failureCount === 0,
       successCount,
       failureCount,
-      message: `Successfully updated visibility for ${successCount} jobs.`
+      errors,
+      message: `Successfully updated visibility for ${successCount} jobs.${failureCount > 0 ? ` (${failureCount} failed)` : ''}`
     });
   } catch (err: any) {
     console.error('Error in bulk visibility update:', err);

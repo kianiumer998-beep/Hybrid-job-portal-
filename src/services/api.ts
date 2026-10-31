@@ -855,6 +855,34 @@ export const api = {
         body: JSON.stringify({ provinceName })
       });
     }
+  },
+
+  // --- UNIVERSAL JOB VISIBILITY & APPROVAL POLICIES ---
+  jobsVisibility: {
+    async getPolicies() {
+      return safeFetchJson(`${API_BASE}/jobs-visibility/policies`, { headers: getAuthHeader() });
+    },
+    async savePolicy(policy: { source: string; fieldRules: Record<string, string>; sourceKey?: string }) {
+      return safeFetchJson(`${API_BASE}/jobs-visibility/policies`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(policy)
+      });
+    },
+    async updateJobVisibility(jobId: string, fieldVisibility: Record<string, string>) {
+      return safeFetchJson(`${API_BASE}/jobs-visibility/jobs/${encodeURIComponent(jobId)}/visibility`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ fieldVisibility })
+      });
+    },
+    async bulkUpdateVisibility(payload: { jobIds: string[]; fieldVisibility: Record<string, string>; selectedFields?: string[] }) {
+      return safeFetchJson(`${API_BASE}/jobs-visibility/jobs/bulk-visibility`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(payload)
+      });
+    }
   }
 };
 

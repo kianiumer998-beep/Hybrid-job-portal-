@@ -84,6 +84,7 @@ import { PdfConsolidatedScraperModal } from './PdfConsolidatedScraperModal';
 import { AdminQuickEditJobModal } from './admin/AdminQuickEditJobModal';
 import { AdminDuplicateCheckerModal, DuplicateCluster } from './admin/AdminDuplicateCheckerModal';
 import { AdminSubscriberModal } from './admin/AdminSubscriberModal';
+import { JobVisibilityDefaultsManager } from './admin/JobVisibilityDefaultsManager';
 import { BatchUrlIngestModal } from './BatchUrlIngestModal';
 import { AdminPaymentMethodsManager } from './admin/AdminPaymentMethodsManager';
 import { AutomatedScraperHub } from './admin/AutomatedScraperHub';
@@ -2565,6 +2566,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <>
               {[
                 { id: 'apply-settings', label: 'Apply Button & Form Flow', urdu: 'اپلائی بٹن اور سوالات', icon: FileText, isNew: true },
+                { id: 'job-visibility', label: 'Job Visibility Manager', urdu: 'ملازمت کی نمائش', icon: ShieldCheck },
                 { id: 'seo-config', label: '🌐 Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او', icon: Globe },
                 { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز', icon: Settings },
                 { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم سیٹنگز', icon: Edit3 },
@@ -2888,6 +2890,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           seoConfig={effectiveSeoConfig}
           onUpdateSeoConfig={handleUpdateSeoConfig}
         />
+      )}
+      {adminTab === 'job-visibility' && (
+        <JobVisibilityDefaultsManager />
       )}
 
       {/* TAB: MULTI-CURRENCY & INTERNATIONAL PRICING TIERS */}

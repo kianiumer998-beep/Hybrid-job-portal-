@@ -13,6 +13,8 @@ import { getProvinceForCity } from '../../src/utils/locationCatalog';
 
 export const jobRouter = Router();
 
+import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
+
 // 1. Get Live Approved Jobs with Query Filters & Pagination
 jobRouter.get('/', async (req, res) => {
   try {
@@ -54,16 +56,8 @@ jobRouter.get('/', async (req, res) => {
     const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
 
     let sanitizedJobs = result.jobs;
-    if (!isAdmin && Array.isArray(sanitizedJobs)) {
-      sanitizedJobs = sanitizedJobs.map((job: any) => {
-        if (Array.isArray(job.attachments)) {
-          return {
-            ...job,
-            attachments: job.attachments.filter((a: any) => a && a.isPublic === true)
-          };
-        }
-        return job;
-      });
+    if (Array.isArray(sanitizedJobs)) {
+      sanitizedJobs = sanitizedJobs.map((job: any) => JobVisibilityRepository.filterJobForUser(job, user));
     }
 
     res.json({
@@ -902,13 +896,7 @@ jobRouter.get('/slug/:slug', async (req, res) => {
     }
 
     const user = (req as any).user;
-    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
-    if (!isAdmin && Array.isArray(job.attachments)) {
-      job = {
-        ...job,
-        attachments: job.attachments.filter((a: any) => a && a.isPublic === true)
-      };
-    }
+    job = JobVisibilityRepository.filterJobForUser(job, user);
 
     res.json({ success: true, job });
   } catch (err: any) {
@@ -1195,13 +1183,7 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
     }
 
     const user = (req as any).user;
-    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
-    if (!isAdmin && Array.isArray(job.attachments)) {
-      job = {
-        ...job,
-        attachments: job.attachments.filter((a: any) => a && a.isPublic === true)
-      };
-    }
+    job = JobVisibilityRepository.filterJobForUser(job, user);
 
     res.json({ success: true, job });
   } catch (err: any) {

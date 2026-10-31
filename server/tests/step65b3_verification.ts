@@ -13,10 +13,9 @@ async function runStep65B3Verification() {
     const jobData: Partial<Job> = {
       title: 'Software Engineer Test Defaults',
       company: 'Tech Corp',
-      location: 'Lahore',
       city: 'Lahore',
       country: '' // blank country
-    };
+    } as any;
     const created = await JobRepository.create(jobData);
     if (created && created.country === 'Pakistan') {
       results.push({ test: 1, name: 'New job with blank country defaults to Pakistan', status: 'PASSED', details: `Created job country is "${created.country}"` });
@@ -32,10 +31,9 @@ async function runStep65B3Verification() {
     const foreignJob: Partial<Job> = {
       title: 'Remote Engineer USA',
       company: 'Global Inc',
-      location: 'New York, USA',
       city: 'New York',
       country: 'United States'
-    };
+    } as any;
     const createdForeign = await JobRepository.create(foreignJob);
     if (createdForeign && createdForeign.country === 'United States') {
       // Also verify updating job does not overwrite foreign country
@@ -259,12 +257,11 @@ async function runStep65B3Verification() {
     const confirmedJob: Partial<Job> = {
       title: 'Scraped Job Protection Test',
       company: 'Test Org',
-      location: 'Karachi, Sindh, Pakistan',
       city: 'Karachi',
       province: 'Sindh',
       country: 'Pakistan',
       isLocationConfirmed: true
-    };
+    } as any;
     const createdConfirmed = await JobRepository.create(confirmedJob);
     if (createdConfirmed) {
       // Simulate scraper update with missing/blank city or foreign override
@@ -305,22 +302,22 @@ async function runStep65B3Verification() {
       attachments: [
         {
           id: 'att-1-priv',
-          fileName: 'confidential_contract.pdf',
+          name: 'confidential_contract.pdf',
           fileUrl: '/api/jobs/attachments/confidential_contract.pdf',
           fileType: 'pdf',
-          fileSize: 1024,
+          sizeBytes: 1024,
           uploadedAt: new Date().toISOString(),
           isPublic: false // Private by default
-        },
+        } as any,
         {
           id: 'att-2-pub',
-          fileName: 'public_circular.pdf',
+          name: 'public_circular.pdf',
           fileUrl: '/api/jobs/attachments/public_circular.pdf',
           fileType: 'pdf',
-          fileSize: 2048,
+          sizeBytes: 2048,
           uploadedAt: new Date().toISOString(),
           isPublic: true // Explicitly public
-        }
+        } as any
       ]
     };
 

@@ -111,6 +111,8 @@ export interface UserAccount {
 }
 
 export type JobStatus = 'Approved' | 'Pending' | 'Rejected' | 'Suspended' | 'Expired';
+export type FieldVisibility = 'Free' | 'Premium' | 'Hidden';
+export type JobSourceType = 'user_posted' | 'scraped' | 'admin_created';
 
 export interface JobAttachment {
   id: string;
@@ -158,6 +160,9 @@ export interface Job {
   rejectionReason?: string;
   suspensionReason?: string;
   isSuspended?: boolean;
+  fieldVisibility?: Record<string, FieldVisibility>;
+  sourceType?: JobSourceType;
+  isAdminCreated?: boolean;
   submittedByUserId?: string;
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue' | 'Exempt';
   jobCategory?: 'Private Corporate' | 'Government Sector' | 'Newspaper Classified' | 'International Remote' | string;

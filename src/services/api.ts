@@ -193,8 +193,12 @@ export const api = {
       const qs = params ? new URLSearchParams(params).toString() : '';
       return safeFetchJson(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`);
     },
-    async getAdminAll() {
-      return safeFetchJson(`${API_BASE}/jobs/admin/all`, { headers: getAuthHeader() });
+    async getAdminAll(params?: { page?: number; limit?: number }) {
+      const queryObj: Record<string, string> = {};
+      if (params?.page) queryObj.page = String(params.page);
+      if (params?.limit) queryObj.limit = String(params.limit);
+      const qs = new URLSearchParams(queryObj).toString();
+      return safeFetchJson(`${API_BASE}/jobs/admin/all${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() });
     },
     async getById(id: string) {
       return safeFetchJson(`${API_BASE}/jobs/${id}`);

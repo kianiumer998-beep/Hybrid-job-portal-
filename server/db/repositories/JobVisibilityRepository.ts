@@ -163,6 +163,7 @@ export class JobVisibilityRepository {
 
   /**
    * Authoritatively verifies user's premium status from the database.
+   * Checks both subscriptionExpiresAt (new) and expiryDate (legacy).
    */
   static async isUserPremiumAuthoritative(userId: string | undefined): Promise<boolean> {
     if (!userId) return false;
@@ -173,14 +174,18 @@ export class JobVisibilityRepository {
         const userDoc = await coll.findOne({ id: userId });
         if (!userDoc) return false;
 
-        // Strict criteria: MembershipStatus === 'Active' AND expiryDate is in the future
-        if (userDoc.membershipStatus === 'Active' && userDoc.expiryDate) {
-          const expiryMs = new Date(userDoc.expiryDate).getTime();
-          return !isNaN(expiryMs) && expiryMs > Date.now();
+        // Strict criteria: MembershipStatus === 'Active' AND any valid expiry field is in the future
+        if (userDoc.membershipStatus === 'Active') {
+          const authoritativeExpiry = userDoc.subscriptionExpiresAt || userDoc.expiryDate;
+          if (authoritativeExpiry) {
+            const expiryMs = new Date(authoritativeExpiry).getTime();
+            return !isNaN(expiryMs) && expiryMs > Date.now();
+          }
         }
         return false;
       } catch (err: any) {
         console.error('[JobVisibilityRepository] Authoritative Premium Check Failed (MongoDB):', err);
+        // Fail closed: propagate error to prevent unauthorized access during DB failure
         throw new Error(`Authoritative subscription verification failed: ${err.message || 'Database connection error'}`);
       }
     } else {
@@ -188,9 +193,12 @@ export class JobVisibilityRepository {
       try {
         const { Database } = await import('../database');
         const user = Database.getUserById(userId);
-        if (user && user.membershipStatus === 'Active' && user.expiryDate) {
-          const expiryMs = new Date(user.expiryDate).getTime();
-          return !isNaN(expiryMs) && expiryMs > Date.now();
+        if (user && user.membershipStatus === 'Active') {
+          const authoritativeExpiry = user.subscriptionExpiresAt || user.expiryDate;
+          if (authoritativeExpiry) {
+            const expiryMs = new Date(authoritativeExpiry).getTime();
+            return !isNaN(expiryMs) && expiryMs > Date.now();
+          }
         }
         return false;
       } catch (err) {

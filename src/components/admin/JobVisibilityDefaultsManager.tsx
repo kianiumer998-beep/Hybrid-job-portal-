@@ -19,7 +19,8 @@ import {
   User,
   Globe,
   Terminal,
-  ArrowRight
+  ArrowRight,
+  Eye
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { Job, FieldVisibility, JobSourceType } from '../../types/job';
@@ -109,6 +110,9 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   const [scraperFilter, setScraperFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [visibilityFilter, setVisibilityFilter] = useState<string>('All');
   
   // Bulk Management State
   const [bulkFieldRules, setBulkFieldRules] = useState<Record<string, FieldVisibility>>({
@@ -151,14 +155,21 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     fetchPolicies();
   }, [defaultSource]);
 
-  const loadJobs = async () => {
+  const loadJobs = async (page: number = 1, append: boolean = false) => {
     setLoadingJobs(true);
     setErrorMessage(null);
     try {
-      // Use Admin Universal endpoint to get Live + Pending
-      const res = await api.jobs.getAdminAll();
+      // Use Admin Universal endpoint to get Live + Pending with pagination
+      const limit = 500;
+      const res = await api.jobs.getAdminAll({ page, limit });
       if (res.success && Array.isArray(res.jobs)) {
-        setJobsList(res.jobs);
+        if (append) {
+          setJobsList(prev => [...prev, ...res.jobs]);
+        } else {
+          setJobsList(res.jobs);
+        }
+        setHasMore(res.jobs.length === limit);
+        setCurrentPage(page);
       } else {
         throw new Error(res.message || 'Failed to fetch universal job list.');
       }
@@ -170,9 +181,15 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     }
   };
 
+  const handleLoadMore = () => {
+    if (!loadingJobs && hasMore) {
+      loadJobs(currentPage + 1, true);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'bulk' || activeTab === 'individual') {
-      loadJobs();
+      loadJobs(1, false);
     }
   }, [activeTab]);
 
@@ -237,6 +254,12 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
         if (!scraper.includes(scraperFilter.toLowerCase())) return false;
       }
 
+      if (visibilityFilter !== 'All') {
+        const hasOverrides = Object.keys(j.fieldVisibility || {}).length > 0;
+        if (visibilityFilter === 'Overrides' && !hasOverrides) return false;
+        if (visibilityFilter === 'Default' && hasOverrides) return false;
+      }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchTitle = (j.title || '').toLowerCase().includes(q);
@@ -246,7 +269,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
       }
       return true;
     });
-  }, [jobsList, sourceFilter, statusFilter, ownerFilter, scraperFilter, searchQuery]);
+  }, [jobsList, sourceFilter, statusFilter, ownerFilter, scraperFilter, visibilityFilter, searchQuery]);
 
   const handleSelectAllFiltered = () => {
     if (selectedJobIds.length === filteredJobs.length && filteredJobs.length > 0) {
@@ -491,17 +514,17 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
             </div>
 
             {/* Advanced Filters */}
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 p-4 bg-slate-950 rounded-xl border border-slate-800">
+            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3 p-4 bg-slate-950 rounded-xl border border-slate-800">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
                   <Search className="w-3 h-3" />
-                  <span>Search Content</span>
+                  <span>Search</span>
                 </label>
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Title, company..."
+                  placeholder="Title..."
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-indigo-500"
                 />
               </div>
@@ -509,24 +532,24 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
                   <Globe className="w-3 h-3" />
-                  <span>Source Type</span>
+                  <span>Source</span>
                 </label>
                 <select
                   value={sourceFilter}
                   onChange={(e) => setSourceFilter(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
                 >
-                  <option value="All">All Sources</option>
-                  <option value="user_posted">User Created</option>
+                  <option value="All">All</option>
+                  <option value="user_posted">User</option>
                   <option value="scraped">Scraped</option>
-                  <option value="admin_created">Admin Created</option>
+                  <option value="admin_created">Admin</option>
                 </select>
               </div>
 
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
                   <User className="w-3 h-3" />
-                  <span>Owner ID / Submitter</span>
+                  <span>Owner</span>
                 </label>
                 <input
                   type="text"
@@ -540,7 +563,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
                   <Terminal className="w-3 h-3" />
-                  <span>Scraper Source ID</span>
+                  <span>Scraper</span>
                 </label>
                 <input
                   type="text"
@@ -551,13 +574,45 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
                 />
               </div>
 
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Status</span>
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+                >
+                  <option value="All">All</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Pending">Pending</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                  <Eye className="w-3 h-3" />
+                  <span>Visibility</span>
+                </label>
+                <select
+                  value={visibilityFilter}
+                  onChange={(e) => setVisibilityFilter(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+                >
+                  <option value="All">All</option>
+                  <option value="Overrides">With Overrides</option>
+                  <option value="Default">No Overrides</option>
+                </select>
+              </div>
+
               <div className="flex items-end">
                 <button
-                  onClick={loadJobs}
+                  onClick={() => loadJobs(1, false)}
                   className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-2 border border-slate-700"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loadingJobs ? 'animate-spin' : ''}`} />
-                  <span>Sync Authoritative List</span>
+                  <span>Sync</span>
                 </button>
               </div>
             </div>
@@ -674,6 +729,19 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+
+              {hasMore && (
+                <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-center">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingJobs}
+                    className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black transition-all flex items-center space-x-2 border border-slate-700 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingJobs ? 'animate-spin' : ''}`} />
+                    <span>{loadingJobs ? 'Authorizing sync...' : 'Load More Records'}</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

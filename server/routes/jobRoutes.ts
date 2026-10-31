@@ -897,9 +897,9 @@ jobRouter.get('/slug/:slug', async (req, res) => {
 
     const user = (req as any).user;
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
-    job = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
+    const filteredJob = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
 
-    res.json({ success: true, job });
+    res.json({ success: true, job: filteredJob });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching job details' });
   }
@@ -987,28 +987,19 @@ jobRouter.get('/attachments/:filename', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Attachment file not found.' });
     }
 
-    // Authoritative check for Premium content access
-    const isPublic = await JobRepository.isAttachmentPublic(safeFileName);
+    // Authoritative check for Attachment and Field Visibility access
     const user = (req as any).user;
-    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
-
-    if (!isAdmin && !isPublic) {
-      // If not globally public, check if user is authoritatively premium
-      const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
-      
-      // If user is not premium, verify if there's any job where this attachment is explicitly 'Free'
-      // or if it's strictly 'Premium'
-      if (!isPremium) {
-        // We'll perform a strict lookup: is there ANY job that has this attachment AND allows Free access?
-        const allowsFreeAccess = await JobRepository.isAttachmentAccessibleForFree(safeFileName);
-        if (!allowsFreeAccess) {
-          return res.status(403).json({
-            success: false,
-            message: 'Access denied. This document requires a Premium subscription to view or download.'
-          });
-        }
-      }
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    
+    const isAllowed = await JobRepository.verifyAttachmentAccess(safeFileName, user, isPremium);
+    if (!isAllowed) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. This document requires a Premium subscription or elevated privileges to view.'
+      });
     }
+
+    const isPublic = await JobRepository.isAttachmentPublic(safeFileName);
 
     const isDownload = req.query.download === '1' || req.query.download === 'true';
     const disposition = isDownload ? 'attachment' : 'inline';
@@ -1196,9 +1187,9 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
 
     const user = (req as any).user;
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
-    job = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
+    const filteredJob = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
 
-    res.json({ success: true, job });
+    res.json({ success: true, job: filteredJob });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching job details' });
   }
@@ -1558,9 +1549,12 @@ jobRouter.post('/convert-to-job', requireAdminPermission('jobs.manage'), async (
 // 17. Admin Universal Job List (Live + Pending) for Central Visibility Management
 jobRouter.get('/admin/all', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+    const limit = Math.min(2000, Math.max(1, parseInt(String(req.query.limit || '1000'), 10)));
+
     const [liveResult, pendingResult] = await Promise.all([
-      JobRepository.getAll({ limit: 2000, includeExpired: true }),
-      JobRepository.getPending({ limit: 1000 })
+      JobRepository.getAll({ page, limit, includeExpired: true }),
+      JobRepository.getPending({ page, limit })
     ]);
     
     const liveJobs = liveResult.jobs || [];
@@ -1574,7 +1568,11 @@ jobRouter.get('/admin/all', requireAdminPermission('jobs.manage'), async (req, r
     res.json({
       success: true,
       jobs: combined,
-      count: combined.length
+      count: combined.length,
+      liveTotal: liveResult.total,
+      pendingTotal: (pendingResult as any).total,
+      page,
+      limit
     });
   } catch (err: any) {
     console.error('Error in GET /api/jobs/admin/all:', err);

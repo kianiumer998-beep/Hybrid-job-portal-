@@ -332,10 +332,8 @@ export class JobRepository {
       newJob = JobRepository.applyLocationProtection(newJob, existingDoc);
     }
 
-    // Apply Admin-created visibility policy if creating direct admin job without explicit rules
-    if (!newJob.fieldVisibility) {
-      newJob = await JobVisibilityRepository.applyPolicyToJob({ ...newJob, sourceType: 'admin_created' });
-    }
+    // Apply appropriate visibility policy based on derived source
+    newJob = await JobVisibilityRepository.applyPolicyToJob(newJob);
 
     const normalized = normalizeMongoJob(newJob);
     await jobsColl.updateOne({ id }, { $set: normalized }, { upsert: true });
@@ -476,17 +474,22 @@ export class JobRepository {
 
       const doc = normalizeMongoJob(rawDoc);
 
-      return {
-        updateOne: {
-          filter: { id },
-          update: { $set: doc },
-          upsert: true
-        }
-      };
+      return (async () => {
+        // Apply visibility policy before writing
+        const withVisibility = await JobVisibilityRepository.applyPolicyToJob(doc);
+        return {
+          updateOne: {
+            filter: { id },
+            update: { $set: withVisibility },
+            upsert: true
+          }
+        };
+      })();
     });
 
     if (operations.length > 0) {
-      const res = await coll.bulkWrite(operations, { ordered: false });
+      const resolvedOps = await Promise.all(operations);
+      const res = await coll.bulkWrite(resolvedOps, { ordered: false });
       inserted = res.upsertedCount || 0;
       updated = res.modifiedCount || 0;
     }
@@ -841,10 +844,8 @@ export class JobRepository {
       updatedAt: new Date().toISOString()
     };
 
-    // Apply visibility policy based on source (user_posted or scraped)
-    if (!rawApproved.fieldVisibility) {
-      rawApproved = await JobVisibilityRepository.applyPolicyToJob(rawApproved);
-    }
+    // Apply visibility policy (merging defaults with any existing overrides)
+    rawApproved = await JobVisibilityRepository.applyPolicyToJob(rawApproved);
 
     const approvedJob = normalizeMongoJob(rawApproved);
 
@@ -1729,7 +1730,6 @@ export class JobRepository {
 
   /**
    * Checks whether a stored attachment filename is flagged as public on any job.
-   * If not attached or private, returns false.
    */
   static async isAttachmentPublic(filename: string): Promise<boolean> {
     const cleanFilename = path.basename(filename);
@@ -1755,8 +1755,10 @@ export class JobRepository {
         ]);
 
         return Boolean(publicLive || publicPending);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[JobRepository] Error checking isAttachmentPublic in MongoDB:', err);
+        // Fail closed on Mongo failure
+        throw err;
       }
     }
 
@@ -1803,8 +1805,10 @@ export class JobRepository {
         ]);
 
         return Boolean(freeLive || freePending);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[JobRepository] Error checking isAttachmentAccessibleForFree in MongoDB:', err);
+        // Fail closed on Mongo failure
+        throw err;
       }
     }
 
@@ -1814,6 +1818,68 @@ export class JobRepository {
       for (const j of allJobs) {
         if (j.fieldVisibility?.attachments === 'Free' && Array.isArray(j.attachments)) {
           const match = j.attachments.find((a: any) => a && a.fileUrl && a.fileUrl.includes(cleanFilename));
+          if (match) return true;
+        }
+      }
+    } catch {}
+
+    return false;
+  }
+
+  /**
+   * Comprehensive attachment access verification.
+   * Verifies association, field visibility rules, and individual attachment privacy.
+   */
+  static async verifyAttachmentAccess(filename: string, user: any, isPremium: boolean): Promise<boolean> {
+    const cleanFilename = path.basename(filename);
+    if (!cleanFilename) return false;
+
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
+    if (isAdmin) return true;
+
+    if (isMongoConfigured()) {
+      try {
+        const jobsColl = await getJobsCollection();
+        const pendingColl = await getPendingJobsCollection();
+
+        // Query: find any job that contains this attachment AND permits access based on visibility/premium status
+        const query = {
+          attachments: {
+            $elemMatch: {
+              fileUrl: { $regex: cleanFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') },
+              isPublic: true // Must always be public at the attachment level for non-admins
+            }
+          },
+          $or: [
+            { "fieldVisibility.attachments": "Free" },
+            ...(isPremium ? [{ "fieldVisibility.attachments": "Premium" }] : [])
+          ]
+        };
+
+        const [matchLive, matchPending] = await Promise.all([
+          jobsColl.findOne(query, { projection: { id: 1 } }),
+          pendingColl.findOne(query, { projection: { id: 1 } })
+        ]);
+
+        return Boolean(matchLive || matchPending);
+      } catch (err) {
+        console.error('[JobRepository] Error verifying attachment access in MongoDB:', err);
+        throw err; // Fail closed
+      }
+    }
+
+    // Local fallback
+    try {
+      const allJobs = [...Database.getJobs(), ...Database.getPendingJobs()];
+      for (const j of allJobs) {
+        const visibility = j.fieldVisibility?.attachments || 'Premium';
+        if (visibility === 'Hidden') continue;
+        if (visibility === 'Premium' && !isPremium) continue;
+
+        if (Array.isArray(j.attachments)) {
+          const match = j.attachments.find(
+            (a: any) => a && a.fileUrl && a.fileUrl.includes(cleanFilename) && a.isPublic === true
+          );
           if (match) return true;
         }
       }

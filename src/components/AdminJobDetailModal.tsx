@@ -834,8 +834,9 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             ) : (
               <div className="space-y-2">
                 {attachments.map((att) => {
-                  const isPdf = att.fileType === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf');
-                  const isImage = att.fileType.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(att.name);
+                  const attName = att.name || att.fileName || '';
+                  const isPdf = att.fileType === 'application/pdf' || attName.toLowerCase().endsWith('.pdf');
+                  const isImage = att.fileType.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(attName);
                   const isPublic = att.isPublic === true;
 
                   return (

@@ -19,6 +19,7 @@ import { adRouter } from './server/routes/adRoutes';
 import { auditRouter } from './server/routes/auditRoutes';
 import { paymentSettingsRouter } from './server/routes/paymentSettingsRoutes';
 import { locationRouter } from './server/routes/locationRoutes';
+import { jobVisibilityRouter } from './server/routes/jobVisibilityRoutes';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -127,6 +128,7 @@ async function startServer() {
   app.use('/api/audit-logs', auditRouter);
   app.use('/api/payment-settings', paymentSettingsRouter);
   app.use('/api/locations', locationRouter);
+  app.use('/api/jobs-visibility', jobVisibilityRouter);
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

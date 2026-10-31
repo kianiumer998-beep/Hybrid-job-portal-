@@ -9,6 +9,7 @@ import {
 } from '../mongodb';
 import { Database } from '../database';
 import { generateJobSlug } from '../../utils/slugify';
+import { JobVisibilityRepository } from './JobVisibilityRepository';
 
 export interface JobFilterOptions {
   search?: string;
@@ -329,6 +330,11 @@ export class JobRepository {
 
     if (existingDoc) {
       newJob = JobRepository.applyLocationProtection(newJob, existingDoc);
+    }
+
+    // Apply Admin-created visibility policy if creating direct admin job without explicit rules
+    if (!newJob.fieldVisibility) {
+      newJob = await JobVisibilityRepository.applyPolicyToJob({ ...newJob, sourceType: 'admin_created' });
     }
 
     const normalized = normalizeMongoJob(newJob);
@@ -828,12 +834,19 @@ export class JobRepository {
       return null;
     }
 
-    const approvedJob = normalizeMongoJob({
+    let rawApproved = {
       ...pendingDoc,
       status: 'Approved',
       verifiedDate: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    // Apply visibility policy based on source (user_posted or scraped)
+    if (!rawApproved.fieldVisibility) {
+      rawApproved = await JobVisibilityRepository.applyPolicyToJob(rawApproved);
+    }
+
+    const approvedJob = normalizeMongoJob(rawApproved);
 
     // Write to live jobs collection FIRST before deleting from pending collection
     await jobsColl.updateOne({ id }, { $set: approvedJob }, { upsert: true });

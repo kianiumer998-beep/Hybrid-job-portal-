@@ -320,6 +320,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'form-customizer'
     | 'pricing-controller'
     | 'apply-settings'
+    | 'job-visibility'
     | 'add-job'
     | 'jobs'
     | 'subscribers'
@@ -361,6 +362,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'form-customizer': 'settings',
     'pricing-controller': 'payments',
     'apply-settings': 'settings',
+    'job-visibility': 'settings',
     'add-job': 'jobs',
     jobs: 'jobs',
     subscribers: 'users',
@@ -474,7 +476,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (['activity-logs'].includes(tabId)) {
       return hasAdminUiPermission('audit.view');
     }
-    if (['apply-settings', 'settings', 'form-customizer', 'data-backup', 'analytics', 'whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(tabId)) {
+    if (['apply-settings', 'job-visibility', 'settings', 'form-customizer', 'data-backup', 'analytics', 'whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(tabId)) {
       return hasAdminUiPermission('settings.manage');
     }
     return false;

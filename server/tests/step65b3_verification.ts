@@ -125,7 +125,7 @@ async function runStep65B3Verification() {
         test: 10,
         name: 'Admin adds a new city with a selected province',
         status: 'FAILED',
-        details: addResult.error || 'Failed to add city'
+        details: (addResult as any).error || 'Failed to add city'
       });
     }
   } catch (err: any) {
@@ -188,7 +188,7 @@ async function runStep65B3Verification() {
         test: 12,
         name: 'Admin edits a city/province mapping',
         status: 'FAILED',
-        details: updateResult.error || 'Failed to update city'
+        details: (updateResult as any).error || 'Failed to update city'
       });
     }
   } catch (err: any) {
@@ -203,13 +203,13 @@ async function runStep65B3Verification() {
   // --- TEST 13: Duplicate city addition is prevented ---
   try {
     const dupResult = await LocationRepository.addCity('Punjab', 'Lahore'); // Lahore already exists
-    const msg = (dupResult.message || dupResult.error || '').toLowerCase();
+    const msg = (dupResult.message || (dupResult as any).error || '').toLowerCase();
     if (!dupResult.success && msg.includes('already exists')) {
       results.push({
         test: 13,
         name: 'Duplicate city addition is prevented',
         status: 'PASSED',
-        details: `Correctly rejected: "${dupResult.message || dupResult.error}"`
+        details: `Correctly rejected: "${dupResult.message || (dupResult as any).error}"`
       });
     } else {
       results.push({
@@ -296,7 +296,6 @@ async function runStep65B3Verification() {
     const jobWithAttachments: Partial<Job> = {
       title: 'Job Attachment Visibility Test',
       company: 'Sec Corp',
-      location: 'Lahore',
       city: 'Lahore',
       country: 'Pakistan',
       attachments: [
@@ -356,10 +355,9 @@ async function runStep65B3Verification() {
     const pendingJob: Partial<Job> = {
       title: 'Pending Job Workflow Test',
       company: 'Test Org',
-      location: 'Islamabad',
       city: 'Islamabad',
       status: 'Pending'
-    };
+    } as any;
     const createdPending = await JobRepository.addPending(pendingJob);
     if (createdPending && createdPending.status === 'Pending') {
       const approved = await JobRepository.approvePending(createdPending.id);

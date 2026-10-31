@@ -120,6 +120,7 @@ export interface JobAttachment {
   fileUrl: string;
   fileType: string; // 'application/pdf', 'image/jpeg', 'image/png', 'image/webp'
   sizeBytes?: number;
+  fileName?: string; // Optional alias for name
   uploadedAt: string;
   description?: string;
   isPublic?: boolean; // STEP 65-B.2 & STEP 65-B.3: Independent visibility toggle, defaults to false (private)

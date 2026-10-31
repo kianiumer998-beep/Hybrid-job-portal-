@@ -100,7 +100,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   const loadJobs = async () => {
     setLoadingJobs(true);
     try {
-      const res = await api.jobs.getAll({ limit: 500 });
+      const res = await api.jobs.getAll({ limit: '500' });
       if (res.success && Array.isArray(res.jobs)) {
         setJobsList(res.jobs);
       }

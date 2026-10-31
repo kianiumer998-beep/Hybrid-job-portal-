@@ -1,3 +1,4 @@
+import path from 'path';
 import { Router } from 'express';
 import { Database, generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
@@ -6,6 +7,9 @@ import { JobRepository, AuditRepository, NotificationRepository } from '../db/re
 import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType } from '../services/jobValidation';
 import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
 import { isMongoConfigured } from '../db/mongodb';
+import { saveAttachment, getAttachmentStream, deleteAttachmentFile, validateAttachmentMagicBytes, getAttachmentMimeType } from '../services/attachmentStorage';
+import { JobAttachment } from '../../src/types/job';
+import { getProvinceForCity } from '../../src/utils/locationCatalog';
 
 export const jobRouter = Router();
 
@@ -46,9 +50,26 @@ jobRouter.get('/', async (req, res) => {
       limit: parseInt(limit, 10)
     });
 
+    const user = (req as any).user;
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
+
+    let sanitizedJobs = result.jobs;
+    if (!isAdmin && Array.isArray(sanitizedJobs)) {
+      sanitizedJobs = sanitizedJobs.map((job: any) => {
+        if (Array.isArray(job.attachments)) {
+          return {
+            ...job,
+            attachments: job.attachments.filter((a: any) => a && a.isPublic === true)
+          };
+        }
+        return job;
+      });
+    }
+
     res.json({
       success: true,
-      ...result
+      ...result,
+      jobs: sanitizedJobs
     });
   } catch (err: any) {
     console.error('Error in GET /api/jobs:', err);
@@ -875,13 +896,288 @@ jobRouter.post('/merge', requireAdminPermission('jobs.manage'), async (req, res)
 jobRouter.get('/slug/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
-    const job = await JobRepository.getBySlug(slug);
+    let job = await JobRepository.getBySlug(slug);
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
     }
+
+    const user = (req as any).user;
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
+    if (!isAdmin && Array.isArray(job.attachments)) {
+      job = {
+        ...job,
+        attachments: job.attachments.filter((a: any) => a && a.isPublic === true)
+      };
+    }
+
     res.json({ success: true, job });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching job details' });
+  }
+});
+
+// 14-A. Secure Supporting Document Attachment Upload (Admin Only)
+jobRouter.post('/attachments/upload', requireAdminPermission('jobs.manage'), async (req, res) => {
+  try {
+    const { fileName, fileType, fileBase64, description } = req.body;
+
+    if (!fileName || !fileBase64) {
+      return res.status(400).json({ success: false, message: 'File name and file content (base64) are required.' });
+    }
+
+    const ext = path.extname(fileName).toLowerCase();
+    const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    if (!allowedExts.includes(ext)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid file extension "${ext}". Supported formats are PDF (.pdf), JPEG (.jpg, .jpeg), PNG (.png), and WebP (.webp).`
+      });
+    }
+
+    const base64Data = fileBase64.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const MAX_ATTACHMENT_SIZE = 15 * 1024 * 1024; // 15MB limit
+    if (buffer.length > MAX_ATTACHMENT_SIZE) {
+      return res.status(400).json({
+        success: false,
+        message: `Document exceeds 15 MB limit. Uploaded size: ${(buffer.length / (1024 * 1024)).toFixed(2)} MB.`
+      });
+    }
+
+    const isValidHeader = validateAttachmentMagicBytes(buffer, ext);
+    if (!isValidHeader) {
+      return res.status(400).json({
+        success: false,
+        message: `File header does not match a valid ${ext.toUpperCase()} document. Corrupt or executable files are prohibited.`
+      });
+    }
+
+    const storageRes = await saveAttachment(fileName, buffer, fileType);
+
+    const isPublic = req.body.isPublic === true; // Default false (private)
+    const attachment: JobAttachment = {
+      id: `att-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+      name: fileName,
+      fileUrl: storageRes.fileUrl,
+      fileType: storageRes.contentType,
+      sizeBytes: storageRes.sizeBytes,
+      uploadedAt: new Date().toISOString(),
+      description: description ? String(description).trim() : undefined,
+      isPublic
+    };
+
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Job Document Attachment Uploaded',
+      target: fileName,
+      status: 'Success',
+      metadata: { storedFileName: storageRes.storedFileName, sizeBytes: buffer.length, isPublic }
+    });
+
+    res.status(201).json({
+      success: true,
+      attachment,
+      message: 'Document attachment uploaded successfully.'
+    });
+  } catch (err: any) {
+    console.error('Error uploading job attachment:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error processing document attachment.' });
+  }
+});
+
+// 14-B. Stream / Serve Uploaded Job Document Attachment (Protected for Private Attachments)
+jobRouter.get('/attachments/:filename', async (req, res) => {
+  try {
+    const rawFileName = req.params.filename;
+    const safeFileName = path.basename(rawFileName);
+
+    const attachmentData = getAttachmentStream(safeFileName);
+    if (!attachmentData) {
+      return res.status(404).json({ success: false, message: 'Attachment file not found.' });
+    }
+
+    // Check attachment visibility
+    const isPublic = await JobRepository.isAttachmentPublic(safeFileName);
+    const user = (req as any).user;
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
+
+    if (!isPublic && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. This document attachment is private and only accessible to authorized administrators.'
+      });
+    }
+
+    const isDownload = req.query.download === '1' || req.query.download === 'true';
+    const disposition = isDownload ? 'attachment' : 'inline';
+
+    res.setHeader('Content-Type', attachmentData.contentType);
+    res.setHeader('Content-Length', attachmentData.size);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(safeFileName)}"`);
+    res.setHeader('Cache-Control', isPublic ? 'public, max-age=86400' : 'private, no-cache');
+
+    attachmentData.stream.pipe(res);
+  } catch (err: any) {
+    console.error('Error streaming attachment:', err);
+    res.status(500).json({ success: false, message: 'Error serving attachment file.' });
+  }
+});
+
+// 14-C. Add Attachment to Existing Job (Admin Only)
+jobRouter.post('/:id/attachments', requireAdminPermission('jobs.manage'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { attachment } = req.body;
+
+    if (!attachment || !attachment.fileUrl || !attachment.name) {
+      return res.status(400).json({ success: false, message: 'Valid attachment object with name and fileUrl is required.' });
+    }
+
+    let existingJob = await JobRepository.getById(id);
+    if (!existingJob) {
+      existingJob = (await JobRepository.getPending()).find(j => j.id === id);
+    }
+
+    if (!existingJob) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const currentAttachments: JobAttachment[] = Array.isArray(existingJob.attachments) ? existingJob.attachments : [];
+    const isPublic = attachment.isPublic === true; // Default false (private)
+    const newAttachment: JobAttachment = {
+      id: attachment.id || `att-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+      name: attachment.name,
+      fileUrl: attachment.fileUrl,
+      fileType: attachment.fileType || getAttachmentMimeType(attachment.name),
+      sizeBytes: attachment.sizeBytes,
+      uploadedAt: attachment.uploadedAt || new Date().toISOString(),
+      description: attachment.description,
+      isPublic
+    };
+
+    const updatedAttachments = [...currentAttachments, newAttachment];
+    const updatedJob = await JobRepository.update(id, { attachments: updatedAttachments });
+
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Document Attached to Job',
+      target: `Job ${existingJob.title} (${id}) - Attachment: ${newAttachment.name} (${isPublic ? 'Public' : 'Private'})`,
+      status: 'Success'
+    });
+
+    res.json({
+      success: true,
+      message: 'Attachment saved to job successfully.',
+      attachment: newAttachment,
+      attachments: updatedAttachments,
+      job: updatedJob
+    });
+  } catch (err: any) {
+    console.error('Error attaching document to job:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error saving attachment to job.' });
+  }
+});
+
+// 14-D. Update Attachment Visibility (Admin Only)
+jobRouter.patch('/:id/attachments/:attachmentId/visibility', requireAdminPermission('jobs.manage'), async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const { isPublic } = req.body;
+
+    if (typeof isPublic !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'isPublic boolean value is required.' });
+    }
+
+    let existingJob = await JobRepository.getById(id);
+    if (!existingJob) {
+      existingJob = (await JobRepository.getPending()).find(j => j.id === id);
+    }
+
+    if (!existingJob) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const currentAttachments: JobAttachment[] = Array.isArray(existingJob.attachments) ? existingJob.attachments : [];
+    const targetAtt = currentAttachments.find(a => a.id === attachmentId);
+
+    if (!targetAtt) {
+      return res.status(404).json({ success: false, message: 'Attachment not found on this job.' });
+    }
+
+    targetAtt.isPublic = isPublic;
+
+    const updatedJob = await JobRepository.update(id, { attachments: currentAttachments });
+
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Attachment Visibility Changed',
+      target: `Job ${existingJob.title} (${id}) - Attachment ${targetAtt.name}: ${isPublic ? 'PUBLIC (Show to Users)' : 'PRIVATE (Admin Only)'}`,
+      status: 'Success'
+    });
+
+    res.json({
+      success: true,
+      message: `Attachment visibility set to ${isPublic ? 'Public' : 'Private'}.`,
+      attachment: targetAtt,
+      attachments: currentAttachments,
+      job: updatedJob
+    });
+  } catch (err: any) {
+    console.error('Error toggling attachment visibility:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error updating attachment visibility.' });
+  }
+});
+
+// 14-D. Remove Attachment from Existing Job (Admin Only)
+jobRouter.delete('/:id/attachments/:attachmentId', requireAdminPermission('jobs.manage'), async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+
+    let existingJob = await JobRepository.getById(id);
+    if (!existingJob) {
+      existingJob = (await JobRepository.getPending()).find(j => j.id === id);
+    }
+
+    if (!existingJob) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const currentAttachments: JobAttachment[] = Array.isArray(existingJob.attachments) ? existingJob.attachments : [];
+    const targetAtt = currentAttachments.find(a => a.id === attachmentId);
+
+    if (!targetAtt) {
+      return res.status(404).json({ success: false, message: 'Attachment not found on this job.' });
+    }
+
+    const updatedAttachments = currentAttachments.filter(a => a.id !== attachmentId);
+    const updatedJob = await JobRepository.update(id, { attachments: updatedAttachments });
+
+    // Clean up local file if stored locally
+    if (targetAtt.fileUrl && targetAtt.fileUrl.startsWith('/api/jobs/attachments/')) {
+      deleteAttachmentFile(targetAtt.fileUrl);
+    }
+
+    AuditRepository.add({
+      user: (req as any).user?.name || 'Administrator',
+      role: 'Admin',
+      action: 'Document Attachment Removed from Job',
+      target: `Job ${existingJob.title} (${id}) - Removed: ${targetAtt.name}`,
+      status: 'Success'
+    });
+
+    res.json({
+      success: true,
+      message: 'Attachment removed successfully.',
+      attachments: updatedAttachments,
+      job: updatedJob
+    });
+  } catch (err: any) {
+    console.error('Error removing attachment from job:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error removing attachment from job.' });
   }
 });
 
@@ -896,6 +1192,15 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
 
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const user = (req as any).user;
+    const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator'].includes(user.role));
+    if (!isAdmin && Array.isArray(job.attachments)) {
+      job = {
+        ...job,
+        attachments: job.attachments.filter((a: any) => a && a.isPublic === true)
+      };
     }
 
     res.json({ success: true, job });
@@ -940,8 +1245,23 @@ jobRouter.post('/', async (req, res) => {
       derivedSourceType = 'user_posted';
     }
 
+    // Requirement C: Country defaults to Pakistan when missing or blank
+    const rawCountry = typeof jobData.country === 'string' ? jobData.country.trim() : '';
+    const resolvedCountry = rawCountry || (jobData.country === undefined || jobData.country === null || jobData.country === '' ? 'Pakistan' : jobData.country);
+
+    // Requirement D: Automatic City -> Province mapping if city is known and province is not explicitly set
+    let resolvedProvince = typeof jobData.province === 'string' && jobData.province.trim() ? jobData.province.trim() : undefined;
+    if (!resolvedProvince && jobData.city && typeof jobData.city === 'string' && jobData.city.trim()) {
+      const mappedProv = getProvinceForCity(jobData.city.trim());
+      if (mappedProv) {
+        resolvedProvince = mappedProv;
+      }
+    }
+
     const newJob: any = {
       ...jobData,
+      country: resolvedCountry,
+      province: resolvedProvince,
       sourceType: derivedSourceType,
       // Strictly enforce submittedByUserId from verified authentication token, never trust client-supplied identity!
       submittedByUserId: authUserId || undefined,

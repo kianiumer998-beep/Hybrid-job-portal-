@@ -1,6 +1,36 @@
-import React, { useState } from 'react';
-import { Job, UserAccount, JobPostingFeeLog } from '../types/job';
-import { X, Building2, MapPin, DollarSign, Clock, CheckCircle2, AlertCircle, Sparkles, User, ShieldCheck, Tag, FileText, Check, Ban, Edit3, AlertTriangle } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Job, UserAccount, JobPostingFeeLog, JobAttachment } from '../types/job';
+import { 
+  X, 
+  Building2, 
+  MapPin, 
+  DollarSign, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle, 
+  Sparkles, 
+  User, 
+  ShieldCheck, 
+  Tag, 
+  FileText, 
+  Check, 
+  Ban, 
+  Edit3, 
+  AlertTriangle,
+  Paperclip,
+  Upload,
+  Eye,
+  Download,
+  Trash2,
+  Copy,
+  ExternalLink,
+  RefreshCw,
+  Image as ImageIcon,
+  FileCheck,
+  Lock,
+  Globe,
+  EyeOff
+} from 'lucide-react';
 import { isScrapedJob } from '../utils/jobValidation';
 import { suggestJobMetadata, JobSuggestionResult } from '../utils/jobSuggestionEngine';
 import { api } from '../services/api';
@@ -32,6 +62,152 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [isConfirmingLocation, setIsConfirmingLocation] = useState(false);
   const [confirmedNotice, setConfirmedNotice] = useState<string | null>(null);
+
+  // Supporting Document Attachments & Extracted Text State
+  const [attachments, setAttachments] = useState<JobAttachment[]>(job?.attachments || []);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadIsPublic, setUploadIsPublic] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<JobAttachment | null>(null);
+  const [replacingAttachmentId, setReplacingAttachmentId] = useState<string | null>(null);
+  const [copiedExtractedText, setCopiedExtractedText] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (job?.attachments) {
+      setAttachments(job.attachments);
+    }
+  }, [job?.attachments]);
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes === 0) return '0 KB';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, isReplace: boolean = false) => {
+    const file = e.target.files?.[0];
+    if (!file || !job) return;
+
+    // Reset input
+    e.target.value = '';
+
+    const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
+    if (!allowedExts.includes(fileExt)) {
+      setUploadError(`Invalid file format "${fileExt}". Please select a PDF, JPG, PNG, or WebP document.`);
+      return;
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      setUploadError(`File size exceeds 15 MB (${(file.size / (1024 * 1024)).toFixed(2)} MB). Please select a smaller file.`);
+      return;
+    }
+
+    setUploadError(null);
+    setUploadSuccess(null);
+    setIsUploading(true);
+
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
+
+      const uploadRes = await api.jobs.uploadAttachment({
+        fileName: file.name,
+        fileType: file.type || (fileExt === '.pdf' ? 'application/pdf' : 'image/jpeg'),
+        fileBase64: base64
+      });
+
+      if (!uploadRes.success || !uploadRes.attachment) {
+        throw new Error(uploadRes.message || 'Failed to upload document.');
+      }
+
+      const newAtt = {
+        ...uploadRes.attachment,
+        isPublic: uploadIsPublic
+      };
+
+      // If replacing, remove previous attachment
+      if (isReplace && replacingAttachmentId) {
+        await api.jobs.deleteAttachment(job.id, replacingAttachmentId);
+      }
+
+      // Attach new document to job
+      const attachRes = await api.jobs.attachDocument(job.id, newAtt);
+      if (!attachRes.success) {
+        throw new Error(attachRes.message || 'Failed to associate document with job.');
+      }
+
+      const updatedList: JobAttachment[] = attachRes.attachments || [...attachments.filter(a => a.id !== replacingAttachmentId), newAtt];
+      setAttachments(updatedList);
+      if (job) {
+        job.attachments = updatedList;
+      }
+      setUploadSuccess(isReplace ? `Attachment replaced with "${file.name}"!` : `"${file.name}" attached successfully as ${uploadIsPublic ? 'Public' : 'Private'}!`);
+      setReplacingAttachmentId(null);
+    } catch (err: any) {
+      console.error('Error attaching file:', err);
+      setUploadError(err?.message || 'Error uploading and attaching document.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleToggleAttachmentVisibility = async (attId: string, currentPublic: boolean) => {
+    if (!job) return;
+    const nextPublic = !currentPublic;
+    try {
+      const res = await api.jobs.updateAttachmentVisibility(job.id, attId, nextPublic);
+      if (res.success) {
+        const updatedList = attachments.map(a => a.id === attId ? { ...a, isPublic: nextPublic } : a);
+        setAttachments(updatedList);
+        if (job) job.attachments = updatedList;
+        setUploadSuccess(`Attachment visibility changed to ${nextPublic ? 'Public (Visible to Candidates)' : 'Private (Admin Only)'}.`);
+      } else {
+        alert(res.message || 'Failed to update visibility.');
+      }
+    } catch (err: any) {
+      console.error('Error toggling attachment visibility:', err);
+      alert(`Error toggling visibility: ${err?.message || 'Unexpected failure'}`);
+    }
+  };
+
+  const handleDeleteAttachment = async (attId: string, attName: string) => {
+    if (!job) return;
+    const confirmed = window.confirm(`Are you sure you want to remove the supporting document "${attName}" from this job?`);
+    if (!confirmed) return;
+
+    try {
+      const res = await api.jobs.deleteAttachment(job.id, attId);
+      if (res.success) {
+        const remaining = attachments.filter(a => a.id !== attId);
+        setAttachments(remaining);
+        job.attachments = remaining;
+        setUploadSuccess(`Attachment "${attName}" removed.`);
+      } else {
+        alert(res.message || 'Failed to delete attachment.');
+      }
+    } catch (err: any) {
+      console.error('Error deleting attachment:', err);
+      alert(`Error deleting attachment: ${err?.message || 'Unexpected failure'}`);
+    }
+  };
+
+  const handleCopyExtractedText = () => {
+    const textToCopy = job?.extractedText || job?.description || '';
+    if (!textToCopy) return;
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedExtractedText(true);
+    setTimeout(() => setCopiedExtractedText(false), 2000);
+  };
 
   if (!job) return null;
 
@@ -571,6 +747,272 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             </div>
           )}
 
+          {/* Hidden File Inputs for Document Upload & Replacement */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={(e) => handleFileChange(e, false)}
+            accept=".pdf,.jpg,.jpeg,.png,.webp"
+            className="hidden"
+          />
+          <input
+            type="file"
+            ref={replaceInputRef}
+            onChange={(e) => handleFileChange(e, true)}
+            accept=".pdf,.jpg,.jpeg,.png,.webp"
+            className="hidden"
+          />
+
+          {/* Section: Supporting Documents & Official Attachments */}
+          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <Paperclip className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Supporting Documents & Official Attachments
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                  {attachments.length}
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <label className="inline-flex items-center space-x-1.5 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={uploadIsPublic}
+                    onChange={(e) => setUploadIsPublic(e.target.checked)}
+                    className="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0"
+                  />
+                  <span>Show to Users (Public)</span>
+                </label>
+
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 font-bold text-xs border border-emerald-500/40 flex items-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isUploading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Attach Document</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400">
+              Attach official recruitment circulars, gazettes, newspaper clippings, or eligibility criteria schedules (PDF, JPG, PNG, WebP up to 15 MB). New attachments default to Private unless "Show to Users" is checked.
+            </p>
+
+            {/* Upload notifications */}
+            {uploadError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{uploadError}</span>
+              </div>
+            )}
+            {uploadSuccess && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-300 flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{uploadSuccess}</span>
+              </div>
+            )}
+
+            {/* List of Attachments */}
+            {attachments.length === 0 ? (
+              <div className="p-4 bg-slate-900/60 border border-dashed border-slate-800 rounded-xl text-center text-xs text-slate-500">
+                No supporting documents attached yet. Click <strong className="text-slate-400">"Attach Document"</strong> to upload official circulars or ads.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {attachments.map((att) => {
+                  const isPdf = att.fileType === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf');
+                  const isImage = att.fileType.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(att.name);
+                  const isPublic = att.isPublic === true;
+
+                  return (
+                    <div
+                      key={att.id}
+                      className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3 hover:border-slate-700 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3 min-w-0 flex-1">
+                        <div className={`p-2 rounded-lg ${isPdf ? 'bg-rose-500/20 text-rose-400' : 'bg-teal-500/20 text-teal-400'}`}>
+                          {isPdf ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center space-x-2 flex-wrap gap-1">
+                            <span className="font-semibold text-xs text-white truncate" title={att.name}>
+                              {att.name}
+                            </span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isPdf ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : 'bg-teal-500/15 text-teal-300 border border-teal-500/30'}`}>
+                              {isPdf ? 'PDF' : isImage ? 'IMAGE' : 'DOC'}
+                            </span>
+                            {/* Visibility Badge */}
+                            {isPublic ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                                <Globe className="w-2.5 h-2.5 text-emerald-400" />
+                                <span>Public (Visible)</span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex items-center space-x-1">
+                                <Lock className="w-2.5 h-2.5 text-amber-400" />
+                                <span>Private (Admin Only)</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2 text-[10px] text-slate-400 mt-0.5">
+                            <span>{formatBytes(att.sizeBytes)}</span>
+                            <span>•</span>
+                            <span>{att.uploadedAt ? new Date(att.uploadedAt).toLocaleDateString() : 'Recent'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center space-x-1.5 shrink-0 flex-wrap">
+                        {/* Visibility Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleAttachmentVisibility(att.id, isPublic)}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors ${
+                            isPublic
+                              ? 'bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30'
+                              : 'bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/30'
+                          }`}
+                          title={isPublic ? 'Hide from public candidate visitors' : 'Make visible to public candidate visitors'}
+                        >
+                          {isPublic ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          <span>{isPublic ? 'Hide from Users' : 'Show to Users'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setPreviewAttachment(att)}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                          title="Preview Document"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Preview</span>
+                        </button>
+
+                        <a
+                          href={`${att.fileUrl}${att.fileUrl.includes('?') ? '&' : '?'}download=1`}
+                          download={att.name}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                          title="Download Document"
+                        >
+                          <Download className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Download</span>
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplacingAttachmentId(att.id);
+                            replaceInputRef.current?.click();
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                          title="Replace with new file"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Replace</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAttachment(att.id, att.name)}
+                          className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500 text-rose-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                          title="Remove Attachment"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Section: Complete Document Extracted Text */}
+          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Complete Document / Extracted Gazette Text
+                </h3>
+                {job.extractedText && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                    {job.extractedText.length.toLocaleString()} characters
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {job.pdfSourceUrl && (
+                  <a
+                    href={job.pdfSourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-slate-950 text-xs font-bold border border-rose-500/30 flex items-center space-x-1 transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Source PDF</span>
+                  </a>
+                )}
+                {job.clippingImageUrl && (
+                  <a
+                    href={job.clippingImageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-teal-500/20 hover:bg-teal-500 text-teal-300 hover:text-slate-950 text-xs font-bold border border-teal-500/30 flex items-center space-x-1 transition-colors"
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    <span>Source Image</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCopyExtractedText}
+                  className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                >
+                  {copiedExtractedText ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400 font-bold">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Copy Full Text</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400">
+              Factual content extracted from the original recruitment advertisement. Complete paragraphs, tables, eligibility, quotas, and deadlines are preserved without truncation.
+            </p>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 max-h-96 overflow-y-auto">
+              <pre className="font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed select-text">
+                {job.extractedText || job.description || 'No raw extracted text recorded for this listing.'}
+              </pre>
+            </div>
+          </div>
+
         </div>
 
         {/* Modal Action Footer */}
@@ -675,6 +1117,76 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
         </div>
 
       </div>
+
+      {/* Interactive Attachment Preview Lightbox Modal */}
+      {previewAttachment && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-4">
+              <div className="flex items-center space-x-2 min-w-0">
+                {previewAttachment.fileType === 'application/pdf' || previewAttachment.name.toLowerCase().endsWith('.pdf') ? (
+                  <FileText className="w-5 h-5 text-rose-400 shrink-0" />
+                ) : (
+                  <ImageIcon className="w-5 h-5 text-teal-400 shrink-0" />
+                )}
+                <div className="truncate">
+                  <h4 className="font-bold text-sm text-white truncate" title={previewAttachment.name}>
+                    {previewAttachment.name}
+                  </h4>
+                  <p className="text-[10px] text-slate-400">
+                    {formatBytes(previewAttachment.sizeBytes)} • Uploaded {previewAttachment.uploadedAt ? new Date(previewAttachment.uploadedAt).toLocaleString() : ''}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                <a
+                  href={`${previewAttachment.fileUrl}${previewAttachment.fileUrl.includes('?') ? '&' : '?'}download=1`}
+                  download={previewAttachment.name}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center space-x-1 transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <a
+                  href={previewAttachment.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center space-x-1 transition-all"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open in Tab</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAttachment(null)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 overflow-auto bg-slate-950/80 flex items-center justify-center min-h-[50vh]">
+              {previewAttachment.fileType === 'application/pdf' || previewAttachment.name.toLowerCase().endsWith('.pdf') ? (
+                <iframe
+                  src={previewAttachment.fileUrl}
+                  title={previewAttachment.name}
+                  className="w-full h-[70vh] rounded-lg border border-slate-800 bg-white"
+                />
+              ) : (
+                <img
+                  src={previewAttachment.fileUrl}
+                  alt={previewAttachment.name}
+                  className="max-h-[70vh] max-w-full object-contain rounded-lg shadow-lg"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -12,9 +12,18 @@ import {
   Bookmark,
   Calendar,
   AlertTriangle,
-  ExternalLink
+  ExternalLink,
+  Paperclip,
+  FileText,
+  Eye,
+  Download,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Image as ImageIcon
 } from 'lucide-react';
-import { Job } from '../types/job';
+import { Job, JobAttachment } from '../types/job';
 import { sanitizeJob } from '../utils/jobSanitizer';
 import { injectJobJsonLd } from '../utils/seoHelper';
 import { api } from '../services/api';
@@ -57,6 +66,24 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
         setApplySettings(data.settings);
       }
     } catch {}
+  };
+
+  const [copiedText, setCopiedText] = useState(false);
+  const [showFullExtracted, setShowFullExtracted] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<JobAttachment | { name: string; fileUrl: string; fileType: string } | null>(null);
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes === 0) return '0 KB';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleCopyText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(true);
+    setTimeout(() => setCopiedText(false), 2000);
   };
 
   if (!rawJob) return null;
@@ -214,6 +241,177 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </div>
           )}
 
+          {/* Official Supporting Documents & Gazette Attachments (Public Only) */}
+          {(() => {
+            const publicAttachments = (job.attachments || []).filter((att) => att && att.isPublic === true);
+            if (publicAttachments.length === 0) return null;
+
+            return (
+              <div className="p-4 bg-slate-950/90 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Paperclip className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    Official Supporting Documents ({publicAttachments.length})
+                  </h3>
+                </div>
+
+                <div className="space-y-2">
+                  {publicAttachments.map((att) => {
+                  const isPdf = att.fileType === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf');
+                  const isImage = att.fileType.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(att.name);
+
+                  return (
+                    <div
+                      key={att.id}
+                      className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3 hover:border-slate-700 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3 min-w-0 flex-1">
+                        <div className={`p-2 rounded-lg ${isPdf ? 'bg-rose-500/20 text-rose-400' : 'bg-teal-500/20 text-teal-400'}`}>
+                          {isPdf ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-xs text-white truncate block" title={att.name}>
+                            {att.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {formatBytes(att.sizeBytes)} • {isPdf ? 'Official PDF Circular' : isImage ? 'Image Document' : 'Attachment'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDoc(att)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Preview</span>
+                        </button>
+
+                        <a
+                          href={`${att.fileUrl}${att.fileUrl.includes('?') ? '&' : '?'}download=1`}
+                          download={att.name}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1 transition-all"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            );
+          })()}
+
+          {/* Original Document Sources (Source PDF or Newspaper Clipping) */}
+          {(job.pdfSourceUrl || (job.sourceUrl && job.sourceUrl.toLowerCase().endsWith('.pdf')) || job.clippingImageUrl) && (
+            <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Original Source Documents</h4>
+                <p className="text-[11px] text-slate-400">Access the original gazette advertisement directly from the issuing authority.</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {(job.pdfSourceUrl || (job.sourceUrl && job.sourceUrl.toLowerCase().endsWith('.pdf'))) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = job.pdfSourceUrl || job.sourceUrl;
+                      if (url) {
+                        setPreviewDoc({
+                          name: job.pdfFileName || `${job.title}_Advertisement.pdf`,
+                          fileUrl: url,
+                          fileType: 'application/pdf'
+                        });
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white text-xs font-bold border border-rose-500/40 flex items-center space-x-1.5 transition-all cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>View Official PDF</span>
+                  </button>
+                )}
+
+                {job.clippingImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (job.clippingImageUrl) {
+                        setPreviewDoc({
+                          name: `${job.newspaperName || 'Newspaper'}_Clipping.jpg`,
+                          fileUrl: job.clippingImageUrl,
+                          fileType: 'image/jpeg'
+                        });
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500 text-teal-300 hover:text-white text-xs font-bold border border-teal-500/40 flex items-center space-x-1.5 transition-all cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>View Clipping Image</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Complete Extracted Document & Gazette Text */}
+          {job.extractedText && job.extractedText.trim().length > 0 && (
+            <div className="p-4 bg-slate-950/90 rounded-xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-4 h-4 text-indigo-400" />
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    Official Advertisement / Complete Gazette Text
+                  </h3>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(job.extractedText || '')}
+                    className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                  >
+                    {copiedText ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400 font-bold">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Copy Text</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowFullExtracted(!showFullExtracted)}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                    title={showFullExtracted ? 'Collapse' : 'Expand full height'}
+                  >
+                    {showFullExtracted ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                Complete verbatim vacancy notification including multi-column tables, qualifications, quota allocations, age relaxation, and examination rules.
+              </p>
+
+              <div className={`rounded-xl border border-slate-800 bg-slate-900/90 p-4 overflow-y-auto ${showFullExtracted ? 'max-h-[60vh]' : 'max-h-60'}`}>
+                <pre className="font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed select-text">
+                  {job.extractedText}
+                </pre>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* External Application Notice & Warning if applicable */}
@@ -295,6 +493,76 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
         </div>
 
       </div>
+
+      {/* Interactive Candidate Document Preview Lightbox Modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-4">
+              <div className="flex items-center space-x-2 min-w-0">
+                {previewDoc.fileType === 'application/pdf' || previewDoc.name.toLowerCase().endsWith('.pdf') ? (
+                  <FileText className="w-5 h-5 text-rose-400 shrink-0" />
+                ) : (
+                  <ImageIcon className="w-5 h-5 text-teal-400 shrink-0" />
+                )}
+                <div className="truncate">
+                  <h4 className="font-bold text-sm text-white truncate" title={previewDoc.name}>
+                    {previewDoc.name}
+                  </h4>
+                  <p className="text-[10px] text-slate-400">
+                    Official recruitment document / verified circular
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                <a
+                  href={`${previewDoc.fileUrl}${previewDoc.fileUrl.includes('?') ? '&' : '?'}download=1`}
+                  download={previewDoc.name}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center space-x-1 transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <a
+                  href={previewDoc.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center space-x-1 transition-all"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Tab</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewDoc(null)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 overflow-auto bg-slate-950/80 flex items-center justify-center min-h-[50vh]">
+              {previewDoc.fileType === 'application/pdf' || previewDoc.name.toLowerCase().endsWith('.pdf') ? (
+                <iframe
+                  src={previewDoc.fileUrl}
+                  title={previewDoc.name}
+                  className="w-full h-[70vh] rounded-lg border border-slate-800 bg-white"
+                />
+              ) : (
+                <img
+                  src={previewDoc.fileUrl}
+                  alt={previewDoc.name}
+                  className="max-h-[70vh] max-w-full object-contain rounded-lg shadow-lg"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

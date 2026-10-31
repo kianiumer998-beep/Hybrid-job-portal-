@@ -8,3 +8,4 @@ export * from './AuditRepository';
 export * from './AdRepository';
 export * from './NotificationRepository';
 export * from './PaymentSettingsRepository';
+export * from './LocationRepository';

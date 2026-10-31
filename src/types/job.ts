@@ -112,6 +112,17 @@ export interface UserAccount {
 
 export type JobStatus = 'Approved' | 'Pending' | 'Rejected' | 'Suspended' | 'Expired';
 
+export interface JobAttachment {
+  id: string;
+  name: string;
+  fileUrl: string;
+  fileType: string; // 'application/pdf', 'image/jpeg', 'image/png', 'image/webp'
+  sizeBytes?: number;
+  uploadedAt: string;
+  description?: string;
+  isPublic?: boolean; // STEP 65-B.2 & STEP 65-B.3: Independent visibility toggle, defaults to false (private)
+}
+
 export interface Job {
   id: string;
   title: string;
@@ -223,6 +234,9 @@ export interface Job {
     confirmedBy?: string;
     [key: string]: any;
   };
+
+  // Official Supporting Documents & Gazette Attachments
+  attachments?: JobAttachment[];
 }
 
 export interface ChatMessage {

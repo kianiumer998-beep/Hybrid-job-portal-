@@ -118,6 +118,8 @@ import { AdminWhatsAppSettings } from './admin/AdminWhatsAppSettings';
 import { AdminPaymentVerificationHub, PaymentVerificationResult } from './admin/AdminPaymentVerificationHub';
 import { AdminPricingController } from './admin/AdminPricingController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
+import { AdminLocationManager } from './admin/AdminLocationManager';
+import { getProvinceForCity } from '../utils/locationCatalog';
 import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
 import { LandingPageConfig } from '../types/landing';
@@ -2200,6 +2202,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       company,
       jobType,
       region,
+      country: region === 'Pakistan' ? 'Pakistan' : (region || 'Pakistan'),
       province: resolvedProvince,
       city: resolvedCity,
       district: resolvedDistrict,
@@ -6589,6 +6592,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             onSave={handleUpdateWhatsApp}
           />
 
+          {/* LOCATION CATALOG & CITY/PROVINCE MASTER MANAGEMENT */}
+          <div className="md:col-span-2">
+            <AdminLocationManager />
+          </div>
+
         </div>
       )}
 
@@ -6829,6 +6837,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onSuspendJob={onSuspendJob}
           onViewUserProfile={(u) => {
             setSelectedUserForModal(u);
+          }}
+          onEditJob={(j) => {
+            setEditingJob(j);
+            setIsJobQuickEditOpen(true);
+            setSelectedJobForModal(null);
           }}
         />
       )}

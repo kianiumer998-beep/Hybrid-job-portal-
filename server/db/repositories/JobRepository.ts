@@ -1,3 +1,4 @@
+import path from 'path';
 import {
   getJobsCollection,
   getPendingJobsCollection,
@@ -260,16 +261,20 @@ export class JobRepository {
 
     const isAlreadyProtected =
       existingDoc.isLocationConfirmed === true ||
+      existingDoc.isLocationVerified === true ||
       existingDoc.isManuallyCorrected === true ||
       existingDoc.metadata?.isLocationConfirmed === true ||
+      existingDoc.metadata?.isLocationVerified === true ||
       existingDoc.metadata?.isManuallyCorrected === true;
 
     if (!isAlreadyProtected) return incomingDoc;
 
     const isIncomingExplicitConfirmation =
       incomingDoc.isLocationConfirmed === true ||
+      incomingDoc.isLocationVerified === true ||
       incomingDoc.isManuallyCorrected === true ||
       incomingDoc.metadata?.isLocationConfirmed === true ||
+      incomingDoc.metadata?.isLocationVerified === true ||
       incomingDoc.metadata?.isManuallyCorrected === true;
 
     if (isIncomingExplicitConfirmation) {
@@ -279,6 +284,7 @@ export class JobRepository {
     return {
       ...incomingDoc,
       region: existingDoc.region || incomingDoc.region,
+      country: existingDoc.country || incomingDoc.country || 'Pakistan',
       province: existingDoc.province || incomingDoc.province,
       city: existingDoc.city || incomingDoc.city,
       district: existingDoc.district || incomingDoc.district,
@@ -307,10 +313,14 @@ export class JobRepository {
     const now = new Date().toISOString();
 
     const existingDoc = await jobsColl.findOne({ id });
+    const rawCountry = typeof jobData.country === 'string' ? jobData.country.trim() : '';
+    const resolvedCountry = rawCountry || (jobData.country === undefined || jobData.country === null || jobData.country === '' ? 'Pakistan' : jobData.country);
+
     let newJob: any = {
       ...jobData,
       id,
       slug,
+      country: resolvedCountry,
       status: jobData.status || 'Approved',
       createdAt: jobData.createdAt || now,
       updatedAt: now,
@@ -759,10 +769,14 @@ export class JobRepository {
     const now = new Date().toISOString();
 
     const existingPending = await pendingColl.findOne({ id });
+    const rawCountry = typeof jobData.country === 'string' ? jobData.country.trim() : '';
+    const resolvedCountry = rawCountry || (jobData.country === undefined || jobData.country === null || jobData.country === '' ? 'Pakistan' : jobData.country);
+
     let pendingDoc: any = {
       ...jobData,
       id,
       slug,
+      country: resolvedCountry,
       status: 'Pending',
       createdAt: jobData.createdAt || now,
       updatedAt: now,
@@ -1699,4 +1713,54 @@ export class JobRepository {
     );
     return res ? normalizeMongoJob(res) : null;
   }
+
+  /**
+   * Checks whether a stored attachment filename is flagged as public on any job.
+   * If not attached or private, returns false.
+   */
+  static async isAttachmentPublic(filename: string): Promise<boolean> {
+    const cleanFilename = path.basename(filename);
+    if (!cleanFilename) return false;
+
+    if (isMongoConfigured()) {
+      try {
+        const jobsColl = await getJobsCollection();
+        const pendingColl = await getPendingJobsCollection();
+
+        const query = {
+          attachments: {
+            $elemMatch: {
+              fileUrl: { $regex: cleanFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') },
+              isPublic: true
+            }
+          }
+        };
+
+        const [publicLive, publicPending] = await Promise.all([
+          jobsColl.findOne(query, { projection: { id: 1 } }),
+          pendingColl.findOne(query, { projection: { id: 1 } })
+        ]);
+
+        return Boolean(publicLive || publicPending);
+      } catch (err) {
+        console.error('[JobRepository] Error checking isAttachmentPublic in MongoDB:', err);
+      }
+    }
+
+    // Local file fallback
+    try {
+      const allJobs = [...Database.getJobs(), ...Database.getPendingJobs()];
+      for (const j of allJobs) {
+        if (Array.isArray(j.attachments)) {
+          const match = j.attachments.find(
+            (a: any) => a && a.fileUrl && a.fileUrl.includes(cleanFilename) && a.isPublic === true
+          );
+          if (match) return true;
+        }
+      }
+    } catch {}
+
+    return false;
+  }
 }
+

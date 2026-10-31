@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Job, JobType, Region, Currency, JobStatus } from '../../types/job';
-import { X, Save, Edit3, Briefcase, Building2, MapPin, DollarSign, Calendar, Tag, FileText, CheckCircle2, ShieldCheck, Sparkles, AlertCircle } from 'lucide-react';
+import { Job, JobType, Region, Currency, JobStatus, PakistanLocation } from '../../types/job';
+import { X, Save, Edit3, Briefcase, Building2, MapPin, DollarSign, Calendar, Tag, FileText, CheckCircle2, ShieldCheck, Sparkles, AlertCircle, PlusCircle, Check } from 'lucide-react';
 import { PAKISTAN_LOCATIONS } from '../../data/pakistanLocations';
 import { calculateJobMissingFields, isScrapedJob } from '../../utils/jobValidation';
+import { getProvinceForCity, isKnownCity } from '../../utils/locationCatalog';
+import { api } from '../../services/api';
 
 interface AdminQuickEditJobModalProps {
   job: Job | null;
@@ -101,6 +103,23 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
 
   const [tagInput, setTagInput] = useState('');
 
+  // Location Catalog & Auto Mapping State (Hooks declared unconditionally at top level)
+  const [locationCatalog, setLocationCatalog] = useState<PakistanLocation[]>(PAKISTAN_LOCATIONS);
+  const [isAddingCity, setIsAddingCity] = useState(false);
+  const [newCityProvince, setNewCityProvince] = useState('Punjab');
+  const [addCityError, setAddCityError] = useState<string | null>(null);
+  const [addCitySuccess, setAddCitySuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api.locations.getAll().then((res: any) => {
+      if (active && res?.success && Array.isArray(res.locations)) {
+        setLocationCatalog(res.locations);
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   if (!isOpen || (!job && selectedJobs.length === 0)) return null;
 
   const handleAddTag = () => {
@@ -114,12 +133,55 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
     setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tagToRemove) }));
   };
 
+  const handleCityChange = (newCityText: string) => {
+    const trimmed = newCityText.trim();
+    if (!trimmed) {
+      // If city is cleared, do not retain an incorrect automatically inferred province
+      setFormData(prev => ({ ...prev, city: '', province: '' }));
+      return;
+    }
+
+    const detected = getProvinceForCity(trimmed, locationCatalog);
+    if (detected) {
+      setFormData(prev => ({ ...prev, city: newCityText, province: detected }));
+    } else {
+      setFormData(prev => ({ ...prev, city: newCityText }));
+    }
+  };
+
+  const handleSaveNewCityToCatalog = async () => {
+    const cityName = (formData.city || '').trim();
+    if (!cityName) return;
+    try {
+      setAddCityError(null);
+      const res = await api.locations.addCity({
+        cityName,
+        provinceName: newCityProvince
+      });
+      if (res?.success) {
+        if (Array.isArray(res.locations)) {
+          setLocationCatalog(res.locations);
+        }
+        setFormData(prev => ({ ...prev, city: cityName, province: newCityProvince }));
+        setIsAddingCity(false);
+        setAddCitySuccess(`"${cityName}" added to ${newCityProvince} in catalog!`);
+        setTimeout(() => setAddCitySuccess(null), 3000);
+      } else {
+        setAddCityError(res?.message || 'Failed to add city.');
+      }
+    } catch (err: any) {
+      setAddCityError(err?.message || 'Error saving city.');
+    }
+  };
+
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     const now = new Date().toISOString();
+    const resolvedCountry = formData.country || (formData.region === 'Pakistan' ? 'Pakistan' : (formData.region || 'Pakistan'));
     const updatedJob: Job = {
       ...formData,
+      country: resolvedCountry,
       status: job?.status === 'Pending' && formData.status === 'Approved' ? 'Pending' : formData.status,
       isManuallyCorrected: true,
       manuallyCorrectedAt: now,
@@ -155,9 +217,10 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
       return;
     }
     const now = new Date().toISOString();
-    // Save edited fields without prematurely marking as approved in the pending queue
+    const resolvedCountry = formData.country || (formData.region === 'Pakistan' ? 'Pakistan' : (formData.region || 'Pakistan'));
     const updatedJobToApprove: Job = {
       ...formData,
+      country: resolvedCountry,
       status: 'Pending' as JobStatus,
       isManuallyCorrected: true,
       manuallyCorrectedAt: now,
@@ -562,27 +625,83 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">City / Location</label>
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-300 text-xs">City / Location</label>
+                  {formData.city && formData.city.trim() && !isKnownCity(formData.city.trim(), locationCatalog) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCityProvince(formData.province || 'Punjab');
+                        setIsAddingCity(true);
+                      }}
+                      className="text-[10px] text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer"
+                    >
+                      + Add to Catalog
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={formData.city || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, city: e.target.value }))}
+                  onChange={(e) => handleCityChange(e.target.value)}
                   placeholder="e.g. Islamabad, Lahore, Karachi"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-400 outline-none"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-400 outline-none text-xs"
                 />
+                {addCitySuccess && (
+                  <p className="text-[10px] text-emerald-400 font-semibold">{addCitySuccess}</p>
+                )}
               </div>
 
+              {/* Quick Add City Drawer if Unknown */}
+              {isAddingCity && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2 col-span-1 sm:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300">
+                      Add "{formData.city}" to Master Location Catalog
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCity(false)}
+                      className="text-slate-400 hover:text-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      value={newCityProvince}
+                      onChange={(e) => setNewCityProvince(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none flex-1"
+                    >
+                      {locationCatalog.map(p => (
+                        <option key={p.province} value={p.province}>{p.province}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleSaveNewCityToCatalog}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer transition-colors"
+                    >
+                      Save City
+                    </button>
+                  </div>
+                  {addCityError && (
+                    <p className="text-[10px] text-rose-400">{addCityError}</p>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-1">
-                <label className="font-bold text-slate-300">Province / Region</label>
+                <label className="font-bold text-slate-300 text-xs">Province / Region</label>
                 <select
-                  value={formData.province || 'Punjab'}
+                  value={formData.province || ''}
                   onChange={(e) => setFormData(p => ({ ...p, province: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:border-amber-400 outline-none text-xs"
                 >
-                  {PAKISTAN_LOCATIONS.map(p => (
+                  <option value="">-- Select Province --</option>
+                  {locationCatalog.map(p => (
                     <option key={p.province} value={p.province}>{p.province}</option>
                   ))}
-                  <option value="Islamabad Capital Territory">Islamabad Capital Territory</option>
                   <option value="Gulf / Middle East">Gulf / Middle East</option>
                 </select>
               </div>
@@ -654,6 +773,20 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                   value={formData.description}
                   onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-amber-400 outline-none leading-relaxed"
+                />
+              </div>
+
+              <div className="md:col-span-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-300">Complete Extracted Gazette / Document Text (Preserves Tables & Columns)</label>
+                  <span className="text-[10px] text-slate-500 font-mono">{(formData.extractedText || '').length} chars</span>
+                </div>
+                <textarea
+                  rows={6}
+                  value={formData.extractedText || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, extractedText: e.target.value }))}
+                  placeholder="Full advertisement text, tabular rows, age limit, quota distributions, syllabus, etc."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 font-mono text-xs focus:border-amber-400 outline-none leading-relaxed"
                 />
               </div>
 

@@ -9,12 +9,44 @@ export interface ExtractedPdfResult {
   totalPages: number;
   extractedJobs: Job[];
   rawTextSample: string;
+  fullExtractedText?: string;
   sourceUrl?: string;
   fileName?: string;
   message?: string;
   mediaUrl?: string;
   clippingImageUrl?: string;
   formatType?: 'pdf' | 'html' | 'image' | 'scanned_pdf';
+}
+
+/**
+ * Formats a 2D array of extracted PDF table cells into a clean, alignment-preserving Markdown table.
+ * Preserves multi-column data (Post, BPS Scale, Vacancies, Quota, Qualifications, Age, Deadlines).
+ */
+export function formatTableToMarkdown(rows: string[][]): string {
+  if (!rows || rows.length === 0) return '';
+  const cleanRows = rows.map(r => (Array.isArray(r) ? r.map(c => String(c || '').replace(/\r?\n+/g, ' ').trim()) : []));
+  const validRows = cleanRows.filter(r => r.some(c => c.length > 0));
+  if (validRows.length === 0) return '';
+
+  const colCount = Math.max(...validRows.map(r => r.length));
+  if (colCount <= 1 && validRows.length <= 1) return '';
+
+  const normalizedRows = validRows.map(r => {
+    const pad = [...r];
+    while (pad.length < colCount) pad.push('');
+    return pad;
+  });
+
+  const header = normalizedRows[0];
+  const separator = Array(colCount).fill('---');
+  const body = normalizedRows.slice(1);
+
+  const lines = [
+    `| ${header.join(' | ')} |`,
+    `| ${separator.join(' | ')} |`,
+    ...body.map(r => `| ${r.join(' | ')} |`)
+  ];
+  return lines.join('\n');
 }
 
 let aiClient: GoogleGenAI | null = null;
@@ -49,19 +81,19 @@ export function extractJobsFromPdfText(
   const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
 
   // Common Pakistani and International government/corporate recruitment indicators
-  const bpsRegex = /\b(BPS|BS|PPS|BPS\s*-\s*|BS\s*-\s*|PPS\s*-\s*)(\d{1,2})\b/i;
-  const caseRegex = /(?:Case\s*(?:No\.?|Ref\.?|Number:?)|Advt\s*(?:No\.?|Ref\.?))\s*([A-Za-z0-9\.\-\/]+)/i;
-  const vacancyCountRegex = /(?:No\.?\s*of\s*Vacanc(?:ies|y)|Total\s*Posts?|Positions?)\s*[:=]?\s*(\d+)/i;
+  const bpsRegex = /\b(BPS|BS|PPS)\s*[-–—]?\s*(\d{1,2})\b/i;
+  const caseRegex = /(?:Case\s*(?:No\.?|Ref\.?|Number:?)|Advt\s*(?:No\.?|Ref\.?)|Item\s*(?:No\.?|Ref\.?))\s*[:=]?\s*([A-Za-z0-9\.\-\/]+)/i;
+  const vacancyCountRegex = /(?:No\.?\s*of\s*Vacanc(?:ies|y)|Total\s*Posts?|Total\s*Vacancies|Positions?|Vacancies)\s*[:=]?\s*(\d+)/i;
   const ageRegex = /(?:Age\s*Limit|Age)\s*[:=]?\s*([0-9\s\-\+toyears]+)/i;
   const closingRegex = /(?:Closing\s*Date|Last\s*Date\s*to\s*Apply|Deadline|Apply\s*Before)\s*[:=]?\s*([0-9A-Za-z\s,\-\/]+)/i;
 
   // Split text by common post/case dividers
-  const chunkSeparators = /(?=(?:Case\s*No\.?|Advt\s*No\.?|Item\s*No\.?|\n\s*\d+\.\s+[A-Z\s]{4,}(?:\(|BPS)))/i;
+  const chunkSeparators = /(?=(?:\n\s*(?:Case\s*No\.?|Advt\s*No\.?|Item\s*No\.?)|\n\s*\d+\.\s+[A-Z\s]{4,}(?:\(|BPS)))/i;
   let rawChunks = fullText.split(chunkSeparators);
 
-  // If chunking didn't split, look for BPS markers or title lines
+  // If chunking didn't split, look for clean BPS markers or numbered title lines
   if (rawChunks.length <= 1) {
-    rawChunks = fullText.split(/(?=(?:[A-Z\s]{4,}\s*\((?:BPS|BS|PPS)-\d+\)))/);
+    rawChunks = fullText.split(/(?=(?:\n\s*[A-Z][A-Za-z\s]{2,}\s*\((?:BPS|BS|PPS)[-\s]?\d+\)))/);
   }
   if (rawChunks.length <= 1) {
     rawChunks = fullText.split(/\n\s*(?=\d+[\.\)]\s+[A-Z])/);
@@ -79,20 +111,25 @@ export function extractJobsFromPdfText(
     const ageMatch = trimmedChunk.match(ageRegex);
     const closingMatch = trimmedChunk.match(closingRegex);
 
-    // Look for a job title in the first 4 lines of this chunk
+    // Look for a job title in the first 6 lines of this chunk
     const chunkLines = trimmedChunk.split('\n').map(l => l.trim()).filter(Boolean);
     let detectedTitle = '';
 
-    for (const line of chunkLines.slice(0, 4)) {
+    for (const line of chunkLines.slice(0, 6)) {
+      // Skip case / advt reference lines when identifying the job title
+      if (/^(?:Case\s*(?:No\.?|Ref\.?|Number:?)|Advt\s*(?:No\.?|Ref\.?)|Item\s*(?:No\.?|Ref\.?))/i.test(line)) {
+        continue;
+      }
+
       const candidate = line
-        .replace(/^(?:Case\s*No\.?|Advt\s*No\.?|Item\s*No\.?|\d+[\.\)]\s*)/i, '')
+        .replace(/^(?:\d+[\.\)]\s*)/i, '')
         .replace(/\s+/g, ' ')
         .trim();
 
       if (
         candidate.length >= 4 &&
         candidate.length <= 120 &&
-        !/^(?:Government|Ministry|Federal|Provincial|Notice|Advertisement|Closing|Date|Page|Important|General|Rules)/i.test(candidate) &&
+        !/^(?:Government|Ministry|Federal|Provincial|Notice|Advertisement|Closing|Date|Page|Important|General|Rules|Total|Domicile|Quota|Merit|Qualification|Eligibility|Fee|Challan)/i.test(candidate) &&
         (/[A-Za-z]/.test(candidate))
       ) {
         detectedTitle = candidate;
@@ -142,7 +179,7 @@ export function extractJobsFromPdfText(
         experienceLevel: undefined,
         department: org,
         tags: [scale, org, 'Original Gazette Document'].filter(Boolean),
-        description: `Official vacancy extracted from document:\n\n${trimmedChunk.substring(0, 1500)}`,
+        description: `Official vacancy extracted from document:\n\n${trimmedChunk.trim()}`,
         extractedText: trimmedChunk.trim(),
         requirements: qualificationSnippet ? [qualificationSnippet] : ['Refer to official advertisement for full qualification details'],
         benefits: ['Official Public Sector Remuneration and Allowances per Government Rules'],
@@ -203,8 +240,9 @@ Analyze this official recruitment advertisement, gazette, newspaper clipping, or
 STRICT FACTUAL INTEGRITY MANDATE:
 1. NEVER fabricate, hallucinate, synthesize, or guess any missing jobs.
 2. Transcribe ONLY the genuine vacancy positions actually visible in this image.
-3. If no vacancy listings are present, return an empty array: {"jobs": [], "transcribedText": "..."}.
-4. Return strict JSON with the schema:
+3. Transcribe the full text verbatim, preserving headings, table structures, eligibility, quota allocations, age relaxation, and notes.
+4. If no vacancy listings are present, return an empty array: {"jobs": [], "transcribedText": "..."}.
+5. Return strict JSON with the schema:
 {
   "transcribedText": "full raw text extracted from image",
   "jobs": [
@@ -278,8 +316,8 @@ STRICT FACTUAL INTEGRITY MANDATE:
           experienceLevel: undefined,
           department: rj.company || org,
           tags: [scale, org, 'OCR Scanned Document'].filter(Boolean),
-          description: rj.description || `Official vacancy extracted via high-accuracy OCR from document:\n\n${transcribedText.substring(0, 1500)}`,
-          extractedText: transcribedText,
+          description: rj.description || `Official vacancy extracted via high-accuracy OCR from document:\n\n${transcribedText.trim()}`,
+          extractedText: transcribedText.trim(),
           requirements: rj.requirements ? [rj.requirements] : ['Refer to official advertisement for full qualification details'],
           benefits: ['Official Public Sector Remuneration and Allowances per Government Rules'],
           postedAt: 'Recent',
@@ -470,7 +508,8 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         success: ocrRes.jobs.length > 0 || ocrRes.text.length > 0,
         totalPages: 1,
         extractedJobs: ocrRes.jobs,
-        rawTextSample: ocrRes.text.substring(0, 1500),
+        rawTextSample: ocrRes.text,
+        fullExtractedText: ocrRes.text,
         sourceUrl: cleanUrl,
         fileName,
         mediaUrl: cleanUrl,
@@ -493,7 +532,8 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         success: true,
         totalPages: 1,
         extractedJobs: jobs,
-        rawTextSample: text.substring(0, 1500),
+        rawTextSample: text,
+        fullExtractedText: text,
         sourceUrl: cleanUrl,
         fileName,
         formatType: 'html',
@@ -508,26 +548,54 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       let text = '';
       let totalPages = 1;
       let pdfParseFailed = false;
+      let formattedTablesText = '';
 
       try {
         const parser = new PDFParse({ data: buffer });
         const parsedData = await parser.getText();
         text = parsedData.text || '';
         totalPages = parsedData.total || 1;
+
+        // Extract and format multi-column PDF tables to preserve row/column relationships
+        try {
+          const tableData = await parser.getTable();
+          if (tableData && Array.isArray((tableData as any).pages)) {
+            const tableSnippets: string[] = [];
+            for (const page of (tableData as any).pages) {
+              if (Array.isArray(page.tables) && page.tables.length > 0) {
+                for (let tIdx = 0; tIdx < page.tables.length; tIdx++) {
+                  const mdTable = formatTableToMarkdown(page.tables[tIdx]);
+                  if (mdTable) {
+                    tableSnippets.push(`[Page ${page.num} - Table ${tIdx + 1}]\n${mdTable}`);
+                  }
+                }
+              }
+            }
+            if (tableSnippets.length > 0) {
+              formattedTablesText = '\n\n### Extracted Document Tables\n\n' + tableSnippets.join('\n\n');
+            }
+          }
+        } catch (tableErr) {
+          console.log('[Document Parser] Structured table parsing note:', tableErr);
+        }
+
         await parser.destroy();
       } catch (parseError: any) {
         console.log(`[Document Parser] PDF binary text decoding issue: ${parseError?.message || parseError}`);
         pdfParseFailed = true;
       }
 
+      const fullCombinedText = (text + formattedTablesText).trim();
+
       // If text is extracted successfully and has substantial content, parse directly
-      if (!pdfParseFailed && text.trim().length >= 50) {
-        const jobs = extractJobsFromPdfText(text, cleanUrl, orgName, fileName);
+      if (!pdfParseFailed && fullCombinedText.length >= 50) {
+        const jobs = extractJobsFromPdfText(fullCombinedText, cleanUrl, orgName, fileName);
         return {
           success: true,
           totalPages,
           extractedJobs: jobs,
-          rawTextSample: text.substring(0, 1500),
+          rawTextSample: fullCombinedText,
+          fullExtractedText: fullCombinedText,
           sourceUrl: cleanUrl,
           fileName,
           formatType: 'pdf',
@@ -540,12 +608,14 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       // Scanned PDF / Image-only PDF -> Fallback OCR
       console.log(`[Document Parser] PDF contains minimal or image-only text (${text.length} chars). Invoking OCR fallback...`);
       const ocrRes = await extractJobsFromImageWithOcr(buffer, 'application/pdf', cleanUrl, orgName, fileName);
+      const combinedOcrText = (ocrRes.text || fullCombinedText).trim();
 
       return {
-        success: ocrRes.jobs.length > 0 || ocrRes.text.length > 0 || text.length > 0,
+        success: ocrRes.jobs.length > 0 || combinedOcrText.length > 0,
         totalPages,
-        extractedJobs: ocrRes.jobs.length > 0 ? ocrRes.jobs : extractJobsFromPdfText(text, cleanUrl, orgName, fileName),
-        rawTextSample: (ocrRes.text || text).substring(0, 1500),
+        extractedJobs: ocrRes.jobs.length > 0 ? ocrRes.jobs : extractJobsFromPdfText(combinedOcrText, cleanUrl, orgName, fileName),
+        rawTextSample: combinedOcrText,
+        fullExtractedText: combinedOcrText,
         sourceUrl: cleanUrl,
         fileName,
         formatType: 'scanned_pdf',
@@ -563,7 +633,8 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       success: jobs.length > 0,
       totalPages: 1,
       extractedJobs: jobs,
-      rawTextSample: genericText.substring(0, 1500),
+      rawTextSample: genericText,
+      fullExtractedText: genericText,
       sourceUrl: cleanUrl,
       fileName,
       message: jobs.length > 0

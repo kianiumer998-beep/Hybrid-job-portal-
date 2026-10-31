@@ -228,6 +228,33 @@ export const api = {
         headers: getAuthHeader()
       });
     },
+    async uploadAttachment(data: { fileName: string; fileType: string; fileBase64: string; description?: string }) {
+      return safeFetchJson(`${API_BASE}/jobs/attachments/upload`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async attachDocument(jobId: string, attachment: any) {
+      return safeFetchJson(`${API_BASE}/jobs/${jobId}/attachments`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ attachment })
+      });
+    },
+    async deleteAttachment(jobId: string, attachmentId: string) {
+      return safeFetchJson(`${API_BASE}/jobs/${jobId}/attachments/${attachmentId}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
+    },
+    async updateAttachmentVisibility(jobId: string, attachmentId: string, isPublic: boolean) {
+      return safeFetchJson(`${API_BASE}/jobs/${jobId}/attachments/${attachmentId}/visibility`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ isPublic })
+      });
+    },
     async approvePending(id: string) {
       return safeFetchJson(`${API_BASE}/jobs/queue/pending/${id}/approve`, {
         method: 'POST',
@@ -787,6 +814,45 @@ export const api = {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(flags)
+      });
+    }
+  },
+
+  // --- LOCATION CATALOG & CITY/PROVINCE MANAGEMENT ---
+  locations: {
+    async getAll() {
+      return safeFetchJson(`${API_BASE}/locations`);
+    },
+    async addCity(data: { cityName: string; provinceName: string; districts?: string[] }) {
+      return safeFetchJson(`${API_BASE}/locations/cities`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async updateCity(cityName: string, data: { newCityName: string; targetProvince: string; districts?: string[] }) {
+      return safeFetchJson(`${API_BASE}/locations/cities/${encodeURIComponent(cityName)}`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async getCityUsage(cityName: string) {
+      return safeFetchJson(`${API_BASE}/locations/cities/${encodeURIComponent(cityName)}/usage`, {
+        headers: getAuthHeader()
+      });
+    },
+    async deleteCity(cityName: string) {
+      return safeFetchJson(`${API_BASE}/locations/cities/${encodeURIComponent(cityName)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
+    },
+    async addProvince(provinceName: string) {
+      return safeFetchJson(`${API_BASE}/locations/provinces`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ provinceName })
       });
     }
   }

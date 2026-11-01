@@ -285,15 +285,15 @@ export class JobRepository {
     }
 
     // Determine sort
-    let sort: any = { isPinnedTop: -1, createdAt: -1 };
+    let sort: any = { isPinnedTop: -1, createdAt: -1, _id: 1 };
     if (filter.sortBy === 'salary-high') {
-      sort = { salaryNumericMin: -1, createdAt: -1 };
+      sort = { salaryNumericMin: -1, createdAt: -1, _id: 1 };
     } else if (filter.sortBy === 'salary-low') {
-      sort = { salaryNumericMin: 1, createdAt: -1 };
+      sort = { salaryNumericMin: 1, createdAt: -1, _id: 1 };
     } else if (filter.sortBy === 'popular') {
-      sort = { applicationsCount: -1, createdAt: -1 };
+      sort = { applicationsCount: -1, createdAt: -1, _id: 1 };
     } else if (filter.sortBy === 'oldest') {
-      sort = { createdAt: 1 };
+      sort = { createdAt: 1, _id: 1 };
     }
 
     const page = Math.max(1, filter.page || 1);

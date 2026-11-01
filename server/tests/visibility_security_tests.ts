@@ -516,6 +516,7 @@ async function runTests() {
 
     // 49. Real Multi-Batch Pagination Tests with >200 records (Isolated Dataset, Zero Production DB writes)
     let repoFilteringValid = false;
+    const previousIsTest = process.env.IS_TEST;
     process.env.IS_TEST = 'true';
     try {
       // Seed isolated fixtures into in-memory Database
@@ -552,7 +553,7 @@ async function runTests() {
       console.error('Error during repository multi-batch pagination verification:', err);
       repoFilteringValid = false;
     } finally {
-      process.env.IS_TEST = 'false';
+      process.env.IS_TEST = previousIsTest;
     }
     assert(
       repoFilteringValid === true,

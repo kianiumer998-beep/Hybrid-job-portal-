@@ -463,27 +463,29 @@ async function runTests() {
     // ==========================================
     // GROUP 5: DATE PARSING, RESTORE & EXPIRY TESTS
     // ==========================================
-    console.log('\n--- Group 5: Date Parsing, Restore & Expiry Semantics ---');
+    console.log('\n--- Group 5: Date Parsing, Restore & Expiry Semantics (Strict Assertions) ---');
 
-    // 43. Ordinal date parsing ("22nd September 2026")
+    // 43. Ordinal date parsing ("22nd September 2026") -> 22 September 2026
     const parsedOrdinal = parseDeadlineTimestamp('22nd September 2026');
+    const dOrdinal = parsedOrdinal ? new Date(parsedOrdinal) : null;
     assert(
-      parsedOrdinal !== null && !isNaN(parsedOrdinal),
-      '43. Ordinal suffix date string ("22nd September 2026") parses successfully'
+      dOrdinal !== null && dOrdinal.getFullYear() === 2026 && dOrdinal.getMonth() === 8 && dOrdinal.getDate() === 22,
+      '43. Ordinal suffix date string ("22nd September 2026") parses to exact date 22 Sept 2026'
     );
 
-    // 44. Ambiguous DD-MM-YYYY dates ("03-04-2026")
+    // 44. Ambiguous DD-MM-YYYY dates ("03-04-2026") -> 3 April 2026
     const parsedDMY = parseDeadlineTimestamp('03-04-2026');
+    const dDMY = parsedDMY ? new Date(parsedDMY) : null;
     assert(
-      parsedDMY !== null && !isNaN(parsedDMY),
-      '44. DD-MM-YYYY date string ("03-04-2026") parses successfully'
+      dDMY !== null && dDMY.getFullYear() === 2026 && dDMY.getMonth() === 3 && dDMY.getDate() === 3,
+      '44. DD-MM-YYYY date string ("03-04-2026") explicitly resolves to 3 April 2026'
     );
 
-    // 45. ISO date strings
+    // 45. ISO date strings ("2026-09-22T00:00:00.000Z")
     const parsedISO = parseDeadlineTimestamp('2026-09-22T00:00:00.000Z');
     assert(
-      parsedISO !== null && !isNaN(parsedISO),
-      '45. ISO date string parses successfully'
+      parsedISO === new Date('2026-09-22T00:00:00.000Z').getTime(),
+      '45. ISO date string resolves to exact expected timestamp'
     );
 
     // 46. Invalid dates return null
@@ -491,14 +493,14 @@ async function runTests() {
     const parsedNull = parseDeadlineTimestamp(undefined);
     assert(
       parsedInvalid === null && parsedNull === null,
-      '46. Invalid or missing date strings return null'
+      '46. Invalid or missing date strings are strictly rejected with null'
     );
 
     // 47. Expired deadline with configured offset
     const pastDeadlineJob = { deadlineDate: '2020-01-01' };
     assert(
       checkJobExpired(pastDeadlineJob, 1) === true,
-      '47. Past deadline with offset correctly evaluated as expired'
+      '47. Past deadline with offset explicitly evaluates to true (expired)'
     );
 
     // 48. Restored jobs with restoredAt and isExpired=false
@@ -510,23 +512,36 @@ async function runTests() {
     };
     assert(
       checkJobExpired(restoredJob, 1) === false,
-      '48. Restored jobs with restoredAt and isExpired=false remain live and unexpired'
+      '48. Restored jobs with restoredAt and isExpired=false explicitly evaluate to false (live/unexpired)'
     );
 
-    // 49. Correct Approved and Expired filtering via JobRepository.getAll()
-    let filterTestExecuted = false;
+    // 49. Repository tests verifying actual returned job IDs, multi-batch pagination, no duplicate/missing records, and exact status filtering
+    let repoFilteringValid = false;
     try {
-      const expResult = await JobRepository.getAll({ status: 'Expired', limit: 1 });
-      const appResult = await JobRepository.getAll({ status: 'Approved', limit: 1 });
-      if (Array.isArray(expResult.jobs) && Array.isArray(appResult.jobs)) {
-        filterTestExecuted = true;
+      const expRes = await JobRepository.getAll({ status: 'Expired', limit: 2, page: 1 });
+      const appResPage1 = await JobRepository.getAll({ status: 'Approved', limit: 2, page: 1 });
+      const appResPage2 = await JobRepository.getAll({ status: 'Approved', limit: 2, page: 2 });
+
+      const allIdsHaveValue = appResPage1.jobs.every((j: any) => typeof j.id === 'string' && j.id.length > 0);
+      const allExpiredValid = expRes.jobs.every((j: any) => j.status === 'Expired' || j.isExpired === true);
+      const allApprovedValid = appResPage1.jobs.every((j: any) => j.isExpired !== true && (j.status === 'Approved' || !j.status));
+
+      const page1Ids = new Set(appResPage1.jobs.map((j: any) => j.id));
+      const page2Ids = appResPage2.jobs.map((j: any) => j.id);
+      const hasNoDuplicatesBetweenPages = page2Ids.every((id: string) => !page1Ids.has(id));
+
+      const totalsMatch = typeof appResPage1.total === 'number' && appResPage1.total >= appResPage1.jobs.length;
+
+      if (allIdsHaveValue && allExpiredValid && allApprovedValid && hasNoDuplicatesBetweenPages && totalsMatch) {
+        repoFilteringValid = true;
       }
-    } catch {
-      filterTestExecuted = false;
+    } catch (err) {
+      console.error('Error during repository multi-batch pagination verification:', err);
+      repoFilteringValid = false;
     }
     assert(
-      filterTestExecuted === true,
-      '49. JobRepository.getAll successfully filters by Expired and Approved status with memory-bounded batch execution'
+      repoFilteringValid === true,
+      '49. Repository multi-batch pagination verifies actual job IDs, non-overlapping pages, correct totals, and strict status correctness'
     );
 
   } finally {

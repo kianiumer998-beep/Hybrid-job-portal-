@@ -41,11 +41,7 @@ export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
   // Normalize ordinal suffixes (e.g. "22nd September 2026" -> "22 September 2026")
   const normalized = clean.replace(/(\d+)(st|nd|rd|th)/gi, '$1');
 
-  // Try standard ISO / JS date parsing
-  let ts = new Date(normalized).getTime();
-  if (!isNaN(ts)) return ts;
-
-  // Try parsing formats like DD-MM-YYYY or DD/MM/YYYY
+  // Try parsing formats like DD-MM-YYYY or DD/MM/YYYY first
   const dmyMatch = normalized.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
@@ -54,6 +50,10 @@ export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
     const parsed = new Date(year, month, day, 23, 59, 59).getTime();
     if (!isNaN(parsed)) return parsed;
   }
+
+  // Try standard ISO / JS date parsing
+  let ts = new Date(normalized).getTime();
+  if (!isNaN(ts)) return ts;
 
   // Try DD Mon YYYY e.g. "15 Oct 2025" or "15-Oct-2025"
   const textDateMatch = normalized.match(/^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s](\d{4})/);
@@ -292,7 +292,8 @@ export class JobRepository {
     let batch: any[];
 
     while (true) {
-      batch = await cursor.skip(processed).limit(BATCH_SIZE).toArray();
+      const batchCursor = jobsColl.find(query).sort(sort).skip(processed).limit(BATCH_SIZE);
+      batch = await batchCursor.toArray();
       if (batch.length === 0) break;
       processed += batch.length;
 

@@ -12,10 +12,10 @@ import { AuditRepository, JobRepository } from '../db/repositories';
 export const jobVisibilityRouter = Router();
 
 const ALLOWED_FIELDS = CONFIGURABLE_REGISTRY_FIELDS;
-const ALLOWED_VISIBILITIES = ['Free', 'Premium', 'Hidden'];
-const ALLOWED_SOURCES = ['user_posted', 'scraped', 'admin_created'];
+export const ALLOWED_VISIBILITIES = ['Free', 'Premium', 'Hidden'];
+export const ALLOWED_SOURCES = ['user_posted', 'scraped', 'admin_created'];
 
-function validateFieldRules(rules: any) {
+export function validateFieldRules(rules: any) {
   if (!rules || typeof rules !== 'object') return 'fieldRules must be an object';
   for (const [field, visibility] of Object.entries(rules)) {
     if (ADMIN_INTERNAL_FIELDS.includes(field)) {

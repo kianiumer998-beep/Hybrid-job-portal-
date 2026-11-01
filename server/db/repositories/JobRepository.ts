@@ -38,12 +38,15 @@ export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
   const clean = deadlineStr.trim();
   if (!clean) return null;
 
+  // Normalize ordinal suffixes (e.g. "22nd September 2026" -> "22 September 2026")
+  const normalized = clean.replace(/(\d+)(st|nd|rd|th)/gi, '$1');
+
   // Try standard ISO / JS date parsing
-  let ts = new Date(clean).getTime();
+  let ts = new Date(normalized).getTime();
   if (!isNaN(ts)) return ts;
 
   // Try parsing formats like DD-MM-YYYY or DD/MM/YYYY
-  const dmyMatch = clean.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
+  const dmyMatch = normalized.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
     const month = parseInt(dmyMatch[2], 10) - 1;
@@ -53,9 +56,9 @@ export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
   }
 
   // Try DD Mon YYYY e.g. "15 Oct 2025" or "15-Oct-2025"
-  const textDateMatch = clean.match(/^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s](\d{4})/);
+  const textDateMatch = normalized.match(/^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s](\d{4})/);
   if (textDateMatch) {
-    const parsed = new Date(clean).getTime();
+    const parsed = new Date(normalized).getTime();
     if (!isNaN(parsed)) return parsed;
   }
 
@@ -66,6 +69,10 @@ export function checkJobExpired(job: any, offsetDays: number = 1): boolean {
   if (!job) return false;
   if (job.status === 'Expired' || job.isExpired === true) {
     return true;
+  }
+  // Admin restore protection: if job was explicitly restored to live, preserve restore status
+  if (job.restoredAt && job.isExpired === false && (job.status === 'Approved' || !job.status)) {
+    return false;
   }
   const deadlineStr = job.deadlineDate || job.deadline || job.closingDeadline;
   if (!deadlineStr) return false;
@@ -109,7 +116,10 @@ export class JobRepository {
       const expiredClause = {
         $or: [
           { status: 'Expired' },
-          { isExpired: true }
+          { isExpired: true },
+          { deadlineDate: { $exists: true, $nin: [null, ''] } },
+          { deadline: { $exists: true, $nin: [null, ''] } },
+          { closingDeadline: { $exists: true, $nin: [null, ''] } }
         ]
       };
       if (query.$and) {
@@ -117,41 +127,20 @@ export class JobRepository {
       } else {
         query.$and = [expiredClause];
       }
-    } else if (filter.status === 'Approved') {
-      const approvedClause = {
+    } else if (filter.status === 'Approved' || !filter.includeExpired) {
+      const approvedCandidateClause = {
         $or: [
           { status: 'Approved' },
           { status: { $exists: false } }
         ]
       };
-      const notExpiredClause = {
-        $or: [
-          { isExpired: { $ne: true } },
-          { isExpired: { $exists: false } }
-        ]
+      const notExplicitlyExpiredClause = {
+        isExpired: { $ne: true }
       };
       if (query.$and) {
-        query.$and.push(approvedClause, notExpiredClause);
+        query.$and.push(approvedCandidateClause, notExplicitlyExpiredClause);
       } else {
-        query.$and = [approvedClause, notExpiredClause];
-      }
-    } else if (!filter.includeExpired) {
-      const approvedClause = {
-        $or: [
-          { status: 'Approved' },
-          { status: { $exists: false } }
-        ]
-      };
-      const notExpiredClause = {
-        $or: [
-          { isExpired: { $ne: true } },
-          { isExpired: { $exists: false } }
-        ]
-      };
-      if (query.$and) {
-        query.$and.push(approvedClause, notExpiredClause);
-      } else {
-        query.$and = [approvedClause, notExpiredClause];
+        query.$and = [approvedCandidateClause, notExplicitlyExpiredClause];
       }
     } else {
       const allStatusClause = {
@@ -294,22 +283,37 @@ export class JobRepository {
     const limit = Math.min(10000, Math.max(1, filter.limit || 5000));
     const skip = (page - 1) * limit;
 
-    const total = await jobsColl.countDocuments(query);
-    const cursor = jobsColl.find(query).sort(sort).skip(skip).limit(limit);
+    const cursor = jobsColl.find(query).sort(sort);
     const rawDocs = await cursor.toArray();
 
-    // Dynamically check expiration on each retrieved document
-    const jobs = rawDocs.map((doc) => {
-      const normalized = normalizeMongoJob(doc);
-      const isExpired = checkJobExpired(normalized);
-      return {
-        ...normalized,
-        isExpired,
-        status: isExpired ? 'Expired' : (normalized.status || 'Approved')
-      };
-    });
+    // Dynamically and authoritatively evaluate expiration on all candidates
+    const allMatching = rawDocs
+      .map((doc) => {
+        const normalized = normalizeMongoJob(doc);
+        const isExpired = checkJobExpired(normalized);
+        return {
+          ...normalized,
+          isExpired,
+          status: isExpired ? 'Expired' : (normalized.status || 'Approved')
+        };
+      })
+      .filter((j) => {
+        if (filter.status === 'Expired') {
+          return j.isExpired === true;
+        }
+        if (filter.status === 'Approved') {
+          return j.isExpired !== true && (j.status === 'Approved' || !j.status);
+        }
+        if (!filter.includeExpired) {
+          return j.isExpired !== true;
+        }
+        return true;
+      });
 
-    return { jobs, total, page, limit };
+    const total = allMatching.length;
+    const paginatedJobs = allMatching.slice(skip, skip + limit);
+
+    return { jobs: paginatedJobs, total, page, limit };
   }
 
   /**

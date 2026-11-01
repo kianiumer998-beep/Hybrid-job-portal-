@@ -263,7 +263,10 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
         const src = j.sourceType || (j.isScraped ? 'scraped' : j.isAdminCreated ? 'admin_created' : 'user_posted');
         if (src !== sourceFilter) return false;
       }
-      if (statusFilter !== 'All' && (j.status || 'Pending') !== statusFilter) return false;
+      if (statusFilter !== 'All') {
+        const currentStatus = ((j as any).isExpired || j.status === 'Expired') ? 'Expired' : (j.status || 'Pending');
+        if (currentStatus !== statusFilter) return false;
+      }
       
       if (ownerFilter.trim()) {
         const owner = (j.submittedByUserId || '').toLowerCase();
@@ -350,26 +353,48 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     }
   };
 
-  const updateSingleJobField = async (jobId: string, fieldKey: string, visibility: FieldVisibility) => {
+  const updateSingleJobField = async (jobId: string, fieldKey: string, visibility: string) => {
     try {
       const job = jobsList.find(j => j.id === jobId);
       if (!job) return;
       
       const updatedRules = {
-        ...(job.fieldVisibility || {}),
-        [fieldKey]: visibility
+        ...(job.fieldVisibility || {})
       };
+      if (visibility && ['Free', 'Premium', 'Hidden'].includes(visibility)) {
+        updatedRules[fieldKey] = visibility as FieldVisibility;
+      } else {
+        delete (updatedRules as any)[fieldKey];
+      }
 
       const res = await api.jobsVisibility.updateJobVisibility(jobId, updatedRules);
       if (res.success) {
         setJobsList(prev => prev.map(j => j.id === jobId ? { ...j, fieldVisibility: updatedRules } : j));
-        setSuccessMessage(`Field "${fieldKey}" restricted to ${visibility} for job "${job.title}".`);
-        setTimeout(() => setSuccessMessage(null), 3000);
+        setSuccessMessage(visibility ? `Field "${fieldKey}" set to ${visibility} for "${job.title}".` : `Reset field "${fieldKey}" to source default for "${job.title}".`);
+        setTimeout(() => setSuccessMessage(null), 3500);
       } else {
         throw new Error(res.message);
       }
     } catch (err: any) {
-      alert(`Backend Validation Error: ${err?.message || 'Update rejected.'}`);
+      setErrorMessage(`Backend Validation Error: ${err?.message || 'Update rejected.'}`);
+    }
+  };
+
+  const resetAllJobOverrides = async (jobId: string) => {
+    try {
+      const job = jobsList.find(j => j.id === jobId);
+      if (!job) return;
+
+      const res = await api.jobsVisibility.updateJobVisibility(jobId, {});
+      if (res.success) {
+        setJobsList(prev => prev.map(j => j.id === jobId ? { ...j, fieldVisibility: {} } : j));
+        setSuccessMessage(`Reset all overrides to source defaults for "${job.title}".`);
+        setTimeout(() => setSuccessMessage(null), 3500);
+      } else {
+        throw new Error(res.message);
+      }
+    } catch (err: any) {
+      setErrorMessage(`Backend Validation Error: ${err?.message || 'Reset rejected.'}`);
     }
   };
 
@@ -610,6 +635,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
                   <option value="All">All</option>
                   <option value="Approved">Approved</option>
                   <option value="Pending">Pending</option>
+                  <option value="Expired">Expired</option>
                 </select>
               </div>
 
@@ -773,57 +799,231 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
       {/* TAB 3: INDIVIDUAL OVERRIDES */}
       {activeTab === 'individual' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">Granular Field Override Console</h3>
-            <div className="text-[10px] text-slate-500 font-bold uppercase">Showing latest 50 records</div>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-white">Granular Field Override Console</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Manage individual field-level access overrides for User Created, Scraped, and Admin Created records.
+              </p>
+            </div>
+            <div className="text-[10px] text-slate-400 font-bold uppercase">
+              Showing <strong className="text-white">{filteredJobs.length}</strong> loaded records
+              {hasMore ? ' (more available via Load More)' : ''}
+            </div>
+          </div>
+
+          {/* Advanced Filters */}
+          <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3 p-4 bg-slate-950 rounded-xl border border-slate-800">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                <Search className="w-3 h-3" />
+                <span>Search</span>
+              </label>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Title..."
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                <Globe className="w-3 h-3" />
+                <span>Source</span>
+              </label>
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+              >
+                <option value="All">All</option>
+                <option value="user_posted">User</option>
+                <option value="scraped">Scraped</option>
+                <option value="admin_created">Admin</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                <User className="w-3 h-3" />
+                <span>Owner</span>
+              </label>
+              <input
+                type="text"
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                placeholder="user-..."
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                <Terminal className="w-3 h-3" />
+                <span>Scraper</span>
+              </label>
+              <input
+                type="text"
+                value={scraperFilter}
+                onChange={(e) => setScraperFilter(e.target.value)}
+                placeholder="sc-..."
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                <ShieldCheck className="w-3 h-3" />
+                <span>Status</span>
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+              >
+                <option value="All">All</option>
+                <option value="Approved">Approved</option>
+                <option value="Pending">Pending</option>
+                <option value="Expired">Expired</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center space-x-1">
+                <Eye className="w-3 h-3" />
+                <span>Visibility</span>
+              </label>
+              <select
+                value={visibilityFilter}
+                onChange={(e) => setVisibilityFilter(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
+              >
+                <option value="All">All</option>
+                <option value="Overrides">With Overrides</option>
+                <option value="Default">No Overrides</option>
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={() => loadJobs(1, false)}
+                className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-2 border border-slate-700 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingJobs ? 'animate-spin' : ''}`} />
+                <span>Sync</span>
+              </button>
+            </div>
           </div>
 
           <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-900 text-slate-500 font-black uppercase text-[10px] border-b border-slate-800">
                 <tr>
-                  <th className="p-4">Identity</th>
-                  <th className="p-4">Key Access Overrides</th>
+                  <th className="p-4 w-72">Identity & Status</th>
+                  <th className="p-4">Granular Access Overrides</th>
+                  <th className="p-4 w-28 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {jobsList.slice(0, 50).map(job => (
-                  <tr key={job.id} className="hover:bg-slate-900/50 transition-colors">
-                    <td className="p-4 min-w-[200px]">
-                      <div className="font-bold text-white truncate">{job.title}</div>
-                      <div className="text-[10px] text-slate-500 truncate">{job.company}</div>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <span className="text-[9px] font-mono text-slate-600">{job.id}</span>
-                        <span className={`text-[9px] font-bold ${job.status === 'Approved' ? 'text-emerald-500' : 'text-amber-500'}`}>{job.status || 'Pending'}</span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {['applicationUrl', 'contactEmail', 'attachments', 'salary', 'externalApplyUrl'].map(fKey => {
-                          const current = job.fieldVisibility?.[fKey] || 'Source Default';
-                          return (
-                            <div key={fKey} className="flex items-center space-x-1.5 bg-slate-900 px-2 py-1 rounded border border-slate-800">
-                              <span className="text-[9px] font-bold text-slate-500 capitalize">{fKey.replace('Url', '')}:</span>
-                              <select
-                                value={job.fieldVisibility?.[fKey] || ''}
-                                onChange={(e) => updateSingleJobField(job.id, fKey, e.target.value as FieldVisibility)}
-                                className="bg-transparent text-indigo-400 font-black text-[9px] outline-none cursor-pointer"
-                              >
-                                <option value="">DEFAULT</option>
-                                <option value="Free">FREE</option>
-                                <option value="Premium">PREMIUM</option>
-                                <option value="Hidden">HIDDEN</option>
-                              </select>
-                            </div>
-                          );
-                        })}
-                      </div>
+                {filteredJobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="p-12 text-center text-slate-500">
+                      {loadingJobs ? 'Authorizing sync...' : 'No authoritative records match current filters.'}
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredJobs.map(job => {
+                    const src = job.sourceType || (job.isScraped ? 'scraped' : job.isAdminCreated ? 'admin_created' : 'user_posted');
+                    const status = ((job as any).isExpired || job.status === 'Expired') ? 'Expired' : (job.status || 'Pending');
+                    const overridesCount = Object.keys(job.fieldVisibility || {}).length;
+
+                    return (
+                      <tr key={job.id} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="p-4 min-w-[220px]">
+                          <div className="font-bold text-white truncate max-w-xs">{job.title}</div>
+                          <div className="text-[10px] text-slate-400 truncate mt-0.5">{job.company}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-black ${status === 'Approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : status === 'Pending' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'}`}>
+                              {status.toUpperCase()}
+                            </span>
+                            <span className="text-[9px] px-1.5 py-0.2 bg-slate-800 text-slate-300 rounded font-semibold capitalize">
+                              {src.replace('_', ' ')}
+                            </span>
+                            {job.scraperSourceId && (
+                              <span className="text-[9px] text-slate-500 font-mono">({job.scraperSourceId})</span>
+                            )}
+                          </div>
+                          <div className="text-[9px] text-slate-600 font-mono mt-1">{job.id}</div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {['applicationUrl', 'contactEmail', 'attachments', 'salary', 'externalApplyUrl', 'howToApply', 'jobType', 'location'].map(fKey => {
+                              const hasOverride = Boolean(job.fieldVisibility?.[fKey]);
+                              const currentVal = job.fieldVisibility?.[fKey] || '';
+                              return (
+                                <div
+                                  key={fKey}
+                                  className={`flex items-center space-x-1.5 px-2 py-1 rounded border transition-all ${
+                                    hasOverride
+                                      ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-300'
+                                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                                  }`}
+                                >
+                                  <span className="text-[9px] font-bold capitalize">
+                                    {fKey.replace('Url', '').replace('externalApply', 'extApply')}:
+                                  </span>
+                                  <select
+                                    value={currentVal}
+                                    onChange={(e) => updateSingleJobField(job.id, fKey, e.target.value)}
+                                    className={`bg-transparent font-black text-[9px] outline-none cursor-pointer ${
+                                      hasOverride ? 'text-indigo-400' : 'text-slate-500'
+                                    }`}
+                                  >
+                                    <option value="" className="bg-slate-900 text-slate-400">DEFAULT</option>
+                                    <option value="Free" className="bg-slate-900 text-emerald-400">FREE</option>
+                                    <option value="Premium" className="bg-slate-900 text-amber-400">PREMIUM</option>
+                                    <option value="Hidden" className="bg-slate-900 text-rose-400">HIDDEN</option>
+                                  </select>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td className="p-4 text-center">
+                          {overridesCount > 0 ? (
+                            <button
+                              onClick={() => resetAllJobOverrides(job.id)}
+                              title="Reset all individual overrides to source defaults"
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-rose-900/40 hover:text-rose-300 hover:border-rose-700/50 text-slate-400 border border-slate-700 rounded-lg text-[9px] font-bold transition-all cursor-pointer whitespace-nowrap"
+                            >
+                              Reset ({overridesCount})
+                            </button>
+                          ) : (
+                            <span className="text-[9px] text-slate-600 font-medium">Default</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
+
+          {hasMore && (
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex justify-center">
+              <button
+                onClick={handleLoadMore}
+                disabled={loadingJobs}
+                className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black transition-all flex items-center space-x-2 border border-slate-700 disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingJobs ? 'animate-spin' : ''}`} />
+                <span>{loadingJobs ? 'Authorizing sync...' : 'Load More Records'}</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 

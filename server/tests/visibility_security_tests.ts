@@ -6,6 +6,7 @@ import {
 import { JobRepository } from '../db/repositories/JobRepository';
 import { Database } from '../db/database';
 import { getJobsCollection, isMongoConfigured } from '../db/mongodb';
+import { validateFieldRules } from '../routes/jobVisibilityRoutes';
 
 async function runTests() {
   console.log('=== Starting Comprehensive Visibility & Security Test Suite (STEP65-D.7) ===\n');
@@ -341,22 +342,6 @@ async function runTests() {
     );
 
     // 31. Admin API policy rule validation rejects internal administrative fields
-    function validateFieldRules(rules: any) {
-      if (!rules || typeof rules !== 'object') return 'fieldRules must be an object';
-      for (const [field, visibility] of Object.entries(rules)) {
-        if (ADMIN_INTERNAL_FIELDS.includes(field)) {
-          return `Field "${field}" is an internal administrative field and cannot be configured in visibility policies.`;
-        }
-        if (!CONFIGURABLE_REGISTRY_FIELDS.includes(field)) {
-          return `Invalid field name: "${field}"`;
-        }
-        if (!['Free', 'Premium', 'Hidden'].includes(visibility as string)) {
-          return `Invalid visibility value: "${visibility}" for field "${field}"`;
-        }
-      }
-      return null;
-    }
-
     const internalFieldValidation = validateFieldRules({ rejectionReason: 'Free' });
     assert(
       internalFieldValidation !== null && internalFieldValidation.includes('internal administrative field'),

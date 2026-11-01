@@ -897,7 +897,8 @@ jobRouter.get('/slug/:slug', async (req, res) => {
 
     const user = (req as any).user;
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
-    const filteredJob = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
+    const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
+    const filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
 
     res.json({ success: true, job: filteredJob });
   } catch (err: any) {
@@ -1188,7 +1189,8 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
 
     const user = (req as any).user;
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
-    const filteredJob = JobVisibilityRepository.filterJobForUser(job, user, isPremium);
+    const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
+    const filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
 
     res.json({ success: true, job: filteredJob });
   } catch (err: any) {

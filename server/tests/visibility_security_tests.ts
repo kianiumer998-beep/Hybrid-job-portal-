@@ -657,6 +657,112 @@ async function runTests() {
       '49. Repository multi-batch pagination verifies actual job IDs, non-overlapping pages, correct totals, and strict status correctness'
     );
 
+    // ==========================================
+    // GROUP 6: STEP65-D.12.4 PERSISTENCE, REDACTION & URL ENFORCEMENT
+    // ==========================================
+    console.log('\n--- Group 6: STEP65-D.12.4 Persistence Fail-Closed & URL Policy Enforcement ---');
+
+    // 50. JobVisibilityRepository getPolicy fails closed in production mode when MongoDB is unconfigured
+    let getPolicyFailedClosed = false;
+    const testIsTest = process.env.IS_TEST;
+    const testMongoUri = process.env.MONGODB_URI;
+    const testNodeEnv = process.env.NODE_ENV;
+    delete process.env.IS_TEST;
+    delete process.env.MONGODB_URI;
+    process.env.NODE_ENV = 'production';
+    try {
+      await JobVisibilityRepository.getPolicy('scraped');
+    } catch (err: any) {
+      if (err?.message && err.message.includes('MongoDB')) {
+        getPolicyFailedClosed = true;
+      }
+    } finally {
+      if (testIsTest === undefined) delete process.env.IS_TEST; else process.env.IS_TEST = testIsTest;
+      if (testMongoUri === undefined) delete process.env.MONGODB_URI; else process.env.MONGODB_URI = testMongoUri;
+      if (testNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = testNodeEnv;
+    }
+    assert(
+      getPolicyFailedClosed === true,
+      '50. JobVisibilityRepository.getPolicy fails closed in production mode when MongoDB is unconfigured'
+    );
+
+    // 51. JobVisibilityRepository getAllPolicies fails closed in production mode when MongoDB is unconfigured
+    let getAllPoliciesFailedClosed = false;
+    delete process.env.IS_TEST;
+    delete process.env.MONGODB_URI;
+    process.env.NODE_ENV = 'production';
+    try {
+      await JobVisibilityRepository.getAllPolicies();
+    } catch (err: any) {
+      if (err?.message && err.message.includes('MongoDB')) {
+        getAllPoliciesFailedClosed = true;
+      }
+    } finally {
+      if (testIsTest === undefined) delete process.env.IS_TEST; else process.env.IS_TEST = testIsTest;
+      if (testMongoUri === undefined) delete process.env.MONGODB_URI; else process.env.MONGODB_URI = testMongoUri;
+      if (testNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = testNodeEnv;
+    }
+    assert(
+      getAllPoliciesFailedClosed === true,
+      '51. JobVisibilityRepository.getAllPolicies fails closed in production mode when MongoDB is unconfigured'
+    );
+
+    // 52. Public response filtering redacts externalApplyUrl, applicationUrl and sourceUrl for Free users
+    const sensitiveUrlJob = {
+      id: 'job-sensitive-urls-1',
+      title: 'Senior DevOps Lead',
+      company: 'TechCorp',
+      externalApplyUrl: 'https://techcorp.com/careers/apply/99',
+      applicationUrl: 'https://techcorp.com/app/101',
+      sourceUrl: 'https://sourceportal.com/view/55',
+      fieldVisibility: {
+        externalApplyUrl: 'Premium',
+        applicationUrl: 'Premium',
+        sourceUrl: 'Premium'
+      }
+    };
+    const policySensitiveJob = await JobVisibilityRepository.applyPolicyToJob(sensitiveUrlJob);
+    const filteredSensitiveJob = JobVisibilityRepository.filterJobForUser(policySensitiveJob, freeUser, false);
+    
+    const urlsAreRedacted = 
+      filteredSensitiveJob.externalApplyUrl === '🔒 Unlock with Premium Subscription' &&
+      filteredSensitiveJob.applicationUrl === '🔒 Unlock with Premium Subscription' &&
+      filteredSensitiveJob.sourceUrl === '🔒 Unlock with Premium Subscription';
+
+    assert(
+      urlsAreRedacted === true,
+      '52. Public response filtering strictly redacts externalApplyUrl, applicationUrl and sourceUrl with lock message for Free users'
+    );
+
+    // 53. Active Premium users receive actual unredacted URLs
+    const filteredForPremSubscriber = JobVisibilityRepository.filterJobForUser(policySensitiveJob, freeUser, true);
+    const urlsAreIntact = 
+      filteredForPremSubscriber.externalApplyUrl === 'https://techcorp.com/careers/apply/99' &&
+      filteredForPremSubscriber.applicationUrl === 'https://techcorp.com/app/101' &&
+      filteredForPremSubscriber.sourceUrl === 'https://sourceportal.com/view/55';
+
+    assert(
+      urlsAreIntact === true,
+      '53. Active Premium subscribers receive unredacted external URLs'
+    );
+
+    // 54. Individual field visibility override takes precedence over source defaults
+    const customOverrideJob = {
+      id: 'job-custom-override-1',
+      title: 'Scraped Position with Free Application Link',
+      isScraped: true,
+      applicationUrl: 'https://public-apply.com/job/1',
+      fieldVisibility: {
+        applicationUrl: 'Free'
+      }
+    };
+    const policyCustomJob = await JobVisibilityRepository.applyPolicyToJob(customOverrideJob);
+    const filteredCustomJob = JobVisibilityRepository.filterJobForUser(policyCustomJob, freeUser, false);
+    assert(
+      filteredCustomJob.applicationUrl === 'https://public-apply.com/job/1',
+      '54. Individual job field override (Free applicationUrl) takes precedence over source default rules'
+    );
+
   } finally {
     // Clean up test fixtures from Database by exact ID
     for (const id of createdFixtureIds) {

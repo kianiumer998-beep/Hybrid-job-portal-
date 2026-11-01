@@ -21,6 +21,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Lock,
   Image as ImageIcon
 } from 'lucide-react';
 import { Job, JobAttachment } from '../types/job';
@@ -35,6 +36,19 @@ interface JobDetailModalProps {
   isSaved: boolean;
   onToggleSave: (jobId: string) => void;
 }
+
+const isRedactedUrl = (url?: string): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  const str = url.trim();
+  return str.startsWith('🔒') || str.includes('Unlock with Premium') || str.includes('Premium Content');
+};
+
+const isValidUrl = (url?: string): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  const str = url.trim();
+  if (isRedactedUrl(str)) return false;
+  return str.startsWith('http://') || str.startsWith('https://') || str.startsWith('/') || str.startsWith('mailto:');
+};
 
 export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   job: rawJob,
@@ -91,13 +105,22 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   const job = sanitizeJob(rawJob);
   const isExpired = job.deadlineDate && new Date(job.deadlineDate) < new Date();
 
+  // Premium URL & Application Evaluation
+  const rawExternalUrl = job.externalApplyUrl || job.applicationUrl || (job.sourceUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType === 'external') ? job.sourceUrl : undefined);
+  const isExternal = job.applicationType === 'external' || (!!rawExternalUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType !== 'internal'));
+
+  const hasRedactedExternal = isRedactedUrl(job.externalApplyUrl) || isRedactedUrl(job.applicationUrl) || (isExternal && isRedactedUrl(job.sourceUrl));
+  const validExternalUrl = isValidUrl(rawExternalUrl) ? rawExternalUrl : undefined;
+
+  const isApplyRestricted = isRedactedUrl(job.applicationUrl) || isRedactedUrl(job.externalApplyUrl) || (isExternal && isRedactedUrl(job.sourceUrl));
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-hidden">
+      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] sm:max-h-[85vh] overflow-hidden my-auto animate-in fade-in zoom-in duration-200">
         
-        {/* Modal Header */}
-        <div className="p-6 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-4">
-          <div>
+        {/* Sticky Modal Header */}
+        <div className="sticky top-0 z-20 shrink-0 p-4 sm:p-6 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className="px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
                 {job.jobType}
@@ -116,8 +139,8 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 </span>
               )}
             </div>
-            <h2 className="text-2xl font-black text-white">{job.title}</h2>
-            <div className="flex items-center space-x-3 text-sm text-slate-400 mt-1">
+            <h2 className="text-xl sm:text-2xl font-black text-white truncate">{job.title}</h2>
+            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-slate-400 mt-1">
               <span className="text-slate-200 font-bold">{job.company}</span>
               <span>•</span>
               <span className="text-emerald-400 font-bold">{job.salary}</span>
@@ -125,15 +148,17 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors shrink-0"
+            aria-label="Close Job Details"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-sm text-slate-300">
+        {/* Scrollable Modal Body */}
+        <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-6 text-sm text-slate-300 break-words">
           
           {/* Expired Job Alert */}
           {isExpired && (
@@ -147,7 +172,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           {job.isGovtJob && (
             <div className="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-2 text-amber-200">
               <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
-                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
                 <span>Government / Public Sector Position</span>
               </div>
               <div className="text-xs space-y-1">
@@ -249,7 +274,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             return (
               <div className="p-4 bg-slate-950/90 rounded-xl border border-slate-800 space-y-3">
                 <div className="flex items-center space-x-2">
-                  <Paperclip className="w-4 h-4 text-emerald-400" />
+                  <Paperclip className="w-4 h-4 text-emerald-400 shrink-0" />
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">
                     Official Supporting Documents ({publicAttachments.length})
                   </h3>
@@ -257,60 +282,60 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
                 <div className="space-y-2">
                   {publicAttachments.map((att) => {
-                  const attName = att.name || att.fileName || '';
-                  const isPdf = att.fileType === 'application/pdf' || attName.toLowerCase().endsWith('.pdf');
-                  const isImage = att.fileType.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(attName);
+                    const attName = att.name || att.fileName || '';
+                    const isPdf = att.fileType === 'application/pdf' || attName.toLowerCase().endsWith('.pdf');
+                    const isImage = att.fileType.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(attName);
 
-                  return (
-                    <div
-                      key={att.id}
-                      className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3 hover:border-slate-700 transition-colors"
-                    >
-                      <div className="flex items-center space-x-3 min-w-0 flex-1">
-                        <div className={`p-2 rounded-lg ${isPdf ? 'bg-rose-500/20 text-rose-400' : 'bg-teal-500/20 text-teal-400'}`}>
-                          {isPdf ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+                    return (
+                      <div
+                        key={att.id}
+                        className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3 hover:border-slate-700 transition-colors"
+                      >
+                        <div className="flex items-center space-x-3 min-w-0 flex-1">
+                          <div className={`p-2 rounded-lg shrink-0 ${isPdf ? 'bg-rose-500/20 text-rose-400' : 'bg-teal-500/20 text-teal-400'}`}>
+                            {isPdf ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-xs text-white truncate block" title={att.name}>
+                              {att.name}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {formatBytes(att.sizeBytes)} • {isPdf ? 'Official PDF Circular' : isImage ? 'Image Document' : 'Attachment'}
+                            </span>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="font-semibold text-xs text-white truncate block" title={att.name}>
-                            {att.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            {formatBytes(att.sizeBytes)} • {isPdf ? 'Official PDF Circular' : isImage ? 'Image Document' : 'Attachment'}
-                          </span>
+
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewDoc(att)}
+                            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>Preview</span>
+                          </button>
+
+                          <a
+                            href={`${att.fileUrl}${att.fileUrl.includes('?') ? '&' : '?'}download=1`}
+                            download={att.name}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1 transition-all"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download</span>
+                          </a>
                         </div>
                       </div>
-
-                      <div className="flex items-center space-x-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setPreviewDoc(att)}
-                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Preview</span>
-                        </button>
-
-                        <a
-                          href={`${att.fileUrl}${att.fileUrl.includes('?') ? '&' : '?'}download=1`}
-                          download={att.name}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center space-x-1 transition-all"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download</span>
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
             );
           })()}
 
           {/* Original Document Sources (Source PDF or Newspaper Clipping) */}
-          {(job.pdfSourceUrl || (job.sourceUrl && job.sourceUrl.toLowerCase().endsWith('.pdf')) || job.clippingImageUrl) && (
+          {(job.pdfSourceUrl || (job.sourceUrl && isValidUrl(job.sourceUrl) && job.sourceUrl.toLowerCase().endsWith('.pdf')) || job.clippingImageUrl) && (
             <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider">Original Source Documents</h4>
@@ -318,12 +343,12 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {(job.pdfSourceUrl || (job.sourceUrl && job.sourceUrl.toLowerCase().endsWith('.pdf'))) && (
+                {(job.pdfSourceUrl || (job.sourceUrl && isValidUrl(job.sourceUrl) && job.sourceUrl.toLowerCase().endsWith('.pdf'))) && (
                   <button
                     type="button"
                     onClick={() => {
                       const url = job.pdfSourceUrl || job.sourceUrl;
-                      if (url) {
+                      if (url && isValidUrl(url)) {
                         setPreviewDoc({
                           name: job.pdfFileName || `${job.title}_Advertisement.pdf`,
                           fileUrl: url,
@@ -365,7 +390,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             <div className="p-4 bg-slate-950/90 rounded-xl border border-slate-800 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-indigo-400" />
+                  <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">
                     Official Advertisement / Complete Gazette Text
                   </h3>
@@ -379,12 +404,12 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   >
                     {copiedText ? (
                       <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span className="text-emerald-400 font-bold">Copied!</span>
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5 text-slate-400" />
+                        <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span>Copy Text</span>
                       </>
                     )}
@@ -413,83 +438,117 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </div>
           )}
 
-        </div>
-
-        {/* External Application Notice & Warning if applicable */}
-        {(() => {
-          const externalUrl = job.externalApplyUrl || job.applicationUrl || (job.sourceUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType === 'external') ? job.sourceUrl : undefined);
-          const isExternal = job.applicationType === 'external' || (!!externalUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType !== 'internal'));
-
-          if (isExternal && externalUrl) {
-            return (
-              <div className="mx-6 mb-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2">
-                <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
-                  <ExternalLink className="w-4 h-4 shrink-0" />
-                  <span>External Department / Official Portal Application (سرکاری و دفتری پورٹل)</span>
-                </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {applySettings.externalApplicationWarning || 'Notice: You can submit your application directly on the official employer/department recruitment website.'}
-                </p>
+          {/* External Application Notice & Warning */}
+          {isExternal && (
+            <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2">
+              <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
+                {validExternalUrl ? <ExternalLink className="w-4 h-4 shrink-0" /> : <Lock className="w-4 h-4 shrink-0" />}
+                <span>
+                  {validExternalUrl ? 'External Department / Official Portal Application (سرکاری و دفتری پورٹل)' : 'Premium Feature — External Application Link'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {validExternalUrl 
+                  ? (applySettings.externalApplicationWarning || 'Notice: You can submit your application directly on the official employer/department recruitment website.')
+                  : 'Notice: The external portal link for this vacancy is restricted to Premium Subscribers. Upgrade your account to unlock direct application URLs.'}
+              </p>
+              {validExternalUrl && (
                 <div className="pt-1">
                   <a
-                    href={externalUrl}
+                    href={validExternalUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center space-x-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg transition-all"
                   >
                     <span>سرکاری پورٹل پر جائیں (Visit Official Portal)</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                   </a>
                 </div>
-              </div>
-            );
-          }
-          return null;
-        })()}
+              )}
+            </div>
+          )}
 
-        {/* Modal Footer Actions */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4">
-          <button
-            onClick={() => onToggleSave(job.id)}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center space-x-1.5 ${
-              isSaved
-                ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-            }`}
-          >
-            <Bookmark className="w-4 h-4 fill-current" />
-            <span>{isSaved ? 'Saved in Bookmarks' : 'Save Job'}</span>
-          </button>
+        </div>
 
+        {/* Sticky Modal Footer Actions */}
+        <div className="sticky bottom-0 z-20 shrink-0 p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          
           <div className="flex items-center gap-2">
-            {/* If external URL is available and external apply is enabled */}
-            {(job.externalApplyUrl || job.applicationUrl || job.sourceUrl) && (
-              <a
-                href={job.externalApplyUrl || job.applicationUrl || job.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
-                <span>External Portal (باہر کا لنک)</span>
-              </a>
-            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center space-x-1.5 shrink-0"
+              aria-label="Close Modal"
+            >
+              <X className="w-4 h-4 text-slate-400 shrink-0" />
+              <span>Close</span>
+            </button>
 
             <button
-              onClick={() => {
-                onClose();
-                onApply(job);
-              }}
-              disabled={isExpired || applySettings.enableApplyButton === false}
-              className={`px-6 py-3 rounded-xl font-extrabold text-sm shadow-xl transition-all flex items-center space-x-2 ${
-                isExpired || applySettings.enableApplyButton === false
-                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20 hover:scale-105 active:scale-95'
+              type="button"
+              onClick={() => onToggleSave(job.id)}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center space-x-1.5 shrink-0 ${
+                isSaved
+                  ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
               }`}
             >
-              <Send className="w-4 h-4 text-slate-950" />
-              <span>{applySettings.applyButtonText || 'Apply Directly (پورٹل پر اپلائی کریں)'}</span>
+              <Bookmark className="w-4 h-4 fill-current shrink-0" />
+              <span>{isSaved ? 'Saved' : 'Save Job'}</span>
             </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* External Portal link button (renders ONLY if valid URL exists, or shows locked Premium badge) */}
+            {validExternalUrl ? (
+              <a
+                href={validExternalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition-colors shrink-0"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span>External Portal (باہر کا لنک)</span>
+              </a>
+            ) : hasRedactedExternal ? (
+              <div
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800/80 text-amber-400/90 border border-amber-500/30 flex items-center space-x-1.5 cursor-not-allowed shrink-0"
+                title="Premium Feature — External Link Locked"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Premium Feature — External Link</span>
+              </div>
+            ) : null}
+
+            {/* Apply Button */}
+            {isApplyRestricted ? (
+              <button
+                type="button"
+                disabled
+                className="px-5 py-2.5 rounded-xl font-extrabold text-xs bg-slate-800 text-amber-400 border border-amber-500/30 flex items-center space-x-2 cursor-not-allowed shadow-lg shrink-0"
+                title="Upgrade to Premium Subscription to unlock application destination"
+              >
+                <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>🔒 Premium Feature (Upgrade to Apply)</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onApply(job);
+                }}
+                disabled={isExpired || applySettings.enableApplyButton === false}
+                className={`px-6 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm shadow-xl transition-all flex items-center space-x-2 shrink-0 ${
+                  isExpired || applySettings.enableApplyButton === false
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20 hover:scale-105 active:scale-95'
+                }`}
+              >
+                <Send className="w-4 h-4 text-slate-950 shrink-0" />
+                <span>{applySettings.applyButtonText || 'Apply Directly (پورٹل پر اپلائی کریں)'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -497,7 +556,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
       {/* Interactive Candidate Document Preview Lightbox Modal */}
       {previewDoc && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
           <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-4">
               <div className="flex items-center space-x-2 min-w-0">
@@ -540,6 +599,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   type="button"
                   onClick={() => setPreviewDoc(null)}
                   className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  aria-label="Close Document Preview"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -567,3 +627,4 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
     </div>
   );
 };
+

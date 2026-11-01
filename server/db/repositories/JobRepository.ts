@@ -26,6 +26,9 @@ export interface JobFilterOptions {
   page?: number;
   limit?: number;
   includeExpired?: boolean;
+  sourceType?: string;
+  submittedByUserId?: string;
+  scraperSourceId?: string;
 }
 
 export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
@@ -181,6 +184,38 @@ export class JobRepository {
       } else {
         query.$and = [{ $or: featuredOr }];
       }
+    }
+
+    if (filter.sourceType && filter.sourceType !== 'All') {
+      if (filter.sourceType === 'user_posted') {
+        const userCond = {
+          $and: [
+            { isScraped: { $ne: true } },
+            { isAdminCreated: { $ne: true } },
+            { sourceType: { $ne: 'admin_created' } }
+          ]
+        };
+        if (query.$and) query.$and.push(userCond);
+        else query.$and = [userCond];
+      } else if (filter.sourceType === 'scraped') {
+        const scrapedOr = [{ isScraped: true }, { sourceType: 'scraped' }, { scraperSourceId: { $exists: true, $ne: '' } }];
+        if (query.$and) query.$and.push({ $or: scrapedOr });
+        else query.$and = [{ $or: scrapedOr }];
+      } else if (filter.sourceType === 'admin_created') {
+        const adminOr = [{ isAdminCreated: true }, { sourceType: 'admin_created' }];
+        if (query.$and) query.$and.push({ $or: adminOr });
+        else query.$and = [{ $or: adminOr }];
+      }
+    }
+
+    if (filter.submittedByUserId && filter.submittedByUserId.trim()) {
+      const uRegex = new RegExp(filter.submittedByUserId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.submittedByUserId = uRegex;
+    }
+
+    if (filter.scraperSourceId && filter.scraperSourceId.trim()) {
+      const sRegex = new RegExp(filter.scraperSourceId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.scraperSourceId = sRegex;
     }
 
     // Determine sort
@@ -544,7 +579,7 @@ export class JobRepository {
   /**
    * Retrieves pending scraper / user jobs directly from MongoDB pending_jobs.
    */
-  static async getPending(filter?: { page?: number; limit?: number; lightweight?: boolean }): Promise<any[]> {
+  static async getPending(filter?: { page?: number; limit?: number; lightweight?: boolean; search?: string; sourceType?: string; submittedByUserId?: string; scraperSourceId?: string }): Promise<any[]> {
     if (!isMongoConfigured()) {
       const fallback = Database.getPendingJobs();
       Object.defineProperty(fallback, 'total', { value: fallback.length, enumerable: true });
@@ -563,7 +598,43 @@ export class JobRepository {
     const limit = Math.min(200, Math.max(1, rawLimit));
     const skip = (page - 1) * limit;
 
-    const query = { status: 'Pending' };
+    const query: any = { status: 'Pending' };
+
+    if (filter?.search && filter.search.trim()) {
+      const q = filter.search.trim();
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      query.$or = [
+        { title: regex },
+        { company: regex },
+        { description: regex },
+        { tags: regex },
+        { city: regex },
+        { id: regex }
+      ];
+    }
+
+    if (filter?.sourceType && filter.sourceType !== 'All') {
+      if (filter.sourceType === 'user_posted') {
+        query.$and = [
+          { isScraped: { $ne: true } },
+          { isAdminCreated: { $ne: true } },
+          { sourceType: { $ne: 'admin_created' } }
+        ];
+      } else if (filter.sourceType === 'scraped') {
+        query.$or = [{ isScraped: true }, { sourceType: 'scraped' }, { scraperSourceId: { $exists: true, $ne: '' } }];
+      } else if (filter.sourceType === 'admin_created') {
+        query.$or = [{ isAdminCreated: true }, { sourceType: 'admin_created' }];
+      }
+    }
+
+    if (filter?.submittedByUserId && filter.submittedByUserId.trim()) {
+      query.submittedByUserId = new RegExp(filter.submittedByUserId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    }
+
+    if (filter?.scraperSourceId && filter.scraperSourceId.trim()) {
+      query.scraperSourceId = new RegExp(filter.scraperSourceId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    }
 
     const total = await withMongoTimeout(pendingColl.countDocuments(query), 30000, 'getPendingCount');
     const docs = await withMongoTimeout(
@@ -1828,41 +1899,77 @@ export class JobRepository {
 
   /**
    * Comprehensive attachment access verification.
-   * Verifies association, field visibility rules, and individual attachment privacy.
+   * Verifies association, parent job existence, field visibility rules, and individual attachment privacy.
    */
   static async verifyAttachmentAccess(filename: string, user: any, isPremium: boolean): Promise<boolean> {
     const cleanFilename = path.basename(filename);
-    if (!cleanFilename) return false;
+    if (!cleanFilename || cleanFilename === '.' || cleanFilename === '..') return false;
 
     const isAdmin = Boolean(user && ['Super Admin', 'Admin', 'Job Moderator', 'Scraper Manager'].includes(user.role));
-    if (isAdmin) return true;
 
     if (isMongoConfigured()) {
       try {
         const jobsColl = await getJobsCollection();
         const pendingColl = await getPendingJobsCollection();
 
-        // Query: find any job that contains this attachment AND permits access based on visibility/premium status
         const query = {
           attachments: {
             $elemMatch: {
-              fileUrl: { $regex: cleanFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') },
-              isPublic: true // Must always be public at the attachment level for non-admins
+              fileUrl: { $regex: cleanFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
             }
-          },
-          $or: [
-            { "fieldVisibility.attachments": "Free" },
-            ...(isPremium ? [{ "fieldVisibility.attachments": "Premium" }] : [])
-          ]
+          }
         };
 
         const [matchLive, matchPending] = await Promise.all([
-          jobsColl.findOne(query, { projection: { id: 1 } }),
-          pendingColl.findOne(query, { projection: { id: 1 } })
+          jobsColl.findOne(query),
+          pendingColl.findOne(query)
         ]);
 
-        return Boolean(matchLive || matchPending);
-      } catch (err) {
+        let parentJob = matchLive || matchPending;
+        if (!parentJob) {
+          // Fall back to local memory if job was added as memory fixture or in dev mode
+          try {
+            const allLocal = [...Database.getJobs(), ...Database.getPendingJobs()];
+            parentJob = allLocal.find((j: any) =>
+              Array.isArray(j.attachments) &&
+              j.attachments.some((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename))
+            );
+          } catch {}
+        }
+
+        if (!parentJob) {
+          // Parent job does not exist or attachment is unassociated/orphaned
+          return false;
+        }
+
+        const attList = Array.isArray(parentJob.attachments) ? parentJob.attachments : [];
+        const att = attList.find((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename));
+        if (!att) {
+          return false;
+        }
+
+        // Admin access is preserved ONLY for valid existing job attachments
+        if (isAdmin) {
+          return true;
+        }
+
+        // Non-admin enforcement:
+        // 1. Existing privacy rule: attachment must be public
+        if (att.isPublic !== true) {
+          return false;
+        }
+
+        // 2. Job fieldVisibility policy
+        const visibility: string = parentJob.fieldVisibility?.attachments || 'Premium';
+        if (visibility === 'Hidden') {
+          return false;
+        }
+        if (visibility === 'Premium' && !isPremium) {
+          return false;
+        }
+
+        return true;
+      } catch (err: any) {
         console.error('[JobRepository] Error verifying attachment access in MongoDB:', err);
         throw err; // Fail closed
       }
@@ -1871,18 +1978,43 @@ export class JobRepository {
     // Local fallback
     try {
       const allJobs = [...Database.getJobs(), ...Database.getPendingJobs()];
-      for (const j of allJobs) {
-        const visibility = j.fieldVisibility?.attachments || 'Premium';
-        if (visibility === 'Hidden') continue;
-        if (visibility === 'Premium' && !isPremium) continue;
+      let matchedJob: any = null;
+      let matchedAtt: any = null;
 
+      for (const j of allJobs) {
         if (Array.isArray(j.attachments)) {
-          const match = j.attachments.find(
-            (a: any) => a && a.fileUrl && a.fileUrl.includes(cleanFilename) && a.isPublic === true
+          const att = j.attachments.find(
+            (a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename)
           );
-          if (match) return true;
+          if (att) {
+            matchedJob = j;
+            matchedAtt = att;
+            break;
+          }
         }
       }
+
+      if (!matchedJob || !matchedAtt) {
+        return false;
+      }
+
+      if (isAdmin) {
+        return true;
+      }
+
+      if (matchedAtt.isPublic !== true) {
+        return false;
+      }
+
+      const visibility: string = matchedJob.fieldVisibility?.attachments || 'Premium';
+      if (visibility === 'Hidden') {
+        return false;
+      }
+      if (visibility === 'Premium' && !isPremium) {
+        return false;
+      }
+
+      return true;
     } catch {}
 
     return false;

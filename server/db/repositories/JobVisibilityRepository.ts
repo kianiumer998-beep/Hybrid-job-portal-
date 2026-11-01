@@ -162,6 +162,21 @@ export class JobVisibilityRepository {
   }
 
   /**
+   * Helper function to evaluate user document for active, non-expired Premium status.
+   */
+  static evaluateUserDocForPremium(userDoc: any): boolean {
+    if (!userDoc) return false;
+    if (userDoc.membershipStatus === 'Active') {
+      const authoritativeExpiry = userDoc.subscriptionExpiresAt || userDoc.expiryDate;
+      if (authoritativeExpiry) {
+        const expiryMs = new Date(authoritativeExpiry).getTime();
+        return !isNaN(expiryMs) && expiryMs > Date.now();
+      }
+    }
+    return false;
+  }
+
+  /**
    * Authoritatively verifies user's premium status from the database.
    * Checks both subscriptionExpiresAt (new) and expiryDate (legacy).
    */
@@ -172,17 +187,7 @@ export class JobVisibilityRepository {
       try {
         const coll = await getUsersCollection();
         const userDoc = await coll.findOne({ id: userId });
-        if (!userDoc) return false;
-
-        // Strict criteria: MembershipStatus === 'Active' AND any valid expiry field is in the future
-        if (userDoc.membershipStatus === 'Active') {
-          const authoritativeExpiry = userDoc.subscriptionExpiresAt || userDoc.expiryDate;
-          if (authoritativeExpiry) {
-            const expiryMs = new Date(authoritativeExpiry).getTime();
-            return !isNaN(expiryMs) && expiryMs > Date.now();
-          }
-        }
-        return false;
+        return JobVisibilityRepository.evaluateUserDocForPremium(userDoc);
       } catch (err: any) {
         console.error('[JobVisibilityRepository] Authoritative Premium Check Failed (MongoDB):', err);
         // Fail closed: propagate error to prevent unauthorized access during DB failure
@@ -193,14 +198,7 @@ export class JobVisibilityRepository {
       try {
         const { Database } = await import('../database');
         const user = Database.getUserById(userId);
-        if (user && user.membershipStatus === 'Active') {
-          const authoritativeExpiry = user.subscriptionExpiresAt || user.expiryDate;
-          if (authoritativeExpiry) {
-            const expiryMs = new Date(authoritativeExpiry).getTime();
-            return !isNaN(expiryMs) && expiryMs > Date.now();
-          }
-        }
-        return false;
+        return JobVisibilityRepository.evaluateUserDocForPremium(user);
       } catch (err) {
         console.error('[JobVisibilityRepository] Fallback Premium Check Failed:', err);
         return false;
@@ -246,6 +244,16 @@ export class JobVisibilityRepository {
       'duplicateOverrideNote', 'duplicateDetectedAt', 'applicationType', 'isLocationConfirmed',
       'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 'metadata', 'createdAt', 'updatedAt'
     ];
+
+    const ALLOWED_METADATA_KEYS = new Set(['id', 'slug', 'sourceType', 'visibilitySource', 'fieldVisibility', 'isExpired', '_isAdminView', '_id']);
+    const ALL_REGISTRY_SET = new Set(ALL_REGISTRY_FIELDS);
+
+    // Remove any unknown/unregistered fields to prevent leaks for non-admin users
+    for (const key of Object.keys(filtered)) {
+      if (!ALL_REGISTRY_SET.has(key) && !ALLOWED_METADATA_KEYS.has(key)) {
+        delete filtered[key];
+      }
+    }
 
     for (const field of ALL_REGISTRY_FIELDS) {
       // Default to Premium for known sensitive fields if no specific rule exists

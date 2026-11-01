@@ -111,7 +111,11 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [livePage, setLivePage] = useState(1);
+  const [pendingPage, setPendingPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [liveHasMore, setLiveHasMore] = useState(true);
+  const [pendingHasMore, setPendingHasMore] = useState(true);
   const [visibilityFilter, setVisibilityFilter] = useState<string>('All');
   
   // Bulk Management State
@@ -159,16 +163,37 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     setLoadingJobs(true);
     setErrorMessage(null);
     try {
-      // Use Admin Universal endpoint to get Live + Pending with pagination
-      const limit = 500;
-      const res = await api.jobs.getAdminAll({ page, limit });
+      const limit = 100;
+      const targetLivePage = append ? livePage + 1 : 1;
+      const targetPendingPage = append ? pendingPage + 1 : 1;
+
+      const res = await api.jobs.getAdminAll({
+        livePage: targetLivePage,
+        pendingPage: targetPendingPage,
+        limit,
+        status: statusFilter,
+        source: sourceFilter,
+        owner: ownerFilter,
+        scraper: scraperFilter,
+        search: searchQuery,
+        visibility: visibilityFilter
+      });
+
       if (res.success && Array.isArray(res.jobs)) {
         if (append) {
-          setJobsList(prev => [...prev, ...res.jobs]);
+          setJobsList(prev => {
+            const existingIds = new Set(prev.map(j => j.id));
+            const newJobs = res.jobs.filter((j: any) => !existingIds.has(j.id));
+            return [...prev, ...newJobs];
+          });
         } else {
           setJobsList(res.jobs);
         }
-        setHasMore(res.jobs.length === limit);
+        setLivePage(res.livePage || targetLivePage);
+        setPendingPage(res.pendingPage || targetPendingPage);
+        setLiveHasMore(Boolean(res.liveHasMore));
+        setPendingHasMore(Boolean(res.pendingHasMore));
+        setHasMore(Boolean(res.hasMore));
         setCurrentPage(page);
       } else {
         throw new Error(res.message || 'Failed to fetch universal job list.');
@@ -191,7 +216,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     if (activeTab === 'bulk' || activeTab === 'individual') {
       loadJobs(1, false);
     }
-  }, [activeTab]);
+  }, [activeTab, statusFilter, sourceFilter, visibilityFilter]);
 
   const handleSaveDefaultPolicy = async () => {
     setIsSaving(true);

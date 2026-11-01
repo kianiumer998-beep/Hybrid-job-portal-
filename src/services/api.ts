@@ -193,10 +193,18 @@ export const api = {
       const qs = params ? new URLSearchParams(params).toString() : '';
       return safeFetchJson(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`);
     },
-    async getAdminAll(params?: { page?: number; limit?: number }) {
+    async getAdminAll(params?: { page?: number; limit?: number; livePage?: number; pendingPage?: number; status?: string; source?: string; owner?: string; scraper?: string; search?: string; visibility?: string }) {
       const queryObj: Record<string, string> = {};
       if (params?.page) queryObj.page = String(params.page);
       if (params?.limit) queryObj.limit = String(params.limit);
+      if (params?.livePage) queryObj.livePage = String(params.livePage);
+      if (params?.pendingPage) queryObj.pendingPage = String(params.pendingPage);
+      if (params?.status) queryObj.status = params.status;
+      if (params?.source) queryObj.source = params.source;
+      if (params?.owner) queryObj.owner = params.owner;
+      if (params?.scraper) queryObj.scraper = params.scraper;
+      if (params?.search) queryObj.search = params.search;
+      if (params?.visibility) queryObj.visibility = params.visibility;
       const qs = new URLSearchParams(queryObj).toString();
       return safeFetchJson(`${API_BASE}/jobs/admin/all${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() });
     },

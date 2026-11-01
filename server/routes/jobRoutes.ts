@@ -1549,29 +1549,81 @@ jobRouter.post('/convert-to-job', requireAdminPermission('jobs.manage'), async (
 // 17. Admin Universal Job List (Live + Pending) for Central Visibility Management
 jobRouter.get('/admin/all', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
-    const limit = Math.min(2000, Math.max(1, parseInt(String(req.query.limit || '1000'), 10)));
+    const livePage = Math.max(1, parseInt(String(req.query.livePage || req.query.page || '1'), 10));
+    const pendingPage = Math.max(1, parseInt(String(req.query.pendingPage || req.query.page || '1'), 10));
+    const rawLimit = parseInt(String(req.query.limit || '100'), 10) || 100;
+    const limit = Math.min(500, Math.max(1, rawLimit));
 
-    const [liveResult, pendingResult] = await Promise.all([
-      JobRepository.getAll({ page, limit, includeExpired: true }),
-      JobRepository.getPending({ page, limit })
-    ]);
-    
-    const liveJobs = liveResult.jobs || [];
-    const pendingJobs = Array.isArray(pendingResult) ? pendingResult : ((pendingResult as any).pendingJobs || []);
-    
-    const combined = [
+    const status = String(req.query.status || 'All');
+    const source = String(req.query.source || 'All');
+    const owner = String(req.query.owner || '');
+    const scraper = String(req.query.scraper || '');
+    const search = String(req.query.search || '');
+    const visibility = String(req.query.visibility || 'All');
+
+    let liveJobs: any[] = [];
+    let liveTotal = 0;
+    let liveHasMore = false;
+
+    let pendingJobs: any[] = [];
+    let pendingTotal = 0;
+    let pendingHasMore = false;
+
+    if (status === 'All' || status === 'Approved' || status === 'Expired') {
+      const liveRes = await JobRepository.getAll({
+        page: livePage,
+        limit,
+        includeExpired: true,
+        sourceType: source !== 'All' ? source : undefined,
+        submittedByUserId: owner || undefined,
+        scraperSourceId: scraper || undefined,
+        search: search || undefined
+      });
+      liveJobs = liveRes.jobs || [];
+      liveTotal = liveRes.total || 0;
+      liveHasMore = (livePage * limit) < liveTotal;
+    }
+
+    if (status === 'All' || status === 'Pending') {
+      const pendingRes = await JobRepository.getPending({
+        page: pendingPage,
+        limit,
+        sourceType: source !== 'All' ? source : undefined,
+        submittedByUserId: owner || undefined,
+        scraperSourceId: scraper || undefined,
+        search: search || undefined
+      });
+      pendingJobs = Array.isArray(pendingRes) ? pendingRes : ((pendingRes as any).pendingJobs || []);
+      pendingTotal = (pendingRes as any).total ?? pendingJobs.length;
+      pendingHasMore = (pendingPage * limit) < pendingTotal;
+    }
+
+    let combined = [
       ...liveJobs.map((j: any) => ({ ...j, _isAdminView: true })),
       ...pendingJobs.map((j: any) => ({ ...j, _isAdminView: true, status: j.status || 'Pending' }))
     ];
-    
+
+    if (visibility !== 'All') {
+      combined = combined.filter((j: any) => {
+        const hasOverrides = j.fieldVisibility && Object.keys(j.fieldVisibility).length > 0;
+        return visibility === 'Overrides' ? hasOverrides : !hasOverrides;
+      });
+    }
+
+    const hasMore = liveHasMore || pendingHasMore;
+
     res.json({
       success: true,
       jobs: combined,
       count: combined.length,
-      liveTotal: liveResult.total,
-      pendingTotal: (pendingResult as any).total,
-      page,
+      liveTotal,
+      pendingTotal,
+      total: liveTotal + pendingTotal,
+      livePage,
+      pendingPage,
+      liveHasMore,
+      pendingHasMore,
+      hasMore,
       limit
     });
   } catch (err: any) {

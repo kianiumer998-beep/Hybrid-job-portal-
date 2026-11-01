@@ -280,38 +280,53 @@ export class JobRepository {
     }
 
     const page = Math.max(1, filter.page || 1);
-    const limit = Math.min(10000, Math.max(1, filter.limit || 5000));
+    const limit = Math.min(1000, Math.max(1, filter.limit || 100));
     const skip = (page - 1) * limit;
 
     const cursor = jobsColl.find(query).sort(sort);
-    const rawDocs = await cursor.toArray();
 
-    // Dynamically and authoritatively evaluate expiration on all candidates
-    const allMatching = rawDocs
-      .map((doc) => {
+    let total = 0;
+    const paginatedJobs: any[] = [];
+    const BATCH_SIZE = 200;
+    let processed = 0;
+    let batch: any[];
+
+    while (true) {
+      batch = await cursor.skip(processed).limit(BATCH_SIZE).toArray();
+      if (batch.length === 0) break;
+      processed += batch.length;
+
+      for (const doc of batch) {
         const normalized = normalizeMongoJob(doc);
         const isExpired = checkJobExpired(normalized);
-        return {
+        const evaluated = {
           ...normalized,
           isExpired,
           status: isExpired ? 'Expired' : (normalized.status || 'Approved')
         };
-      })
-      .filter((j) => {
-        if (filter.status === 'Expired') {
-          return j.isExpired === true;
-        }
-        if (filter.status === 'Approved') {
-          return j.isExpired !== true && (j.status === 'Approved' || !j.status);
-        }
-        if (!filter.includeExpired) {
-          return j.isExpired !== true;
-        }
-        return true;
-      });
 
-    const total = allMatching.length;
-    const paginatedJobs = allMatching.slice(skip, skip + limit);
+        let matchesStatus = true;
+        if (filter.status === 'Expired') {
+          matchesStatus = evaluated.isExpired === true;
+        } else if (filter.status === 'Approved') {
+          matchesStatus = evaluated.isExpired !== true && (evaluated.status === 'Approved' || !evaluated.status);
+        } else if (!filter.includeExpired) {
+          matchesStatus = evaluated.isExpired !== true;
+        }
+
+        if (matchesStatus) {
+          const currentIndex = total;
+          total++;
+          if (currentIndex >= skip && paginatedJobs.length < limit) {
+            paginatedJobs.push(evaluated);
+          }
+        }
+      }
+
+      if (batch.length < BATCH_SIZE) {
+        break;
+      }
+    }
 
     return { jobs: paginatedJobs, total, page, limit };
   }

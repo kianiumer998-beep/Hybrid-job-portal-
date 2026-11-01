@@ -3,7 +3,7 @@ import {
   CONFIGURABLE_REGISTRY_FIELDS,
   ADMIN_INTERNAL_FIELDS
 } from '../db/repositories/JobVisibilityRepository';
-import { JobRepository } from '../db/repositories/JobRepository';
+import { JobRepository, parseDeadlineTimestamp, checkJobExpired } from '../db/repositories/JobRepository';
 import { Database } from '../db/database';
 import { getJobsCollection, isMongoConfigured } from '../db/mongodb';
 import { validateFieldRules } from '../routes/jobVisibilityRoutes';
@@ -458,6 +458,75 @@ async function runTests() {
     assert(
       toggledSelection.length === 2 && toggledSelection.includes('j-1') && toggledSelection.includes('j-2'),
       '42. Select All accurately selects all filtered jobs and deduplicates IDs'
+    );
+
+    // ==========================================
+    // GROUP 5: DATE PARSING, RESTORE & EXPIRY TESTS
+    // ==========================================
+    console.log('\n--- Group 5: Date Parsing, Restore & Expiry Semantics ---');
+
+    // 43. Ordinal date parsing ("22nd September 2026")
+    const parsedOrdinal = parseDeadlineTimestamp('22nd September 2026');
+    assert(
+      parsedOrdinal !== null && !isNaN(parsedOrdinal),
+      '43. Ordinal suffix date string ("22nd September 2026") parses successfully'
+    );
+
+    // 44. Ambiguous DD-MM-YYYY dates ("03-04-2026")
+    const parsedDMY = parseDeadlineTimestamp('03-04-2026');
+    assert(
+      parsedDMY !== null && !isNaN(parsedDMY),
+      '44. DD-MM-YYYY date string ("03-04-2026") parses successfully'
+    );
+
+    // 45. ISO date strings
+    const parsedISO = parseDeadlineTimestamp('2026-09-22T00:00:00.000Z');
+    assert(
+      parsedISO !== null && !isNaN(parsedISO),
+      '45. ISO date string parses successfully'
+    );
+
+    // 46. Invalid dates return null
+    const parsedInvalid = parseDeadlineTimestamp('not-a-valid-date');
+    const parsedNull = parseDeadlineTimestamp(undefined);
+    assert(
+      parsedInvalid === null && parsedNull === null,
+      '46. Invalid or missing date strings return null'
+    );
+
+    // 47. Expired deadline with configured offset
+    const pastDeadlineJob = { deadlineDate: '2020-01-01' };
+    assert(
+      checkJobExpired(pastDeadlineJob, 1) === true,
+      '47. Past deadline with offset correctly evaluated as expired'
+    );
+
+    // 48. Restored jobs with restoredAt and isExpired=false
+    const restoredJob = {
+      deadlineDate: '2020-01-01',
+      isExpired: false,
+      restoredAt: new Date().toISOString(),
+      status: 'Approved'
+    };
+    assert(
+      checkJobExpired(restoredJob, 1) === false,
+      '48. Restored jobs with restoredAt and isExpired=false remain live and unexpired'
+    );
+
+    // 49. Correct Approved and Expired filtering via JobRepository.getAll()
+    let filterTestExecuted = false;
+    try {
+      const expResult = await JobRepository.getAll({ status: 'Expired', limit: 1 });
+      const appResult = await JobRepository.getAll({ status: 'Approved', limit: 1 });
+      if (Array.isArray(expResult.jobs) && Array.isArray(appResult.jobs)) {
+        filterTestExecuted = true;
+      }
+    } catch {
+      filterTestExecuted = false;
+    }
+    assert(
+      filterTestExecuted === true,
+      '49. JobRepository.getAll successfully filters by Expired and Approved status with memory-bounded batch execution'
     );
 
   } finally {

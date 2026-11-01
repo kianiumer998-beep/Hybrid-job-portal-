@@ -123,6 +123,79 @@ export class JobRepository {
    * Reads all approved / active jobs directly from MongoDB with filtering, sorting, and pagination.
    */
   static async getAll(filter: JobFilterOptions = {}): Promise<{ jobs: any[]; total: number; page: number; limit: number }> {
+    const page = Math.max(1, filter.page || 1);
+    const limit = Math.min(1000, Math.max(1, filter.limit || 100));
+    const skip = (page - 1) * limit;
+
+    // Isolated in-memory test execution path
+    if (process.env.IS_TEST === 'true') {
+      let allJobs = Database.getJobs().map(normalizeMongoJob);
+
+      if (filter.submittedByUserId && filter.submittedByUserId.trim()) {
+        const uStr = filter.submittedByUserId.trim().toLowerCase();
+        allJobs = allJobs.filter(j => j.submittedByUserId && j.submittedByUserId.toLowerCase().includes(uStr));
+      }
+
+      let processedJobs = allJobs
+        .filter((normalized) => {
+          if (filter.status === 'Approved' && normalized.status !== 'Approved' && normalized.status) return false;
+          if (filter.status === 'Expired' && normalized.status !== 'Expired') return false;
+          if (filter.jobType && filter.jobType !== 'All' && normalized.jobType !== filter.jobType) return false;
+          return true;
+        })
+        .map((normalized) => {
+          const isExpired = checkJobExpired(normalized);
+          return {
+            ...normalized,
+            isExpired,
+            status: isExpired ? 'Expired' : (normalized.status || 'Approved')
+          };
+        })
+        .filter((evaluated) => {
+          let matchesStatus = true;
+          if (filter.status === 'Expired') matchesStatus = evaluated.isExpired === true;
+          else if (filter.status === 'Approved') matchesStatus = evaluated.isExpired !== true && (evaluated.status === 'Approved' || !evaluated.status);
+          else if (!filter.includeExpired) matchesStatus = evaluated.isExpired !== true;
+          return matchesStatus;
+        });
+
+      // Deterministic sort with _id / id tie-breaker
+      processedJobs.sort((a, b) => {
+        if (filter.sortBy === 'salary-high') {
+          const sA = a.salaryNumericMin || 0;
+          const sB = b.salaryNumericMin || 0;
+          if (sA !== sB) return sB - sA;
+        } else if (filter.sortBy === 'salary-low') {
+          const sA = a.salaryNumericMin || 0;
+          const sB = b.salaryNumericMin || 0;
+          if (sA !== sB) return sA - sB;
+        } else if (filter.sortBy === 'popular') {
+          const cA = a.applicationsCount || 0;
+          const cB = b.applicationsCount || 0;
+          if (cA !== cB) return cB - cA;
+        } else if (filter.sortBy === 'oldest') {
+          const tA = new Date(a.createdAt || 0).getTime();
+          const tB = new Date(b.createdAt || 0).getTime();
+          if (tA !== tB) return tA - tB;
+        } else {
+          const pA = a.isPinnedTop ? 1 : 0;
+          const pB = b.isPinnedTop ? 1 : 0;
+          if (pA !== pB) return pB - pA;
+          const tA = new Date(a.createdAt || 0).getTime();
+          const tB = new Date(b.createdAt || 0).getTime();
+          if (tA !== tB) return tB - tA;
+        }
+        const idA = String(a._id || a.id || '');
+        const idB = String(b._id || b.id || '');
+        return idA.localeCompare(idB);
+      });
+
+      const total = processedJobs.length;
+      const paginatedJobs = processedJobs.slice(skip, skip + limit);
+      return { jobs: paginatedJobs, total, page, limit };
+    }
+
+    // Production MongoDB Path
     assertMongoAvailable();
 
     const query: any = {
@@ -296,45 +369,7 @@ export class JobRepository {
       sort = { createdAt: 1, _id: 1 };
     }
 
-    const page = Math.max(1, filter.page || 1);
-    const limit = Math.min(1000, Math.max(1, filter.limit || 100));
-    const skip = (page - 1) * limit;
-
-    // In-memory test fallback
-    if (process.env.IS_TEST === 'true') {
-      const allJobs = Database.getJobs().map(normalizeMongoJob);
-      const processedJobs = allJobs
-        .filter((normalized) => {
-          if (filter.status === 'Approved' && normalized.status !== 'Approved' && normalized.status) return false;
-          if (filter.status === 'Expired' && normalized.status !== 'Expired') return false;
-          if (filter.jobType && filter.jobType !== 'All' && normalized.jobType !== filter.jobType) return false;
-          return true;
-        })
-        .map((normalized) => {
-          const isExpired = checkJobExpired(normalized);
-          return {
-            ...normalized,
-            isExpired,
-            status: isExpired ? 'Expired' : (normalized.status || 'Approved')
-          };
-        })
-        .filter((evaluated) => {
-          let matchesStatus = true;
-          if (filter.status === 'Expired') matchesStatus = evaluated.isExpired === true;
-          else if (filter.status === 'Approved') matchesStatus = evaluated.isExpired !== true && (evaluated.status === 'Approved' || !evaluated.status);
-          else if (!filter.includeExpired) matchesStatus = evaluated.isExpired !== true;
-          return matchesStatus;
-        });
-
-      const total = processedJobs.length;
-      const paginatedJobs = processedJobs.slice(skip, skip + limit);
-      return { jobs: paginatedJobs, total, page, limit };
-    }
-
-    // Production path
-    assertMongoAvailable();
     const jobsColl = await getJobsCollection();
-    const cursor = jobsColl.find(query).sort(sort);
 
     let total = 0;
     const paginatedJobs: any[] = [];

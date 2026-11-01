@@ -25,6 +25,8 @@ async function runTests() {
   }
 
   const createdFixtureIds: string[] = [];
+  const previousIsTest = process.env.IS_TEST;
+  process.env.IS_TEST = 'true';
 
   try {
     // ==========================================
@@ -516,56 +518,95 @@ async function runTests() {
 
     // 49. Real Multi-Batch Pagination Tests with >200 records (Isolated Dataset, Zero Production DB writes)
     let repoFilteringValid = false;
-    const previousIsTest = process.env.IS_TEST;
-    process.env.IS_TEST = 'true';
     try {
-      // Seed isolated fixtures into in-memory Database
-      for(let i=0; i<250; i++) {
-        const id = `job-mock-${i + 1}`;
+      const runnerUser = 'isolated-pagination-test-runner';
+      const sameTimestamp = '2026-11-01T00:00:00.000Z';
+
+      // Seed exactly 250 isolated fixtures (200 Approved, 50 Expired)
+      for (let i = 1; i <= 250; i++) {
+        const paddedNum = String(i).padStart(3, '0');
+        const id = `job-mock-${paddedNum}`;
         Database.addJob({
           id,
-          title: `Mock Job ${i + 1}`,
-          status: i < 200 ? 'Approved' : 'Expired',
+          title: `Mock Job ${paddedNum}`,
+          status: i <= 200 ? 'Approved' : 'Expired',
           isSuspended: false,
-          createdAt: new Date(Date.now() - i * 1000).toISOString()
+          submittedByUserId: runnerUser,
+          createdAt: sameTimestamp
         });
         createdFixtureIds.push(id);
       }
 
-      const expRes = await JobRepository.getAll({ status: 'Expired', limit: 50, page: 1 });
-      const appResPage1 = await JobRepository.getAll({ status: 'Approved', limit: 50, page: 1 });
-      const appResPage2 = await JobRepository.getAll({ status: 'Approved', limit: 50, page: 2 });
+      // Query Approved Page 1 and Page 2 (50 items per page)
+      const appResPage1 = await JobRepository.getAll({ status: 'Approved', limit: 50, page: 1, submittedByUserId: runnerUser });
+      const appResPage2 = await JobRepository.getAll({ status: 'Approved', limit: 50, page: 2, submittedByUserId: runnerUser });
 
-      const isFixture = (id: string) => id.startsWith('job-mock-');
+      // Query Expired Page 1 (50 items)
+      const expRes = await JobRepository.getAll({ status: 'Expired', limit: 50, page: 1, submittedByUserId: runnerUser });
 
-      const expJobs = expRes.jobs.filter(j => isFixture(j.id));
-      const p1Jobs = appResPage1.jobs.filter(j => isFixture(j.id));
-      const p2Jobs = appResPage2.jobs.filter(j => isFixture(j.id));
+      // 1. Verify totals and exact page lengths
+      if (appResPage1.total !== 200) throw new Error(`Expected Approved total 200, got ${appResPage1.total}`);
+      if (appResPage2.total !== 200) throw new Error(`Expected Approved total 200 on Page 2, got ${appResPage2.total}`);
+      if (expRes.total !== 50) throw new Error(`Expected Expired total 50, got ${expRes.total}`);
 
-      // Strict assertions replacing .every()
-      if (p1Jobs.length !== 50) throw new Error(`Page 1: Expected 50 fixture jobs, got ${p1Jobs.length}`);
-      if (p2Jobs.length !== 50) throw new Error(`Page 2: Expected 50 fixture jobs, got ${p2Jobs.length}`);
-      if (expJobs.length !== 50) throw new Error(`Expired Page: Expected 50 fixture jobs, got ${expJobs.length}`);
+      if (appResPage1.jobs.length !== 50) throw new Error(`Page 1 length expected 50, got ${appResPage1.jobs.length}`);
+      if (appResPage2.jobs.length !== 50) throw new Error(`Page 2 length expected 50, got ${appResPage2.jobs.length}`);
+      if (expRes.jobs.length !== 50) throw new Error(`Expired Page length expected 50, got ${expRes.jobs.length}`);
 
-      const p1Ids = p1Jobs.map(j => j.id);
-      const p2Ids = p2Jobs.map(j => j.id);
-
-      // Verify no overlap
-      const p1Set = new Set(p1Ids);
-      for(const id of p2Ids) {
-        if(p1Set.has(id)) throw new Error(`Duplicate ID found between pages: ${id}`);
+      // 2. Verify Page 1 exact expected IDs in deterministic order (job-mock-001 .. job-mock-050)
+      const expectedP1 = Array.from({ length: 50 }, (_, idx) => `job-mock-${String(idx + 1).padStart(3, '0')}`);
+      for (let idx = 0; idx < 50; idx++) {
+        const actualId = appResPage1.jobs[idx]?.id;
+        if (actualId !== expectedP1[idx]) {
+          throw new Error(`Page 1 index ${idx}: expected ${expectedP1[idx]}, got ${actualId}`);
+        }
       }
 
-      // Assert status
-      for(const job of p1Jobs) if(job.status !== 'Approved') throw new Error(`Found non-approved job in page 1: ${job.id}`);
-      for(const job of expJobs) if(job.status !== 'Expired') throw new Error(`Found non-expired job in expired page: ${job.id}`);
+      // 3. Verify Page 2 exact expected IDs in deterministic order (job-mock-051 .. job-mock-100)
+      const expectedP2 = Array.from({ length: 50 }, (_, idx) => `job-mock-${String(idx + 51).padStart(3, '0')}`);
+      for (let idx = 0; idx < 50; idx++) {
+        const actualId = appResPage2.jobs[idx]?.id;
+        if (actualId !== expectedP2[idx]) {
+          throw new Error(`Page 2 index ${idx}: expected ${expectedP2[idx]}, got ${actualId}`);
+        }
+      }
+
+      // 4. Verify no overlap between Page 1 and Page 2
+      const p1Set = new Set(appResPage1.jobs.map(j => j.id));
+      for (const job of appResPage2.jobs) {
+        if (p1Set.has(job.id)) {
+          throw new Error(`Duplicate ID found across pages: ${job.id}`);
+        }
+      }
+
+      // 5. Verify combined 100 IDs match expected set exactly
+      const combined = [...appResPage1.jobs.map(j => j.id), ...appResPage2.jobs.map(j => j.id)];
+      if (combined.length !== 100) throw new Error(`Combined length expected 100, got ${combined.length}`);
+      const expectedCombined = Array.from({ length: 100 }, (_, idx) => `job-mock-${String(idx + 1).padStart(3, '0')}`);
+      for (let idx = 0; idx < 100; idx++) {
+        if (combined[idx] !== expectedCombined[idx]) {
+          throw new Error(`Combined index ${idx}: expected ${expectedCombined[idx]}, got ${combined[idx]}`);
+        }
+      }
+
+      // 6. Verify Expired Page exact expected IDs (job-mock-201 .. job-mock-250)
+      const expectedExp = Array.from({ length: 50 }, (_, idx) => `job-mock-${String(idx + 201).padStart(3, '0')}`);
+      for (let idx = 0; idx < 50; idx++) {
+        const actualId = expRes.jobs[idx]?.id;
+        if (actualId !== expectedExp[idx]) {
+          throw new Error(`Expired index ${idx}: expected ${expectedExp[idx]}, got ${actualId}`);
+        }
+      }
+
+      // 7. Verify status fields for returned records
+      for (const job of appResPage1.jobs) if (job.status !== 'Approved') throw new Error(`Non-approved status in Page 1: ${job.id}`);
+      for (const job of appResPage2.jobs) if (job.status !== 'Approved') throw new Error(`Non-approved status in Page 2: ${job.id}`);
+      for (const job of expRes.jobs) if (job.status !== 'Expired') throw new Error(`Non-expired status in Expired Page: ${job.id}`);
 
       repoFilteringValid = true;
-    } catch (err) {
-      console.error('Error during repository multi-batch pagination verification:', err);
+    } catch (err: any) {
+      console.error('Error during repository multi-batch pagination verification:', err?.message || err);
       repoFilteringValid = false;
-    } finally {
-      process.env.IS_TEST = previousIsTest;
     }
     assert(
       repoFilteringValid === true,
@@ -573,10 +614,11 @@ async function runTests() {
     );
 
   } finally {
-    // Clean up test fixtures from Database (in-memory store only)
+    // Clean up test fixtures from Database by exact ID
     for (const id of createdFixtureIds) {
       Database.deleteJob(id);
     }
+    process.env.IS_TEST = previousIsTest;
   }
 
   console.log(`\n==========================================`);

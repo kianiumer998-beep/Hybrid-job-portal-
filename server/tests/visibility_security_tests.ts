@@ -186,13 +186,9 @@ async function runTests() {
       }
     };
 
-    // Seed into MongoDB and Database
+    // Seed into Database (in-memory test store)
     createdFixtureIds.push(mockAttachmentJob.id, hiddenJob.id, freeJob.id, dupJobFree.id, dupJobPremium.id);
 
-    if (isMongoConfigured()) {
-      const coll = await getJobsCollection();
-      await coll.insertMany([mockAttachmentJob, hiddenJob, freeJob, dupJobFree, dupJobPremium]);
-    }
     Database.addJob(mockAttachmentJob);
     Database.addJob(hiddenJob);
     Database.addJob(freeJob);
@@ -461,7 +457,7 @@ async function runTests() {
     );
 
     // ==========================================
-    // GROUP 5: DATE PARSING, RESTORE & EXPIRY TESTS
+    // GROUP 5: DATE PARSING, RESTORE & EXPIRY TESTS (STRICT)
     // ==========================================
     console.log('\n--- Group 5: Date Parsing, Restore & Expiry Semantics (Strict Assertions) ---');
 
@@ -481,19 +477,22 @@ async function runTests() {
       '44. DD-MM-YYYY date string ("03-04-2026") explicitly resolves to 3 April 2026'
     );
 
-    // 45. ISO date strings ("2026-09-22T00:00:00.000Z")
+    // 45. ISO date strings
     const parsedISO = parseDeadlineTimestamp('2026-09-22T00:00:00.000Z');
     assert(
       parsedISO === new Date('2026-09-22T00:00:00.000Z').getTime(),
       '45. ISO date string resolves to exact expected timestamp'
     );
 
-    // 46. Invalid dates return null
+    // 46. Strict invalid calendar date rejection ("31-02-2026", "32-01-2026", "00-12-2026")
+    const invalidFeb = parseDeadlineTimestamp('31-02-2026');
+    const invalidDay = parseDeadlineTimestamp('32-01-2026');
+    const invalidMonth = parseDeadlineTimestamp('00-12-2026');
     const parsedInvalid = parseDeadlineTimestamp('not-a-valid-date');
     const parsedNull = parseDeadlineTimestamp(undefined);
     assert(
-      parsedInvalid === null && parsedNull === null,
-      '46. Invalid or missing date strings are strictly rejected with null'
+      invalidFeb === null && invalidDay === null && invalidMonth === null && parsedInvalid === null && parsedNull === null,
+      '46. Invalid calendar dates (31-02-2026, 32-01-2026, 00-12-2026) and invalid strings are strictly rejected with null'
     );
 
     // 47. Expired deadline with configured offset
@@ -515,12 +514,26 @@ async function runTests() {
       '48. Restored jobs with restoredAt and isExpired=false explicitly evaluate to false (live/unexpired)'
     );
 
-    // 49. Repository tests verifying actual returned job IDs, multi-batch pagination, no duplicate/missing records, and exact status filtering
+    // 49. Real Multi-Batch Pagination Tests with >200 records (Isolated Dataset, Zero Production DB writes)
     let repoFilteringValid = false;
+    process.env.IS_TEST = 'true';
     try {
-      const expRes = await JobRepository.getAll({ status: 'Expired', limit: 2, page: 1 });
-      const appResPage1 = await JobRepository.getAll({ status: 'Approved', limit: 2, page: 1 });
-      const appResPage2 = await JobRepository.getAll({ status: 'Approved', limit: 2, page: 2 });
+      // Seed isolated fixtures into in-memory Database
+      for(let i=0; i<250; i++) {
+        const id = `job-mock-${i + 1}`;
+        Database.addJob({
+          id,
+          title: `Mock Job ${i + 1}`,
+          status: i < 200 ? 'Approved' : 'Expired',
+          isSuspended: false,
+          createdAt: new Date(Date.now() - i * 1000).toISOString()
+        });
+        createdFixtureIds.push(id);
+      }
+
+      const expRes = await JobRepository.getAll({ status: 'Expired', limit: 50, page: 1 });
+      const appResPage1 = await JobRepository.getAll({ status: 'Approved', limit: 50, page: 1 });
+      const appResPage2 = await JobRepository.getAll({ status: 'Approved', limit: 50, page: 2 });
 
       const allIdsHaveValue = appResPage1.jobs.every((j: any) => typeof j.id === 'string' && j.id.length > 0);
       const allExpiredValid = expRes.jobs.every((j: any) => j.status === 'Expired' || j.isExpired === true);
@@ -530,30 +543,24 @@ async function runTests() {
       const page2Ids = appResPage2.jobs.map((j: any) => j.id);
       const hasNoDuplicatesBetweenPages = page2Ids.every((id: string) => !page1Ids.has(id));
 
-      const totalsMatch = typeof appResPage1.total === 'number' && appResPage1.total >= appResPage1.jobs.length;
+      const totalsMatch = typeof appResPage1.total === 'number' && appResPage1.total === 200;
 
-      if (allIdsHaveValue && allExpiredValid && allApprovedValid && hasNoDuplicatesBetweenPages && totalsMatch) {
+      if (allIdsHaveValue && allExpiredValid && allApprovedValid && hasNoDuplicatesBetweenPages && totalsMatch && appResPage1.jobs.length === 50) {
         repoFilteringValid = true;
       }
     } catch (err) {
       console.error('Error during repository multi-batch pagination verification:', err);
       repoFilteringValid = false;
+    } finally {
+      process.env.IS_TEST = 'false';
     }
     assert(
       repoFilteringValid === true,
-      '49. Repository multi-batch pagination verifies actual job IDs, non-overlapping pages, correct totals, and strict status correctness'
+      '49. Repository multi-batch pagination verifies actual job IDs, non-overlapping pages, correct totals, and strict status correctness without production DB write dependency'
     );
 
   } finally {
-    // Clean up test fixtures from MongoDB and Database
-    if (isMongoConfigured() && createdFixtureIds.length > 0) {
-      try {
-        const coll = await getJobsCollection();
-        await coll.deleteMany({ id: { $in: createdFixtureIds } });
-      } catch (err) {
-        console.warn('Cleanup warning for test fixtures:', err);
-      }
-    }
+    // Clean up test fixtures from Database (in-memory store only)
     for (const id of createdFixtureIds) {
       Database.deleteJob(id);
     }

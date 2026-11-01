@@ -44,6 +44,7 @@ const ALL_REGISTRY_FIELDS = [
   { key: 'description', label: 'Description' },
   { key: 'requirements', label: 'Requirements' },
   { key: 'responsibilities', label: 'Responsibilities' },
+  { key: 'responsibilitiesList', label: 'Responsibilities List' },
   { key: 'benefits', label: 'Benefits' },
   { key: 'postedAt', label: 'Posted At' },
   { key: 'featured', label: 'Featured Status' },
@@ -54,23 +55,12 @@ const ALL_REGISTRY_FIELDS = [
   { key: 'priorityTier', label: 'Priority Tier' },
   { key: 'applicationsCount', label: 'Applications Count' },
   { key: 'status', label: 'Job Status' },
-  { key: 'rejectionReason', label: 'Rejection Reason' },
-  { key: 'suspensionReason', label: 'Suspension Reason' },
-  { key: 'isSuspended', label: 'Is Suspended' },
-  { key: 'submittedByUserId', label: 'Submitter / Owner ID' },
-  { key: 'paymentStatus', label: 'Payment Status' },
   { key: 'jobCategory', label: 'Job Category' },
   { key: 'sourceUrl', label: 'Source URL' },
-  { key: 'scraperSourceId', label: 'Scraper ID' },
-  { key: 'scraperSourceName', label: 'Scraper Name' },
-  { key: 'scrapedSourceDomain', label: 'Scraped Domain' },
-  { key: 'scrapedAt', label: 'Scraped At' },
   { key: 'applicationUrl', label: 'Application URL' },
   { key: 'contactEmail', label: 'Contact Email' },
   { key: 'contactEmailOrPhone', label: 'Contact Info' },
   { key: 'deadlineDate', label: 'Deadline' },
-  { key: 'scraperBatchId', label: 'Scraper Batch' },
-  { key: 'scraperRunType', label: 'Scraper Type' },
   { key: 'isGovtJob', label: 'Govt Job' },
   { key: 'govtDepartment', label: 'Govt Department' },
   { key: 'govtScale', label: 'Govt Scale' },
@@ -87,7 +77,7 @@ const ALL_REGISTRY_FIELDS = [
   { key: 'pdfCaseNumber', label: 'PDF Case Number' },
   { key: 'domicileQuota', label: 'Domicile Quota' },
   { key: 'challanFee', label: 'Challan Fee' },
-  { key: 'extractedText', label: 'Extracted Text' },
+  { key: 'ageRelaxationNote', label: 'Age Relaxation Note' },
   { key: 'createdAt', label: 'Created At' },
   { key: 'updatedAt', label: 'Updated At' }
 ];
@@ -164,8 +154,8 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     setErrorMessage(null);
     try {
       const limit = 100;
-      const targetLivePage = append ? livePage + 1 : 1;
-      const targetPendingPage = append ? pendingPage + 1 : 1;
+      const targetLivePage = append ? (liveHasMore ? livePage + 1 : livePage) : 1;
+      const targetPendingPage = append ? (pendingHasMore ? pendingPage + 1 : pendingPage) : 1;
 
       const res = await api.jobs.getAdminAll({
         livePage: targetLivePage,
@@ -214,9 +204,15 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'bulk' || activeTab === 'individual') {
-      loadJobs(1, false);
+      const timer = setTimeout(() => {
+        setLivePage(1);
+        setPendingPage(1);
+        setCurrentPage(1);
+        loadJobs(1, false);
+      }, 250);
+      return () => clearTimeout(timer);
     }
-  }, [activeTab, statusFilter, sourceFilter, visibilityFilter]);
+  }, [activeTab, statusFilter, sourceFilter, visibilityFilter, ownerFilter, scraperFilter, searchQuery]);
 
   const handleSaveDefaultPolicy = async () => {
     setIsSaving(true);
@@ -297,10 +293,12 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   }, [jobsList, sourceFilter, statusFilter, ownerFilter, scraperFilter, visibilityFilter, searchQuery]);
 
   const handleSelectAllFiltered = () => {
-    if (selectedJobIds.length === filteredJobs.length && filteredJobs.length > 0) {
-      setSelectedJobIds([]);
+    const filteredIdSet = new Set(filteredJobs.map(j => j.id));
+    const allFilteredSelected = filteredJobs.length > 0 && filteredJobs.every(j => selectedJobIds.includes(j.id));
+    if (allFilteredSelected) {
+      setSelectedJobIds(prev => prev.filter(id => !filteredIdSet.has(id)));
     } else {
-      setSelectedJobIds(filteredJobs.map(j => j.id));
+      setSelectedJobIds(prev => Array.from(new Set([...prev, ...filteredJobs.map(j => j.id)])));
     }
   };
 

@@ -29,6 +29,8 @@ export interface JobFilterOptions {
   sourceType?: string;
   submittedByUserId?: string;
   scraperSourceId?: string;
+  status?: string;
+  visibility?: string;
 }
 
 export function parseDeadlineTimestamp(deadlineStr?: string): number | null {
@@ -103,27 +105,67 @@ export class JobRepository {
       isSuspended: { $ne: true }
     };
 
-    if (!filter.includeExpired) {
-      query.$and = [
-        {
-          $or: [
-            { status: 'Approved' },
-            { status: { $exists: false } }
-          ]
-        },
-        {
-          $or: [
-            { isExpired: { $ne: true } },
-            { isExpired: { $exists: false } }
-          ]
-        }
-      ];
+    if (filter.status === 'Expired') {
+      const expiredClause = {
+        $or: [
+          { status: 'Expired' },
+          { isExpired: true }
+        ]
+      };
+      if (query.$and) {
+        query.$and.push(expiredClause);
+      } else {
+        query.$and = [expiredClause];
+      }
+    } else if (filter.status === 'Approved') {
+      const approvedClause = {
+        $or: [
+          { status: 'Approved' },
+          { status: { $exists: false } }
+        ]
+      };
+      const notExpiredClause = {
+        $or: [
+          { isExpired: { $ne: true } },
+          { isExpired: { $exists: false } }
+        ]
+      };
+      if (query.$and) {
+        query.$and.push(approvedClause, notExpiredClause);
+      } else {
+        query.$and = [approvedClause, notExpiredClause];
+      }
+    } else if (!filter.includeExpired) {
+      const approvedClause = {
+        $or: [
+          { status: 'Approved' },
+          { status: { $exists: false } }
+        ]
+      };
+      const notExpiredClause = {
+        $or: [
+          { isExpired: { $ne: true } },
+          { isExpired: { $exists: false } }
+        ]
+      };
+      if (query.$and) {
+        query.$and.push(approvedClause, notExpiredClause);
+      } else {
+        query.$and = [approvedClause, notExpiredClause];
+      }
     } else {
-      query.$or = [
-        { status: 'Approved' },
-        { status: 'Expired' },
-        { status: { $exists: false } }
-      ];
+      const allStatusClause = {
+        $or: [
+          { status: 'Approved' },
+          { status: 'Expired' },
+          { status: { $exists: false } }
+        ]
+      };
+      if (query.$and) {
+        query.$and.push(allStatusClause);
+      } else {
+        query.$and = [allStatusClause];
+      }
     }
 
     if (filter.search && filter.search.trim()) {
@@ -216,6 +258,24 @@ export class JobRepository {
     if (filter.scraperSourceId && filter.scraperSourceId.trim()) {
       const sRegex = new RegExp(filter.scraperSourceId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       query.scraperSourceId = sRegex;
+    }
+
+    if (filter.visibility && filter.visibility !== 'All') {
+      if (filter.visibility === 'Overrides') {
+        const overridesClause = { fieldVisibility: { $exists: true, $nin: [null, {}] } };
+        if (query.$and) query.$and.push(overridesClause);
+        else query.$and = [overridesClause];
+      } else if (filter.visibility === 'Default') {
+        const defaultClause = {
+          $or: [
+            { fieldVisibility: { $exists: false } },
+            { fieldVisibility: null },
+            { fieldVisibility: {} }
+          ]
+        };
+        if (query.$and) query.$and.push(defaultClause);
+        else query.$and = [defaultClause];
+      }
     }
 
     // Determine sort
@@ -579,7 +639,7 @@ export class JobRepository {
   /**
    * Retrieves pending scraper / user jobs directly from MongoDB pending_jobs.
    */
-  static async getPending(filter?: { page?: number; limit?: number; lightweight?: boolean; search?: string; sourceType?: string; submittedByUserId?: string; scraperSourceId?: string }): Promise<any[]> {
+  static async getPending(filter?: { page?: number; limit?: number; lightweight?: boolean; search?: string; sourceType?: string; submittedByUserId?: string; scraperSourceId?: string; visibility?: string }): Promise<any[]> {
     if (!isMongoConfigured()) {
       const fallback = Database.getPendingJobs();
       Object.defineProperty(fallback, 'total', { value: fallback.length, enumerable: true });
@@ -595,46 +655,77 @@ export class JobRepository {
 
     const page = Math.max(1, parseInt(String(filter?.page || 1), 10) || 1);
     const rawLimit = parseInt(String(filter?.limit || 200), 10) || 200;
-    const limit = Math.min(200, Math.max(1, rawLimit));
+    const limit = Math.min(500, Math.max(1, rawLimit));
     const skip = (page - 1) * limit;
 
-    const query: any = { status: 'Pending' };
+    const andClauses: any[] = [{ status: 'Pending' }];
 
     if (filter?.search && filter.search.trim()) {
       const q = filter.search.trim();
       const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(escaped, 'i');
-      query.$or = [
-        { title: regex },
-        { company: regex },
-        { description: regex },
-        { tags: regex },
-        { city: regex },
-        { id: regex }
-      ];
+      andClauses.push({
+        $or: [
+          { title: regex },
+          { company: regex },
+          { description: regex },
+          { tags: regex },
+          { city: regex },
+          { id: regex }
+        ]
+      });
     }
 
     if (filter?.sourceType && filter.sourceType !== 'All') {
       if (filter.sourceType === 'user_posted') {
-        query.$and = [
-          { isScraped: { $ne: true } },
-          { isAdminCreated: { $ne: true } },
-          { sourceType: { $ne: 'admin_created' } }
-        ];
+        andClauses.push({
+          isScraped: { $ne: true },
+          isAdminCreated: { $ne: true },
+          sourceType: { $ne: 'admin_created' }
+        });
       } else if (filter.sourceType === 'scraped') {
-        query.$or = [{ isScraped: true }, { sourceType: 'scraped' }, { scraperSourceId: { $exists: true, $ne: '' } }];
+        andClauses.push({
+          $or: [
+            { isScraped: true },
+            { sourceType: 'scraped' },
+            { scraperSourceId: { $exists: true, $ne: '' } }
+          ]
+        });
       } else if (filter.sourceType === 'admin_created') {
-        query.$or = [{ isAdminCreated: true }, { sourceType: 'admin_created' }];
+        andClauses.push({
+          $or: [
+            { isAdminCreated: true },
+            { sourceType: 'admin_created' }
+          ]
+        });
       }
     }
 
     if (filter?.submittedByUserId && filter.submittedByUserId.trim()) {
-      query.submittedByUserId = new RegExp(filter.submittedByUserId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const escapedUser = filter.submittedByUserId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      andClauses.push({ submittedByUserId: new RegExp(escapedUser, 'i') });
     }
 
     if (filter?.scraperSourceId && filter.scraperSourceId.trim()) {
-      query.scraperSourceId = new RegExp(filter.scraperSourceId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const escapedScraper = filter.scraperSourceId.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      andClauses.push({ scraperSourceId: new RegExp(escapedScraper, 'i') });
     }
+
+    if (filter?.visibility && filter.visibility !== 'All') {
+      if (filter.visibility === 'Overrides') {
+        andClauses.push({ fieldVisibility: { $exists: true, $nin: [null, {}] } });
+      } else if (filter.visibility === 'Default') {
+        andClauses.push({
+          $or: [
+            { fieldVisibility: { $exists: false } },
+            { fieldVisibility: null },
+            { fieldVisibility: {} }
+          ]
+        });
+      }
+    }
+
+    const query = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
 
     const total = await withMongoTimeout(pendingColl.countDocuments(query), 30000, 'getPendingCount');
     const docs = await withMongoTimeout(
@@ -1900,8 +1991,9 @@ export class JobRepository {
   /**
    * Comprehensive attachment access verification.
    * Verifies association, parent job existence, field visibility rules, and individual attachment privacy.
+   * Handles duplicate filenames across multiple jobs strictly.
    */
-  static async verifyAttachmentAccess(filename: string, user: any, isPremium: boolean): Promise<boolean> {
+  static async verifyAttachmentAccess(filename: string, user: any, isPremium: boolean, jobId?: string): Promise<boolean> {
     const cleanFilename = path.basename(filename);
     if (!cleanFilename || cleanFilename === '.' || cleanFilename === '..') return false;
 
@@ -1912,89 +2004,80 @@ export class JobRepository {
         const jobsColl = await getJobsCollection();
         const pendingColl = await getPendingJobsCollection();
 
-        const query = {
+        const regex = cleanFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const query: any = {
           attachments: {
             $elemMatch: {
-              fileUrl: { $regex: cleanFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+              fileUrl: { $regex: regex }
             }
           }
         };
-
-        const [matchLive, matchPending] = await Promise.all([
-          jobsColl.findOne(query),
-          pendingColl.findOne(query)
-        ]);
-
-        let parentJob = matchLive || matchPending;
-        if (!parentJob) {
-          // Fall back to local memory if job was added as memory fixture or in dev mode
-          try {
-            const allLocal = [...Database.getJobs(), ...Database.getPendingJobs()];
-            parentJob = allLocal.find((j: any) =>
-              Array.isArray(j.attachments) &&
-              j.attachments.some((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename))
-            );
-          } catch {}
+        if (jobId) {
+          query.id = jobId;
         }
 
-        if (!parentJob) {
+        const [matchLive, matchPending] = await Promise.all([
+          withMongoTimeout(jobsColl.find(query).toArray(), 10000, 'verifyAttachmentLive'),
+          withMongoTimeout(pendingColl.find(query).toArray(), 10000, 'verifyAttachmentPending')
+        ]);
+
+        const matchingJobs = [...matchLive, ...matchPending];
+
+        if (matchingJobs.length === 0) {
           // Parent job does not exist or attachment is unassociated/orphaned
           return false;
         }
 
-        const attList = Array.isArray(parentJob.attachments) ? parentJob.attachments : [];
-        const att = attList.find((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename));
-        if (!att) {
-          return false;
-        }
-
-        // Admin access is preserved ONLY for valid existing job attachments
+        // Admin access is granted only for existing associated parent job attachments
         if (isAdmin) {
-          return true;
+          return matchingJobs.some(j =>
+            Array.isArray(j.attachments) &&
+            j.attachments.some((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename))
+          );
         }
 
         // Non-admin enforcement:
-        // 1. Existing privacy rule: attachment must be public
-        if (att.isPublic !== true) {
-          return false;
-        }
+        // Must evaluate matching parent jobs. If duplicate filenames exist across jobs with different policies,
+        // every referencing job must authorize access (fail-safe).
+        for (const parentJob of matchingJobs) {
+          const attList = Array.isArray(parentJob.attachments) ? parentJob.attachments : [];
+          const att = attList.find((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename));
+          if (!att) {
+            return false;
+          }
 
-        // 2. Job fieldVisibility policy
-        const visibility: string = parentJob.fieldVisibility?.attachments || 'Premium';
-        if (visibility === 'Hidden') {
-          return false;
-        }
-        if (visibility === 'Premium' && !isPremium) {
-          return false;
+          // 1. Existing privacy rule: individual attachment must be public
+          if (att.isPublic !== true) {
+            return false;
+          }
+
+          // 2. Job fieldVisibility policy
+          const visibility: string = parentJob.fieldVisibility?.attachments || 'Premium';
+          if (visibility === 'Hidden') {
+            return false;
+          }
+          if (visibility === 'Premium' && !isPremium) {
+            return false;
+          }
         }
 
         return true;
       } catch (err: any) {
         console.error('[JobRepository] Error verifying attachment access in MongoDB:', err);
-        throw err; // Fail closed
+        throw err; // Fail closed: explicit error on Mongo failure, never silent fallback
       }
     }
 
-    // Local fallback
+    // Local fallback only when MongoDB is NOT configured
     try {
       const allJobs = [...Database.getJobs(), ...Database.getPendingJobs()];
-      let matchedJob: any = null;
-      let matchedAtt: any = null;
+      const matchingJobs = allJobs.filter((j: any) =>
+        (!jobId || j.id === jobId) &&
+        Array.isArray(j.attachments) &&
+        j.attachments.some((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename))
+      );
 
-      for (const j of allJobs) {
-        if (Array.isArray(j.attachments)) {
-          const att = j.attachments.find(
-            (a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename)
-          );
-          if (att) {
-            matchedJob = j;
-            matchedAtt = att;
-            break;
-          }
-        }
-      }
-
-      if (!matchedJob || !matchedAtt) {
+      if (matchingJobs.length === 0) {
         return false;
       }
 
@@ -2002,22 +2085,26 @@ export class JobRepository {
         return true;
       }
 
-      if (matchedAtt.isPublic !== true) {
-        return false;
-      }
+      for (const parentJob of matchingJobs) {
+        const attList = Array.isArray(parentJob.attachments) ? parentJob.attachments : [];
+        const att = attList.find((a: any) => a && a.fileUrl && (a.fileUrl.includes(cleanFilename) || path.basename(a.fileUrl) === cleanFilename));
+        if (!att || att.isPublic !== true) {
+          return false;
+        }
 
-      const visibility: string = matchedJob.fieldVisibility?.attachments || 'Premium';
-      if (visibility === 'Hidden') {
-        return false;
-      }
-      if (visibility === 'Premium' && !isPremium) {
-        return false;
+        const visibility: string = parentJob.fieldVisibility?.attachments || 'Premium';
+        if (visibility === 'Hidden') {
+          return false;
+        }
+        if (visibility === 'Premium' && !isPremium) {
+          return false;
+        }
       }
 
       return true;
-    } catch {}
-
-    return false;
+    } catch {
+      return false;
+    }
   }
 }
 

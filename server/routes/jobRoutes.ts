@@ -990,8 +990,9 @@ jobRouter.get('/attachments/:filename', async (req, res) => {
     // Authoritative check for Attachment and Field Visibility access
     const user = (req as any).user;
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+    const targetJobId = typeof req.query.jobId === 'string' && req.query.jobId.trim() ? req.query.jobId.trim() : undefined;
     
-    const isAllowed = await JobRepository.verifyAttachmentAccess(safeFileName, user, isPremium);
+    const isAllowed = await JobRepository.verifyAttachmentAccess(safeFileName, user, isPremium, targetJobId);
     if (!isAllowed) {
       return res.status(403).json({
         success: false,
@@ -1573,11 +1574,13 @@ jobRouter.get('/admin/all', requireAdminPermission('jobs.manage'), async (req, r
       const liveRes = await JobRepository.getAll({
         page: livePage,
         limit,
-        includeExpired: true,
+        status: status !== 'All' ? status : undefined,
+        includeExpired: status === 'All' || status === 'Expired',
         sourceType: source !== 'All' ? source : undefined,
         submittedByUserId: owner || undefined,
         scraperSourceId: scraper || undefined,
-        search: search || undefined
+        search: search || undefined,
+        visibility: visibility !== 'All' ? visibility : undefined
       });
       liveJobs = liveRes.jobs || [];
       liveTotal = liveRes.total || 0;
@@ -1591,24 +1594,18 @@ jobRouter.get('/admin/all', requireAdminPermission('jobs.manage'), async (req, r
         sourceType: source !== 'All' ? source : undefined,
         submittedByUserId: owner || undefined,
         scraperSourceId: scraper || undefined,
-        search: search || undefined
+        search: search || undefined,
+        visibility: visibility !== 'All' ? visibility : undefined
       });
       pendingJobs = Array.isArray(pendingRes) ? pendingRes : ((pendingRes as any).pendingJobs || []);
       pendingTotal = (pendingRes as any).total ?? pendingJobs.length;
       pendingHasMore = (pendingPage * limit) < pendingTotal;
     }
 
-    let combined = [
+    const combined = [
       ...liveJobs.map((j: any) => ({ ...j, _isAdminView: true })),
       ...pendingJobs.map((j: any) => ({ ...j, _isAdminView: true, status: j.status || 'Pending' }))
     ];
-
-    if (visibility !== 'All') {
-      combined = combined.filter((j: any) => {
-        const hasOverrides = j.fieldVisibility && Object.keys(j.fieldVisibility).length > 0;
-        return visibility === 'Overrides' ? hasOverrides : !hasOverrides;
-      });
-    }
 
     const hasMore = liveHasMore || pendingHasMore;
 

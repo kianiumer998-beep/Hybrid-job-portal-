@@ -222,43 +222,22 @@ export class JobVisibilityRepository {
     const rules = job.fieldVisibility || {};
     const filtered = { ...job };
 
-    // Central Field Registry
-    const ALL_REGISTRY_FIELDS = [
-      'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
-      'city', 'district', 'salary', 'salaryNumericMin', 'currency', 'experienceLevel', 
-      'department', 'tags', 'description', 'requirements', 'responsibilities', 
-      'benefits', 'postedAt', 'featured', 'urgent', 'isPinnedTop', 'isFutureJob', 
-      'futureIntakeDate', 'priorityTier', 'applicationsCount', 'status', 
-      'rejectionReason', 'suspensionReason', 'isSuspended', 'submittedByUserId', 
-      'paymentStatus', 'jobCategory', 'sourceUrl', 'scraperSourceId', 'scraperSourceName', 
-      'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', 'applicationUrl', 
-      'contactEmailOrPhone', 'contactEmail', 'deadlineDate', 'scraperBatchId', 'scraperRunType', 
-      'scrapedTimezone', 'scrapedRawSalary', 'deduplicationScore', 'reviewTimeline', 
-      'lastScrapedAt', 'isGovtJob', 'govtDepartment', 'govtScale', 'govtCategory', 
-      'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 'mediaUrl', 'newspaperDate', 
-      'attachments', 'externalApplyUrl', 'pdfSourceUrl', 'extractedText', 'responsibilitiesList',
-      'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase', 'domicileQuota', 'challanFee',
-      'ageRelaxationNote', 'pdfParserEngine', 'extractionSourceType', 'isDuplicate', 
-      'duplicateScore', 'duplicateCategory', 'duplicateTags', 'duplicateMatchReason',
-      'duplicateOfJobId', 'duplicateOfJobTitle', 'duplicateMatchedCompany', 'isDuplicateOverride',
-      'duplicateOverrideNote', 'duplicateDetectedAt', 'applicationType', 'isLocationConfirmed',
-      'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 'metadata', 'createdAt', 'updatedAt'
-    ];
-
-    const ALLOWED_METADATA_KEYS = new Set(['id', 'slug', 'sourceType', 'visibilitySource', 'fieldVisibility', 'isExpired', '_isAdminView', '_id']);
-    const ALL_REGISTRY_SET = new Set(ALL_REGISTRY_FIELDS);
+    // Strictly strip all Admin-only / internal fields for all non-admin users regardless of Free/Premium
+    for (const internalField of ADMIN_INTERNAL_FIELDS) {
+      delete filtered[internalField];
+    }
 
     // Remove any unknown/unregistered fields to prevent leaks for non-admin users
     for (const key of Object.keys(filtered)) {
-      if (!ALL_REGISTRY_SET.has(key) && !ALLOWED_METADATA_KEYS.has(key)) {
+      if (!CONFIGURABLE_REGISTRY_SET.has(key) && !ALLOWED_METADATA_KEYS.has(key)) {
         delete filtered[key];
       }
     }
 
-    for (const field of ALL_REGISTRY_FIELDS) {
-      // Default to Premium for known sensitive fields if no specific rule exists
-      const sensitiveFields = ['applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl', 'mediaUrl'];
-      const visibility: FieldVisibility = rules[field] || (sensitiveFields.includes(field) ? 'Premium' : 'Free');
+    for (const field of CONFIGURABLE_REGISTRY_FIELDS) {
+      if (!(field in filtered)) continue;
+
+      const visibility: FieldVisibility = rules[field] || (CONFIGURABLE_SENSITIVE_SET.has(field) ? 'Premium' : 'Free');
 
       if (visibility === 'Hidden') {
         delete filtered[field];
@@ -266,7 +245,7 @@ export class JobVisibilityRepository {
         // Redact premium field for free or unauthenticated users
         if (field === 'attachments') {
           filtered[field] = [];
-        } else if (sensitiveFields.includes(field)) {
+        } else if (CONFIGURABLE_SENSITIVE_SET.has(field)) {
           filtered[field] = '🔒 Unlock with Premium Subscription';
         } else {
           filtered[field] = '🔒 [Premium Content - Upgrade to View]';
@@ -282,3 +261,50 @@ export class JobVisibilityRepository {
     return filtered;
   }
 }
+
+// 1. Strictly Admin-only / internal moderation & scraper fields (NEVER exposed to non-admins, NEVER configurable via policy)
+export const ADMIN_INTERNAL_FIELDS = [
+  'paymentStatus', 'rejectionReason', 'suspensionReason', 'isSuspended', 
+  'reviewTimeline', 'duplicateScore', 'duplicateCategory', 'duplicateTags', 
+  'duplicateMatchReason', 'duplicateOfJobId', 'duplicateOfJobTitle', 
+  'duplicateMatchedCompany', 'isDuplicateOverride', 'duplicateOverrideNote', 
+  'duplicateDetectedAt', 'isDuplicate', 'scraperBatchId', 'scraperRunType', 
+  'scrapedTimezone', 'scrapedRawSalary', 'deduplicationScore', 'extractedText', 
+  'pdfParserEngine', 'extractionSourceType', 'isLocationConfirmed', 
+  'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 
+  'metadata', 'lastScrapedAt', 'scraperSourceId', 'scraperSourceName', 
+  'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', '_isAdminView'
+];
+export const ADMIN_INTERNAL_SET = new Set(ADMIN_INTERNAL_FIELDS);
+
+// 2. Configurable Sensitive Fields (Subject to Free / Premium / Hidden policy)
+export const CONFIGURABLE_SENSITIVE_FIELDS = [
+  'applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 
+  'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl', 'mediaUrl', 'salary', 
+  'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase'
+];
+export const CONFIGURABLE_SENSITIVE_SET = new Set(CONFIGURABLE_SENSITIVE_FIELDS);
+
+// 3. Standard Public Fields (Default Free, configurable if needed)
+export const PUBLIC_STANDARD_FIELDS = [
+  'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
+  'city', 'district', 'salaryNumericMin', 'currency', 'experienceLevel', 
+  'department', 'tags', 'description', 'requirements', 'responsibilities', 
+  'responsibilitiesList', 'benefits', 'postedAt', 'featured', 'urgent', 
+  'isPinnedTop', 'isFutureJob', 'futureIntakeDate', 'priorityTier', 
+  'applicationsCount', 'status', 'jobCategory', 'isGovtJob', 'govtDepartment', 
+  'govtScale', 'govtCategory', 'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 
+  'newspaperDate', 'deadlineDate', 'domicileQuota', 'challanFee', 'ageRelaxationNote', 
+  'createdAt', 'updatedAt'
+];
+
+// 4. All Configurable Registry Fields (Allowed in Admin Policy API)
+export const CONFIGURABLE_REGISTRY_FIELDS = [
+  ...PUBLIC_STANDARD_FIELDS,
+  ...CONFIGURABLE_SENSITIVE_FIELDS
+];
+export const CONFIGURABLE_REGISTRY_SET = new Set(CONFIGURABLE_REGISTRY_FIELDS);
+
+// 5. Allowed Metadata keys in sanitized responses
+export const ALLOWED_METADATA_KEYS = new Set(['id', 'slug', 'sourceType', 'visibilitySource', 'fieldVisibility', 'isExpired', '_id']);
+

@@ -1,40 +1,32 @@
 import { Router } from 'express';
-import { JobVisibilityRepository, FieldVisibility, JobSourceType } from '../db/repositories/JobVisibilityRepository';
+import {
+  JobVisibilityRepository,
+  FieldVisibility,
+  JobSourceType,
+  CONFIGURABLE_REGISTRY_FIELDS,
+  ADMIN_INTERNAL_FIELDS
+} from '../db/repositories/JobVisibilityRepository';
 import { requireAdminPermission } from '../auth/authManager';
 import { AuditRepository, JobRepository } from '../db/repositories';
 
 export const jobVisibilityRouter = Router();
 
-const ALLOWED_FIELDS = [
-  'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
-  'city', 'district', 'salary', 'salaryNumericMin', 'currency', 'experienceLevel', 
-  'department', 'tags', 'description', 'requirements', 'responsibilities', 
-  'benefits', 'postedAt', 'featured', 'urgent', 'isPinnedTop', 'isFutureJob', 
-  'futureIntakeDate', 'priorityTier', 'applicationsCount', 'status', 
-  'rejectionReason', 'suspensionReason', 'isSuspended', 'submittedByUserId', 
-  'paymentStatus', 'jobCategory', 'sourceUrl', 'scraperSourceId', 'scraperSourceName', 
-  'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', 'applicationUrl', 
-  'contactEmailOrPhone', 'contactEmail', 'deadlineDate', 'scraperBatchId', 'scraperRunType', 
-  'scrapedTimezone', 'scrapedRawSalary', 'deduplicationScore', 'reviewTimeline', 
-  'lastScrapedAt', 'isGovtJob', 'govtDepartment', 'govtScale', 'govtCategory', 
-  'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 'mediaUrl', 'newspaperDate', 
-  'attachments', 'externalApplyUrl', 'pdfSourceUrl', 'extractedText', 'responsibilitiesList',
-  'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase', 'domicileQuota', 'challanFee',
-  'ageRelaxationNote', 'pdfParserEngine', 'extractionSourceType', 'isDuplicate', 
-  'duplicateScore', 'duplicateCategory', 'duplicateTags', 'duplicateMatchReason',
-  'duplicateOfJobId', 'duplicateOfJobTitle', 'duplicateMatchedCompany', 'isDuplicateOverride',
-  'duplicateOverrideNote', 'duplicateDetectedAt', 'applicationType', 'isLocationConfirmed',
-  'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 'metadata', 'createdAt', 'updatedAt'
-];
-
+const ALLOWED_FIELDS = CONFIGURABLE_REGISTRY_FIELDS;
 const ALLOWED_VISIBILITIES = ['Free', 'Premium', 'Hidden'];
 const ALLOWED_SOURCES = ['user_posted', 'scraped', 'admin_created'];
 
 function validateFieldRules(rules: any) {
   if (!rules || typeof rules !== 'object') return 'fieldRules must be an object';
   for (const [field, visibility] of Object.entries(rules)) {
-    if (!ALLOWED_FIELDS.includes(field)) return `Invalid field name: "${field}"`;
-    if (!ALLOWED_VISIBILITIES.includes(visibility as string)) return `Invalid visibility value: "${visibility}" for field "${field}"`;
+    if (ADMIN_INTERNAL_FIELDS.includes(field)) {
+      return `Field "${field}" is an internal administrative field and cannot be configured in visibility policies.`;
+    }
+    if (!ALLOWED_FIELDS.includes(field)) {
+      return `Invalid field name: "${field}"`;
+    }
+    if (!ALLOWED_VISIBILITIES.includes(visibility as string)) {
+      return `Invalid visibility value: "${visibility}" for field "${field}"`;
+    }
   }
   return null;
 }

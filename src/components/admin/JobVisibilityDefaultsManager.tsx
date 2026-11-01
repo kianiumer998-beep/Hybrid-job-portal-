@@ -414,22 +414,22 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
           <button
             onClick={() => setActiveTab('defaults')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === 'defaults' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === 'defaults' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
           >
             Default Source Policies
           </button>
           <button
             onClick={() => setActiveTab('bulk')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === 'bulk' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === 'bulk' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
           >
             Universal Bulk Editor
           </button>
           <button
             onClick={() => setActiveTab('individual')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === 'individual' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === 'individual' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
           >
             Individual Overrides
           </button>
@@ -487,8 +487,9 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
             </div>
 
             <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900 text-slate-400 uppercase tracking-wider border-b border-slate-800 font-bold">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[480px]">
+                  <thead className="bg-slate-900 text-slate-400 uppercase tracking-wider border-b border-slate-800 font-bold">
                   <tr>
                     <th className="p-4">Schema Property</th>
                     <th className="p-4 text-center">Free</th>
@@ -534,6 +535,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         </div>
@@ -717,8 +719,8 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
                 <span>Selection Count: <strong className="text-white text-xs">{selectedJobIds.length}</strong></span>
               </div>
 
-              <div className="max-h-[500px] overflow-y-auto">
-                <table className="w-full text-left text-xs">
+              <div className="max-h-[500px] overflow-y-auto overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[550px]">
                   <thead className="bg-slate-900 text-slate-500 uppercase font-black text-[10px] sticky top-0 z-10 border-b border-slate-800">
                     <tr>
                       <th className="p-3 w-10"></th>
@@ -918,7 +920,8 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
           </div>
 
           <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs min-w-[650px]">
               <thead className="bg-slate-900 text-slate-500 font-black uppercase text-[10px] border-b border-slate-800">
                 <tr>
                   <th className="p-4 w-72">Identity & Status</th>
@@ -959,7 +962,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
                         </td>
                         <td className="p-4">
                           <div className="flex flex-wrap items-center gap-2">
-                            {['applicationUrl', 'contactEmail', 'attachments', 'salary', 'externalApplyUrl', 'howToApply', 'jobType', 'location'].map(fKey => {
+                            {['applicationUrl', 'contactEmail', 'attachments', 'salary', 'externalApplyUrl', 'jobType', 'city', 'description'].map(fKey => {
                               const hasOverride = Boolean(job.fieldVisibility?.[fKey]);
                               const currentVal = job.fieldVisibility?.[fKey] || '';
                               return (
@@ -1010,6 +1013,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
           {hasMore && (

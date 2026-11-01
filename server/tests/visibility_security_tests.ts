@@ -354,6 +354,50 @@ async function runTests() {
       '32. Unknown field names and invalid visibility values rejected by rule validator'
     );
 
+    // 32b. Unsupported UI fields (howToApply, location) rejected by rule validator
+    const howToApplyValidation = validateFieldRules({ howToApply: 'Free' });
+    const locationValidation = validateFieldRules({ location: 'Free' });
+    assert(
+      howToApplyValidation !== null && locationValidation !== null,
+      '32b. Mismatched UI fields (howToApply, location) rejected by policy rule validator'
+    );
+
+    // 32c. JobVisibilityRepository policy persistence fails closed in production when MongoDB is missing
+    let persistenceFailedClosed = false;
+    const currentIsTest = process.env.IS_TEST;
+    const currentMongoUri = process.env.MONGODB_URI;
+    const currentNodeEnv = process.env.NODE_ENV;
+    delete process.env.IS_TEST;
+    delete process.env.MONGODB_URI;
+    process.env.NODE_ENV = 'production';
+    try {
+      await JobVisibilityRepository.savePolicy('user_posted', { title: 'Premium' });
+    } catch (err: any) {
+      if (err?.message && err.message.includes('MongoDB')) {
+        persistenceFailedClosed = true;
+      }
+    } finally {
+      if (currentIsTest === undefined) {
+        delete process.env.IS_TEST;
+      } else {
+        process.env.IS_TEST = currentIsTest;
+      }
+      if (currentMongoUri === undefined) {
+        delete process.env.MONGODB_URI;
+      } else {
+        process.env.MONGODB_URI = currentMongoUri;
+      }
+      if (currentNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = currentNodeEnv;
+      }
+    }
+    assert(
+      persistenceFailedClosed === true,
+      '32c. JobVisibilityRepository savePolicy fails closed in production mode when MongoDB is unconfigured'
+    );
+
     // ==========================================
     // GROUP 4: ADMIN MANAGEMENT, FILTERING & PAGINATION
     // ==========================================
@@ -618,7 +662,11 @@ async function runTests() {
     for (const id of createdFixtureIds) {
       Database.deleteJob(id);
     }
-    process.env.IS_TEST = previousIsTest;
+    if (previousIsTest === undefined) {
+      delete process.env.IS_TEST;
+    } else {
+      process.env.IS_TEST = previousIsTest;
+    }
   }
 
   console.log(`\n==========================================`);

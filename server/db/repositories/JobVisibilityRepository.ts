@@ -45,46 +45,54 @@ export class JobVisibilityRepository {
    * Retrieves the active policy for a given source and optional sourceKey.
    */
   static async getPolicy(source: JobSourceType, sourceKey?: string): Promise<VisibilityPolicy> {
-    if (isMongoConfigured()) {
-      const db = await getMongoDb();
-      const coll = db.collection('job_visibility_policies');
-      const query: any = { source };
-      if (sourceKey) query.sourceKey = sourceKey;
-      else query.sourceKey = { $exists: false };
-
-      const doc = await coll.findOne(query);
-      if (doc) {
-        return {
-          source: doc.source,
-          sourceKey: doc.sourceKey,
-          fieldRules: doc.fieldRules || {},
-          updatedAt: doc.updatedAt || new Date().toISOString()
-        };
-      }
-      // If no specific policy found in Mongo, return default for source
-      return getDefaultPolicy(source);
+    if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
+      const key = sourceKey ? `${source}:${sourceKey}` : source;
+      return JobVisibilityRepository.localPolicies.get(key) || getDefaultPolicy(source);
     }
 
-    const key = sourceKey ? `${source}:${sourceKey}` : source;
-    return JobVisibilityRepository.localPolicies.get(key) || getDefaultPolicy(source);
+    if (!isMongoConfigured()) {
+      throw new Error('MongoDB configuration required for job visibility policy persistence in production');
+    }
+
+    const db = await getMongoDb();
+    const coll = db.collection('job_visibility_policies');
+    const query: any = { source };
+    if (sourceKey) query.sourceKey = sourceKey;
+    else query.sourceKey = { $exists: false };
+
+    const doc = await coll.findOne(query);
+    if (doc) {
+      return {
+        source: doc.source,
+        sourceKey: doc.sourceKey,
+        fieldRules: doc.fieldRules || {},
+        updatedAt: doc.updatedAt || new Date().toISOString()
+      };
+    }
+    return getDefaultPolicy(source);
   }
 
   /**
    * Retrieves all policies.
    */
   static async getAllPolicies(): Promise<VisibilityPolicy[]> {
-    if (isMongoConfigured()) {
-      const db = await getMongoDb();
-      const coll = db.collection('job_visibility_policies');
-      const docs = await coll.find({}).toArray();
-      return docs.map(d => ({
-        source: d.source,
-        sourceKey: d.sourceKey,
-        fieldRules: d.fieldRules || {},
-        updatedAt: d.updatedAt || new Date().toISOString()
-      }));
+    if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
+      return Array.from(JobVisibilityRepository.localPolicies.values());
     }
-    return Array.from(JobVisibilityRepository.localPolicies.values());
+
+    if (!isMongoConfigured()) {
+      throw new Error('MongoDB configuration required for job visibility policies in production');
+    }
+
+    const db = await getMongoDb();
+    const coll = db.collection('job_visibility_policies');
+    const docs = await coll.find({}).toArray();
+    return docs.map(d => ({
+      source: d.source,
+      sourceKey: d.sourceKey,
+      fieldRules: d.fieldRules || {},
+      updatedAt: d.updatedAt || new Date().toISOString()
+    }));
   }
 
   /**
@@ -98,17 +106,25 @@ export class JobVisibilityRepository {
       updatedAt: new Date().toISOString()
     };
 
-    if (isMongoConfigured()) {
-      const db = await getMongoDb();
-      const coll = db.collection('job_visibility_policies');
-      const query: any = { source };
-      if (sourceKey) query.sourceKey = sourceKey;
-      else query.sourceKey = { $exists: false };
-
-      await coll.updateOne(query, { $set: policy }, { upsert: true });
-    } else {
+    if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
       const key = sourceKey ? `${source}:${sourceKey}` : source;
       JobVisibilityRepository.localPolicies.set(key, policy);
+      return policy;
+    }
+
+    if (!isMongoConfigured()) {
+      throw new Error('MongoDB configuration required to save job visibility policy in production');
+    }
+
+    const db = await getMongoDb();
+    const coll = db.collection('job_visibility_policies');
+    const query: any = { source };
+    if (sourceKey) query.sourceKey = sourceKey;
+    else query.sourceKey = { $exists: false };
+
+    const res = await coll.updateOne(query, { $set: policy }, { upsert: true });
+    if (!res || (!res.acknowledged && !res.upsertedCount && !res.modifiedCount && !res.matchedCount)) {
+      throw new Error('Failed to persist job visibility policy to MongoDB');
     }
 
     return policy;

@@ -37,9 +37,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   initialSelectedJobTitle,
   currentUser
 }) => {
-  // Static state placeholders (legacy fallback)
-  const [legacyPlan, setLegacyPlan] = useState<'Pro Alerts' | 'VIP Jobseeker'>('Pro Alerts');
-  
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [email, setEmail] = useState(currentUser?.email || '');
@@ -125,8 +122,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   if (!isOpen) return null;
 
   const activePackage = packages.find(p => p.id === selectedPackageId);
-  const amountPaid = activePackage ? Number(activePackage.pricePkr) : (legacyPlan === 'Pro Alerts' ? 300 : 800);
-  const plan = activePackage ? activePackage.name : legacyPlan;
+  const amountPaid = activePackage ? Number(activePackage.pricePkr) : 0;
+  const plan = activePackage ? activePackage.name : 'Unknown Plan';
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -642,25 +642,48 @@ export class PaymentRepository {
         
         const pricing = PricingRepository.get() || {};
         
-        // Strict, non-inferential duration lookup
-        const authoritativeDuration = Number(
-          pricing.subscriptionDurations?.[planName]
-        );
+        // Priority: Use the server-verified snapshot stored at transaction creation
+        // Fallback: Use legacy pricing lookup only if snapshot is missing (for pre-snapshot transactions)
+        const snapshot = tx.packageSnapshot;
+        let durationDays = 0;
+        let membershipTier = planName;
 
-        if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0 || !Number.isInteger(authoritativeDuration)) {
-          await this.updateAsync(id, {
-            status: 'Pending',
-            rejectionReason: `Invalid or missing authoritative server-side duration configuration for plan "${planName}".`,
-            updatedAt: new Date().toISOString()
-          });
-          throw new Error(`Cannot approve Subscription: authoritative server-side duration configuration is missing or invalid for plan "${planName}".`);
+        if (snapshot && typeof snapshot === 'object') {
+          durationDays = Number(snapshot.durationDays);
+          membershipTier = snapshot.name || planName;
+          console.log(`[PaymentRepository] Using packageSnapshot for subscription approval: ${membershipTier} (${durationDays} days)`);
+        } else {
+          // Fail-closed for new transactions that MUST have a snapshot
+          // Check if transaction is recent (e.g., within last hour) to distinguish new vs legacy
+          const createdAt = tx.createdAt ? new Date(tx.createdAt).getTime() : 0;
+          const isNewTransaction = (Date.now() - createdAt) < 3600000; // 1 hour threshold
+
+          if (isNewTransaction) {
+            await this.updateAsync(id, {
+              status: 'Pending',
+              rejectionReason: 'Legacy transaction requires manual review (missing packageSnapshot).',
+              updatedAt: new Date().toISOString()
+            });
+            throw new Error('Cannot approve Subscription: packageSnapshot is missing on a new transaction. Fail-closed enforced.');
+          }
+
+          const authoritativeDuration = Number(pricing.subscriptionDurations?.[planName]);
+          if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0 || !Number.isInteger(authoritativeDuration)) {
+            await this.updateAsync(id, {
+              status: 'Pending',
+              rejectionReason: `Invalid or missing authoritative server-side duration configuration for plan "${planName}".`,
+              updatedAt: new Date().toISOString()
+            });
+            throw new Error(`Cannot approve Subscription: authoritative server-side duration configuration is missing or invalid for plan "${planName}".`);
+          }
+          durationDays = authoritativeDuration;
+          console.log(`[PaymentRepository] Using legacy lookup for subscription approval: ${membershipTier} (${durationDays} days)`);
         }
-        const durationDays = authoritativeDuration;
 
         let updatedUser: any = null;
         try {
           updatedUser = await UserRepository.updateAsync(user.id, {
-            membershipTier: planName,
+            membershipTier: membershipTier,
             membershipStatus: 'Active',
             subscriptionExpiresAt: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
           });

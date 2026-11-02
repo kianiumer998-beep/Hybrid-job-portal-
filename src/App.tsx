@@ -329,9 +329,13 @@ export default function App() {
               : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
           });
         }
+        if (Array.isArray(res.pricing.subscriptionPackages)) {
+          setSubscriptionPackages(res.pricing.subscriptionPackages.filter((p: any) => p.enabled));
+        }
         try {
           localStorage.removeItem('hybrid_ad_pricing_config');
           localStorage.removeItem('hybrid_campaign_customization_config');
+          localStorage.removeItem('hybrid_monthly_fee');
         } catch {}
       }
     } catch (err) {
@@ -664,6 +668,9 @@ export default function App() {
   // Approved Live Jobs (Single Backend Source of Truth via /api/jobs)
   const [jobs, setJobs] = useState<Job[]>([]);
 
+  // Subscription Packages State (Authoritative Backend /api/pricing)
+  const [subscriptionPackages, setSubscriptionPackages] = useState<any[]>([]);
+
   // Pending Jobs Queue for Admin Verification (Single Backend Source of Truth via /api/jobs/queue/pending)
   const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
   const [pendingTotal, setPendingTotal] = useState<number>(0);
@@ -821,11 +828,6 @@ export default function App() {
       } catch {}
     }
     return false;
-  });
-
-  const [monthlyFeePkr, setMonthlyFeePkr] = useState<number>(() => {
-    const saved = localStorage.getItem('hybrid_monthly_fee');
-    return saved ? Number(saved) : 300;
   });
 
   // Job Posting & Priority Placement Pricing Configuration State
@@ -1125,10 +1127,6 @@ export default function App() {
     } catch {}
     setIsSubscribed(isAuthoritativeUserSubscribed(currentUser));
   }, [currentUser]);
-
-  useEffect(() => {
-    safeLocalStorageSet('hybrid_monthly_fee', monthlyFeePkr.toString());
-  }, [monthlyFeePkr]);
 
   const loadBackendUserResources = useCallback(async (activeUserId?: string) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hybrid_auth_token') : null;
@@ -2141,9 +2139,12 @@ export default function App() {
         ? rawTier
         : 'Pro Alerts';
 
+    const targetPackage = subscriptionPackages.find(p => p.name === selectedPlan || p.id === selectedPlan);
+    const renewalAmount = targetPackage ? Number(targetPackage.pricePkr) : 300;
+
     try {
       const txRes = await api.transactions.submit({
-        amount: monthlyFeePkr,
+        amount: renewalAmount,
         currency: 'PKR',
         type: 'Subscription',
         plan: selectedPlan,
@@ -2983,8 +2984,6 @@ export default function App() {
             onBulkDeleteUsers={(userIds) => setUsers(prev => prev.filter(u => !userIds.includes(u.id)))}
             onDeleteFeeLog={(logId) => setJobPostingFeeLogs(prev => prev.filter(l => l.id !== logId))}
             onBulkDeleteFeeLogs={(logIds) => setJobPostingFeeLogs(prev => prev.filter(l => !logIds.includes(l.id)))}
-            monthlyFeePkr={monthlyFeePkr}
-            onChangeMonthlyFee={setMonthlyFeePkr}
             onExitAdmin={() => {
               try {
                 localStorage.setItem('hybrid_admin_view_preference', 'false');
@@ -3278,35 +3277,60 @@ export default function App() {
                   Subscribe to our verified daily job broadcast stream matching your specific province, city, and skill set.
                 </p>
 
-                <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl max-w-lg mx-auto text-left space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white text-base">Pro WhatsApp Alerts Package</span>
-                    <span className="text-xl font-black text-emerald-400">PKR {monthlyFeePkr} <span className="text-xs font-normal text-slate-500">/ mo</span></span>
-                  </div>
-                  <ul className="text-xs text-slate-300 space-y-2">
-                    <li className="flex items-center space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Instant WhatsApp alerts as soon as new jobs are published</span>
-                    </li>
-                    <li className="flex items-center space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Direct 1-Click Apply button for all global & Pakistan positions</span>
-                    </li>
-                    <li className="flex items-center space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Free un-watermarked ATS Resume Export</span>
-                    </li>
-                  </ul>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
+                  {subscriptionPackages.length > 0 ? (
+                    subscriptionPackages.map((pkg) => (
+                      <div key={pkg.id} className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-left space-y-3 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-white text-base">{pkg.name}</span>
+                            {pkg.badge && (
+                              <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-500/20 text-emerald-400">
+                                {pkg.badge}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xl font-black text-emerald-400 mb-4">
+                            PKR {pkg.pricePkr} <span className="text-xs font-normal text-slate-500">/ {pkg.durationDays} days</span>
+                          </div>
+                          <ul className="text-xs text-slate-300 space-y-2">
+                            {pkg.features && pkg.features.map((feat: string, i: number) => (
+                              <li key={i} className="flex items-center space-x-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span>{feat}</span>
+                              </li>
+                            ))}
+                            {(!pkg.features || pkg.features.length === 0) && (
+                              <>
+                                <li className="flex items-center space-x-2">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                  <span>Instant WhatsApp alerts as soon as new jobs are published</span>
+                                </li>
+                                <li className="flex items-center space-x-2">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                  <span>Direct 1-Click Apply button for all global & Pakistan positions</span>
+                                </li>
+                              </>
+                            )}
+                          </ul>
+                        </div>
 
-                  <button
-                    onClick={() => {
-                      setSelectedJobTitleForSub('');
-                      setSubscriptionModalOpen(true);
-                    }}
-                    className="w-full mt-4 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl"
-                  >
-                    {isSubscribed ? 'Subscription Active (Pro User)' : `Activate Pro Alerts (PKR ${monthlyFeePkr})`}
-                  </button>
+                        <button
+                          onClick={() => {
+                            setSelectedJobTitleForSub('');
+                            setSubscriptionModalOpen(true);
+                          }}
+                          className="w-full mt-4 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl hover:scale-[1.02] active:scale-95 transition-all"
+                        >
+                          {isSubscribed ? 'Upgrade / Extend Subscription' : `Activate ${pkg.name} (PKR ${pkg.pricePkr})`}
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full p-12 bg-slate-900/50 border border-slate-800 rounded-2xl border-dashed text-center">
+                      <p className="text-slate-500 text-sm italic">Subscription packages are temporarily unavailable. Please check back later.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

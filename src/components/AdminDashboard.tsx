@@ -189,8 +189,8 @@ interface AdminDashboardProps {
   onEndUserMembershipAndJobs?: (userId: string) => void;
   onSuspendJob?: (jobId: string, reason?: string) => void;
   onBulkEndUnpaidMemberships?: () => void;
-  monthlyFeePkr: number;
-  onChangeMonthlyFee: (newFee: number) => void;
+  monthlyFeePkr?: number;
+  onChangeMonthlyFee?: (newFee: number) => void;
   onExitAdmin: () => void;
   ads?: Advertisement[];
   onAddAd?: (ad: Advertisement) => void;
@@ -231,6 +231,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   jobPostingFeePkr,
   onChangeJobPostingFee,
   jobPostingFeeLogs,
+  monthlyFeePkr = 300,
+  onChangeMonthlyFee = () => {},
   jobPostingPricing = DEFAULT_JOB_POSTING_PRICING_CONFIG,
   onChangeJobPostingPricing,
   allApplications = [],
@@ -267,8 +269,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onEndUserMembershipAndJobs,
   onSuspendJob,
   onBulkEndUnpaidMemberships,
-  monthlyFeePkr,
-  onChangeMonthlyFee,
   onExitAdmin,
   ads = [],
   onAddAd,

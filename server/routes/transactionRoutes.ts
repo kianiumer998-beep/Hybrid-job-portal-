@@ -438,6 +438,14 @@ transactionRouter.post('/', async (req, res) => {
         }
 
         pricingBreakdown = [{ name: `${safeSubscriptionPlan} Subscription`, amount: enforcedAmount }];
+
+        (req as any).packageSnapshot = {
+          id: targetPackage.id,
+          name: targetPackage.name,
+          pricePkr: targetPackage.pricePkr,
+          durationDays: targetPackage.durationDays,
+          timestamp: new Date().toISOString()
+        };
       } else {
         const numericAmount = Number(amount);
         if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -740,6 +748,7 @@ transactionRouter.post('/', async (req, res) => {
         currency: currency || 'PKR',
         type: effectiveType,
         ...(safeSubscriptionPlan ? { plan: safeSubscriptionPlan } : {}),
+        ...(effectiveType === 'Subscription' ? { packageSnapshot: (req as any).packageSnapshot } : {}),
         status: 'Pending',
         paymentMethod: resolvedPaymentMethodName,
         ...(paymentMethod === 'Wallet Balance' ? { walletMutationState: 'NONE' as WalletMutationState } : {}),

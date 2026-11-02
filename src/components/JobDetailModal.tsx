@@ -107,20 +107,28 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   const job = sanitizeJob(rawJob);
   const isExpired = job.deadlineDate && new Date(job.deadlineDate) < new Date();
 
-  // Premium URL & Application Evaluation
-  const rawExternalUrl = job.externalApplyUrl || job.applicationUrl || (job.sourceUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType === 'external') ? job.sourceUrl : undefined);
-  const isExternal = job.applicationType === 'external' || (!!rawExternalUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType !== 'internal'));
-
   const hints = (job as any)._visibilityHints || {};
-  const hasRedactedExternal = isRedactedUrl(job.externalApplyUrl) || isRedactedUrl(job.applicationUrl) || (isExternal && isRedactedUrl(job.sourceUrl));
-  const validExternalUrl = isValidUrl(rawExternalUrl) ? rawExternalUrl : undefined;
 
-  const isApplyRestricted = 
-    isRedactedUrl(job.applicationUrl) || 
-    isRedactedUrl(job.externalApplyUrl) || 
-    (isExternal && isRedactedUrl(job.sourceUrl)) ||
-    hints.applicationUrl?.requiresUpgrade ||
-    hints.externalApplyUrl?.requiresUpgrade;
+  // Independent field evaluation - NO FALLBACKS across different field types for security
+  const hasValidApplicationUrl = isValidUrl(job.applicationUrl);
+  const hasValidExternalApplyUrl = isValidUrl(job.externalApplyUrl);
+  const isSourceUrlAuthorizedAsApplyDestination = 
+    (job.isGovtJob || job.isNewspaperAd || job.applicationType === 'external') && 
+    isValidUrl(job.sourceUrl);
+
+  const isApplicationUrlRedacted = isRedactedUrl(job.applicationUrl) || hints.applicationUrl?.requiresUpgrade;
+  const isExternalApplyUrlRedacted = isRedactedUrl(job.externalApplyUrl) || hints.externalApplyUrl?.requiresUpgrade;
+  const isSourceUrlRedacted = isRedactedUrl(job.sourceUrl) || (isSourceUrlAuthorizedAsApplyDestination && hints.sourceUrl?.requiresUpgrade);
+
+  // The primary external URL to show (if authorized)
+  const validExternalUrl = hasValidExternalApplyUrl ? job.externalApplyUrl : (hasValidApplicationUrl ? job.applicationUrl : (isSourceUrlAuthorizedAsApplyDestination ? job.sourceUrl : undefined));
+
+  // Determine if application is restricted based on the intended field visibility
+  const isApplyRestricted = isApplicationUrlRedacted || isExternalApplyUrlRedacted || (isSourceUrlAuthorizedAsApplyDestination && isSourceUrlRedacted);
+
+  const hasRedactedExternal = isRedactedUrl(job.externalApplyUrl) || isRedactedUrl(job.applicationUrl) || (isSourceUrlAuthorizedAsApplyDestination && isRedactedUrl(job.sourceUrl));
+
+  const isExternal = job.applicationType === 'external' || (!!validExternalUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType !== 'internal'));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-hidden">

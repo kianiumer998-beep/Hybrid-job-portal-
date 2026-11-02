@@ -29,11 +29,14 @@ import {
   FileCheck,
   Lock,
   Globe,
-  EyeOff
+  EyeOff,
+  Search
 } from 'lucide-react';
 import { isScrapedJob } from '../utils/jobValidation';
 import { suggestJobMetadata, JobSuggestionResult } from '../utils/jobSuggestionEngine';
 import { api } from '../services/api';
+import { ALL_REGISTRY_FIELDS, SENSITIVE_FIELD_KEYS } from '../utils/jobVisibilityRegistry';
+import { FieldVisibility } from '../types/job';
 
 interface AdminJobDetailModalProps {
   job: Job | null;
@@ -74,6 +77,80 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
   const [copiedExtractedText, setCopiedExtractedText] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
+
+  // Individual Job Field Visibility State
+  const [fieldVisibilityOverrides, setFieldVisibilityOverrides] = useState<Record<string, FieldVisibility>>(job?.fieldVisibility || {});
+  const [sourceDefaultPolicy, setSourceDefaultPolicy] = useState<Record<string, FieldVisibility>>({});
+  const [isSavingVisibility, setIsSavingVisibility] = useState(false);
+  const [visibilitySuccessMsg, setVisibilitySuccessMsg] = useState<string | null>(null);
+  const [visibilityErrorMsg, setVisibilityErrorMsg] = useState<string | null>(null);
+  const [visSearchQuery, setVisSearchQuery] = useState('');
+  const [visCategoryFilter, setVisCategoryFilter] = useState<'All' | 'Sensitive' | 'Overrides' | 'Standard'>('All');
+
+  useEffect(() => {
+    if (job) {
+      setFieldVisibilityOverrides(job.fieldVisibility || {});
+      api.jobsVisibility.getPolicies().then((res) => {
+        if (res.success && Array.isArray(res.policies)) {
+          const source = job.sourceType || (job.isScraped ? 'scraped' : job.isAdminCreated ? 'admin_created' : 'user_posted');
+          const match = res.policies.find((p: any) => p.source === source && (job.scraperSourceId ? p.sourceKey === job.scraperSourceId : !p.sourceKey)) || res.policies.find((p: any) => p.source === source && !p.sourceKey);
+          if (match && match.fieldRules) {
+            setSourceDefaultPolicy(match.fieldRules);
+          } else {
+            const defs: Record<string, FieldVisibility> = {};
+            ALL_REGISTRY_FIELDS.forEach(f => {
+              defs[f.key] = SENSITIVE_FIELD_KEYS.has(f.key) ? 'Premium' : 'Free';
+            });
+            setSourceDefaultPolicy(defs);
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [job]);
+
+  const handleSaveFieldVisibility = async () => {
+    if (!job) return;
+    setIsSavingVisibility(true);
+    setVisibilitySuccessMsg(null);
+    setVisibilityErrorMsg(null);
+    try {
+      const res = await api.jobsVisibility.updateJobVisibility(job.id, fieldVisibilityOverrides);
+      if (res.success) {
+        if (res.job && res.job.fieldVisibility) {
+          setFieldVisibilityOverrides(res.job.fieldVisibility);
+        }
+        setVisibilitySuccessMsg('Job field visibility overrides updated successfully!');
+        setTimeout(() => setVisibilitySuccessMsg(null), 3500);
+      } else {
+        throw new Error(res.message || 'Failed to update job visibility overrides.');
+      }
+    } catch (err: any) {
+      setVisibilityErrorMsg(err?.message || 'Error updating job visibility overrides.');
+    } finally {
+      setIsSavingVisibility(false);
+    }
+  };
+
+  const handleResetFieldVisibility = (fieldKey: string) => {
+    setFieldVisibilityOverrides(prev => {
+      const next = { ...prev };
+      delete next[fieldKey];
+      return next;
+    });
+  };
+
+  const handleFieldVisibilityChange = (fieldKey: string, visibility: FieldVisibility) => {
+    const sourceDef = sourceDefaultPolicy[fieldKey] || (SENSITIVE_FIELD_KEYS.has(fieldKey) ? 'Premium' : 'Free');
+    setFieldVisibilityOverrides(prev => {
+      const next = { ...prev };
+      if (visibility === sourceDef) {
+        delete next[fieldKey];
+      } else {
+        next[fieldKey] = visibility;
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (job?.attachments) {
@@ -762,6 +839,175 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             accept=".pdf,.jpg,.jpeg,.png,.webp"
             className="hidden"
           />
+
+          {/* Section: Individual Field Visibility Controls */}
+          <div className="p-4 bg-slate-950 rounded-xl border border-indigo-500/30 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <ShieldCheck className="w-5 h-5 text-indigo-400 shrink-0" />
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <span>Field Visibility & Redaction Controls</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      55 Registry Fields
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Manage Free / Premium / Hidden access for each job field. Overrides take precedence over source defaults.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setFieldVisibilityOverrides({})}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
+                >
+                  Reset All Overrides
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingVisibility}
+                  onClick={handleSaveFieldVisibility}
+                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 flex items-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingVisibility ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Visibility Overrides</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {visibilitySuccessMsg && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-300 flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{visibilitySuccessMsg}</span>
+              </div>
+            )}
+            {visibilityErrorMsg && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{visibilityErrorMsg}</span>
+              </div>
+            )}
+
+            {/* Search & Category Filter */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={visSearchQuery}
+                  onChange={(e) => setVisSearchQuery(e.target.value)}
+                  placeholder="Search field name or key..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center space-x-1">
+                {(['All', 'Sensitive', 'Overrides', 'Standard'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setVisCategoryFilter(cat)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      visCategoryFilter === cat
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    {cat === 'All' ? 'All (55)' : cat === 'Overrides' ? `Overrides (${Object.keys(fieldVisibilityOverrides).length})` : cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Field Grid List */}
+            <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-800 divide-y divide-slate-800/80 bg-slate-900/60">
+              {ALL_REGISTRY_FIELDS.filter((f) => {
+                const matchesQuery = f.label.toLowerCase().includes(visSearchQuery.toLowerCase()) || f.key.toLowerCase().includes(visSearchQuery.toLowerCase());
+                if (!matchesQuery) return false;
+                if (visCategoryFilter === 'Sensitive') return f.category === 'Sensitive';
+                if (visCategoryFilter === 'Standard') return f.category === 'Standard';
+                if (visCategoryFilter === 'Overrides') return Boolean(fieldVisibilityOverrides[f.key]);
+                return true;
+              }).map((f) => {
+                const sourceDef = sourceDefaultPolicy[f.key] || (SENSITIVE_FIELD_KEYS.has(f.key) ? 'Premium' : 'Free');
+                const hasOverride = Boolean(fieldVisibilityOverrides[f.key]);
+                const currentEffective = hasOverride ? fieldVisibilityOverrides[f.key] : sourceDef;
+
+                return (
+                  <div key={f.key} className="p-3 flex flex-wrap items-center justify-between gap-3 hover:bg-slate-900 transition-colors">
+                    <div className="flex items-center space-x-3 min-w-[200px]">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-xs text-white">{f.label}</span>
+                          <span className={`px-1.5 py-0.25 rounded text-[9px] font-mono font-bold ${
+                            f.category === 'Sensitive' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {f.category}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono flex items-center space-x-2">
+                          <span>key: {f.key}</span>
+                          <span>•</span>
+                          <span>Source default: <strong className="text-slate-400">{sourceDef}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                      {hasOverride ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          Individual Override
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                          Source Default
+                        </span>
+                      )}
+
+                      <select
+                        value={currentEffective}
+                        onChange={(e) => handleFieldVisibilityChange(f.key, e.target.value as FieldVisibility)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold border focus:outline-none cursor-pointer ${
+                          currentEffective === 'Free'
+                            ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
+                            : currentEffective === 'Premium'
+                            ? 'bg-indigo-950 text-indigo-300 border-indigo-500/40'
+                            : 'bg-rose-950 text-rose-300 border-rose-500/40'
+                        }`}
+                      >
+                        <option value="Free" className="bg-slate-900 text-emerald-300">Free (Public)</option>
+                        <option value="Premium" className="bg-slate-900 text-indigo-300">Premium (Active Sub)</option>
+                        <option value="Hidden" className="bg-slate-900 text-rose-300">Hidden (Admin Only)</option>
+                      </select>
+
+                      {hasOverride && (
+                        <button
+                          type="button"
+                          onClick={() => handleResetFieldVisibility(f.key)}
+                          className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                          title="Reset to Source Default"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Section: Supporting Documents & Official Attachments */}
           <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-4">

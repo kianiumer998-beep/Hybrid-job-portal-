@@ -414,6 +414,13 @@ export class JobRepository {
    * Get single job by ID directly from MongoDB.
    */
   static async getById(id: string): Promise<any | null> {
+    if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
+      const live = Database.getJobById(id);
+      if (live) return live;
+      const pending = Database.getPendingJobs().find((j: any) => j.id === id);
+      if (pending) return pending;
+      return null;
+    }
     assertMongoAvailable();
     const jobsColl = await getJobsCollection();
     const doc = await jobsColl.findOne({ id });
@@ -432,6 +439,13 @@ export class JobRepository {
    * Get single job by SEO slug directly from MongoDB.
    */
   static async getBySlug(slug: string): Promise<any | null> {
+    if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
+      const live = Database.getJobs().find((j: any) => j.slug === slug);
+      if (live) return live;
+      const pending = Database.getPendingJobs().find((j: any) => j.slug === slug);
+      if (pending) return pending;
+      return null;
+    }
     assertMongoAvailable();
     const jobsColl = await getJobsCollection();
     const doc = await jobsColl.findOne({ slug });
@@ -537,7 +551,7 @@ export class JobRepository {
    * Updates an existing job directly in MongoDB.
    */
   static async update(id: string, updates: any): Promise<any | null> {
-    if (!isMongoConfigured()) {
+    if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
       const live = Database.getJobs().find((j: any) => j.id === id);
       if (live) return Database.updateJob(id, updates);
       const pending = Database.getPendingJobs().find((j: any) => j.id === id);
@@ -603,6 +617,13 @@ export class JobRepository {
    * Deletes a job from MongoDB (both live jobs and pending queue).
    */
   static async delete(id: string): Promise<boolean> {
+    if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
+      Database.deleteJob(id);
+      const allPending = Database.getPendingJobs();
+      const filtered = allPending.filter((j: any) => j.id !== id);
+      Database.savePendingJobs(filtered);
+      return true;
+    }
     assertMongoAvailable();
     const jobsColl = await getJobsCollection();
     const pendingColl = await getPendingJobsCollection();
@@ -738,11 +759,17 @@ export class JobRepository {
    * Retrieves pending scraper / user jobs directly from MongoDB pending_jobs.
    */
   static async getPending(filter?: { page?: number; limit?: number; lightweight?: boolean; search?: string; sourceType?: string; submittedByUserId?: string; scraperSourceId?: string; visibility?: string }): Promise<any[]> {
-    if (!isMongoConfigured()) {
-      const fallback = Database.getPendingJobs();
+    if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
+      const page = Math.max(1, parseInt(String(filter?.page || 1), 10) || 1);
+      const rawLimit = parseInt(String(filter?.limit || 200), 10) || 200;
+      const limit = Math.min(500, Math.max(1, rawLimit));
+      let fallback = [...Database.getPendingJobs()];
+      if (filter?.limit) {
+        fallback = fallback.slice(0, limit);
+      }
       Object.defineProperty(fallback, 'total', { value: fallback.length, enumerable: true });
-      Object.defineProperty(fallback, 'page', { value: 1, enumerable: true });
-      Object.defineProperty(fallback, 'limit', { value: fallback.length || 200, enumerable: true });
+      Object.defineProperty(fallback, 'page', { value: page, enumerable: true });
+      Object.defineProperty(fallback, 'limit', { value: limit, enumerable: true, writable: true });
       Object.defineProperty(fallback, 'totalPages', { value: 1, enumerable: true });
       Object.defineProperty(fallback, 'pendingJobs', { value: fallback, enumerable: true });
       return fallback;

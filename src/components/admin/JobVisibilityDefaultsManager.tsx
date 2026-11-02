@@ -24,67 +24,13 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { Job, FieldVisibility, JobSourceType } from '../../types/job';
-
-const ALL_REGISTRY_FIELDS = [
-  { key: 'title', label: 'Job Title' },
-  { key: 'company', label: 'Company Name' },
-  { key: 'companyLogo', label: 'Company Logo' },
-  { key: 'jobType', label: 'Job Type' },
-  { key: 'region', label: 'Region' },
-  { key: 'country', label: 'Country' },
-  { key: 'province', label: 'Province' },
-  { key: 'city', label: 'City' },
-  { key: 'district', label: 'District' },
-  { key: 'salary', label: 'Salary Information' },
-  { key: 'salaryNumericMin', label: 'Numeric Min Salary' },
-  { key: 'currency', label: 'Currency' },
-  { key: 'experienceLevel', label: 'Experience Level' },
-  { key: 'department', label: 'Department' },
-  { key: 'tags', label: 'Tags' },
-  { key: 'description', label: 'Description' },
-  { key: 'requirements', label: 'Requirements' },
-  { key: 'responsibilities', label: 'Responsibilities' },
-  { key: 'responsibilitiesList', label: 'Responsibilities List' },
-  { key: 'benefits', label: 'Benefits' },
-  { key: 'postedAt', label: 'Posted At' },
-  { key: 'featured', label: 'Featured Status' },
-  { key: 'urgent', label: 'Urgent Status' },
-  { key: 'isPinnedTop', label: 'Pinned Top' },
-  { key: 'isFutureJob', label: 'Future Job' },
-  { key: 'futureIntakeDate', label: 'Future Intake Date' },
-  { key: 'priorityTier', label: 'Priority Tier' },
-  { key: 'applicationsCount', label: 'Applications Count' },
-  { key: 'status', label: 'Job Status' },
-  { key: 'jobCategory', label: 'Job Category' },
-  { key: 'sourceUrl', label: 'Source URL' },
-  { key: 'applicationUrl', label: 'Application URL' },
-  { key: 'contactEmail', label: 'Contact Email' },
-  { key: 'contactEmailOrPhone', label: 'Contact Info' },
-  { key: 'deadlineDate', label: 'Deadline' },
-  { key: 'isGovtJob', label: 'Govt Job' },
-  { key: 'govtDepartment', label: 'Govt Department' },
-  { key: 'govtScale', label: 'Govt Scale' },
-  { key: 'govtCategory', label: 'Govt Category' },
-  { key: 'isNewspaperAd', label: 'Newspaper Ad' },
-  { key: 'newspaperName', label: 'Newspaper' },
-  { key: 'clippingImageUrl', label: 'Clipping Image' },
-  { key: 'mediaUrl', label: 'Media URL' },
-  { key: 'newspaperDate', label: 'Newspaper Date' },
-  { key: 'attachments', label: 'Attachments' },
-  { key: 'externalApplyUrl', label: 'External Apply URL' },
-  { key: 'pdfSourceUrl', label: 'PDF Source URL' },
-  { key: 'pdfFileName', label: 'PDF Filename' },
-  { key: 'pdfCaseNumber', label: 'PDF Case Number' },
-  { key: 'domicileQuota', label: 'Domicile Quota' },
-  { key: 'challanFee', label: 'Challan Fee' },
-  { key: 'ageRelaxationNote', label: 'Age Relaxation Note' },
-  { key: 'createdAt', label: 'Created At' },
-  { key: 'updatedAt', label: 'Updated At' }
-];
+import { ALL_REGISTRY_FIELDS, SENSITIVE_FIELD_KEYS } from '../../utils/jobVisibilityRegistry';
 
 export const JobVisibilityDefaultsManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'defaults' | 'individual' | 'bulk'>('defaults');
   const [defaultSource, setDefaultSource] = useState<JobSourceType>('user_posted');
+  const [selectedSourceKey, setSelectedSourceKey] = useState<string>('');
+  const [scraperConfigs, setScraperConfigs] = useState<any[]>([]);
   const [policies, setPolicies] = useState<any[]>([]);
   const [currentFieldRules, setCurrentFieldRules] = useState<Record<string, FieldVisibility>>({});
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -120,21 +66,28 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ success: number; failure: number; errors: any[] } | null>(null);
 
+  useEffect(() => {
+    api.scraper.getConfigs().then(res => {
+      if (res.success && Array.isArray(res.configs)) {
+        setScraperConfigs(res.configs);
+      }
+    }).catch(() => {});
+  }, []);
+
   // Load Policies
   const fetchPolicies = async () => {
     try {
       const res = await api.jobsVisibility.getPolicies();
       if (res.success && Array.isArray(res.policies)) {
         setPolicies(res.policies);
-        const match = res.policies.find((p: any) => p.source === defaultSource && !p.sourceKey);
+        const match = res.policies.find((p: any) => p.source === defaultSource && (defaultSource === 'scraped' && selectedSourceKey ? p.sourceKey === selectedSourceKey : !p.sourceKey));
         if (match && match.fieldRules) {
           setCurrentFieldRules(match.fieldRules);
         } else {
           // Initialize defaults from registry
           const defs: Record<string, FieldVisibility> = {};
           ALL_REGISTRY_FIELDS.forEach(f => {
-            const premiumFields = ['applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl'];
-            defs[f.key] = premiumFields.includes(f.key) ? 'Premium' : 'Free';
+            defs[f.key] = SENSITIVE_FIELD_KEYS.has(f.key) ? 'Premium' : 'Free';
           });
           setCurrentFieldRules(defs);
         }
@@ -147,7 +100,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
 
   useEffect(() => {
     fetchPolicies();
-  }, [defaultSource]);
+  }, [defaultSource, selectedSourceKey]);
 
   const loadJobs = async (page: number = 1, append: boolean = false) => {
     setLoadingJobs(true);
@@ -221,10 +174,11 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     try {
       const res = await api.jobsVisibility.savePolicy({
         source: defaultSource,
-        fieldRules: currentFieldRules
+        fieldRules: currentFieldRules,
+        sourceKey: defaultSource === 'scraped' && selectedSourceKey ? selectedSourceKey : undefined
       });
       if (res.success) {
-        setSuccessMessage(`Authoritative default policy updated for ${defaultSource.replace('_', ' ')} source.`);
+        setSuccessMessage(`Authoritative default policy updated for ${defaultSource.replace('_', ' ')}${selectedSourceKey ? ` (${selectedSourceKey})` : ''} source.`);
         fetchPolicies();
       } else {
         throw new Error(res.message || 'Validation failed on backend.');
@@ -470,10 +424,30 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
               <div>
                 <h3 className="text-base font-bold text-white">
                   Source Defaults: <span className="text-indigo-400 capitalize">{defaultSource.replace('_', ' ')}</span>
+                  {defaultSource === 'scraped' && selectedSourceKey && (
+                    <span className="ml-2 text-xs font-mono text-amber-300">({selectedSourceKey})</span>
+                  )}
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
                   Policies apply automatically during approval. Existing overrides are preserved.
                 </p>
+                {defaultSource === 'scraped' && scraperConfigs.length > 0 && (
+                  <div className="mt-3 flex items-center space-x-2">
+                    <label className="text-xs text-slate-400 font-bold">Specific Scraper Source:</label>
+                    <select
+                      value={selectedSourceKey}
+                      onChange={(e) => setSelectedSourceKey(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="">All Scraped Sources (Default)</option>
+                      {scraperConfigs.map((cfg: any) => (
+                        <option key={cfg.id || cfg.sourceKey} value={cfg.id || cfg.sourceKey}>
+                          {cfg.name || cfg.id} ({cfg.id || cfg.sourceKey})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <button

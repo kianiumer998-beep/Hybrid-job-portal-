@@ -10,22 +10,56 @@ export interface VisibilityPolicy {
   updatedAt: string;
 }
 
-const DEFAULT_SUPPORTED_FIELDS = [
-  'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
-  'city', 'district', 'salary', 'experienceLevel', 'department', 'tags',
-  'description', 'requirements', 'responsibilities', 'benefits', 'deadlineDate',
-  'attachments', 'applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'externalApplyUrl',
-  'sourceUrl', 'pdfSourceUrl', 'clippingImageUrl', 'mediaUrl', 'govtDepartment', 'govtScale'
+// 1. Strictly Admin-only / internal moderation & scraper fields (NEVER exposed to non-admins, NEVER configurable via policy)
+export const ADMIN_INTERNAL_FIELDS = [
+  'paymentStatus', 'rejectionReason', 'suspensionReason', 'isSuspended', 
+  'reviewTimeline', 'duplicateScore', 'duplicateCategory', 'duplicateTags', 
+  'duplicateMatchReason', 'duplicateOfJobId', 'duplicateOfJobTitle', 
+  'duplicateMatchedCompany', 'isDuplicateOverride', 'duplicateOverrideNote', 
+  'duplicateDetectedAt', 'isDuplicate', 'scraperBatchId', 'scraperRunType', 
+  'scrapedTimezone', 'scrapedRawSalary', 'deduplicationScore', 'extractedText', 
+  'pdfParserEngine', 'extractionSourceType', 'isLocationConfirmed', 
+  'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 
+  'metadata', 'lastScrapedAt', 'scraperSourceId', 'scraperSourceName', 
+  'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', '_isAdminView'
 ];
+export const ADMIN_INTERNAL_SET = new Set(ADMIN_INTERNAL_FIELDS);
+
+// 2. Configurable Sensitive Fields (Subject to Free / Premium / Hidden policy)
+export const CONFIGURABLE_SENSITIVE_FIELDS = [
+  'applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 
+  'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl', 'mediaUrl', 'salary', 
+  'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase'
+];
+export const CONFIGURABLE_SENSITIVE_SET = new Set(CONFIGURABLE_SENSITIVE_FIELDS);
+
+// 3. Standard Public Fields (Default Free, configurable if needed)
+export const PUBLIC_STANDARD_FIELDS = [
+  'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
+  'city', 'district', 'salaryNumericMin', 'currency', 'experienceLevel', 
+  'department', 'tags', 'description', 'requirements', 'responsibilities', 
+  'responsibilitiesList', 'benefits', 'postedAt', 'featured', 'urgent', 
+  'isPinnedTop', 'isFutureJob', 'futureIntakeDate', 'priorityTier', 
+  'applicationsCount', 'status', 'jobCategory', 'isGovtJob', 'govtDepartment', 
+  'govtScale', 'govtCategory', 'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 
+  'newspaperDate', 'deadlineDate', 'domicileQuota', 'challanFee', 'ageRelaxationNote', 
+  'createdAt', 'updatedAt'
+];
+
+// 4. All Configurable Registry Fields (Allowed in Admin Policy API)
+export const CONFIGURABLE_REGISTRY_FIELDS = [
+  ...PUBLIC_STANDARD_FIELDS,
+  ...CONFIGURABLE_SENSITIVE_FIELDS
+];
+export const CONFIGURABLE_REGISTRY_SET = new Set(CONFIGURABLE_REGISTRY_FIELDS);
+
+// 5. Allowed Metadata keys in sanitized responses
+export const ALLOWED_METADATA_KEYS = new Set(['id', 'slug', 'sourceType', 'visibilitySource', 'fieldVisibility', 'isExpired', '_id']);
 
 function getDefaultPolicy(source: JobSourceType): VisibilityPolicy {
   const fieldRules: Record<string, FieldVisibility> = {};
-  for (const f of DEFAULT_SUPPORTED_FIELDS) {
-    if (['applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl'].includes(f)) {
-      fieldRules[f] = 'Premium';
-    } else {
-      fieldRules[f] = 'Free';
-    }
+  for (const f of CONFIGURABLE_REGISTRY_FIELDS) {
+    fieldRules[f] = CONFIGURABLE_SENSITIVE_SET.has(f) ? 'Premium' : 'Free';
   }
   return {
     source,
@@ -285,49 +319,4 @@ export class JobVisibilityRepository {
   }
 }
 
-// 1. Strictly Admin-only / internal moderation & scraper fields (NEVER exposed to non-admins, NEVER configurable via policy)
-export const ADMIN_INTERNAL_FIELDS = [
-  'paymentStatus', 'rejectionReason', 'suspensionReason', 'isSuspended', 
-  'reviewTimeline', 'duplicateScore', 'duplicateCategory', 'duplicateTags', 
-  'duplicateMatchReason', 'duplicateOfJobId', 'duplicateOfJobTitle', 
-  'duplicateMatchedCompany', 'isDuplicateOverride', 'duplicateOverrideNote', 
-  'duplicateDetectedAt', 'isDuplicate', 'scraperBatchId', 'scraperRunType', 
-  'scrapedTimezone', 'scrapedRawSalary', 'deduplicationScore', 'extractedText', 
-  'pdfParserEngine', 'extractionSourceType', 'isLocationConfirmed', 
-  'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 
-  'metadata', 'lastScrapedAt', 'scraperSourceId', 'scraperSourceName', 
-  'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', '_isAdminView'
-];
-export const ADMIN_INTERNAL_SET = new Set(ADMIN_INTERNAL_FIELDS);
-
-// 2. Configurable Sensitive Fields (Subject to Free / Premium / Hidden policy)
-export const CONFIGURABLE_SENSITIVE_FIELDS = [
-  'applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 
-  'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl', 'mediaUrl', 'salary', 
-  'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase'
-];
-export const CONFIGURABLE_SENSITIVE_SET = new Set(CONFIGURABLE_SENSITIVE_FIELDS);
-
-// 3. Standard Public Fields (Default Free, configurable if needed)
-export const PUBLIC_STANDARD_FIELDS = [
-  'title', 'company', 'companyLogo', 'jobType', 'region', 'country', 'province',
-  'city', 'district', 'salaryNumericMin', 'currency', 'experienceLevel', 
-  'department', 'tags', 'description', 'requirements', 'responsibilities', 
-  'responsibilitiesList', 'benefits', 'postedAt', 'featured', 'urgent', 
-  'isPinnedTop', 'isFutureJob', 'futureIntakeDate', 'priorityTier', 
-  'applicationsCount', 'status', 'jobCategory', 'isGovtJob', 'govtDepartment', 
-  'govtScale', 'govtCategory', 'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 
-  'newspaperDate', 'deadlineDate', 'domicileQuota', 'challanFee', 'ageRelaxationNote', 
-  'createdAt', 'updatedAt'
-];
-
-// 4. All Configurable Registry Fields (Allowed in Admin Policy API)
-export const CONFIGURABLE_REGISTRY_FIELDS = [
-  ...PUBLIC_STANDARD_FIELDS,
-  ...CONFIGURABLE_SENSITIVE_FIELDS
-];
-export const CONFIGURABLE_REGISTRY_SET = new Set(CONFIGURABLE_REGISTRY_FIELDS);
-
-// 5. Allowed Metadata keys in sanitized responses
-export const ALLOWED_METADATA_KEYS = new Set(['id', 'slug', 'sourceType', 'visibilitySource', 'fieldVisibility', 'isExpired', '_id']);
 

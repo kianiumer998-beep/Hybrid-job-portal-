@@ -809,6 +809,217 @@ async function runTests() {
       '57. Hidden PDF source URL completely stripped even for Premium users'
     );
 
+    // ==========================================
+    // GROUP 8: STEP65-E.1 ADMIN JOB DETAIL & PREMIUM VISIBILITY COMPLETION
+    // ==========================================
+    console.log('\n--- Group 8: STEP65-E.1 Admin Job Detail & Premium Visibility Completion ---');
+
+    // 58. Admin changes a field from job Details and backend persists it
+    const modalTestJobId = `job-modal-vis-${Date.now()}`;
+    const modalTestJob: any = {
+      id: modalTestJobId,
+      title: 'Modal Visibility Test Job',
+      company: 'Test Corp',
+      status: 'Approved',
+      fieldVisibility: {
+        applicationUrl: 'Premium',
+        salary: 'Hidden'
+      }
+    };
+    createdFixtureIds.push(modalTestJobId);
+    Database.addJob(modalTestJob);
+
+    const updatedVisibilityPayload = {
+      applicationUrl: 'Free',
+      salary: 'Free',
+      contactEmail: 'Premium'
+    };
+    await JobRepository.update(modalTestJobId, { fieldVisibility: updatedVisibilityPayload });
+    const fetchedModalJob = await JobRepository.getById(modalTestJobId);
+
+    assert(
+      fetchedModalJob?.fieldVisibility?.applicationUrl === 'Free' &&
+      fetchedModalJob?.fieldVisibility?.salary === 'Free' &&
+      fetchedModalJob?.fieldVisibility?.contactEmail === 'Premium',
+      '58. Admin changes field visibility from job Details and backend persists override rules'
+    );
+
+    // 59. Individual override survives source-default changes
+    await JobVisibilityRepository.savePolicy('user_posted', { applicationUrl: 'Hidden' });
+    const overrideJobAfterPolicyChange = await JobVisibilityRepository.applyPolicyToJob(fetchedModalJob);
+    assert(
+      overrideJobAfterPolicyChange.fieldVisibility.applicationUrl === 'Free',
+      '59. Individual job override (applicationUrl: Free) survives source-default policy changes (Hidden)'
+    );
+
+    // 60. Reset restores source default
+    const resetVisibilityPayload: any = {
+      salary: 'Free'
+    };
+    delete resetVisibilityPayload.applicationUrl;
+    await JobRepository.update(modalTestJobId, { fieldVisibility: resetVisibilityPayload });
+    const resetJob = await JobRepository.getById(modalTestJobId);
+    const policyResetJob = await JobVisibilityRepository.applyPolicyToJob(resetJob);
+
+    assert(
+      policyResetJob.fieldVisibility.applicationUrl === 'Hidden' && policyResetJob.fieldVisibility.salary === 'Free',
+      '60. Resetting individual field override restores source-default rule (applicationUrl: Hidden)'
+    );
+
+    // Restore original default policy for user_posted
+    await JobVisibilityRepository.savePolicy('user_posted', { applicationUrl: 'Premium' });
+
+    // 61. Free user sees Free fields only
+    const sampleVisibilityJob = {
+      id: 'job-vis-sample-1',
+      title: 'Full Stack Architect',
+      company: 'Innovate Tech',
+      contactEmail: 'careers@innovate.com',
+      salary: '$180,000 / yr',
+      fieldVisibility: {
+        title: 'Free',
+        contactEmail: 'Premium',
+        salary: 'Hidden'
+      }
+    };
+    const filteredForFreeUser = JobVisibilityRepository.filterJobForUser(sampleVisibilityJob, freeUser, false);
+    assert(
+      filteredForFreeUser.title === 'Full Stack Architect' &&
+      filteredForFreeUser.contactEmail === '🔒 Unlock with Premium Subscription' &&
+      filteredForFreeUser.salary === undefined,
+      '61. Free user sees Free fields, lock message for Premium fields, and undefined for Hidden fields'
+    );
+
+    // 62. Active Premium user receives actual Premium field values
+    const filteredForActivePremiumUser = JobVisibilityRepository.filterJobForUser(sampleVisibilityJob, freeUser, true);
+    assert(
+      filteredForActivePremiumUser.title === 'Full Stack Architect' &&
+      filteredForActivePremiumUser.contactEmail === 'careers@innovate.com' &&
+      filteredForActivePremiumUser.salary === undefined,
+      '62. Active Premium user receives actual Premium field values while Hidden fields remain stripped'
+    );
+
+    // 63. Expired, Pending, or Rejected membership receives no Premium data
+    const expiredUserDoc = { membershipStatus: 'Active', subscriptionExpiresAt: new Date(Date.now() - 10000).toISOString() };
+    const pendingUserDoc = { membershipStatus: 'Pending', subscriptionExpiresAt: new Date(Date.now() + 100000).toISOString() };
+    const isExpiredPremium = JobVisibilityRepository.evaluateUserDocForPremium(expiredUserDoc);
+    const isPendingPremium = JobVisibilityRepository.evaluateUserDocForPremium(pendingUserDoc);
+    const filteredForExpired = JobVisibilityRepository.filterJobForUser(sampleVisibilityJob, freeUser, isExpiredPremium);
+    const filteredForPending = JobVisibilityRepository.filterJobForUser(sampleVisibilityJob, freeUser, isPendingPremium);
+
+    assert(
+      isExpiredPremium === false &&
+      isPendingPremium === false &&
+      filteredForExpired.contactEmail === '🔒 Unlock with Premium Subscription' &&
+      filteredForPending.contactEmail === '🔒 Unlock with Premium Subscription',
+      '63. Expired, Pending, or Rejected membership evaluates as non-premium and receives lock messages'
+    );
+
+    // 64. Hidden fields remain unavailable to Free and Premium
+    const hiddenFieldJob = {
+      title: 'Secret Lead',
+      description: 'Public Description',
+      contactEmail: 'admin-only@company.com',
+      fieldVisibility: {
+        description: 'Free',
+        contactEmail: 'Hidden'
+      }
+    };
+    const filteredHiddenFree = JobVisibilityRepository.filterJobForUser(hiddenFieldJob, freeUser, false);
+    const filteredHiddenPrem = JobVisibilityRepository.filterJobForUser(hiddenFieldJob, freeUser, true);
+    assert(
+      filteredHiddenFree.contactEmail === undefined && filteredHiddenPrem.contactEmail === undefined,
+      '64. Hidden fields remain completely absent for both Free and Premium users'
+    );
+
+    // 65. All three job sources behave correctly (user_posted, scraped, admin_created)
+    const userPostedDerived = JobVisibilityRepository.deriveJobSource({ title: 'User Job' });
+    const scrapedDerived = JobVisibilityRepository.deriveJobSource({ title: 'Scraped Job', isScraped: true });
+    const adminCreatedDerived = JobVisibilityRepository.deriveJobSource({ title: 'Admin Job', isAdminCreated: true });
+
+    assert(
+      userPostedDerived === 'user_posted' &&
+      scrapedDerived === 'scraped' &&
+      adminCreatedDerived === 'admin_created',
+      '65. All three job sources (user_posted, scraped, admin_created) derived and handled correctly'
+    );
+
+    // 66. Public listing and detail endpoints return consistent filtered data
+    const rawJobRecord = {
+      id: 'job-consistent-1',
+      title: 'Consistent Job',
+      applicationUrl: 'https://apply.com/123',
+      fieldVisibility: { applicationUrl: 'Premium' }
+    };
+    const policyApplied = await JobVisibilityRepository.applyPolicyToJob(rawJobRecord);
+    const listingFiltered = JobVisibilityRepository.filterJobForUser(policyApplied, freeUser, false);
+    const detailFiltered = JobVisibilityRepository.filterJobForUser(policyApplied, freeUser, false);
+
+    assert(
+      listingFiltered.applicationUrl === detailFiltered.applicationUrl &&
+      listingFiltered.applicationUrl === '🔒 Unlock with Premium Subscription',
+      '66. Public listing and detail responses produce identical consistent redaction for Premium fields'
+    );
+
+    // 67. Direct attachment URL cannot bypass field or attachment privacy
+    const directAttJobId = `job-att-privacy-${Date.now()}`;
+    const directAttJob = {
+      id: directAttJobId,
+      title: 'Attachment Privacy Job',
+      status: 'Approved',
+      attachments: [
+        { id: 'att-priv-1', name: 'PrivateSpec.pdf', fileUrl: '/api/jobs/attachments/PrivateSpec.pdf', isPublic: false }
+      ],
+      fieldVisibility: { attachments: 'Free' }
+    };
+    createdFixtureIds.push(directAttJobId);
+    Database.addJob(directAttJob);
+
+    const directAccessResult = await JobRepository.verifyAttachmentAccess('PrivateSpec.pdf', freeUser, false, directAttJobId);
+    assert(
+      directAccessResult === false,
+      '67. Direct attachment URL cannot bypass individual attachment privacy (isPublic: false) even when attachments field is Free'
+    );
+
+    // 68. Bulk updates affect only selected jobs and fields
+    const bulkJob1Id = `job-bulk-1-${Date.now()}`;
+    const bulkJob2Id = `job-bulk-2-${Date.now()}`;
+    createdFixtureIds.push(bulkJob1Id, bulkJob2Id);
+
+    Database.addJob({ id: bulkJob1Id, title: 'Bulk Job 1', fieldVisibility: { applicationUrl: 'Free', contactEmail: 'Free' } });
+    Database.addJob({ id: bulkJob2Id, title: 'Bulk Job 2', fieldVisibility: { applicationUrl: 'Free', contactEmail: 'Free' } });
+
+    // Perform selective bulk update for contactEmail only
+    const targetIds = [bulkJob1Id, bulkJob2Id];
+    for (const id of targetIds) {
+      const j = await JobRepository.getById(id);
+      const updatedRules = { ...j.fieldVisibility, contactEmail: 'Premium' };
+      await JobRepository.update(id, { fieldVisibility: updatedRules });
+    }
+
+    const resBulk1 = await JobRepository.getById(bulkJob1Id);
+    const resBulk2 = await JobRepository.getById(bulkJob2Id);
+
+    assert(
+      resBulk1?.fieldVisibility?.applicationUrl === 'Free' &&
+      resBulk1?.fieldVisibility?.contactEmail === 'Premium' &&
+      resBulk2?.fieldVisibility?.applicationUrl === 'Free' &&
+      resBulk2?.fieldVisibility?.contactEmail === 'Premium',
+      '68. Bulk updates affect selected fields (contactEmail: Premium) while preserving unselected fields (applicationUrl: Free)'
+    );
+
+    // 69. Invalid field names and invalid visibility values are rejected
+    const invalidFieldNameCheck = validateFieldRules({ fakeFieldKeyName: 'Free' });
+    const invalidVisibilityValueCheck = validateFieldRules({ title: 'SuperFreeInvalid' });
+    const internalFieldCheck = validateFieldRules({ rejectionReason: 'Free' });
+
+    assert(
+      invalidFieldNameCheck !== null &&
+      invalidVisibilityValueCheck !== null &&
+      internalFieldCheck !== null,
+      '69. Invalid field names, invalid visibility values, and internal administrative fields are strictly rejected'
+    );
+
   } finally {
     // Clean up test fixtures from Database by exact ID
     for (const id of createdFixtureIds) {

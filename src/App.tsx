@@ -3358,6 +3358,10 @@ export default function App() {
         onApply={handleApplyClick}
         isSaved={selectedJob ? savedJobIds.includes(selectedJob.id) : false}
         onToggleSave={handleToggleSaveJob}
+        onUpgrade={() => {
+          setSelectedJobTitleForSub(selectedJob?.title || '');
+          setSubscriptionModalOpen(true);
+        }}
       />
 
       <CandidateApplicationModal

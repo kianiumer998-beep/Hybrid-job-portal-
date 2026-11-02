@@ -35,6 +35,7 @@ interface JobDetailModalProps {
   onApply: (job: Job) => void;
   isSaved: boolean;
   onToggleSave: (jobId: string) => void;
+  onUpgrade?: () => void;
 }
 
 const isRedactedUrl = (url?: string): boolean => {
@@ -55,7 +56,8 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   onClose,
   onApply,
   isSaved,
-  onToggleSave
+  onToggleSave,
+  onUpgrade
 }) => {
   const [applySettings, setApplySettings] = useState<any>({
     applyButtonText: 'Apply Now',
@@ -109,10 +111,16 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   const rawExternalUrl = job.externalApplyUrl || job.applicationUrl || (job.sourceUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType === 'external') ? job.sourceUrl : undefined);
   const isExternal = job.applicationType === 'external' || (!!rawExternalUrl && (job.isGovtJob || job.isNewspaperAd || job.applicationType !== 'internal'));
 
+  const hints = (job as any)._visibilityHints || {};
   const hasRedactedExternal = isRedactedUrl(job.externalApplyUrl) || isRedactedUrl(job.applicationUrl) || (isExternal && isRedactedUrl(job.sourceUrl));
   const validExternalUrl = isValidUrl(rawExternalUrl) ? rawExternalUrl : undefined;
 
-  const isApplyRestricted = isRedactedUrl(job.applicationUrl) || isRedactedUrl(job.externalApplyUrl) || (isExternal && isRedactedUrl(job.sourceUrl));
+  const isApplyRestricted = 
+    isRedactedUrl(job.applicationUrl) || 
+    isRedactedUrl(job.externalApplyUrl) || 
+    (isExternal && isRedactedUrl(job.sourceUrl)) ||
+    hints.applicationUrl?.requiresUpgrade ||
+    hints.externalApplyUrl?.requiresUpgrade;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-hidden">
@@ -210,6 +218,22 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               {job.province && <span className="text-slate-400">• Province: {job.province}</span>}
               {job.city && <span className="text-slate-400">• City: {job.city}</span>}
               {job.district && <span className="text-slate-400">• District/Area: {job.district}</span>}
+              
+              {hints.salary?.requiresUpgrade && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onUpgrade) {
+                      onClose();
+                      onUpgrade();
+                    }
+                  }}
+                  className="ml-auto flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
+                >
+                  <Lock className="w-3 h-3" />
+                  <span>Upgrade to View Salary</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -269,15 +293,34 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           {/* Official Supporting Documents & Gazette Attachments (Public Only) */}
           {(() => {
             const publicAttachments = (job.attachments || []).filter((att) => att && att.isPublic === true);
-            if (publicAttachments.length === 0) return null;
+            const hasPremiumAttachments = hints.attachments?.requiresUpgrade || (job.attachments && job.attachments.length === 0 && rawJob?.attachments && rawJob.attachments.length > 0);
+            
+            if (publicAttachments.length === 0 && !hasPremiumAttachments) return null;
 
             return (
               <div className="p-4 bg-slate-950/90 rounded-xl border border-slate-800 space-y-3">
-                <div className="flex items-center space-x-2">
-                  <Paperclip className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    Official Supporting Documents ({publicAttachments.length})
-                  </h3>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Paperclip className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                      Official Supporting Documents
+                    </h3>
+                  </div>
+                  {hasPremiumAttachments && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onUpgrade) {
+                          onClose();
+                          onUpgrade();
+                        }
+                      }}
+                      className="flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>Unlock {rawJob?.attachments?.length || 'Premium'} Docs</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -335,7 +378,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           })()}
 
           {/* Original Document Sources (Source PDF or Newspaper Clipping) */}
-          {(job.pdfSourceUrl || (job.sourceUrl && isValidUrl(job.sourceUrl) && job.sourceUrl.toLowerCase().endsWith('.pdf')) || job.clippingImageUrl) && (
+          {(job.pdfSourceUrl || (job.sourceUrl && isValidUrl(job.sourceUrl) && job.sourceUrl.toLowerCase().endsWith('.pdf')) || job.clippingImageUrl || hints.pdfSourceUrl?.requiresUpgrade || hints.sourceUrl?.requiresUpgrade) && (
             <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider">Original Source Documents</h4>
@@ -343,7 +386,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {(job.pdfSourceUrl || (job.sourceUrl && isValidUrl(job.sourceUrl) && job.sourceUrl.toLowerCase().endsWith('.pdf'))) && (
+                {(job.pdfSourceUrl || (job.sourceUrl && isValidUrl(job.sourceUrl) && job.sourceUrl.toLowerCase().endsWith('.pdf'))) ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -361,9 +404,23 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     <FileText className="w-4 h-4" />
                     <span>View Official PDF</span>
                   </button>
+                ) : (hints.pdfSourceUrl?.requiresUpgrade || (isExternal && hints.sourceUrl?.requiresUpgrade)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onUpgrade) {
+                        onClose();
+                        onUpgrade();
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>Unlock Source PDF</span>
+                  </button>
                 )}
 
-                {job.clippingImageUrl && (
+                {job.clippingImageUrl ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -379,6 +436,20 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   >
                     <ImageIcon className="w-4 h-4" />
                     <span>View Clipping Image</span>
+                  </button>
+                ) : hints.clippingImageUrl?.requiresUpgrade && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onUpgrade) {
+                        onClose();
+                        onUpgrade();
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>Unlock Ad Clipping</span>
                   </button>
                 )}
               </div>
@@ -524,8 +595,13 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             {isApplyRestricted ? (
               <button
                 type="button"
-                disabled
-                className="px-5 py-2.5 rounded-xl font-extrabold text-xs bg-slate-800 text-amber-400 border border-amber-500/30 flex items-center space-x-2 cursor-not-allowed shadow-lg shrink-0"
+                onClick={() => {
+                  if (onUpgrade) {
+                    onClose();
+                    onUpgrade();
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl font-extrabold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 flex items-center space-x-2 shadow-lg shrink-0 cursor-pointer transition-all active:scale-95"
                 title="Upgrade to Premium Subscription to unlock application destination"
               >
                 <Lock className="w-4 h-4 text-amber-400 shrink-0" />

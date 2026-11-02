@@ -57,7 +57,12 @@ jobRouter.get('/', async (req, res) => {
 
     let sanitizedJobs = result.jobs;
     if (Array.isArray(sanitizedJobs)) {
-      sanitizedJobs = sanitizedJobs.map((job: any) => JobVisibilityRepository.filterJobForUser(job, user, isPremium));
+      sanitizedJobs = await Promise.all(
+        sanitizedJobs.map(async (job: any) => {
+          const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
+          return JobVisibilityRepository.filterJobForUser(policyApplied, user, isPremium);
+        })
+      );
     }
 
     res.json({

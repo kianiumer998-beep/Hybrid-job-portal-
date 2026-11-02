@@ -37,7 +37,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   initialSelectedJobTitle,
   currentUser
 }) => {
-  const [plan, setPlan] = useState<'Pro Alerts' | 'VIP Jobseeker'>('Pro Alerts');
+  // Static state placeholders (legacy fallback)
+  const [legacyPlan, setLegacyPlan] = useState<'Pro Alerts' | 'VIP Jobseeker'>('Pro Alerts');
+  
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [email, setEmail] = useState(currentUser?.email || '');
@@ -50,13 +52,33 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [submittedTx, setSubmittedTx] = useState<any | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Dynamic Subscription Packages from Server
+  const [packages, setPackages] = useState<any[]>([]);
+  const [selectedPackageId, setSelectedPackageId] = useState<string>('');
+  const [isLoadingPackages, setIsLoadingPackages] = useState(true);
+
   // Server-Persisted Payment Settings
   const [paymentSettings, setPaymentSettings] = useState<PublicPaymentSettings | null>(null);
   const [isSettingsConfigured, setIsSettingsConfigured] = useState<boolean>(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState<boolean>(true);
   const [selectedMethodKey, setSelectedMethodKey] = useState<string>('');
-
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setIsLoadingPackages(true);
+    api.pricing.get().then((res) => {
+      if (res && res.success && res.pricing && Array.isArray(res.pricing.subscriptionPackages)) {
+        const enabledPkgs = res.pricing.subscriptionPackages.filter((p: any) => p.enabled);
+        setPackages(enabledPkgs);
+        if (enabledPkgs.length > 0) {
+          setSelectedPackageId(enabledPkgs[0].id);
+        }
+      }
+    }).finally(() => {
+      setIsLoadingPackages(false);
+    });
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -73,7 +95,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         setPaymentSettings(res.settings);
         setIsSettingsConfigured(true);
 
-        // Pick first enabled method or defaultMethod
         const enabledKeys = Object.entries(res.settings.methods)
           .filter(([_, m]: [string, any]) => m && m.enabled && m.accountNumber)
           .map(([k]) => k);
@@ -103,6 +124,10 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   if (!isOpen) return null;
 
+  const activePackage = packages.find(p => p.id === selectedPackageId);
+  const amountPaid = activePackage ? Number(activePackage.pricePkr) : (legacyPlan === 'Pro Alerts' ? 300 : 800);
+  const plan = activePackage ? activePackage.name : legacyPlan;
+
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -123,17 +148,15 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const enabledMethods: [string, PublicPaymentMethodConfig][] = paymentSettings?.methods
     ? Object.entries(paymentSettings.methods).filter(
         ([_, m]) => m && m.enabled && m.accountNumber && m.accountTitle
-      )
+      ) as [string, PublicPaymentMethodConfig][]
     : [];
 
   const selectedMethod: PublicPaymentMethodConfig | null =
     selectedMethodKey && paymentSettings?.methods
-      ? paymentSettings.methods[selectedMethodKey] || null
+      ? (paymentSettings.methods[selectedMethodKey] as PublicPaymentMethodConfig) || null
       : enabledMethods.length > 0
       ? enabledMethods[0][1]
       : null;
-
-  const amountPaid = plan === 'Pro Alerts' ? 300 : 800;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -394,57 +417,53 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                 Select Subscription Package
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <div
-                  onClick={() => setPlan('Pro Alerts')}
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                    plan === 'Pro Alerts'
-                      ? 'bg-emerald-500/10 border-emerald-500 text-white'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-sm">Pro Jobseeker</span>
-                    <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold">Popular</span>
-                  </div>
-                  <div className="text-xl font-black text-emerald-400">PKR 300 <span className="text-xs font-normal text-slate-400">/ mo</span></div>
-                  <ul className="mt-2 text-[11px] space-y-1 text-slate-300">
-                    <li className="flex items-center space-x-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                      <span>Instant WhatsApp Alerts</span>
-                    </li>
-                    <li className="flex items-center space-x-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                      <span>Direct HR Apply Unlocked</span>
-                    </li>
-                  </ul>
+              {isLoadingPackages ? (
+                <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl text-center">
+                  <RefreshCw className="w-4 h-4 animate-spin text-emerald-400 mx-auto" />
                 </div>
-
-                <div
-                  onClick={() => setPlan('VIP Jobseeker')}
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                    plan === 'VIP Jobseeker'
-                      ? 'bg-indigo-500/10 border-indigo-500 text-white'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-sm">VIP Executive</span>
-                    <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-bold">Priority</span>
-                  </div>
-                  <div className="text-xl font-black text-indigo-400">PKR 800 <span className="text-xs font-normal text-slate-400">/ mo</span></div>
-                  <ul className="mt-2 text-[11px] space-y-1 text-slate-300">
-                    <li className="flex items-center space-x-1">
-                      <CheckCircle2 className="w-3 h-3 text-indigo-400" />
-                      <span>Recruiter Priority Routing</span>
-                    </li>
-                    <li className="flex items-center space-x-1">
-                      <CheckCircle2 className="w-3 h-3 text-indigo-400" />
-                      <span>Free Premium CV Unlocked</span>
-                    </li>
-                  </ul>
+              ) : packages.length === 0 ? (
+                <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-center text-xs text-rose-400">
+                  No subscription packages are currently available.
                 </div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {packages.map((pkg) => (
+                    <div
+                      key={pkg.id}
+                      onClick={() => setSelectedPackageId(pkg.id)}
+                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                        selectedPackageId === pkg.id
+                          ? 'bg-emerald-500/10 border-emerald-500 text-white'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-sm">{pkg.name}</span>
+                        {pkg.badge && (
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                            pkg.id === 'pro-alerts' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-300'
+                          }`}>
+                            {pkg.badge}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xl font-black text-emerald-400">
+                        PKR {pkg.pricePkr} <span className="text-xs font-normal text-slate-400">/ {pkg.durationDays} days</span>
+                      </div>
+                      {pkg.features && pkg.features.length > 0 && (
+                        <ul className="mt-2 text-[10px] space-y-1 text-slate-300">
+                          {pkg.features.map((f: string, i: number) => (
+                            <li key={i} className="flex items-center space-x-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span className="truncate">{f}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Loading / Unconfigured State Check */}

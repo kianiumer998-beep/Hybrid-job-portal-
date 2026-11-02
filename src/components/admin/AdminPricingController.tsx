@@ -410,112 +410,143 @@ export const AdminPricingController: React.FC = () => {
         </div>
 
         {/* 3. Subscriptions & Candidate Plans */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <div className="flex items-center space-x-2.5 border-b border-slate-800 pb-4">
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-bold text-white text-base">Candidate Subscription Plans</h3>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div className="flex items-center space-x-2.5">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              <h3 className="font-bold text-white text-base">Candidate Subscription Plans (Dynamic Packages)</h3>
+            </div>
+            <button
+              onClick={() => {
+                const newPkg = {
+                  id: `pkg-${Date.now()}`,
+                  name: 'New Package',
+                  pricePkr: 500,
+                  durationDays: 30,
+                  features: ['Feature 1'],
+                  enabled: true
+                };
+                setPricing((prev: any) => ({
+                  ...prev,
+                  subscriptionPackages: [...(prev.subscriptionPackages || []), newPkg]
+                }));
+              }}
+              className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold transition-all"
+            >
+              + Add New Package
+            </button>
           </div>
 
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-white block">Pro Candidate Monthly</span>
-                <span className="text-xs text-slate-400">Unlimited applications & instant alerts</span>
-              </div>
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(pricing.subscriptionPackages || []).map((pkg: any, idx: number) => (
+              <div key={pkg.id || idx} className={`p-4 bg-slate-950/60 rounded-xl border transition-all ${pkg.enabled ? 'border-slate-800' : 'border-slate-800/40 grayscale opacity-60'}`}>
+                <div className="flex items-center justify-between mb-4">
                   <input
-                    type="number"
-                    value={pricing.subscriptions?.proMonthlyPkr || 0}
-                    onChange={(e) => updateNested('subscriptions', 'proMonthlyPkr', Number(e.target.value))}
-                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                  />
-                  <span className="text-xs text-slate-400">PKR</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="number"
-                    placeholder="Days"
-                    value={pricing.subscriptionDurations?.["Pro Alerts"] || ''}
+                    type="text"
+                    value={pkg.name}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      setPricing((prev: any) => {
-                        const newDurations = { ...(prev.subscriptionDurations || {}) };
-                        if (val === '') {
-                          delete newDurations["Pro Alerts"];
-                        } else {
-                          const num = Number(val);
-                          if (num > 0 && Number.isInteger(num)) {
-                            newDurations["Pro Alerts"] = num;
-                          }
-                        }
-                        return { ...prev, subscriptionDurations: newDurations };
-                      });
+                      const newList = [...pricing.subscriptionPackages];
+                      newList[idx] = { ...newList[idx], name: e.target.value };
+                      setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
                     }}
-                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+                    className="bg-transparent border-b border-slate-800 focus:border-emerald-500 text-white font-bold text-sm outline-none px-1 py-0.5"
+                    placeholder="Package Name"
                   />
-                  <span className="text-xs text-slate-400">Days</span>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pkg.enabled}
+                      onChange={(e) => {
+                        const newList = [...pricing.subscriptionPackages];
+                        newList[idx] = { ...newList[idx], enabled: e.target.checked };
+                        setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                      }}
+                      className="w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                    />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Enabled</span>
+                  </label>
                 </div>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-amber-300 block">VIP Candidate Monthly</span>
-                <span className="text-xs text-slate-400">Top candidate badge + employer direct messaging</span>
-              </div>
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="number"
-                    value={pricing.subscriptions?.vipMonthlyPkr || 0}
-                    onChange={(e) => updateNested('subscriptions', 'vipMonthlyPkr', Number(e.target.value))}
-                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                  />
-                  <span className="text-xs text-slate-400">PKR</span>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Price (PKR)</label>
+                    <input
+                      type="number"
+                      value={pkg.pricePkr}
+                      onChange={(e) => {
+                        const newList = [...pricing.subscriptionPackages];
+                        newList[idx] = { ...newList[idx], pricePkr: Number(e.target.value) };
+                        setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                      }}
+                      className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-white text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Duration (Days)</label>
+                    <input
+                      type="number"
+                      value={pkg.durationDays}
+                      onChange={(e) => {
+                        const newList = [...pricing.subscriptionPackages];
+                        newList[idx] = { ...newList[idx], durationDays: Number(e.target.value) };
+                        setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                      }}
+                      className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded text-white text-xs font-mono"
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="number"
-                    placeholder="Days"
-                    value={pricing.subscriptionDurations?.["VIP Jobseeker"] || ''}
+
+                <div className="space-y-2">
+                  <label className="text-[10px] text-slate-500 font-bold uppercase block">Features List (Comma Separated)</label>
+                  <textarea
+                    value={(pkg.features || []).join(', ')}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      setPricing((prev: any) => {
-                        const newDurations = { ...(prev.subscriptionDurations || {}) };
-                        if (val === '') {
-                          delete newDurations["VIP Jobseeker"];
-                        } else {
-                          const num = Number(val);
-                          if (num > 0 && Number.isInteger(num)) {
-                            newDurations["VIP Jobseeker"] = num;
-                          }
-                        }
-                        return { ...prev, subscriptionDurations: newDurations };
-                      });
+                      const newList = [...pricing.subscriptionPackages];
+                      newList[idx] = { ...newList[idx], features: e.target.value.split(',').map(s => s.trim()).filter(Boolean) };
+                      setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
                     }}
-                    className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+                    rows={2}
+                    className="w-full px-2 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-[11px] leading-tight outline-none focus:border-emerald-500 transition-colors"
+                    placeholder="e.g. Instant WhatsApp Alerts, Priority Apply..."
                   />
-                  <span className="text-xs text-slate-400">Days</span>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/50">
+                   <div className="flex items-center space-x-2">
+                     <label className="text-[10px] text-slate-500 font-bold uppercase">Badge:</label>
+                     <input
+                       type="text"
+                       value={pkg.badge || ''}
+                       onChange={(e) => {
+                         const newList = [...pricing.subscriptionPackages];
+                         newList[idx] = { ...newList[idx], badge: e.target.value };
+                         setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                       }}
+                       placeholder="e.g. Popular"
+                       className="bg-transparent border-b border-slate-800 text-[11px] text-amber-400 outline-none px-1"
+                     />
+                   </div>
+                   <button
+                     onClick={() => {
+                       if (confirm('Are you sure you want to delete this package?')) {
+                         const newList = pricing.subscriptionPackages.filter((_: any, i: number) => i !== idx);
+                         setPricing((prev: any) => ({ ...prev, subscriptionPackages: newList }));
+                       }
+                     }}
+                     className="text-[10px] font-bold text-rose-500 hover:text-rose-400 uppercase tracking-widest"
+                   >
+                     Remove
+                   </button>
                 </div>
               </div>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div>
-                <span className="font-semibold text-sky-300 block">Govt WhatsApp Alerts Weekly</span>
-                <span className="text-xs text-slate-400">Official FPSC/PPSC gazette notifications</span>
+            ))}
+            
+            {(!pricing.subscriptionPackages || pricing.subscriptionPackages.length === 0) && (
+              <div className="md:col-span-2 p-10 text-center border-2 border-dashed border-slate-800 rounded-2xl">
+                <AlertCircle className="w-8 h-8 text-slate-700 mx-auto mb-3" />
+                <p className="text-slate-500 text-sm">No subscription packages configured. Users will not be able to upgrade.</p>
               </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  value={pricing.subscriptions?.govtAlertsWeeklyPkr || 0}
-                  onChange={(e) => updateNested('subscriptions', 'govtAlertsWeeklyPkr', Number(e.target.value))}
-                  className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
-                />
-                <span className="text-xs text-slate-400">PKR</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 

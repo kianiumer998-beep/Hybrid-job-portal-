@@ -266,6 +266,13 @@ export class JobVisibilityRepository {
         } else {
           filtered[field] = '🔒 [Premium Content - Upgrade to View]';
         }
+        
+        // Add metadata hint for UI
+        if (!filtered._visibilityHints) filtered._visibilityHints = {};
+        filtered._visibilityHints[field] = {
+          visibility,
+          requiresUpgrade: true
+        };
       }
     }
 

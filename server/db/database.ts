@@ -149,6 +149,26 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     vipMonthlyPkr: 3000,
     govtAlertsWeeklyPkr: 400
   },
+  subscriptionPackages: [
+    {
+      id: 'pro-alerts',
+      name: 'Pro Alerts',
+      pricePkr: 300,
+      durationDays: 30,
+      features: ['Instant WhatsApp Alerts', 'Direct HR Apply Unlocked', 'Priority Verification'],
+      enabled: true,
+      badge: 'Popular'
+    },
+    {
+      id: 'vip-jobseeker',
+      name: 'VIP Jobseeker',
+      pricePkr: 800,
+      durationDays: 30,
+      features: ['Recruiter Priority Routing', 'Free Premium CV Unlocked', 'Featured Candidate Profile'],
+      enabled: true,
+      badge: 'Priority'
+    }
+  ],
   cvBuilder: {
     standardPdfExportPkr: 0,
     premiumAiOptimizerPkr: 500,
@@ -541,6 +561,9 @@ export class Database {
     return {
       ...DEFAULT_COMPREHENSIVE_PRICING,
       ...(stored || {}),
+      subscriptionPackages: Array.isArray(stored?.subscriptionPackages)
+        ? stored.subscriptionPackages
+        : DEFAULT_COMPREHENSIVE_PRICING.subscriptionPackages,
       adPricingConfig: {
         ...DEFAULT_AD_PRICING_CONFIG,
         ...(stored?.adPricingConfig || {}),

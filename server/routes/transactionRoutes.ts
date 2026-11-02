@@ -401,36 +401,34 @@ transactionRouter.post('/', async (req, res) => {
         };
       } else if (effectiveType === 'Subscription') {
         const rawPlan = typeof plan === 'string' ? plan.trim() : '';
-        const subPricing = PricingRepository.get()?.subscriptions || {};
-        let configuredSubPrice = NaN;
-
-        if (rawPlan === 'Pro Alerts' || rawPlan === 'proMonthlyPkr') {
-          safeSubscriptionPlan = 'Pro Alerts';
-          configuredSubPrice = Number(subPricing.proMonthlyPkr);
-        } else if (rawPlan === 'VIP Jobseeker' || rawPlan === 'vipMonthlyPkr') {
-          safeSubscriptionPlan = 'VIP Jobseeker';
-          configuredSubPrice = Number(subPricing.vipMonthlyPkr);
-        } else if (rawPlan === 'Govt Alerts Weekly' || rawPlan === 'govtAlertsWeeklyPkr') {
-          safeSubscriptionPlan = 'Govt Alerts Weekly';
-          configuredSubPrice = Number(subPricing.govtAlertsWeeklyPkr);
-        } else {
-          return res.status(400).json({
-            success: false,
-            message: 'Valid subscription plan is required.'
-          });
-        }
-
-        if (!Number.isFinite(configuredSubPrice) || configuredSubPrice <= 0) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid subscription plan pricing.'
-          });
-        }
-
         const pricingConfig = PricingRepository.get() || {};
-        authoritativeSubDuration = Number(
-          pricingConfig.subscriptionDurations?.[safeSubscriptionPlan!]
+        const packages = pricingConfig.subscriptionPackages || [];
+        
+        // Find package by ID (primary) or name (fallback)
+        const targetPackage = packages.find((p: any) => 
+          p.id === rawPlan || 
+          p.name === rawPlan || 
+          (rawPlan === 'proMonthlyPkr' && p.id === 'pro-alerts') ||
+          (rawPlan === 'vipMonthlyPkr' && p.id === 'vip-jobseeker')
         );
+
+        if (!targetPackage || !targetPackage.enabled) {
+          return res.status(400).json({
+            success: false,
+            message: `The selected subscription plan "${rawPlan}" is no longer available or is disabled.`
+          });
+        }
+
+        safeSubscriptionPlan = targetPackage.name;
+        authoritativeSubDuration = Number(targetPackage.durationDays);
+        enforcedAmount = Number(targetPackage.pricePkr);
+
+        if (!Number.isFinite(enforcedAmount) || enforcedAmount <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid subscription plan pricing configuration.'
+          });
+        }
 
         if (!Number.isFinite(authoritativeSubDuration) || authoritativeSubDuration <= 0 || !Number.isInteger(authoritativeSubDuration)) {
           return res.status(400).json({
@@ -439,8 +437,7 @@ transactionRouter.post('/', async (req, res) => {
           });
         }
 
-        enforcedAmount = configuredSubPrice;
-        pricingBreakdown = [{ name: `${safeSubscriptionPlan} Subscription`, amount: configuredSubPrice }];
+        pricingBreakdown = [{ name: `${safeSubscriptionPlan} Subscription`, amount: enforcedAmount }];
       } else {
         const numericAmount = Number(amount);
         if (amount === undefined || amount === null || amount === '' || !Number.isFinite(numericAmount) || numericAmount <= 0) {

@@ -27,7 +27,7 @@ async function getTransactionsCollection() {
 }
 
 async function ensureTransactionIndexes() {
-  if (!isMongoActive()) return;
+  if (isTest() || !isMongoActive()) return;
   try {
     const coll = await getTransactionsCollection();
     await coll.createIndex({ transactionId: 1 }, { unique: true, sparse: true });
@@ -198,15 +198,8 @@ export class PaymentRepository {
       updatedAt: txData?.updatedAt || new Date().toISOString()
     };
     if (isTest()) {
-      const id = txData?.id || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-      const tx = {
-        ...clean,
-        id,
-        createdAt: txData?.createdAt || new Date().toISOString(),
-        updatedAt: txData?.updatedAt || new Date().toISOString()
-      };
-      inMemoryTransactions.set(id, tx);
-      return tx;
+      inMemoryTransactions.set(id, txToSave);
+      return txToSave;
     }
     if (isMongoActive()) {
       try {

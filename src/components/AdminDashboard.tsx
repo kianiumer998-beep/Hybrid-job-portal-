@@ -5780,24 +5780,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {adminTab === 'settings' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-white">
           
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4 shadow-xl">
-            <h3 className="text-base font-bold border-b border-slate-800 pb-2 flex items-center space-x-2">
-              <DollarSign className="w-5 h-5 text-emerald-400" />
-              <span>User Monthly Subscription Fee</span>
-            </h3>
-            <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1">Monthly Subscription Fee (PKR)</label>
-              <input
-                type="number"
-                value={monthlyFeePkr}
-                onChange={(e) => onChangeMonthlyFee(Number(e.target.value))}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold"
-              />
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Sets the cost of monthly pro access for job alert notifications and portal tools.
-            </p>
-          </div>
+          {/* LEGACY MONTHLY FEE INPUT REMOVED - NOW MANAGED VIA UNIVERSAL PRICING CONTROLLER */}
 
           {/* PER-JOB POSTING & PRIORITY PLACEMENT FEE CONTROLLER */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4 shadow-xl">

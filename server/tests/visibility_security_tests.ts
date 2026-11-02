@@ -763,6 +763,52 @@ async function runTests() {
       '54. Individual job field override (Free applicationUrl) takes precedence over source default rules'
     );
 
+    // ==========================================
+    // GROUP 7: STEP65-D.12.7 STRICT PAYMENT & PDF ISOLATION
+    // ==========================================
+    console.log('\n--- Group 7: STEP65-D.12.7 Strict Payment & PDF Isolation ---');
+
+    // 55. PDF Source URL isolation (No sourceUrl fallback)
+    const pdfHiddenJob = {
+      id: 'job-pdf-hidden-1',
+      title: 'Senior Engineer',
+      pdfSourceUrl: 'https://cdn.com/official.pdf',
+      sourceUrl: 'https://employer.com/info',
+      fieldVisibility: {
+        pdfSourceUrl: 'Premium',
+        sourceUrl: 'Free'
+      }
+    };
+    const policyPdfJob = await JobVisibilityRepository.applyPolicyToJob(pdfHiddenJob);
+    const filteredPdfJob = JobVisibilityRepository.filterJobForUser(policyPdfJob, freeUser, false);
+    
+    assert(
+      filteredPdfJob.pdfSourceUrl === '🔒 Unlock with Premium Subscription' &&
+      filteredPdfJob.sourceUrl === 'https://employer.com/info',
+      '55. PDF source URL correctly redacted independently of Free sourceUrl'
+    );
+
+    // 56. Premium PDF Source URL visibility for Premium users
+    const filteredPdfForPrem = JobVisibilityRepository.filterJobForUser(policyPdfJob, freeUser, true);
+    assert(
+      filteredPdfForPrem.pdfSourceUrl === 'https://cdn.com/official.pdf',
+      '56. Premium PDF source URL correctly unredacted for Premium users'
+    );
+
+    // 57. Hidden PDF Source URL remains hidden for all non-admins
+    const pdfFullyHiddenJob = {
+      id: 'job-pdf-hidden-2',
+      title: 'Secret Engineer',
+      pdfSourceUrl: 'https://cdn.com/confidential.pdf',
+      fieldVisibility: { pdfSourceUrl: 'Hidden' }
+    };
+    const policyFullyHiddenPdf = await JobVisibilityRepository.applyPolicyToJob(pdfFullyHiddenJob);
+    const filteredFullyHiddenPdf = JobVisibilityRepository.filterJobForUser(policyFullyHiddenPdf, freeUser, true);
+    assert(
+      filteredFullyHiddenPdf.pdfSourceUrl === undefined,
+      '57. Hidden PDF source URL completely stripped even for Premium users'
+    );
+
   } finally {
     // Clean up test fixtures from Database by exact ID
     for (const id of createdFixtureIds) {

@@ -394,15 +394,14 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {(job.pdfSourceUrl || (job.sourceUrl && isValidUrl(job.sourceUrl) && job.sourceUrl.toLowerCase().endsWith('.pdf'))) ? (
+                {job.pdfSourceUrl && isValidUrl(job.pdfSourceUrl) ? (
                   <button
                     type="button"
                     onClick={() => {
-                      const url = job.pdfSourceUrl || job.sourceUrl;
-                      if (url && isValidUrl(url)) {
+                      if (job.pdfSourceUrl && isValidUrl(job.pdfSourceUrl)) {
                         setPreviewDoc({
                           name: job.pdfFileName || `${job.title}_Advertisement.pdf`,
-                          fileUrl: url,
+                          fileUrl: job.pdfSourceUrl,
                           fileType: 'application/pdf'
                         });
                       }
@@ -412,7 +411,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     <FileText className="w-4 h-4" />
                     <span>View Official PDF</span>
                   </button>
-                ) : (hints.pdfSourceUrl?.requiresUpgrade || (isExternal && hints.sourceUrl?.requiresUpgrade)) && (
+                ) : hints.pdfSourceUrl?.requiresUpgrade && (
                   <button
                     type="button"
                     onClick={() => {

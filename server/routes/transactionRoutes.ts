@@ -404,13 +404,8 @@ transactionRouter.post('/', async (req, res) => {
         const pricingConfig = PricingRepository.get() || {};
         const packages = pricingConfig.subscriptionPackages || [];
         
-        // Find package by ID (primary) or name (fallback)
-        const targetPackage = packages.find((p: any) => 
-          p.id === rawPlan || 
-          p.name === rawPlan || 
-          (rawPlan === 'proMonthlyPkr' && p.id === 'pro-alerts') ||
-          (rawPlan === 'vipMonthlyPkr' && p.id === 'vip-jobseeker')
-        );
+        // Find package by exact ID only (No name or legacy alias fallbacks allowed)
+        const targetPackage = packages.find((p: any) => p.id === rawPlan);
 
         if (!targetPackage || !targetPackage.enabled) {
           return res.status(400).json({

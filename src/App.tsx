@@ -2134,13 +2134,15 @@ export default function App() {
     if (!currentUser) return;
 
     const rawTier = (currentUser as any).membershipTier;
-    const selectedPlan =
-      rawTier === 'VIP Jobseeker' || rawTier === 'Govt Alerts Weekly' || rawTier === 'Pro Alerts'
-        ? rawTier
-        : 'Pro Alerts';
+    const targetPackage = subscriptionPackages.find(p => p.enabled && (p.id === rawTier || p.name === rawTier));
+    
+    if (!targetPackage) {
+      alert('Subscription renewal is currently unavailable for your current plan tier. Please contact support or upgrade via the Subscription menu.');
+      return;
+    }
 
-    const targetPackage = subscriptionPackages.find(p => p.name === selectedPlan || p.id === selectedPlan);
-    const renewalAmount = targetPackage ? Number(targetPackage.pricePkr) : 300;
+    const selectedPlan = targetPackage.id;
+    const renewalAmount = Number(targetPackage.pricePkr);
 
     try {
       const txRes = await api.transactions.submit({

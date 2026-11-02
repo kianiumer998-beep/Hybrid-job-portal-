@@ -653,31 +653,13 @@ export class PaymentRepository {
           membershipTier = snapshot.name || planName;
           console.log(`[PaymentRepository] Using packageSnapshot for subscription approval: ${membershipTier} (${durationDays} days)`);
         } else {
-          // Fail-closed for new transactions that MUST have a snapshot
-          // Check if transaction is recent (e.g., within last hour) to distinguish new vs legacy
-          const createdAt = tx.createdAt ? new Date(tx.createdAt).getTime() : 0;
-          const isNewTransaction = (Date.now() - createdAt) < 3600000; // 1 hour threshold
-
-          if (isNewTransaction) {
-            await this.updateAsync(id, {
-              status: 'Pending',
-              rejectionReason: 'Legacy transaction requires manual review (missing packageSnapshot).',
-              updatedAt: new Date().toISOString()
-            });
-            throw new Error('Cannot approve Subscription: packageSnapshot is missing on a new transaction. Fail-closed enforced.');
-          }
-
-          const authoritativeDuration = Number(pricing.subscriptionDurations?.[planName]);
-          if (!Number.isFinite(authoritativeDuration) || authoritativeDuration <= 0 || !Number.isInteger(authoritativeDuration)) {
-            await this.updateAsync(id, {
-              status: 'Pending',
-              rejectionReason: `Invalid or missing authoritative server-side duration configuration for plan "${planName}".`,
-              updatedAt: new Date().toISOString()
-            });
-            throw new Error(`Cannot approve Subscription: authoritative server-side duration configuration is missing or invalid for plan "${planName}".`);
-          }
-          durationDays = authoritativeDuration;
-          console.log(`[PaymentRepository] Using legacy lookup for subscription approval: ${membershipTier} (${durationDays} days)`);
+          // Strict fail-closed for any subscription transaction missing a snapshot
+          await this.updateAsync(id, {
+            status: 'Pending',
+            rejectionReason: 'Manual Review Required: Legacy transaction lacks package snapshot.',
+            updatedAt: new Date().toISOString()
+          });
+          throw new Error('Cannot approve Subscription: packageSnapshot is missing. Manual review required for legacy transactions.');
         }
 
         let updatedUser: any = null;

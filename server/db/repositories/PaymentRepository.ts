@@ -7,8 +7,9 @@ import { PricingRepository } from './PricingRepository';
 import { getMongoDb, isMongoConfigured } from '../mongodb';
 
 const activeCompensationLocks = new Set<string>();
-
-const isMongoActive = () => isMongoConfigured() && process.env.IS_TEST !== 'true';
+const isTest = () => process.env.IS_TEST === 'true';
+const isMongoActive = () => isMongoConfigured() && !isTest();
+const inMemoryTransactions = new Map<string, any>();
 
 export type CompensationStatusState =
   | 'Compensating'
@@ -61,6 +62,13 @@ export class PaymentRepository {
   }
 
   static getAll(userId?: string): any[] {
+    if (isTest()) {
+      const txs = Array.from(inMemoryTransactions.values());
+      if (userId) {
+        return txs.filter(t => t && String(t.userId || '') === String(userId));
+      }
+      return txs;
+    }
     let txs = Database.getTransactions();
     if (userId) {
       txs = txs.filter(t => t && String(t.userId || '') === String(userId));
@@ -69,6 +77,7 @@ export class PaymentRepository {
   }
 
   static async getAllAsync(userId?: string): Promise<any[]> {
+    if (isTest()) return this.getAll(userId);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -86,12 +95,14 @@ export class PaymentRepository {
   }
 
   static getById(id: string): any | null {
+    if (isTest()) return inMemoryTransactions.get(id) || null;
     const txs = Database.getTransactions();
     return txs.find(t => t && String(t.id) === String(id)) || null;
   }
 
   static async getByIdAsync(id: string): Promise<any | null> {
     if (!id) return null;
+    if (isTest()) return this.getById(id);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -110,12 +121,16 @@ export class PaymentRepository {
 
   static findByIdempotencyKey(key: string): any | null {
     if (!key) return null;
+    if (isTest()) {
+      return Array.from(inMemoryTransactions.values()).find(t => t && String(t.idempotencyKey) === String(key)) || null;
+    }
     const txs = Database.getTransactions();
     return txs.find(t => t && String(t.idempotencyKey) === String(key)) || null;
   }
 
   static async findByIdempotencyKeyAsync(key: string): Promise<any | null> {
     if (!key) return null;
+    if (isTest()) return this.findByIdempotencyKey(key);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -134,12 +149,16 @@ export class PaymentRepository {
 
   static findByTransactionId(tid: string): any | null {
     if (!tid) return null;
+    if (isTest()) {
+      return Array.from(inMemoryTransactions.values()).find(t => t && String(t.transactionId) === String(tid)) || null;
+    }
     const txs = Database.getTransactions();
     return txs.find(t => t && String(t.transactionId) === String(tid)) || null;
   }
 
   static async findByTransactionIdAsync(tid: string): Promise<any | null> {
     if (!tid) return null;
+    if (isTest()) return this.findByTransactionId(tid);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -157,6 +176,12 @@ export class PaymentRepository {
   }
 
   static create(txData: any): any {
+    if (isTest()) {
+      const id = txData?.id || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const tx = { ...txData, id };
+      inMemoryTransactions.set(id, tx);
+      return tx;
+    }
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous create is prohibited; use createAsync.');
     }
@@ -172,6 +197,17 @@ export class PaymentRepository {
       createdAt: txData?.createdAt || new Date().toISOString(),
       updatedAt: txData?.updatedAt || new Date().toISOString()
     };
+    if (isTest()) {
+      const id = txData?.id || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const tx = {
+        ...clean,
+        id,
+        createdAt: txData?.createdAt || new Date().toISOString(),
+        updatedAt: txData?.updatedAt || new Date().toISOString()
+      };
+      inMemoryTransactions.set(id, tx);
+      return tx;
+    }
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -187,6 +223,13 @@ export class PaymentRepository {
   static async updateAsync(id: string, updates: Record<string, any>): Promise<any | null> {
     const updatedAt = new Date().toISOString();
     const updatePayload = { ...updates, updatedAt };
+    if (isTest()) {
+      const existing = inMemoryTransactions.get(id);
+      if (!existing) return null;
+      const updated = { ...existing, ...updatePayload };
+      inMemoryTransactions.set(id, updated);
+      return updated;
+    }
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -486,7 +529,16 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
-    if (isMongoActive()) {
+    if (isTest()) {
+      const tx = inMemoryTransactions.get(id);
+      if (!tx) return null;
+      if (tx.status !== 'Pending') {
+        throw new Error(`Transaction is already ${tx.status} and cannot be processed.`);
+      }
+      tx.status = 'Verifying';
+      tx.updatedAt = new Date().toISOString();
+      inMemoryTransactions.set(id, tx);
+    } else if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         const res: any = await coll.findOneAndUpdate(

@@ -1,14 +1,18 @@
 import { Database } from '../database';
 import { getUsersCollection, isMongoConfigured } from '../mongodb';
 
-const isMongoActive = () => isMongoConfigured() && process.env.IS_TEST !== 'true';
+const isTest = () => process.env.IS_TEST === 'true';
+const isMongoActive = () => isMongoConfigured() && !isTest();
+const inMemoryUsers = new Map<string, any>();
 
 export class UserRepository {
   static getAll(): any[] {
+    if (isTest()) return Array.from(inMemoryUsers.values());
     return Database.getUsers();
   }
 
   static async getAllAsync(): Promise<any[]> {
+    if (isTest()) return Array.from(inMemoryUsers.values());
     if (isMongoActive()) {
       const coll = await getUsersCollection();
       const users = await coll.find({}).sort({ createdAt: -1 }).toArray();
@@ -21,11 +25,13 @@ export class UserRepository {
   }
 
   static getById(id: string): any | null {
+    if (isTest()) return inMemoryUsers.get(id) || null;
     return Database.getUserById(id);
   }
 
   static async getByIdAsync(id: string): Promise<any | null> {
     if (!id) return null;
+    if (isTest()) return inMemoryUsers.get(id) || null;
     if (isMongoActive()) {
       const coll = await getUsersCollection();
       const user = await coll.findOne({ id });
@@ -39,11 +45,20 @@ export class UserRepository {
   }
 
   static getByEmail(email: string): any | null {
+    if (!email) return null;
+    if (isTest()) {
+      const normalized = email.toLowerCase().trim();
+      return Array.from(inMemoryUsers.values()).find(u => u.email?.toLowerCase().trim() === normalized) || null;
+    }
     return Database.getUserByEmail(email);
   }
 
   static async getByEmailAsync(email: string): Promise<any | null> {
     if (!email) return null;
+    if (isTest()) {
+      const normalized = email.toLowerCase().trim();
+      return Array.from(inMemoryUsers.values()).find(u => u.email?.toLowerCase().trim() === normalized) || null;
+    }
     if (isMongoActive()) {
       const coll = await getUsersCollection();
       const user = await coll.findOne({ email: email.toLowerCase().trim() });
@@ -83,6 +98,11 @@ export class UserRepository {
       updatedAt: userData?.updatedAt || new Date().toISOString()
     };
 
+    if (isTest()) {
+      inMemoryUsers.set(id, userToSave);
+      return userToSave;
+    }
+
     if (isMongoActive()) {
       const coll = await getUsersCollection();
       await coll.insertOne({ ...userToSave });
@@ -93,6 +113,12 @@ export class UserRepository {
   }
 
   static create(userData: any): any {
+    if (isTest()) {
+      const id = userData.id || `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+      const user = { ...userData, id };
+      inMemoryUsers.set(id, user);
+      return user;
+    }
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
     }
@@ -110,6 +136,14 @@ export class UserRepository {
       ...safeUpdates,
       updatedAt: new Date().toISOString()
     };
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(id);
+      if (!existing) return null;
+      const updated = { ...existing, ...updatePayload };
+      inMemoryUsers.set(id, updated);
+      return updated;
+    }
 
     if (isMongoActive()) {
       const coll = await getUsersCollection();
@@ -155,6 +189,18 @@ export class UserRepository {
       ...safeExtraUpdates,
       updatedAt: new Date().toISOString()
     };
+
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing || (existing.walletBalance || 0) < amount) return null;
+      const updated = {
+        ...existing,
+        ...setPayload,
+        walletBalance: (existing.walletBalance || 0) - amount
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
 
     if (isMongoActive()) {
       const coll = await getUsersCollection();
@@ -228,6 +274,18 @@ export class UserRepository {
       updatedAt: new Date().toISOString()
     };
 
+    if (isTest()) {
+      const existing = inMemoryUsers.get(cleanUserId);
+      if (!existing) return null;
+      const updated = {
+        ...existing,
+        ...setPayload,
+        walletBalance: (existing.walletBalance || 0) + amount
+      };
+      inMemoryUsers.set(cleanUserId, updated);
+      return updated;
+    }
+
     if (isMongoActive()) {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
@@ -282,6 +340,10 @@ export class UserRepository {
    * When MongoDB is configured, deletes strictly from MongoDB.
    */
   static async deleteAsync(id: string): Promise<boolean> {
+    if (isTest()) {
+      return inMemoryUsers.delete(id);
+    }
+
     if (isMongoActive()) {
       const coll = await getUsersCollection();
       const res = await coll.deleteOne({ id });
@@ -291,6 +353,9 @@ export class UserRepository {
   }
 
   static delete(id: string): boolean {
+    if (isTest()) {
+      return inMemoryUsers.delete(id);
+    }
     if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous delete is prohibited to ensure authoritative persistence; use deleteAsync.');
     }

@@ -41,7 +41,6 @@ async function runTests() {
     };
 
     const checkRes = async (id: string, testName: string, expectedReason?: string) => {
-      await new Promise(r => setTimeout(r, 100)); // Ensure disk write settles
       const res = await PaymentRepository.getByIdAsync(id);
       console.log(`[DEBUG] ${testName} result: status=${res?.status}, reason=${res?.rejectionReason}`);
       let pass = res?.status === 'Pending';

@@ -8,6 +8,8 @@ import { getMongoDb, isMongoConfigured } from '../mongodb';
 
 const activeCompensationLocks = new Set<string>();
 
+const isMongoActive = () => isMongoConfigured() && process.env.IS_TEST !== 'true';
+
 export type CompensationStatusState =
   | 'Compensating'
   | 'Compensated'
@@ -24,7 +26,7 @@ async function getTransactionsCollection() {
 }
 
 async function ensureTransactionIndexes() {
-  if (!isMongoConfigured()) return;
+  if (!isMongoActive()) return;
   try {
     const coll = await getTransactionsCollection();
     await coll.createIndex({ transactionId: 1 }, { unique: true, sparse: true });
@@ -67,7 +69,7 @@ export class PaymentRepository {
   }
 
   static async getAllAsync(userId?: string): Promise<any[]> {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         const query = userId ? { userId: String(userId) } : {};
@@ -90,7 +92,7 @@ export class PaymentRepository {
 
   static async getByIdAsync(id: string): Promise<any | null> {
     if (!id) return null;
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         const doc = await coll.findOne({ id: String(id) });
@@ -114,7 +116,7 @@ export class PaymentRepository {
 
   static async findByIdempotencyKeyAsync(key: string): Promise<any | null> {
     if (!key) return null;
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         const doc = await coll.findOne({ idempotencyKey: String(key) });
@@ -138,7 +140,7 @@ export class PaymentRepository {
 
   static async findByTransactionIdAsync(tid: string): Promise<any | null> {
     if (!tid) return null;
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         const doc = await coll.findOne({ transactionId: String(tid) });
@@ -155,7 +157,7 @@ export class PaymentRepository {
   }
 
   static create(txData: any): any {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous create is prohibited; use createAsync.');
     }
     return Database.addTransaction(txData);
@@ -170,7 +172,7 @@ export class PaymentRepository {
       createdAt: txData?.createdAt || new Date().toISOString(),
       updatedAt: txData?.updatedAt || new Date().toISOString()
     };
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         await coll.insertOne({ ...txToSave });
@@ -185,7 +187,7 @@ export class PaymentRepository {
   static async updateAsync(id: string, updates: Record<string, any>): Promise<any | null> {
     const updatedAt = new Date().toISOString();
     const updatePayload = { ...updates, updatedAt };
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         await coll.updateOne({ id: String(id) }, { $set: updatePayload });
@@ -484,7 +486,7 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         const res: any = await coll.findOneAndUpdate(
@@ -643,24 +645,49 @@ export class PaymentRepository {
         const pricing = PricingRepository.get() || {};
         
         // Priority: Use the server-verified snapshot stored at transaction creation
-        // Fallback: Use legacy pricing lookup only if snapshot is missing (for pre-snapshot transactions)
         const snapshot = tx.packageSnapshot;
         let durationDays = 0;
-        let membershipTier = planName;
+        let membershipTier = '';
 
-        if (snapshot && typeof snapshot === 'object') {
-          durationDays = Number(snapshot.durationDays);
-          membershipTier = snapshot.name || planName;
-          console.log(`[PaymentRepository] Using packageSnapshot for subscription approval: ${membershipTier} (${durationDays} days)`);
-        } else {
-          // Strict fail-closed for any subscription transaction missing a snapshot
+        const failSnapshot = async (reason: string) => {
           await this.updateAsync(id, {
             status: 'Pending',
-            rejectionReason: 'Manual Review Required: Legacy transaction lacks package snapshot.',
+            rejectionReason: reason,
             updatedAt: new Date().toISOString()
           });
-          throw new Error('Cannot approve Subscription: packageSnapshot is missing. Manual review required for legacy transactions.');
+          throw new Error(`Cannot approve Subscription: ${reason}`);
+        };
+
+        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+          await failSnapshot('Manual Review Required: Missing or invalid package snapshot.');
         }
+
+        // 1. Snapshot ID & Name
+        if (!snapshot.id || typeof snapshot.id !== 'string' || !snapshot.id.trim()) {
+          await failSnapshot('Invalid package ID in snapshot.');
+        }
+        if (!snapshot.name || typeof snapshot.name !== 'string' || !snapshot.name.trim()) {
+          await failSnapshot('Invalid package name in snapshot.');
+        }
+
+        // 2. Snapshot Price vs Transaction Amount
+        const snapPrice = Number(snapshot.pricePkr);
+        const txAmount = Number(tx.amount);
+        if (!Number.isFinite(snapPrice) || snapPrice <= 0) {
+          await failSnapshot('Invalid price in package snapshot.');
+        }
+        if (!Number.isFinite(txAmount) || Math.abs(txAmount - snapPrice) > 0.01) {
+          await failSnapshot(`Transaction amount mismatch (Tx: ${txAmount}, Snapshot: ${snapPrice}).`);
+        }
+
+        // 3. Duration Days
+        const snapDuration = Number(snapshot.durationDays);
+        if (!Number.isFinite(snapDuration) || snapDuration <= 0 || !Number.isInteger(snapDuration)) {
+          await failSnapshot('Invalid duration in package snapshot.');
+        }
+
+        durationDays = snapDuration;
+        membershipTier = snapshot.name;
 
         let updatedUser: any = null;
         try {

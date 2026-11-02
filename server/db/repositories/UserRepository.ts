@@ -1,13 +1,15 @@
 import { Database } from '../database';
 import { getUsersCollection, isMongoConfigured } from '../mongodb';
 
+const isMongoActive = () => isMongoConfigured() && process.env.IS_TEST !== 'true';
+
 export class UserRepository {
   static getAll(): any[] {
     return Database.getUsers();
   }
 
   static async getAllAsync(): Promise<any[]> {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       const users = await coll.find({}).sort({ createdAt: -1 }).toArray();
       return (users || []).map(u => {
@@ -24,7 +26,7 @@ export class UserRepository {
 
   static async getByIdAsync(id: string): Promise<any | null> {
     if (!id) return null;
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       const user = await coll.findOne({ id });
       if (user) {
@@ -42,7 +44,7 @@ export class UserRepository {
 
   static async getByEmailAsync(email: string): Promise<any | null> {
     if (!email) return null;
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       const user = await coll.findOne({ email: email.toLowerCase().trim() });
       if (user) {
@@ -81,7 +83,7 @@ export class UserRepository {
       updatedAt: userData?.updatedAt || new Date().toISOString()
     };
 
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       await coll.insertOne({ ...userToSave });
       return userToSave;
@@ -91,7 +93,7 @@ export class UserRepository {
   }
 
   static create(userData: any): any {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous create is prohibited to ensure authoritative persistence; use createAsync.');
     }
     return Database.addUser(userData);
@@ -109,7 +111,7 @@ export class UserRepository {
       updatedAt: new Date().toISOString()
     };
 
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id },
@@ -154,7 +156,7 @@ export class UserRepository {
       updatedAt: new Date().toISOString()
     };
 
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId, walletBalance: { $gte: amount } },
@@ -226,7 +228,7 @@ export class UserRepository {
       updatedAt: new Date().toISOString()
     };
 
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       const updatedDoc = await coll.findOneAndUpdate(
         { id: cleanUserId },
@@ -269,7 +271,7 @@ export class UserRepository {
   }
 
   static update(id: string, updates: any): any | null {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous update is prohibited to ensure authoritative persistence; use updateAsync.');
     }
     return Database.updateUser(id, updates);
@@ -280,7 +282,7 @@ export class UserRepository {
    * When MongoDB is configured, deletes strictly from MongoDB.
    */
   static async deleteAsync(id: string): Promise<boolean> {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       const coll = await getUsersCollection();
       const res = await coll.deleteOne({ id });
       return res.deletedCount > 0;
@@ -289,7 +291,7 @@ export class UserRepository {
   }
 
   static delete(id: string): boolean {
-    if (isMongoConfigured()) {
+    if (isMongoActive()) {
       throw new Error('MongoDB is configured. Synchronous delete is prohibited to ensure authoritative persistence; use deleteAsync.');
     }
     return Database.deleteUser(id);

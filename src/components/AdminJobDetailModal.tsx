@@ -35,7 +35,7 @@ import {
 import { isScrapedJob } from '../utils/jobValidation';
 import { suggestJobMetadata, JobSuggestionResult } from '../utils/jobSuggestionEngine';
 import { api } from '../services/api';
-import { ALL_REGISTRY_FIELDS, SENSITIVE_FIELD_KEYS } from '../utils/jobVisibilityRegistry';
+import { ALL_REGISTRY_FIELDS, SENSITIVE_FIELD_KEYS, normalizeJobVisibilitySource } from '../utils/jobVisibilityRegistry';
 import { FieldVisibility } from '../types/job';
 
 interface AdminJobDetailModalProps {
@@ -92,17 +92,29 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
       setFieldVisibilityOverrides(job.fieldVisibility || {});
       api.jobsVisibility.getPolicies().then((res) => {
         if (res.success && Array.isArray(res.policies)) {
-          const source = job.sourceType || (job.isScraped ? 'scraped' : job.isAdminCreated ? 'admin_created' : 'user_posted');
-          const match = res.policies.find((p: any) => p.source === source && (job.scraperSourceId ? p.sourceKey === job.scraperSourceId : !p.sourceKey)) || res.policies.find((p: any) => p.source === source && !p.sourceKey);
-          if (match && match.fieldRules) {
-            setSourceDefaultPolicy(match.fieldRules);
-          } else {
-            const defs: Record<string, FieldVisibility> = {};
-            ALL_REGISTRY_FIELDS.forEach(f => {
-              defs[f.key] = SENSITIVE_FIELD_KEYS.has(f.key) ? 'Premium' : 'Free';
-            });
-            setSourceDefaultPolicy(defs);
+          const source = normalizeJobVisibilitySource(job);
+
+          // 1. Built-in defaults (base fallback)
+          const baseDefaults: Record<string, FieldVisibility> = {};
+          ALL_REGISTRY_FIELDS.forEach(f => {
+            baseDefaults[f.key] = SENSITIVE_FIELD_KEYS.has(f.key) ? 'Premium' : 'Free';
+          });
+
+          // 2. Saved generic source policy overrides built-in defaults
+          const genericPolicy = res.policies.find((p: any) => p.source === source && !p.sourceKey);
+          if (genericPolicy && genericPolicy.fieldRules) {
+            Object.assign(baseDefaults, genericPolicy.fieldRules);
           }
+
+          // 3. Saved scraper-specific policy overrides only explicitly defined fields
+          if (source === 'scraped' && job.scraperSourceId) {
+            const specificPolicy = res.policies.find((p: any) => p.source === 'scraped' && p.sourceKey === job.scraperSourceId);
+            if (specificPolicy && specificPolicy.fieldRules) {
+              Object.assign(baseDefaults, specificPolicy.fieldRules);
+            }
+          }
+
+          setSourceDefaultPolicy(baseDefaults);
         }
       }).catch(() => {});
     }

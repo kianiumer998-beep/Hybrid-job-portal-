@@ -77,33 +77,75 @@ export class JobVisibilityRepository {
 
   /**
    * Retrieves the active policy for a given source and optional sourceKey.
+   * Enforces 3-tier policy inheritance:
+   * 1. Built-in defaults (base fallback)
+   * 2. Saved generic source policy overrides built-in defaults
+   * 3. Saved scraper-specific policy overrides only explicitly defined fields
+   * Note: Missing scraper-specific policy does NOT reset generic rules to built-in defaults.
    */
   static async getPolicy(source: JobSourceType, sourceKey?: string): Promise<VisibilityPolicy> {
+    if (process.env.IS_TEST !== 'true' && (process.env.NODE_ENV === 'production' || !isMongoConfigured())) {
+      if (!isMongoConfigured()) {
+        throw new Error('MongoDB configuration required for job visibility policy persistence in production');
+      }
+    }
+
+    const base = getDefaultPolicy(source);
+    const mergedFieldRules: Record<string, FieldVisibility> = { ...base.fieldRules };
+    let effectiveUpdatedAt = base.updatedAt;
+
     if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
-      const key = sourceKey ? `${source}:${sourceKey}` : source;
-      return JobVisibilityRepository.localPolicies.get(key) || getDefaultPolicy(source);
-    }
+      // 1. Layer generic source policy
+      const genericPolicy = JobVisibilityRepository.localPolicies.get(source);
+      if (genericPolicy && genericPolicy.fieldRules) {
+        Object.assign(mergedFieldRules, genericPolicy.fieldRules);
+        if (genericPolicy.updatedAt) effectiveUpdatedAt = genericPolicy.updatedAt;
+      }
 
-    if (!isMongoConfigured()) {
-      throw new Error('MongoDB configuration required for job visibility policy persistence in production');
-    }
+      // 2. Layer scraper-specific policy if sourceKey provided
+      if (sourceKey) {
+        const specificKey = `${source}:${sourceKey}`;
+        const specificPolicy = JobVisibilityRepository.localPolicies.get(specificKey);
+        if (specificPolicy && specificPolicy.fieldRules) {
+          Object.assign(mergedFieldRules, specificPolicy.fieldRules);
+          if (specificPolicy.updatedAt) effectiveUpdatedAt = specificPolicy.updatedAt;
+        }
+      }
 
-    const db = await getMongoDb();
-    const coll = db.collection('job_visibility_policies');
-    const query: any = { source };
-    if (sourceKey) query.sourceKey = sourceKey;
-    else query.sourceKey = { $exists: false };
-
-    const doc = await coll.findOne(query);
-    if (doc) {
       return {
-        source: doc.source,
-        sourceKey: doc.sourceKey,
-        fieldRules: doc.fieldRules || {},
-        updatedAt: doc.updatedAt || new Date().toISOString()
+        source,
+        sourceKey,
+        fieldRules: mergedFieldRules,
+        updatedAt: effectiveUpdatedAt
       };
     }
-    return getDefaultPolicy(source);
+
+    // MongoDB authoritative path
+    const db = await getMongoDb();
+    const coll = db.collection('job_visibility_policies');
+
+    // 1. Layer generic source policy
+    const genericDoc = await coll.findOne({ source, sourceKey: { $exists: false } });
+    if (genericDoc && genericDoc.fieldRules) {
+      Object.assign(mergedFieldRules, genericDoc.fieldRules);
+      if (genericDoc.updatedAt) effectiveUpdatedAt = genericDoc.updatedAt;
+    }
+
+    // 2. Layer scraper-specific policy if sourceKey provided
+    if (sourceKey) {
+      const specificDoc = await coll.findOne({ source, sourceKey });
+      if (specificDoc && specificDoc.fieldRules) {
+        Object.assign(mergedFieldRules, specificDoc.fieldRules);
+        if (specificDoc.updatedAt) effectiveUpdatedAt = specificDoc.updatedAt;
+      }
+    }
+
+    return {
+      source,
+      sourceKey,
+      fieldRules: mergedFieldRules,
+      updatedAt: effectiveUpdatedAt
+    };
   }
 
   /**
@@ -167,8 +209,15 @@ export class JobVisibilityRepository {
   /**
    * Determines the source type of a job.
    */
-  static deriveJobSource(job: any): JobSourceType {
-    if (!job) return 'user_posted';
+  static deriveJobSource(jobOrSource: any): JobSourceType {
+    if (!jobOrSource) return 'user_posted';
+    if (typeof jobOrSource === 'string') {
+      if (jobOrSource === 'pdf_scraped' || jobOrSource === 'scraped') return 'scraped';
+      if (jobOrSource === 'admin_created') return 'admin_created';
+      if (jobOrSource === 'user_posted') return 'user_posted';
+      return 'user_posted';
+    }
+    const job = jobOrSource;
     if (job.sourceType === 'admin_created' || job.isAdminCreated || job.createdByRole === 'Admin' || job.createdByRole === 'Super Admin') {
       return 'admin_created';
     }
@@ -186,16 +235,7 @@ export class JobVisibilityRepository {
     if (!job) return job;
     
     const source = JobVisibilityRepository.deriveJobSource(job);
-    let policy: VisibilityPolicy;
-
-    if (source === 'scraped' && job.scraperSourceId) {
-      policy = await JobVisibilityRepository.getPolicy('scraped', job.scraperSourceId);
-      if (!policy || !policy.fieldRules || Object.keys(policy.fieldRules).length === 0) {
-        policy = await JobVisibilityRepository.getPolicy('scraped');
-      }
-    } else {
-      policy = await JobVisibilityRepository.getPolicy(source);
-    }
+    const policy = await JobVisibilityRepository.getPolicy(source, source === 'scraped' ? job.scraperSourceId : undefined);
 
     const mergedRules = { ...(policy.fieldRules || {}) };
     

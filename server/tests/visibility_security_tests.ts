@@ -7,6 +7,7 @@ import { JobRepository, parseDeadlineTimestamp, checkJobExpired } from '../db/re
 import { Database } from '../db/database';
 import { getJobsCollection, isMongoConfigured } from '../db/mongodb';
 import { validateFieldRules } from '../routes/jobVisibilityRoutes';
+import { normalizeJobVisibilitySource } from '../../src/utils/jobVisibilityRegistry';
 
 async function runTests() {
   console.log('=== Starting Comprehensive Visibility & Security Test Suite (STEP65-D.7) ===\n');
@@ -1018,6 +1019,141 @@ async function runTests() {
       invalidVisibilityValueCheck !== null &&
       internalFieldCheck !== null,
       '69. Invalid field names, invalid visibility values, and internal administrative fields are strictly rejected'
+    );
+
+    // ==========================================
+    // GROUP 9: STEP65-E.2 JOB VISIBILITY SOURCE MAPPING & POLICY INHERITANCE
+    // ==========================================
+    console.log('\n--- Group 9: STEP65-E.2 Job Visibility Source Mapping & Policy Inheritance ---');
+
+    // 70. "pdf_scraped" maps to "scraped"
+    const pdfScrapedFromString = normalizeJobVisibilitySource('pdf_scraped');
+    const pdfScrapedFromRepo = JobVisibilityRepository.deriveJobSource('pdf_scraped');
+    const pdfScrapedFromJobObj = JobVisibilityRepository.deriveJobSource({ sourceType: 'pdf_scraped' });
+    const pdfScrapedFlag = JobVisibilityRepository.deriveJobSource({ isPdfScraped: true });
+    assert(
+      pdfScrapedFromString === 'scraped' &&
+      pdfScrapedFromRepo === 'scraped' &&
+      pdfScrapedFromJobObj === 'scraped' &&
+      pdfScrapedFlag === 'scraped',
+      '70. "pdf_scraped" consistently maps to "scraped" in both helper and repository'
+    );
+
+    // 71. Normal "scraped" remains unchanged
+    const scrapedFromString = normalizeJobVisibilitySource('scraped');
+    const scrapedFromRepo = JobVisibilityRepository.deriveJobSource('scraped');
+    const scrapedFromJobObj = JobVisibilityRepository.deriveJobSource({ sourceType: 'scraped', isScraped: true });
+    assert(
+      scrapedFromString === 'scraped' &&
+      scrapedFromRepo === 'scraped' &&
+      scrapedFromJobObj === 'scraped',
+      '71. Normal "scraped" source remains unchanged as "scraped"'
+    );
+
+    // 72. User-posted and admin-created sources remain unchanged
+    const userPostedNorm = normalizeJobVisibilitySource('user_posted');
+    const adminCreatedNorm = normalizeJobVisibilitySource('admin_created');
+    const userPostedRepo = JobVisibilityRepository.deriveJobSource('user_posted');
+    const adminCreatedRepo = JobVisibilityRepository.deriveJobSource('admin_created');
+    assert(
+      userPostedNorm === 'user_posted' &&
+      adminCreatedNorm === 'admin_created' &&
+      userPostedRepo === 'user_posted' &&
+      adminCreatedRepo === 'admin_created',
+      '72. User-posted and admin-created sources remain unchanged'
+    );
+
+    // Setup policies for testing inheritance:
+    // Generic Scraped policy:
+    // - salary = Premium
+    // - contactEmail = Hidden
+    // - applicationUrl = Premium
+    await JobVisibilityRepository.savePolicy('scraped', {
+      salary: 'Premium',
+      contactEmail: 'Hidden',
+      applicationUrl: 'Premium'
+    });
+
+    // 73. Generic Scraped policy applies when no scraper-specific policy exists
+    const genericScrapedResult = await JobVisibilityRepository.getPolicy('scraped');
+    assert(
+      genericScrapedResult.fieldRules.salary === 'Premium' &&
+      genericScrapedResult.fieldRules.contactEmail === 'Hidden' &&
+      genericScrapedResult.fieldRules.applicationUrl === 'Premium',
+      '73. Generic Scraped policy applies when no scraper-specific policy exists'
+    );
+
+    // Specific scraper policy for FPSC:
+    // - salary = Free
+    await JobVisibilityRepository.savePolicy('scraped', {
+      salary: 'Free'
+    }, 'fpsc');
+
+    // 74. Specific scraper policy overrides only explicitly supplied fields
+    const fpscPolicy = await JobVisibilityRepository.getPolicy('scraped', 'fpsc');
+    assert(
+      fpscPolicy.fieldRules.salary === 'Free',
+      '74. Specific scraper policy (FPSC) overrides explicitly supplied fields (salary: Free)'
+    );
+
+    // 75. Generic fields not specified in the specific policy are inherited
+    assert(
+      fpscPolicy.fieldRules.contactEmail === 'Hidden' &&
+      fpscPolicy.fieldRules.applicationUrl === 'Premium',
+      '75. Generic fields not specified in FPSC policy are inherited (contactEmail: Hidden, applicationUrl: Premium)'
+    );
+
+    // 76. Individual job overrides take precedence over both policies
+    const fpscJobWithOverride = {
+      id: `job-fpsc-override-${Date.now()}`,
+      title: 'FPSC Inspector',
+      sourceType: 'scraped',
+      scraperSourceId: 'fpsc',
+      fieldVisibility: {
+        applicationUrl: 'Hidden'
+      }
+    };
+    const fpscJobApplied = await JobVisibilityRepository.applyPolicyToJob(fpscJobWithOverride);
+    assert(
+      fpscJobApplied.fieldVisibility.salary === 'Free' &&
+      fpscJobApplied.fieldVisibility.contactEmail === 'Hidden' &&
+      fpscJobApplied.fieldVisibility.applicationUrl === 'Hidden',
+      '76. Individual job overrides (applicationUrl: Hidden) take precedence over both generic and specific policies'
+    );
+
+    // 77. FPSC and PPSC policies do not leak into each other
+    // PPSC has NO specific policy saved
+    const ppscPolicy = await JobVisibilityRepository.getPolicy('scraped', 'ppsc');
+    const ppscJob = {
+      id: `job-ppsc-${Date.now()}`,
+      title: 'PPSC Assistant',
+      sourceType: 'pdf_scraped', // PDF-scraped PPSC job
+      scraperSourceId: 'ppsc'
+    };
+    const ppscJobApplied = await JobVisibilityRepository.applyPolicyToJob(ppscJob);
+    assert(
+      ppscPolicy.fieldRules.salary === 'Premium' &&
+      ppscJobApplied.fieldVisibility.salary === 'Premium' &&
+      ppscJobApplied.fieldVisibility.salary !== fpscPolicy.fieldRules.salary,
+      '77. FPSC and PPSC policies do not leak into each other (PPSC retains generic salary: Premium)'
+    );
+
+    // 78. Missing specific policy does not reset generic rules to built-in defaults
+    assert(
+      ppscPolicy.fieldRules.contactEmail === 'Hidden' &&
+      ppscJobApplied.fieldVisibility.contactEmail === 'Hidden',
+      '78. Missing specific policy (PPSC) does not reset generic rules to built-in defaults (contactEmail remains Hidden)'
+    );
+
+    // 79. Existing policies and individual overrides remain unchanged after policy lookup
+    const rawFpscJobCopy = { ...fpscJobWithOverride };
+    await JobVisibilityRepository.getPolicy('scraped', 'fpsc');
+    await JobVisibilityRepository.getPolicy('scraped', 'ppsc');
+    await JobVisibilityRepository.applyPolicyToJob(fpscJobWithOverride);
+    assert(
+      fpscJobWithOverride.fieldVisibility.applicationUrl === rawFpscJobCopy.fieldVisibility.applicationUrl &&
+      Object.keys(fpscJobWithOverride.fieldVisibility).length === 1,
+      '79. Existing policies and individual job overrides remain immutable and uncontaminated after lookup'
     );
 
   } finally {

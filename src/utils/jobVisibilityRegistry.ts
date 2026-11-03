@@ -87,3 +87,28 @@ export const ALL_REGISTRY_KEYS = ALL_REGISTRY_FIELDS.map(f => f.key);
 export function getDefaultVisibilityForField(key: string): FieldVisibility {
   return SENSITIVE_FIELD_KEYS.has(key) ? 'Premium' : 'Free';
 }
+
+export type JobVisibilitySourceType = 'user_posted' | 'scraped' | 'admin_created';
+
+/**
+ * Normalizes job source classifications consistently across the visibility system.
+ * Treats 'pdf_scraped' as 'scraped', while preserving 'scraped', 'user_posted', and 'admin_created'.
+ */
+export function normalizeJobVisibilitySource(sourceOrJob: any): JobVisibilitySourceType {
+  if (!sourceOrJob) return 'user_posted';
+  if (typeof sourceOrJob === 'string') {
+    if (sourceOrJob === 'pdf_scraped' || sourceOrJob === 'scraped') return 'scraped';
+    if (sourceOrJob === 'admin_created') return 'admin_created';
+    if (sourceOrJob === 'user_posted') return 'user_posted';
+    return 'user_posted';
+  }
+  const job = sourceOrJob;
+  if (job.sourceType === 'admin_created' || job.isAdminCreated || job.createdByRole === 'Admin' || job.createdByRole === 'Super Admin') {
+    return 'admin_created';
+  }
+  if (job.isScraped || job.isPdfScraped || job.sourceType === 'scraped' || job.sourceType === 'pdf_scraped' || job.scraperSourceId) {
+    return 'scraped';
+  }
+  return 'user_posted';
+}
+

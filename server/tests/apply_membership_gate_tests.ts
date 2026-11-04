@@ -176,6 +176,30 @@ async function runTests() {
     expect(res.gate?.requiredFields).to.include('applicationUrl');
   });
 
+  await runTest('20. sourceUrl should NOT trigger Apply block if it is informational', async () => {
+    isPremiumStub.resolves(false);
+    // Even if sourceUrl is Premium in visibility hints, evaluateApplyAccess should only block on applicationUrl/externalApplyUrl
+    const job = { _visibilityHints: { sourceUrl: { requiresUpgrade: true } } };
+    const res = await evaluateApplyAccess({id:'u1'}, job, defaultSettings);
+    expect(res.allowed).to.be.true;
+  });
+
+  await runTest('21. Free user cannot access Premium-restricted applicationUrl even if global gate is OFF', async () => {
+    isPremiumStub.resolves(false);
+    const job = { fieldVisibility: { applicationUrl: 'Premium' } };
+    const res = await evaluateApplyAccess({id:'u1'}, job, defaultSettings);
+    expect(res.allowed).to.be.false;
+    expect(res.gate?.requiredFields).to.include('applicationUrl');
+  });
+
+  await runTest('22. Premium user has access to everything regardless of field visibility', async () => {
+    isPremiumStub.resolves(true);
+    const job = { fieldVisibility: { applicationUrl: 'Premium', externalApplyUrl: 'Premium' } };
+    const settings = { ...defaultSettings, applyButtonRequiresPremium: true };
+    const res = await evaluateApplyAccess({id:'u1'}, job, settings);
+    expect(res.allowed).to.be.true;
+  });
+
   console.log(`\nTests Summary: ${testsPassed} passed, ${testsFailed} failed`);
   process.exit(testsFailed > 0 ? 1 : 0);
 }

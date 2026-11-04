@@ -177,6 +177,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   const handleSaveDefaultPolicy = async () => {
     const currentSaveId = ++saveRequestIdRef.current;
     setIsSaving(true);
+    ++fetchRequestIdRef.current; // Invalidate any already-running fetch request
     setSuccessMessage(null);
     setErrorMessage(null);
     const submittedRules = { ...currentFieldRules };

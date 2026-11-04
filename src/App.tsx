@@ -15,6 +15,7 @@ import { UserDashboard } from './components/UserDashboard';
 import { Footer } from './components/Footer';
 import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
+import { PremiumUpgradeModal } from './components/PremiumUpgradeModal';
 import { WhatsAppStickyButton, WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './components/WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
@@ -852,6 +853,8 @@ export default function App() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [applyingJob, setApplyingJob] = useState<Job | null>(null);
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState<boolean>(false);
+  const [premiumUpgradeModalOpen, setPremiumUpgradeModalOpen] = useState<boolean>(false);
+  const [selectedGate, setSelectedGate] = useState<any>(null);
   const [selectedJobTitleForSub, setSelectedJobTitleForSub] = useState<string>('');
   const [cvPaywallOpen, setCvPaywallOpen] = useState<boolean>(false);
   const [adminLoginOpen, setAdminLoginOpen] = useState<boolean>(false);
@@ -1834,6 +1837,13 @@ export default function App() {
   };
 
   const handleApplyClick = (job: Job) => {
+    const applyGate = (job as any)._applyGate;
+    if (applyGate?.requiresUpgrade) {
+      setSelectedJobTitleForSub(job.title);
+      setSelectedGate(applyGate);
+      setPremiumUpgradeModalOpen(true);
+      return;
+    }
     setApplyingJob(job);
   };
 
@@ -3396,6 +3406,19 @@ export default function App() {
         job={applyingJob}
         currentUser={currentUser}
         onApplicationSubmitted={handleApplicationSubmitted}
+        onUpgrade={handleApplyClick}
+      />
+
+      <PremiumUpgradeModal
+        isOpen={premiumUpgradeModalOpen}
+        onClose={() => setPremiumUpgradeModalOpen(false)}
+        jobTitle={selectedJobTitleForSub}
+        customTitle={selectedGate?.title}
+        customMessage={selectedGate?.message}
+        onUpgradeClick={() => {
+          setPremiumUpgradeModalOpen(false);
+          setSubscriptionModalOpen(true);
+        }}
       />
 
       <SubscriptionModal

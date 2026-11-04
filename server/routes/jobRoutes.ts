@@ -64,7 +64,7 @@ jobRouter.get('/', async (req, res) => {
           const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
           let filtered = JobVisibilityRepository.filterJobForUser(policyApplied, user, isPremium);
           
-          const accessRes = await evaluateApplyAccess(user, job, applySettings);
+          const accessRes = await evaluateApplyAccess(user, policyApplied, applySettings, isPremium);
           if (!accessRes.allowed) {
             // Attach metadata and redact URLs
             filtered.externalApplyUrl = "[LOCKED]";
@@ -918,7 +918,7 @@ jobRouter.get('/slug/:slug', async (req, res) => {
     let filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
 
     const applySettings = Database.getApplySettings();
-    const accessRes = await evaluateApplyAccess(user, job, applySettings);
+    const accessRes = await evaluateApplyAccess(user, policyAppliedJob, applySettings, isPremium);
     if (!accessRes.allowed) {
       // Attach metadata and redact URLs
       filteredJob.externalApplyUrl = "[LOCKED]";

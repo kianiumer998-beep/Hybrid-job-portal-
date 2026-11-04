@@ -4,7 +4,7 @@ import { evaluateApplyAccess } from '../services/applyAccessPolicy.ts';
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository.ts';
 
 async function runTests() {
-  console.log('Starting Apply Membership Gate Policy Logic Tests...');
+  console.log('Starting Apply Membership Gate Policy Logic Tests (STEP65-F.1.1)...');
   let testsPassed = 0;
   let testsFailed = 0;
 
@@ -90,12 +90,12 @@ async function runTests() {
     if (res.allowed !== false) throw new Error('Expected allowed: false');
   });
 
-  await runTest('9. Free user restricted by premium sourceUrl field', async () => {
+  await runTest('9. Informational sourceUrl alone does NOT block Apply', async () => {
     isPremiumStub.resolves(false);
     const user = { id: 'user1' };
     const job = { fieldVisibility: { sourceUrl: 'Premium' } };
     const res = await evaluateApplyAccess(user, job, defaultSettings);
-    if (res.allowed !== false) throw new Error('Expected allowed: false');
+    if (res.allowed !== true) throw new Error('Expected allowed: true even if sourceUrl is Premium');
   });
 
   await runTest('10. Custom field message should be used', async () => {
@@ -114,12 +114,12 @@ async function runTests() {
     if (res.allowed !== true) throw new Error('Expected allowed: true');
   });
 
-  await runTest('12. Multiple premium fields', async () => {
+  await runTest('12. Multiple premium fields: only application-related block', async () => {
     isPremiumStub.resolves(false);
     const job = { fieldVisibility: { applicationUrl: 'Premium', sourceUrl: 'Premium' } };
     const res = await evaluateApplyAccess({id:'u1'}, job, defaultSettings);
     if (res.allowed !== false) throw new Error('Expected allowed: false');
-    if (res.gate?.requiredFields?.length !== 2) throw new Error('Expected 2 requiredFields');
+    if (res.gate?.requiredFields?.length !== 1) throw new Error('Expected only 1 blocked field (applicationUrl)');
   });
 
   await runTest('13. Non-apply fields premium', async () => {
@@ -156,6 +156,24 @@ async function runTests() {
     const res = await evaluateApplyAccess({id:'u1'}, {}, settings);
     if (res.gate?.title !== 'T') throw new Error('Expected title T');
     if (res.gate?.message !== 'M') throw new Error('Expected message M');
+  });
+
+  await runTest('18. isPremiumPrecalculated should be respected and avoid stub', async () => {
+    // If we pass true/false explicitly, it should NOT use the stub (authoritative DB lookup)
+    const resTrue = await evaluateApplyAccess({id:'u1'}, {}, defaultSettings, true);
+    expect(resTrue.allowed).to.be.true;
+    
+    const settings = { ...defaultSettings, applyButtonRequiresPremium: true };
+    const resFalse = await evaluateApplyAccess({id:'u1'}, {}, settings, false);
+    expect(resFalse.allowed).to.be.false;
+  });
+
+  await runTest('19. _visibilityHints should be respected for gating', async () => {
+    isPremiumStub.resolves(false);
+    const job = { _visibilityHints: { applicationUrl: { requiresUpgrade: true } } };
+    const res = await evaluateApplyAccess({id:'u1'}, job, defaultSettings);
+    expect(res.allowed).to.be.false;
+    expect(res.gate?.requiredFields).to.include('applicationUrl');
   });
 
   console.log(`\nTests Summary: ${testsPassed} passed, ${testsFailed} failed`);

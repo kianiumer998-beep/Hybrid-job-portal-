@@ -21,6 +21,7 @@ interface CandidateApplicationModalProps {
   job: Job | null;
   currentUser: UserAccount | null;
   onApplicationSubmitted: (app: JobApplication) => void;
+  onUpgrade?: (job: Job) => void;
 }
 
 export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps> = ({
@@ -28,7 +29,8 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
   onClose,
   job,
   currentUser,
-  onApplicationSubmitted
+  onApplicationSubmitted,
+  onUpgrade
 }) => {
   const [settings, setSettings] = useState<any>({
     enableApplyButton: true,
@@ -189,6 +191,14 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
           paymentStatus: 'Submitted'
         });
       } else {
+        if (result.message === 'PREMIUM_REQUIRED') {
+          onClose();
+          if (onUpgrade && job) {
+             const jobWithGate = { ...job, _applyGate: result.gate };
+             onUpgrade(jobWithGate);
+          }
+          return;
+        }
         setErrorMessage(result.message || 'Error submitting application.');
       }
     } catch (err: any) {

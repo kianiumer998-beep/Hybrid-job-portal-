@@ -34,8 +34,22 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
     if (req.body.premiumPopupMessage && typeof req.body.premiumPopupMessage !== 'string') {
       return res.status(400).json({ success: false, message: 'Invalid premiumPopupMessage type.' });
     }
-    if (req.body.premiumFieldMessages && typeof req.body.premiumFieldMessages !== 'object') {
-      return res.status(400).json({ success: false, message: 'Invalid premiumFieldMessages object.' });
+    if (req.body.premiumFieldMessages) {
+      if (typeof req.body.premiumFieldMessages !== 'object' || Array.isArray(req.body.premiumFieldMessages)) {
+        return res.status(400).json({ success: false, message: 'Invalid premiumFieldMessages object.' });
+      }
+      const allowedKeys = ['applicationUrl', 'externalApplyUrl'];
+      for (const [key, msg] of Object.entries(req.body.premiumFieldMessages)) {
+        if (!allowedKeys.includes(key)) {
+          return res.status(400).json({ success: false, message: `Unsupported field key "${key}" in premiumFieldMessages.` });
+        }
+        if (typeof msg !== 'string') {
+          return res.status(400).json({ success: false, message: `Invalid message type for field "${key}".` });
+        }
+        if (msg.length > 500) {
+          return res.status(400).json({ success: false, message: `Message for field "${key}" is too long (max 500 chars).` });
+        }
+      }
     }
 
     Database.saveApplySettings(updated);

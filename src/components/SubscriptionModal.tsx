@@ -123,7 +123,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   const activePackage = packages.find(p => p.id === selectedPackageId);
   const amountPaid = activePackage ? Number(activePackage.pricePkr) : 0;
-  const plan = activePackage ? activePackage.name : 'Unknown Plan';
+  const plan = activePackage ? activePackage.id : '';
+  const planName = activePackage ? activePackage.name : 'Unknown Plan';
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -158,6 +159,10 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    if (!plan) {
+      setErrorMessage('Please select a valid subscription package.');
+      return;
+    }
 
     if (!isSettingsConfigured || !selectedMethod) {
       setErrorMessage('Payment details are currently unavailable. Please check back later.');
@@ -342,7 +347,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               </div>
               <h3 className="text-2xl font-black text-white">Payment Proof Submitted</h3>
               <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto leading-relaxed">
-                Thank you, <strong className="text-white">{name}</strong>. Your payment submission for <strong className="text-emerald-400">{plan}</strong> has been securely logged and is pending manual review by an administrator.
+                Thank you, <strong className="text-white">{name}</strong>. Your payment submission for <strong className="text-emerald-400">{planName}</strong> has been securely logged and is pending manual review by an administrator.
               </p>
             </div>
 
@@ -360,7 +365,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-400">Package &amp; Fee:</span>
-                <span className="font-bold text-white">{plan} (PKR {amountPaid})</span>
+                <span className="font-bold text-white">{planName} (PKR {amountPaid})</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-400">Payment Channel:</span>

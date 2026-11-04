@@ -10,17 +10,40 @@ export interface ApplyGateMetadata {
 export async function evaluateApplyAccess(
   user: any,
   job: any,
-  applySettings: any
+  applySettings: any,
+  isPremiumPrecalculated?: boolean
 ): Promise<{ allowed: boolean; gate?: ApplyGateMetadata }> {
   // 1. Admin bypass
   if (user?.role === 'Admin' || user?.role === 'Super Admin') {
     return { allowed: true };
   }
 
-  const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.id);
+  const globalGateEnabled = !!applySettings.applyButtonRequiresPremium;
+  const hints = job._visibilityHints || {};
+  const fieldVisibility = job.fieldVisibility || {};
+  
+  const checkFields = ['applicationUrl', 'externalApplyUrl'];
+  const hasPremiumField = checkFields.some(field => {
+    return fieldVisibility[field] === 'Premium' || hints[field]?.requiresUpgrade;
+  });
 
-  // 2. Global gate
-  if (applySettings.applyButtonRequiresPremium && !isPremium) {
+  // 1-A. Short-circuit: If no gates are active, allow access without checking membership
+  if (!globalGateEnabled && !hasPremiumField) {
+    return { allowed: true };
+  }
+
+  // 2. Membership verification (Authoritative)
+  const userId = user?.userId || user?.id;
+  const isPremium = isPremiumPrecalculated !== undefined 
+    ? isPremiumPrecalculated 
+    : await JobVisibilityRepository.isUserPremiumAuthoritative(userId);
+
+  if (isPremium) {
+    return { allowed: true };
+  }
+
+  // 3. Evaluate restrictions for non-premium users
+  if (globalGateEnabled) {
     return {
       allowed: false,
       gate: {
@@ -31,19 +54,11 @@ export async function evaluateApplyAccess(
     };
   }
 
-  // 3. Field-specific gate
-  const fieldVisibility = job.fieldVisibility || {};
-  const lockedFields = [];
+  const lockedFields = checkFields.filter(field => {
+    return fieldVisibility[field] === 'Premium' || hints[field]?.requiresUpgrade;
+  });
 
-  for (const [field, visibility] of Object.entries(fieldVisibility)) {
-    if (visibility === 'Premium' && !isPremium) {
-      if (['applicationUrl', 'externalApplyUrl', 'sourceUrl'].includes(field)) {
-        lockedFields.push(field);
-      }
-    }
-  }
-
-  if (lockedFields.length > 0 && !isPremium) {
+  if (lockedFields.length > 0) {
     const fieldKey = lockedFields[0];
     const customMessage = applySettings.premiumFieldMessages?.[fieldKey] || applySettings.premiumPopupMessage;
     

@@ -290,6 +290,52 @@ export const AdminApplySettingsManager: React.FC = () => {
               />
             </div>
 
+            <div className="pt-2 space-y-3">
+              <label className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
+                Field-Specific Premium Messages
+              </label>
+              
+              <div className="space-y-3 p-3 bg-slate-950/40 rounded-xl border border-slate-800">
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-1 uppercase">
+                    Internal Application URL Message
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.premiumFieldMessages?.applicationUrl || ''}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      premiumFieldMessages: {
+                        ...(settings.premiumFieldMessages || {}),
+                        applicationUrl: e.target.value
+                      }
+                    })}
+                    placeholder="Message when internal portal apply is locked..."
+                    className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-1 uppercase">
+                    External Application URL Message
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.premiumFieldMessages?.externalApplyUrl || ''}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      premiumFieldMessages: {
+                        ...(settings.premiumFieldMessages || {}),
+                        externalApplyUrl: e.target.value
+                      }
+                    })}
+                    placeholder="Message when external website link is locked..."
+                    className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
               <p className="text-[10px] text-amber-400/80 leading-relaxed italic">
                 Note: Field-specific gates are controlled via Job Visibility Manager (Default Rules or Individual Job Overrides). When a field is set to "Premium", the apply button will automatically gate if any designated apply URL is locked.

@@ -6,6 +6,7 @@ import { Database } from '../db/database';
 import { ADMIN_ROLES, hasAdminPermission, requireAdminPermission, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
 import { evaluateApplyAccess } from '../services/applyAccessPolicy';
+import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
 
 export const applicationRouter = Router();
 
@@ -354,7 +355,8 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
     }
 
     const applySettings = Database.getApplySettings();
-    const accessRes = await evaluateApplyAccess(authUser, job, applySettings);
+    const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
+    const accessRes = await evaluateApplyAccess(authUser, policyApplied, applySettings);
     if (!accessRes.allowed) {
       return res.status(403).json({ success: false, message: 'PREMIUM_REQUIRED', gate: accessRes.gate });
     }

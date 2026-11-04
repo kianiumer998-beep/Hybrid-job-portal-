@@ -234,7 +234,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 <button
                   onClick={() => {
                     setShowPremiumUpgrade(true);
-                    if (onUpgrade) onUpgrade();
                   }}
                   className="ml-auto flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
                 >
@@ -318,7 +317,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     <button
                       onClick={() => {
                         setShowPremiumUpgrade(true);
-                        if (onUpgrade) onUpgrade();
                       }}
                       className="flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
                     >
@@ -413,7 +411,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     type="button"
                     onClick={() => {
                       setShowPremiumUpgrade(true);
-                      if (onUpgrade) onUpgrade();
                     }}
                     className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
                   >
@@ -444,7 +441,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     type="button"
                     onClick={() => {
                       setShowPremiumUpgrade(true);
-                      if (onUpgrade) onUpgrade();
                     }}
                     className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
                   >
@@ -597,7 +593,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 type="button"
                 onClick={() => {
                   setShowPremiumUpgrade(true);
-                  if (onUpgrade) onUpgrade();
                 }}
                 className="px-5 py-2.5 rounded-xl font-extrabold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 flex items-center space-x-2 shadow-lg shrink-0 cursor-pointer transition-all active:scale-95"
                 title="Upgrade to Premium Subscription to unlock application destination"

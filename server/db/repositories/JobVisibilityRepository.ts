@@ -79,8 +79,13 @@ export class JobVisibilityRepository {
 
   /**
    * Test-only helper to exercise the MongoDB driver query/update code path with an isolated mock collection.
+   * Strictly guarded: can only be activated when process.env.IS_TEST === 'true'.
+   * Outside test mode, mock collection injection is rejected with an Error.
    */
   static setMockCollection(coll: any): void {
+    if (coll !== null && process.env.IS_TEST !== 'true') {
+      throw new Error('Security violation: Mock collection injection is strictly prohibited outside test mode (IS_TEST !== true).');
+    }
     JobVisibilityRepository.mockCollection = coll;
   }
 
@@ -93,7 +98,9 @@ export class JobVisibilityRepository {
    * Note: Missing scraper-specific policy does NOT reset generic rules to built-in defaults.
    */
   static async getPolicy(source: JobSourceType, sourceKey?: string): Promise<VisibilityPolicy> {
-    if (!JobVisibilityRepository.mockCollection) {
+    const isMockActive = Boolean(JobVisibilityRepository.mockCollection && process.env.IS_TEST === 'true');
+
+    if (!isMockActive) {
       if (process.env.IS_TEST !== 'true' && (process.env.NODE_ENV === 'production' || !isMongoConfigured())) {
         if (!isMongoConfigured()) {
           throw new Error('MongoDB configuration required for job visibility policy persistence in production');
@@ -134,8 +141,8 @@ export class JobVisibilityRepository {
       }
     }
 
-    // MongoDB authoritative path (executed in production or via mockCollection)
-    const coll = JobVisibilityRepository.mockCollection || (await getMongoDb()).collection('job_visibility_policies');
+    // MongoDB authoritative path (executed in production or via guarded mockCollection in IS_TEST)
+    const coll = isMockActive ? JobVisibilityRepository.mockCollection : (await getMongoDb()).collection('job_visibility_policies');
     const base = getDefaultPolicy(source);
     const mergedFieldRules: Record<string, FieldVisibility> = { ...base.fieldRules };
     let effectiveUpdatedAt = base.updatedAt;
@@ -171,7 +178,9 @@ export class JobVisibilityRepository {
    * Retrieves all policies.
    */
   static async getAllPolicies(): Promise<VisibilityPolicy[]> {
-    if (!JobVisibilityRepository.mockCollection) {
+    const isMockActive = Boolean(JobVisibilityRepository.mockCollection && process.env.IS_TEST === 'true');
+
+    if (!isMockActive) {
       if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
         return Array.from(JobVisibilityRepository.localPolicies.values());
       }
@@ -181,7 +190,7 @@ export class JobVisibilityRepository {
       }
     }
 
-    const coll = JobVisibilityRepository.mockCollection || (await getMongoDb()).collection('job_visibility_policies');
+    const coll = isMockActive ? JobVisibilityRepository.mockCollection : (await getMongoDb()).collection('job_visibility_policies');
     const docs = await coll.find({}).toArray();
     return docs.map(d => {
       const pol: VisibilityPolicy = {
@@ -210,7 +219,9 @@ export class JobVisibilityRepository {
       policy.sourceKey = sourceKey.trim();
     }
 
-    if (!JobVisibilityRepository.mockCollection) {
+    const isMockActive = Boolean(JobVisibilityRepository.mockCollection && process.env.IS_TEST === 'true');
+
+    if (!isMockActive) {
       if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
         const key = policy.sourceKey ? `${source}:${policy.sourceKey}` : source;
         JobVisibilityRepository.localPolicies.set(key, policy);
@@ -222,7 +233,7 @@ export class JobVisibilityRepository {
       }
     }
 
-    const coll = JobVisibilityRepository.mockCollection || (await getMongoDb()).collection('job_visibility_policies');
+    const coll = isMockActive ? JobVisibilityRepository.mockCollection : (await getMongoDb()).collection('job_visibility_policies');
     const query: any = { source };
     if (policy.sourceKey) {
       query.sourceKey = policy.sourceKey;

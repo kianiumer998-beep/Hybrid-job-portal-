@@ -1350,6 +1350,41 @@ async function runTests() {
       JobVisibilityRepository.setMockCollection(null);
     }
 
+    // 88. Mock collection injection outside test mode (IS_TEST !== 'true') is strictly rejected
+    const prevIsTest = process.env.IS_TEST;
+    let mockInjectionRejected = false;
+    try {
+      delete process.env.IS_TEST;
+      JobVisibilityRepository.setMockCollection(new MockMongoPolicyCollection());
+    } catch (err: any) {
+      if (err.message && err.message.includes('Security violation')) {
+        mockInjectionRejected = true;
+      }
+    } finally {
+      process.env.IS_TEST = prevIsTest;
+      JobVisibilityRepository.setMockCollection(null);
+    }
+    assert(
+      mockInjectionRejected === true,
+      '88. Mock collection injection outside test mode (IS_TEST !== "true") is strictly rejected with Security violation error'
+    );
+
+    // 89. Mock collection injection inside test mode (IS_TEST === 'true') succeeds cleanly
+    let mockInjectionAllowedInTest = false;
+    try {
+      process.env.IS_TEST = 'true';
+      JobVisibilityRepository.setMockCollection(new MockMongoPolicyCollection());
+      mockInjectionAllowedInTest = true;
+    } catch {
+      mockInjectionAllowedInTest = false;
+    } finally {
+      JobVisibilityRepository.setMockCollection(null);
+    }
+    assert(
+      mockInjectionAllowedInTest === true,
+      '89. Mock collection injection inside test mode (IS_TEST === "true") succeeds cleanly and resets safely'
+    );
+
   } finally {
     // Clean up test fixtures from Database by exact ID
     for (const id of createdFixtureIds) {

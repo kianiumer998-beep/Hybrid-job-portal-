@@ -1193,13 +1193,27 @@ async function runTests() {
         return true;
       }
 
-      async findOne(query: any): Promise<any> {
+      async findOne(query: any, options?: any): Promise<any> {
         if (this.shouldThrowOnRead) {
           throw new Error('Simulated MongoDB read connection timeout');
         }
-        // Support sorting if sort option is passed
         let candidates = this.docs.filter(doc => this.matchQuery(doc, query));
-        return candidates.length > 0 ? JSON.parse(JSON.stringify(candidates[candidates.length - 1])) : null;
+        if (options && options.sort) {
+          candidates.sort((a, b) => {
+            for (const [field, dir] of Object.entries(options.sort)) {
+              let valA = a[field];
+              let valB = b[field];
+              if (field === '_id') {
+                valA = a._id || a.id || '';
+                valB = b._id || b.id || '';
+              }
+              if (valA < valB) return (dir as number) < 0 ? 1 : -1;
+              if (valA > valB) return (dir as number) < 0 ? -1 : 1;
+            }
+            return 0;
+          });
+        }
+        return candidates.length > 0 ? JSON.parse(JSON.stringify(candidates[0])) : null;
       }
 
       async updateOne(query: any, update: any, options?: any): Promise<any> {
@@ -1539,6 +1553,46 @@ async function runTests() {
         scrapedPol.fieldRules.salary === 'Free' &&
         adminPol.fieldRules.salary === 'Premium',
         '103. Scraped and Admin Created policies remain fully intact and unaffected'
+      );
+
+      // 104. Newest generic policy selection based on updatedAt descending (even when older record is inserted last)
+      const tOld = '2026-01-01T00:00:00.000Z';
+      const tNew = '2026-06-01T00:00:00.000Z';
+      group11MockColl.docs = [
+        { source: 'user_posted', fieldRules: { title: 'Newer' }, updatedAt: tNew, _id: 'doc-2' },
+        { source: 'user_posted', fieldRules: { title: 'Older' }, updatedAt: tOld, _id: 'doc-1' }
+      ];
+      // Reverse insertion order to prove sort order matters, not insertion order
+      group11MockColl.docs.reverse();
+      const newestSelected = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        (newestSelected.fieldRules.title as any) === 'Newer',
+        '104. Newest generic policy is correctly selected based on updatedAt descending regardless of insertion order'
+      );
+
+      // 105. Tie-breaking on equal updatedAt timestamps using _id descending
+      const tEqual = '2026-06-01T00:00:00.000Z';
+      group11MockColl.docs = [
+        { source: 'user_posted', fieldRules: { title: 'DocA' }, updatedAt: tEqual, _id: 'id-100' },
+        { source: 'user_posted', fieldRules: { title: 'DocB' }, updatedAt: tEqual, _id: 'id-999' }
+      ];
+      const tieBreakSelected = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        (tieBreakSelected.fieldRules.title as any) === 'DocB',
+        '105. Equal updatedAt timestamps are tie-broken correctly using _id descending (id-999 selected over id-100)'
+      );
+
+      // 106. Safe sourceKey type handling (malformed legacy values: numbers, objects, booleans, null, empty) without crashing
+      group11MockColl.docs = [
+        { source: 'user_posted', sourceKey: 12345, fieldRules: { title: 'Num' }, updatedAt: tEqual },
+        { source: 'user_posted', sourceKey: { nested: true }, fieldRules: { title: 'Obj' }, updatedAt: tEqual },
+        { source: 'user_posted', sourceKey: null, fieldRules: { title: 'NullKey' }, updatedAt: tEqual },
+        { source: 'scraped', sourceKey: '', fieldRules: { salary: 'Free' }, updatedAt: tEqual }
+      ];
+      const allMalformed = await JobVisibilityRepository.getAllPolicies();
+      assert(
+        Array.isArray(allMalformed) && allMalformed.length >= 2,
+        '106. Malformed legacy sourceKey types (numbers, objects, null, empty) do not crash getAllPolicies API'
       );
     } finally {
       JobVisibilityRepository.setMockCollection(null);

@@ -204,23 +204,33 @@ export class JobVisibilityRepository {
     const coll = isMockActive ? JobVisibilityRepository.mockCollection : (await getMongoDb()).collection('job_visibility_policies');
     const docs = await coll.find({}).toArray();
     const policyMap = new Map<string, any>();
+
+    const safeSourceKey = (sk: any): string | undefined => {
+      if (sk && typeof sk === 'string' && sk.trim()) {
+        return sk.trim();
+      }
+      return undefined;
+    };
+
     for (const d of docs) {
-      const isGeneric = !d.sourceKey || d.sourceKey === null || d.sourceKey === '' || d.sourceKey === d.source;
-      const key = isGeneric ? d.source : `${d.source}:${d.sourceKey.trim()}`;
+      const trimmedKey = safeSourceKey(d.sourceKey);
+      const isGeneric = !trimmedKey || trimmedKey === d.source;
+      const key = isGeneric ? d.source : `${d.source}:${trimmedKey}`;
       const existing = policyMap.get(key);
       if (!existing || new Date(d.updatedAt || 0).getTime() > new Date(existing.updatedAt || 0).getTime()) {
         policyMap.set(key, d);
       }
     }
     return Array.from(policyMap.values()).map(d => {
-      const isGeneric = !d.sourceKey || d.sourceKey === null || d.sourceKey === '' || d.sourceKey === d.source;
+      const trimmedKey = safeSourceKey(d.sourceKey);
+      const isGeneric = !trimmedKey || trimmedKey === d.source;
       const pol: VisibilityPolicy = {
         source: d.source,
         fieldRules: d.fieldRules || {},
         updatedAt: d.updatedAt || new Date().toISOString()
       };
-      if (!isGeneric && d.sourceKey && typeof d.sourceKey === 'string' && d.sourceKey.trim()) {
-        pol.sourceKey = d.sourceKey.trim();
+      if (!isGeneric && trimmedKey) {
+        pol.sourceKey = trimmedKey;
       }
       return pol;
     });

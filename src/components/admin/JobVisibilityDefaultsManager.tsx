@@ -74,14 +74,16 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  const requestIdRef = useRef(0);
+  const fetchRequestIdRef = useRef(0);
+  const saveRequestIdRef = useRef(0);
 
   // Load Policies with stale request prevention
   const fetchPolicies = async () => {
-    const currentReqId = ++requestIdRef.current;
+    if (isSaving) return; // Block fetch while saving
+    const currentFetchId = ++fetchRequestIdRef.current;
     try {
       const res = await api.jobsVisibility.getPolicies();
-      if (currentReqId !== requestIdRef.current) return; // Stale request discarded
+      if (currentFetchId !== fetchRequestIdRef.current) return; // Stale request discarded
       if (res.success && Array.isArray(res.policies)) {
         setPolicies(res.policies);
         const match = res.policies.find((p: any) => p.source === defaultSource && (defaultSource === 'scraped' && selectedSourceKey ? p.sourceKey === selectedSourceKey : !p.sourceKey));
@@ -97,7 +99,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
         }
       }
     } catch (err: any) {
-      if (currentReqId !== requestIdRef.current) return;
+      if (currentFetchId !== fetchRequestIdRef.current) return;
       console.error('Failed to load visibility policies:', err);
       setErrorMessage('Failed to connect to authoritative policy source.');
     }
@@ -173,11 +175,11 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
   }, [activeTab, statusFilter, sourceFilter, visibilityFilter, ownerFilter, scraperFilter, searchQuery]);
 
   const handleSaveDefaultPolicy = async () => {
+    const currentSaveId = ++saveRequestIdRef.current;
     setIsSaving(true);
     setSuccessMessage(null);
     setErrorMessage(null);
     const submittedRules = { ...currentFieldRules };
-    const currentReqId = ++requestIdRef.current;
 
     try {
       const res = await api.jobsVisibility.savePolicy({
@@ -192,7 +194,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
 
       // Authoritative read-back verification
       const verifyRes = await api.jobsVisibility.getPolicies();
-      if (currentReqId !== requestIdRef.current) return;
+      if (currentSaveId !== saveRequestIdRef.current) return;
 
       if (!verifyRes.success || !Array.isArray(verifyRes.policies)) {
         throw new Error('Could not verify saved policy against authoritative backend source.');
@@ -226,11 +228,12 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
       setCurrentFieldRules(verifiedRules);
       setSuccessMessage(`Authoritative default policy verified and updated for ${defaultSource.replace('_', ' ')}${selectedSourceKey ? ` (${selectedSourceKey})` : ''} source.`);
     } catch (err: any) {
-      if (currentReqId !== requestIdRef.current) return;
+      if (currentSaveId !== saveRequestIdRef.current) return;
       setErrorMessage(err?.message || 'Security Error: Could not persist or verify policy.');
     } finally {
-      if (currentReqId === requestIdRef.current) {
+      if (currentSaveId === saveRequestIdRef.current) {
         setIsSaving(false);
+        fetchPolicies(); // Authoritative refresh
       }
     }
   };

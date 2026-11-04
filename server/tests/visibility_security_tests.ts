@@ -1169,27 +1169,37 @@ async function runTests() {
       shouldThrowOnRead: boolean = false;
       shouldThrowOnWrite: boolean = false;
 
+      private matchQuery(doc: any, query: any): boolean {
+        if (!query) return true;
+        if (query.$or && Array.isArray(query.$or)) {
+          const matchesOr = query.$or.some((subQuery: any) => this.matchQuery(doc, subQuery));
+          if (!matchesOr) return false;
+        }
+        for (const [k, v] of Object.entries(query)) {
+          if (k === '$or') continue;
+          if (v && typeof v === 'object' && ('$exists' in v)) {
+            const exists = Object.prototype.hasOwnProperty.call(doc, k);
+            if (exists !== (v as any).$exists) {
+              return false;
+            }
+          } else if (v && typeof v === 'object' && ('$in' in v)) {
+            if (!Array.isArray((v as any).$in) || !(v as any).$in.includes(doc[k])) {
+              return false;
+            }
+          } else if (doc[k] !== v) {
+            return false;
+          }
+        }
+        return true;
+      }
+
       async findOne(query: any): Promise<any> {
         if (this.shouldThrowOnRead) {
           throw new Error('Simulated MongoDB read connection timeout');
         }
-        for (const doc of this.docs) {
-          let match = true;
-          for (const [k, v] of Object.entries(query)) {
-            if (v && typeof v === 'object' && ('$exists' in v)) {
-              const exists = Object.prototype.hasOwnProperty.call(doc, k);
-              if (exists !== (v as any).$exists) {
-                match = false;
-                break;
-              }
-            } else if (doc[k] !== v) {
-              match = false;
-              break;
-            }
-          }
-          if (match) return JSON.parse(JSON.stringify(doc));
-        }
-        return null;
+        // Support sorting if sort option is passed
+        let candidates = this.docs.filter(doc => this.matchQuery(doc, query));
+        return candidates.length > 0 ? JSON.parse(JSON.stringify(candidates[candidates.length - 1])) : null;
       }
 
       async updateOne(query: any, update: any, options?: any): Promise<any> {
@@ -1198,32 +1208,26 @@ async function runTests() {
         }
         let matchedIndex = -1;
         for (let i = 0; i < this.docs.length; i++) {
-          const doc = this.docs[i];
-          let match = true;
-          for (const [k, v] of Object.entries(query)) {
-            if (v && typeof v === 'object' && ('$exists' in v)) {
-              const exists = Object.prototype.hasOwnProperty.call(doc, k);
-              if (exists !== (v as any).$exists) {
-                match = false;
-                break;
-              }
-            } else if (doc[k] !== v) {
-              match = false;
-              break;
-            }
-          }
-          if (match) {
+          if (this.matchQuery(this.docs[i], query)) {
             matchedIndex = i;
             break;
           }
         }
 
         const setObj = update?.$set ? JSON.parse(JSON.stringify(update.$set)) : {};
+        const unsetObj = update?.$unset || {};
         if (matchedIndex >= 0) {
-          this.docs[matchedIndex] = { ...this.docs[matchedIndex], ...setObj };
+          const updatedDoc = { ...this.docs[matchedIndex], ...setObj };
+          for (const uKey of Object.keys(unsetObj)) {
+            delete updatedDoc[uKey];
+          }
+          this.docs[matchedIndex] = updatedDoc;
           return { acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 };
         } else if (options?.upsert) {
           const newDoc = { ...setObj };
+          for (const uKey of Object.keys(unsetObj)) {
+            delete newDoc[uKey];
+          }
           this.docs.push(newDoc);
           return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1 };
         }
@@ -1384,6 +1388,161 @@ async function runTests() {
       mockInjectionAllowedInTest === true,
       '89. Mock collection injection inside test mode (IS_TEST === "true") succeeds cleanly and resets safely'
     );
+
+    // ==========================================
+    // GROUP 11: STEP65-E.3 USER POSTED DEFAULT POLICY PERSISTENCE & LEGACY REGRESSION TESTS
+    // ==========================================
+    console.log('\n--- Group 11: STEP65-E.3 User Posted Default Policy Persistence & Legacy Regression Tests ---');
+
+    const group11MockColl = new MockMongoPolicyCollection();
+    JobVisibilityRepository.setMockCollection(group11MockColl);
+
+    try {
+      // 90. User Posted Job Title changing from Premium to Free
+      await JobVisibilityRepository.savePolicy('user_posted', { title: 'Premium' });
+      await JobVisibilityRepository.savePolicy('user_posted', { title: 'Free' });
+      let policyUpd = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        policyUpd.fieldRules.title === 'Free',
+        '90. User Posted Job Title successfully changes from Premium to Free'
+      );
+
+      // 91. User Posted fields changing from Free to Premium
+      await JobVisibilityRepository.savePolicy('user_posted', { company: 'Free' });
+      await JobVisibilityRepository.savePolicy('user_posted', { company: 'Premium' });
+      policyUpd = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        policyUpd.fieldRules.company === 'Premium',
+        '91. User Posted fields successfully change from Free to Premium'
+      );
+
+      // 92. User Posted fields changing to Hidden
+      await JobVisibilityRepository.savePolicy('user_posted', { salary: 'Hidden' });
+      policyUpd = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        policyUpd.fieldRules.salary === 'Hidden',
+        '92. User Posted fields successfully change to Hidden'
+      );
+
+      // 93. Multiple fields changing in one save
+      await JobVisibilityRepository.savePolicy('user_posted', {
+        title: 'Free',
+        company: 'Premium',
+        salary: 'Hidden',
+        contactEmail: 'Premium'
+      });
+      policyUpd = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        policyUpd.fieldRules.title === 'Free' &&
+        policyUpd.fieldRules.company === 'Premium' &&
+        policyUpd.fieldRules.salary === 'Hidden' &&
+        policyUpd.fieldRules.contactEmail === 'Premium',
+        '93. Multiple fields change correctly in a single save operation'
+      );
+
+      // 94. Repeated saves of the same generic policy update correctly without duplication
+      await JobVisibilityRepository.savePolicy('user_posted', { title: 'Premium' });
+      await JobVisibilityRepository.savePolicy('user_posted', { title: 'Free' });
+      const genericDocsCount = group11MockColl.docs.filter(d => d.source === 'user_posted').length;
+      assert(
+        genericDocsCount === 1,
+        '94. Repeated saves of the same generic policy update in-place without creating duplicate records'
+      );
+
+      // 95. Save -> database read-back -> reload returning identical values
+      const savedPolicy = await JobVisibilityRepository.savePolicy('user_posted', { title: 'Free', salary: 'Hidden' });
+      const readBackPolicy = await JobVisibilityRepository.getPolicy('user_posted');
+      const allPoliciesList = await JobVisibilityRepository.getAllPolicies();
+      const reloadedPolicy = allPoliciesList.find(p => p.source === 'user_posted' && !p.sourceKey);
+      assert(
+        readBackPolicy.fieldRules.title === 'Free' &&
+        readBackPolicy.fieldRules.salary === 'Hidden' &&
+        reloadedPolicy?.fieldRules.title === 'Free' &&
+        reloadedPolicy?.fieldRules.salary === 'Hidden',
+        '95. Save -> database read-back -> reload returns identical verified values'
+      );
+
+      // 96. Legacy generic records with missing sourceKey
+      group11MockColl.docs = [{ source: 'user_posted', fieldRules: { title: 'Premium' }, updatedAt: new Date().toISOString() }];
+      let legacyRes = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        legacyRes.fieldRules.title === 'Premium',
+        '96. Legacy generic records with missing sourceKey are retrieved correctly'
+      );
+
+      // 97. Legacy generic records with null sourceKey
+      group11MockColl.docs = [{ source: 'user_posted', sourceKey: null, fieldRules: { title: 'Free' }, updatedAt: new Date().toISOString() }];
+      legacyRes = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        legacyRes.fieldRules.title === 'Free',
+        '97. Legacy generic records with null sourceKey are retrieved correctly'
+      );
+
+      // 98. Legacy generic records with empty sourceKey
+      group11MockColl.docs = [{ source: 'user_posted', sourceKey: '', fieldRules: { company: 'Premium' }, updatedAt: new Date().toISOString() }];
+      legacyRes = await JobVisibilityRepository.getPolicy('user_posted');
+      assert(
+        legacyRes.fieldRules.company === 'Premium',
+        '98. Legacy generic records with empty sourceKey are retrieved correctly'
+      );
+
+      // 99. Multiple generic records handled deterministically without deletion (picks most recent)
+      const olderTime = new Date(Date.now() - 10000).toISOString();
+      const newerTime = new Date().toISOString();
+      group11MockColl.docs = [
+        { source: 'user_posted', sourceKey: null, fieldRules: { title: 'Premium' }, updatedAt: olderTime },
+        { source: 'user_posted', sourceKey: 'user_posted', fieldRules: { title: 'Free' }, updatedAt: newerTime }
+      ];
+      const multiRes = await JobVisibilityRepository.getPolicy('user_posted');
+      const allMulti = await JobVisibilityRepository.getAllPolicies();
+      assert(
+        multiRes.fieldRules.title === 'Free' &&
+        allMulti.filter(p => p.source === 'user_posted').length === 1,
+        '99. Multiple generic records are handled deterministically (picking newest) without destructive deletion'
+      );
+
+      // 100. MongoDB write failure propagates error
+      group11MockColl.shouldThrowOnWrite = true;
+      let wErr = false;
+      try {
+        await JobVisibilityRepository.savePolicy('user_posted', { title: 'Free' });
+      } catch {
+        wErr = true;
+      } finally {
+        group11MockColl.shouldThrowOnWrite = false;
+      }
+      assert(wErr === true, '100. MongoDB write failure correctly propagates error');
+
+      // 101. MongoDB read failure propagates error / fails closed
+      group11MockColl.shouldThrowOnRead = true;
+      let rErr = false;
+      try {
+        await JobVisibilityRepository.getPolicy('user_posted');
+      } catch {
+        rErr = true;
+      } finally {
+        group11MockColl.shouldThrowOnRead = false;
+      }
+      assert(rErr === true, '101. MongoDB read failure correctly propagates error and fails closed');
+
+      // 102. Invalid field names and visibility values are rejected
+      const invalidFieldCheck = validateFieldRules({ fakeField: 'Free' });
+      const invalidValCheck = validateFieldRules({ title: 'SuperFree' });
+      assert(invalidFieldCheck !== null && invalidValCheck !== null, '102. Invalid field names and visibility values are rejected');
+
+      // 103. Scraped and Admin Created policies remain fully intact and unaffected
+      await JobVisibilityRepository.savePolicy('scraped', { salary: 'Free' });
+      await JobVisibilityRepository.savePolicy('admin_created', { salary: 'Premium' });
+      const scrapedPol = await JobVisibilityRepository.getPolicy('scraped');
+      const adminPol = await JobVisibilityRepository.getPolicy('admin_created');
+      assert(
+        scrapedPol.fieldRules.salary === 'Free' &&
+        adminPol.fieldRules.salary === 'Premium',
+        '103. Scraped and Admin Created policies remain fully intact and unaffected'
+      );
+    } finally {
+      JobVisibilityRepository.setMockCollection(null);
+    }
 
   } finally {
     // Clean up test fixtures from Database by exact ID

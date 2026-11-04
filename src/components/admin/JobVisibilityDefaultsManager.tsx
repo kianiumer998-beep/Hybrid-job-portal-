@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ShieldCheck, 
   Settings, 
@@ -74,10 +74,14 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  // Load Policies
+  const requestIdRef = useRef(0);
+
+  // Load Policies with stale request prevention
   const fetchPolicies = async () => {
+    const currentReqId = ++requestIdRef.current;
     try {
       const res = await api.jobsVisibility.getPolicies();
+      if (currentReqId !== requestIdRef.current) return; // Stale request discarded
       if (res.success && Array.isArray(res.policies)) {
         setPolicies(res.policies);
         const match = res.policies.find((p: any) => p.source === defaultSource && (defaultSource === 'scraped' && selectedSourceKey ? p.sourceKey === selectedSourceKey : !p.sourceKey));
@@ -93,6 +97,7 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
         }
       }
     } catch (err: any) {
+      if (currentReqId !== requestIdRef.current) return;
       console.error('Failed to load visibility policies:', err);
       setErrorMessage('Failed to connect to authoritative policy source.');
     }
@@ -171,22 +176,62 @@ export const JobVisibilityDefaultsManager: React.FC = () => {
     setIsSaving(true);
     setSuccessMessage(null);
     setErrorMessage(null);
+    const submittedRules = { ...currentFieldRules };
+    const currentReqId = ++requestIdRef.current;
+
     try {
       const res = await api.jobsVisibility.savePolicy({
         source: defaultSource,
-        fieldRules: currentFieldRules,
+        fieldRules: submittedRules,
         sourceKey: defaultSource === 'scraped' && selectedSourceKey ? selectedSourceKey : undefined
       });
-      if (res.success) {
-        setSuccessMessage(`Authoritative default policy updated for ${defaultSource.replace('_', ' ')}${selectedSourceKey ? ` (${selectedSourceKey})` : ''} source.`);
-        fetchPolicies();
-      } else {
+
+      if (!res.success) {
         throw new Error(res.message || 'Validation failed on backend.');
       }
+
+      // Authoritative read-back verification
+      const verifyRes = await api.jobsVisibility.getPolicies();
+      if (currentReqId !== requestIdRef.current) return;
+
+      if (!verifyRes.success || !Array.isArray(verifyRes.policies)) {
+        throw new Error('Could not verify saved policy against authoritative backend source.');
+      }
+
+      const verifiedMatch = verifyRes.policies.find((p: any) => 
+        p.source === defaultSource && 
+        (defaultSource === 'scraped' && selectedSourceKey ? p.sourceKey === selectedSourceKey : (!p.sourceKey || p.sourceKey === defaultSource))
+      );
+
+      if (!verifiedMatch || !verifiedMatch.fieldRules) {
+        throw new Error('Saved policy verification failed: policy record not found on authoritative read-back.');
+      }
+
+      // Compare every submitted field with its saved value
+      let allMatch = true;
+      const verifiedRules = verifiedMatch.fieldRules;
+      for (const [fieldKey, expectedVal] of Object.entries(submittedRules)) {
+        if (verifiedRules[fieldKey] !== expectedVal) {
+          allMatch = false;
+          console.error(`Field mismatch for "${fieldKey}": submitted ${expectedVal}, read-back ${verifiedRules[fieldKey]}`);
+        }
+      }
+
+      if (!allMatch) {
+        throw new Error('Policy verification failed: read-back field values do not match submitted values exactly.');
+      }
+
+      // Update screen only from verified result
+      setPolicies(verifyRes.policies);
+      setCurrentFieldRules(verifiedRules);
+      setSuccessMessage(`Authoritative default policy verified and updated for ${defaultSource.replace('_', ' ')}${selectedSourceKey ? ` (${selectedSourceKey})` : ''} source.`);
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Security Error: Could not persist policy.');
+      if (currentReqId !== requestIdRef.current) return;
+      setErrorMessage(err?.message || 'Security Error: Could not persist or verify policy.');
     } finally {
-      setIsSaving(false);
+      if (currentReqId === requestIdRef.current) {
+        setIsSaving(false);
+      }
     }
   };
 

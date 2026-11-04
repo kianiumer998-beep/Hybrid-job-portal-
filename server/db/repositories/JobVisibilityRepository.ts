@@ -147,8 +147,19 @@ export class JobVisibilityRepository {
     const mergedFieldRules: Record<string, FieldVisibility> = { ...base.fieldRules };
     let effectiveUpdatedAt = base.updatedAt;
 
-    // 1. Layer generic source policy
-    const genericDoc = await coll.findOne({ source, sourceKey: { $exists: false } });
+    // 1. Layer generic source policy (robust against missing, null, empty, or source-named sourceKey legacy records)
+    const genericDoc = await coll.findOne(
+      {
+        source,
+        $or: [
+          { sourceKey: { $exists: false } },
+          { sourceKey: null },
+          { sourceKey: '' },
+          { sourceKey: source }
+        ]
+      },
+      { sort: { updatedAt: -1, _id: -1 } }
+    );
     if (genericDoc && genericDoc.fieldRules) {
       Object.assign(mergedFieldRules, genericDoc.fieldRules);
       if (genericDoc.updatedAt) effectiveUpdatedAt = genericDoc.updatedAt;
@@ -175,7 +186,7 @@ export class JobVisibilityRepository {
   }
 
   /**
-   * Retrieves all policies.
+   * Retrieves all policies, deterministically deduplicating any legacy duplicate generic records.
    */
   static async getAllPolicies(): Promise<VisibilityPolicy[]> {
     const isMockActive = Boolean(JobVisibilityRepository.mockCollection && process.env.IS_TEST === 'true');
@@ -192,14 +203,24 @@ export class JobVisibilityRepository {
 
     const coll = isMockActive ? JobVisibilityRepository.mockCollection : (await getMongoDb()).collection('job_visibility_policies');
     const docs = await coll.find({}).toArray();
-    return docs.map(d => {
+    const policyMap = new Map<string, any>();
+    for (const d of docs) {
+      const isGeneric = !d.sourceKey || d.sourceKey === null || d.sourceKey === '' || d.sourceKey === d.source;
+      const key = isGeneric ? d.source : `${d.source}:${d.sourceKey.trim()}`;
+      const existing = policyMap.get(key);
+      if (!existing || new Date(d.updatedAt || 0).getTime() > new Date(existing.updatedAt || 0).getTime()) {
+        policyMap.set(key, d);
+      }
+    }
+    return Array.from(policyMap.values()).map(d => {
+      const isGeneric = !d.sourceKey || d.sourceKey === null || d.sourceKey === '' || d.sourceKey === d.source;
       const pol: VisibilityPolicy = {
         source: d.source,
         fieldRules: d.fieldRules || {},
         updatedAt: d.updatedAt || new Date().toISOString()
       };
-      if (d.sourceKey) {
-        pol.sourceKey = d.sourceKey;
+      if (!isGeneric && d.sourceKey && typeof d.sourceKey === 'string' && d.sourceKey.trim()) {
+        pol.sourceKey = d.sourceKey.trim();
       }
       return pol;
     });
@@ -207,7 +228,7 @@ export class JobVisibilityRepository {
 
   /**
    * Saves or updates a policy.
-   * When sourceKey is absent, omits the sourceKey property completely from the document and $set payload.
+   * When sourceKey is absent, robustly updates any existing generic policy record (even if stored with null/empty/missing sourceKey) or upserts a clean document without sourceKey.
    */
   static async savePolicy(source: JobSourceType, fieldRules: Record<string, FieldVisibility>, sourceKey?: string): Promise<VisibilityPolicy> {
     const policy: VisibilityPolicy = {
@@ -234,14 +255,32 @@ export class JobVisibilityRepository {
     }
 
     const coll = isMockActive ? JobVisibilityRepository.mockCollection : (await getMongoDb()).collection('job_visibility_policies');
-    const query: any = { source };
+    let query: any = { source };
+    let updatePayload: any = { $set: policy };
+
     if (policy.sourceKey) {
       query.sourceKey = policy.sourceKey;
     } else {
-      query.sourceKey = { $exists: false };
+      // Find existing generic record (missing, null, empty, or source-named) to prevent duplicate creation
+      const existingGeneric = await coll.findOne({
+        source,
+        $or: [
+          { sourceKey: { $exists: false } },
+          { sourceKey: null },
+          { sourceKey: '' },
+          { sourceKey: source }
+        ]
+      }, { sort: { updatedAt: -1, _id: -1 } });
+
+      if (existingGeneric && existingGeneric._id) {
+        query = { _id: existingGeneric._id };
+        updatePayload.$unset = { sourceKey: "" };
+      } else {
+        query.sourceKey = { $exists: false };
+      }
     }
 
-    const res = await coll.updateOne(query, { $set: policy }, { upsert: true });
+    const res = await coll.updateOne(query, updatePayload, { upsert: true });
     if (!res || (!res.acknowledged && !res.upsertedCount && !res.modifiedCount && !res.matchedCount)) {
       throw new Error('Failed to persist job visibility policy to MongoDB');
     }

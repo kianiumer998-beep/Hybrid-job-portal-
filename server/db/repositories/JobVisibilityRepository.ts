@@ -75,6 +75,15 @@ export class JobVisibilityRepository {
     ['admin_created', getDefaultPolicy('admin_created')]
   ]);
 
+  private static mockCollection: any = null;
+
+  /**
+   * Test-only helper to exercise the MongoDB driver query/update code path with an isolated mock collection.
+   */
+  static setMockCollection(coll: any): void {
+    JobVisibilityRepository.mockCollection = coll;
+  }
+
   /**
    * Retrieves the active policy for a given source and optional sourceKey.
    * Enforces 3-tier policy inheritance:
@@ -84,45 +93,52 @@ export class JobVisibilityRepository {
    * Note: Missing scraper-specific policy does NOT reset generic rules to built-in defaults.
    */
   static async getPolicy(source: JobSourceType, sourceKey?: string): Promise<VisibilityPolicy> {
-    if (process.env.IS_TEST !== 'true' && (process.env.NODE_ENV === 'production' || !isMongoConfigured())) {
-      if (!isMongoConfigured()) {
-        throw new Error('MongoDB configuration required for job visibility policy persistence in production');
-      }
-    }
-
-    const base = getDefaultPolicy(source);
-    const mergedFieldRules: Record<string, FieldVisibility> = { ...base.fieldRules };
-    let effectiveUpdatedAt = base.updatedAt;
-
-    if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
-      // 1. Layer generic source policy
-      const genericPolicy = JobVisibilityRepository.localPolicies.get(source);
-      if (genericPolicy && genericPolicy.fieldRules) {
-        Object.assign(mergedFieldRules, genericPolicy.fieldRules);
-        if (genericPolicy.updatedAt) effectiveUpdatedAt = genericPolicy.updatedAt;
-      }
-
-      // 2. Layer scraper-specific policy if sourceKey provided
-      if (sourceKey) {
-        const specificKey = `${source}:${sourceKey}`;
-        const specificPolicy = JobVisibilityRepository.localPolicies.get(specificKey);
-        if (specificPolicy && specificPolicy.fieldRules) {
-          Object.assign(mergedFieldRules, specificPolicy.fieldRules);
-          if (specificPolicy.updatedAt) effectiveUpdatedAt = specificPolicy.updatedAt;
+    if (!JobVisibilityRepository.mockCollection) {
+      if (process.env.IS_TEST !== 'true' && (process.env.NODE_ENV === 'production' || !isMongoConfigured())) {
+        if (!isMongoConfigured()) {
+          throw new Error('MongoDB configuration required for job visibility policy persistence in production');
         }
       }
 
-      return {
-        source,
-        sourceKey,
-        fieldRules: mergedFieldRules,
-        updatedAt: effectiveUpdatedAt
-      };
+      if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
+        // 1. Layer generic source policy
+        const genericPolicy = JobVisibilityRepository.localPolicies.get(source);
+        const base = getDefaultPolicy(source);
+        const mergedFieldRules: Record<string, FieldVisibility> = { ...base.fieldRules };
+        let effectiveUpdatedAt = base.updatedAt;
+
+        if (genericPolicy && genericPolicy.fieldRules) {
+          Object.assign(mergedFieldRules, genericPolicy.fieldRules);
+          if (genericPolicy.updatedAt) effectiveUpdatedAt = genericPolicy.updatedAt;
+        }
+
+        // 2. Layer scraper-specific policy if sourceKey provided
+        if (sourceKey && typeof sourceKey === 'string' && sourceKey.trim()) {
+          const specificKey = `${source}:${sourceKey.trim()}`;
+          const specificPolicy = JobVisibilityRepository.localPolicies.get(specificKey);
+          if (specificPolicy && specificPolicy.fieldRules) {
+            Object.assign(mergedFieldRules, specificPolicy.fieldRules);
+            if (specificPolicy.updatedAt) effectiveUpdatedAt = specificPolicy.updatedAt;
+          }
+        }
+
+        const resPol: VisibilityPolicy = {
+          source,
+          fieldRules: mergedFieldRules,
+          updatedAt: effectiveUpdatedAt
+        };
+        if (sourceKey && typeof sourceKey === 'string' && sourceKey.trim()) {
+          resPol.sourceKey = sourceKey.trim();
+        }
+        return resPol;
+      }
     }
 
-    // MongoDB authoritative path
-    const db = await getMongoDb();
-    const coll = db.collection('job_visibility_policies');
+    // MongoDB authoritative path (executed in production or via mockCollection)
+    const coll = JobVisibilityRepository.mockCollection || (await getMongoDb()).collection('job_visibility_policies');
+    const base = getDefaultPolicy(source);
+    const mergedFieldRules: Record<string, FieldVisibility> = { ...base.fieldRules };
+    let effectiveUpdatedAt = base.updatedAt;
 
     // 1. Layer generic source policy
     const genericDoc = await coll.findOne({ source, sourceKey: { $exists: false } });
@@ -132,71 +148,87 @@ export class JobVisibilityRepository {
     }
 
     // 2. Layer scraper-specific policy if sourceKey provided
-    if (sourceKey) {
-      const specificDoc = await coll.findOne({ source, sourceKey });
+    if (sourceKey && typeof sourceKey === 'string' && sourceKey.trim()) {
+      const specificDoc = await coll.findOne({ source, sourceKey: sourceKey.trim() });
       if (specificDoc && specificDoc.fieldRules) {
         Object.assign(mergedFieldRules, specificDoc.fieldRules);
         if (specificDoc.updatedAt) effectiveUpdatedAt = specificDoc.updatedAt;
       }
     }
 
-    return {
+    const resPol: VisibilityPolicy = {
       source,
-      sourceKey,
       fieldRules: mergedFieldRules,
       updatedAt: effectiveUpdatedAt
     };
+    if (sourceKey && typeof sourceKey === 'string' && sourceKey.trim()) {
+      resPol.sourceKey = sourceKey.trim();
+    }
+    return resPol;
   }
 
   /**
    * Retrieves all policies.
    */
   static async getAllPolicies(): Promise<VisibilityPolicy[]> {
-    if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
-      return Array.from(JobVisibilityRepository.localPolicies.values());
+    if (!JobVisibilityRepository.mockCollection) {
+      if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
+        return Array.from(JobVisibilityRepository.localPolicies.values());
+      }
+
+      if (!isMongoConfigured()) {
+        throw new Error('MongoDB configuration required for job visibility policies in production');
+      }
     }
 
-    if (!isMongoConfigured()) {
-      throw new Error('MongoDB configuration required for job visibility policies in production');
-    }
-
-    const db = await getMongoDb();
-    const coll = db.collection('job_visibility_policies');
+    const coll = JobVisibilityRepository.mockCollection || (await getMongoDb()).collection('job_visibility_policies');
     const docs = await coll.find({}).toArray();
-    return docs.map(d => ({
-      source: d.source,
-      sourceKey: d.sourceKey,
-      fieldRules: d.fieldRules || {},
-      updatedAt: d.updatedAt || new Date().toISOString()
-    }));
+    return docs.map(d => {
+      const pol: VisibilityPolicy = {
+        source: d.source,
+        fieldRules: d.fieldRules || {},
+        updatedAt: d.updatedAt || new Date().toISOString()
+      };
+      if (d.sourceKey) {
+        pol.sourceKey = d.sourceKey;
+      }
+      return pol;
+    });
   }
 
   /**
    * Saves or updates a policy.
+   * When sourceKey is absent, omits the sourceKey property completely from the document and $set payload.
    */
   static async savePolicy(source: JobSourceType, fieldRules: Record<string, FieldVisibility>, sourceKey?: string): Promise<VisibilityPolicy> {
     const policy: VisibilityPolicy = {
       source,
-      sourceKey,
       fieldRules,
       updatedAt: new Date().toISOString()
     };
-
-    if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
-      const key = sourceKey ? `${source}:${sourceKey}` : source;
-      JobVisibilityRepository.localPolicies.set(key, policy);
-      return policy;
+    if (sourceKey && typeof sourceKey === 'string' && sourceKey.trim()) {
+      policy.sourceKey = sourceKey.trim();
     }
 
-    if (!isMongoConfigured()) {
-      throw new Error('MongoDB configuration required to save job visibility policy in production');
+    if (!JobVisibilityRepository.mockCollection) {
+      if (process.env.IS_TEST === 'true' || (process.env.NODE_ENV !== 'production' && !isMongoConfigured())) {
+        const key = policy.sourceKey ? `${source}:${policy.sourceKey}` : source;
+        JobVisibilityRepository.localPolicies.set(key, policy);
+        return policy;
+      }
+
+      if (!isMongoConfigured()) {
+        throw new Error('MongoDB configuration required to save job visibility policy in production');
+      }
     }
 
-    const db = await getMongoDb();
-    const coll = db.collection('job_visibility_policies');
+    const coll = JobVisibilityRepository.mockCollection || (await getMongoDb()).collection('job_visibility_policies');
     const query: any = { source };
-    if (sourceKey) query.sourceKey = sourceKey;
-    else query.sourceKey = { $exists: false };
+    if (policy.sourceKey) {
+      query.sourceKey = policy.sourceKey;
+    } else {
+      query.sourceKey = { $exists: false };
+    }
 
     const res = await coll.updateOne(query, { $set: policy }, { upsert: true });
     if (!res || (!res.acknowledged && !res.upsertedCount && !res.modifiedCount && !res.matchedCount)) {

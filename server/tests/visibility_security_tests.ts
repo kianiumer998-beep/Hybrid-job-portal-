@@ -1156,6 +1156,200 @@ async function runTests() {
       '79. Existing policies and individual job overrides remain immutable and uncontaminated after lookup'
     );
 
+    // ==========================================
+    // GROUP 10: STEP65-E.2-B MINIMAL GENERIC POLICY MONGODB PERSISTENCE (MOCKED UNIT TESTS)
+    // NOTE: These unit tests use an isolated mock collection to strictly verify the MongoDB
+    // driver query & update branches of JobVisibilityRepository (coll.findOne and coll.updateOne).
+    // They are explicitly mocked unit tests and do NOT constitute live external MongoDB tests.
+    // ==========================================
+    console.log('\n--- Group 10: STEP65-E.2-B Minimal Generic Policy MongoDB Persistence (Mocked Unit Tests) ---');
+
+    class MockMongoPolicyCollection {
+      docs: any[] = [];
+      shouldThrowOnRead: boolean = false;
+      shouldThrowOnWrite: boolean = false;
+
+      async findOne(query: any): Promise<any> {
+        if (this.shouldThrowOnRead) {
+          throw new Error('Simulated MongoDB read connection timeout');
+        }
+        for (const doc of this.docs) {
+          let match = true;
+          for (const [k, v] of Object.entries(query)) {
+            if (v && typeof v === 'object' && ('$exists' in v)) {
+              const exists = Object.prototype.hasOwnProperty.call(doc, k);
+              if (exists !== (v as any).$exists) {
+                match = false;
+                break;
+              }
+            } else if (doc[k] !== v) {
+              match = false;
+              break;
+            }
+          }
+          if (match) return JSON.parse(JSON.stringify(doc));
+        }
+        return null;
+      }
+
+      async updateOne(query: any, update: any, options?: any): Promise<any> {
+        if (this.shouldThrowOnWrite) {
+          throw new Error('Simulated MongoDB write connection timeout');
+        }
+        let matchedIndex = -1;
+        for (let i = 0; i < this.docs.length; i++) {
+          const doc = this.docs[i];
+          let match = true;
+          for (const [k, v] of Object.entries(query)) {
+            if (v && typeof v === 'object' && ('$exists' in v)) {
+              const exists = Object.prototype.hasOwnProperty.call(doc, k);
+              if (exists !== (v as any).$exists) {
+                match = false;
+                break;
+              }
+            } else if (doc[k] !== v) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            matchedIndex = i;
+            break;
+          }
+        }
+
+        const setObj = update?.$set ? JSON.parse(JSON.stringify(update.$set)) : {};
+        if (matchedIndex >= 0) {
+          this.docs[matchedIndex] = { ...this.docs[matchedIndex], ...setObj };
+          return { acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 };
+        } else if (options?.upsert) {
+          const newDoc = { ...setObj };
+          this.docs.push(newDoc);
+          return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1 };
+        }
+        return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
+      }
+
+      find(query?: any) {
+        return {
+          toArray: async () => JSON.parse(JSON.stringify(this.docs))
+        };
+      }
+    }
+
+    const mockColl = new MockMongoPolicyCollection();
+    JobVisibilityRepository.setMockCollection(mockColl);
+
+    try {
+      // 80. Generic policy save does not include an own "sourceKey" property
+      await JobVisibilityRepository.savePolicy('scraped', {
+        salary: 'Premium',
+        contactEmail: 'Hidden',
+        applicationUrl: 'Premium'
+      });
+
+      const savedGenericDoc = mockColl.docs[0];
+      assert(
+        savedGenericDoc !== undefined &&
+        Object.prototype.hasOwnProperty.call(savedGenericDoc, 'sourceKey') === false &&
+        savedGenericDoc.source === 'scraped' &&
+        savedGenericDoc.fieldRules.contactEmail === 'Hidden',
+        '80. [MOCKED] Generic policy save does not include an own "sourceKey" property in MongoDB document'
+      );
+
+      // 81. Generic policy lookup can retrieve the saved generic document
+      const retrievedGeneric = await JobVisibilityRepository.getPolicy('scraped');
+      assert(
+        retrievedGeneric.source === 'scraped' &&
+        Object.prototype.hasOwnProperty.call(retrievedGeneric, 'sourceKey') === false &&
+        retrievedGeneric.fieldRules.salary === 'Premium' &&
+        retrievedGeneric.fieldRules.contactEmail === 'Hidden' &&
+        retrievedGeneric.fieldRules.applicationUrl === 'Premium',
+        '81. [MOCKED] Generic policy lookup using { sourceKey: { $exists: false } } retrieves saved generic document'
+      );
+
+      // 82. FPSC-specific policy overrides only explicitly configured fields
+      await JobVisibilityRepository.savePolicy('scraped', {
+        salary: 'Free'
+      }, 'fpsc');
+
+      const savedFpscDoc = mockColl.docs.find(d => d.sourceKey === 'fpsc');
+      const fpscPolicyMock = await JobVisibilityRepository.getPolicy('scraped', 'fpsc');
+      assert(
+        savedFpscDoc !== undefined &&
+        savedFpscDoc.sourceKey === 'fpsc' &&
+        fpscPolicyMock.fieldRules.salary === 'Free',
+        '82. [MOCKED] FPSC-specific policy overrides only explicitly configured fields (salary: Free)'
+      );
+
+      // 83. Unspecified FPSC fields inherit generic scraped policy
+      assert(
+        fpscPolicyMock.fieldRules.contactEmail === 'Hidden' &&
+        fpscPolicyMock.fieldRules.applicationUrl === 'Premium',
+        '83. [MOCKED] Unspecified FPSC fields inherit generic scraped policy (contactEmail: Hidden, applicationUrl: Premium)'
+      );
+
+      // 84. PPSC inherits generic policy but never FPSC-specific values
+      const ppscPolicyMock = await JobVisibilityRepository.getPolicy('scraped', 'ppsc');
+      assert(
+        ppscPolicyMock.fieldRules.salary === 'Premium' &&
+        ppscPolicyMock.fieldRules.contactEmail === 'Hidden' &&
+        ppscPolicyMock.fieldRules.applicationUrl === 'Premium' &&
+        ppscPolicyMock.fieldRules.salary !== fpscPolicyMock.fieldRules.salary,
+        '84. [MOCKED] PPSC inherits generic scraped policy but never FPSC-specific values (salary: Premium)'
+      );
+
+      // 85. Individual job overrides remain highest priority
+      const mockJobWithOverride = {
+        id: `job-mock-override-${Date.now()}`,
+        title: 'FPSC Custom Job',
+        sourceType: 'scraped',
+        scraperSourceId: 'fpsc',
+        fieldVisibility: {
+          applicationUrl: 'Hidden'
+        }
+      };
+      const appliedMockJob = await JobVisibilityRepository.applyPolicyToJob(mockJobWithOverride);
+      assert(
+        appliedMockJob.fieldVisibility.salary === 'Free' &&
+        appliedMockJob.fieldVisibility.contactEmail === 'Hidden' &&
+        appliedMockJob.fieldVisibility.applicationUrl === 'Hidden',
+        '85. [MOCKED] Individual job overrides remain highest priority over both generic and scraper policies'
+      );
+
+      // 86. MongoDB write errors propagate as failures
+      mockColl.shouldThrowOnWrite = true;
+      let writeThrew = false;
+      try {
+        await JobVisibilityRepository.savePolicy('scraped', { title: 'Premium' });
+      } catch (err: any) {
+        writeThrew = true;
+      } finally {
+        mockColl.shouldThrowOnWrite = false;
+      }
+      assert(
+        writeThrew === true,
+        '86. [MOCKED] MongoDB write errors propagate as failures and are not falsely presented as successful'
+      );
+
+      // 87. MongoDB read errors fail closed without local JSON fallback
+      mockColl.shouldThrowOnRead = true;
+      let readThrew = false;
+      try {
+        await JobVisibilityRepository.getPolicy('scraped');
+      } catch (err: any) {
+        readThrew = true;
+      } finally {
+        mockColl.shouldThrowOnRead = false;
+      }
+      assert(
+        readThrew === true,
+        '87. [MOCKED] MongoDB read errors fail closed without silent fallback to local JSON or in-memory policy'
+      );
+    } finally {
+      JobVisibilityRepository.setMockCollection(null);
+    }
+
   } finally {
     // Clean up test fixtures from Database by exact ID
     for (const id of createdFixtureIds) {

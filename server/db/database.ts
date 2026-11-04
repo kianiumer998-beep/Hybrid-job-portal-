@@ -96,6 +96,10 @@ const DEFAULT_APPLY_SETTINGS = {
   allowExternalApplication: true,
   externalApplicationWarning: 'Notice: You will be redirected to the official department/portal hiring page to submit your application directly.',
   expiredJobMessage: 'This employment opportunity has passed its application deadline and is no longer accepting new submissions.',
+  applyButtonRequiresPremium: false,
+  premiumPopupTitle: "Premium Access Required",
+  premiumPopupMessage: "This feature requires a premium subscription.",
+  premiumFieldMessages: {},
   customQuestions: [
     {
       id: 'q-notice',
@@ -149,26 +153,7 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     vipMonthlyPkr: 3000,
     govtAlertsWeeklyPkr: 400
   },
-  subscriptionPackages: [
-    {
-      id: 'pro-alerts',
-      name: 'Pro Alerts',
-      pricePkr: 300,
-      durationDays: 30,
-      features: ['Instant WhatsApp Alerts', 'Direct HR Apply Unlocked', 'Priority Verification'],
-      enabled: true,
-      badge: 'Popular'
-    },
-    {
-      id: 'vip-jobseeker',
-      name: 'VIP Jobseeker',
-      pricePkr: 800,
-      durationDays: 30,
-      features: ['Recruiter Priority Routing', 'Free Premium CV Unlocked', 'Featured Candidate Profile'],
-      enabled: true,
-      badge: 'Priority'
-    }
-  ],
+  subscriptionPackages: [],
   cvBuilder: {
     standardPdfExportPkr: 0,
     premiumAiOptimizerPkr: 500,

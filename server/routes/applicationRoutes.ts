@@ -5,6 +5,7 @@ import { ApplicationRepository, AuditRepository, JobRepository, UserRepository }
 import { Database } from '../db/database';
 import { ADMIN_ROLES, hasAdminPermission, requireAdminPermission, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
+import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 
 export const applicationRouter = Router();
 
@@ -347,6 +348,17 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       cvFileUrl
     } = req.body;
 
+    const job = await JobRepository.getById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const applySettings = Database.getApplySettings();
+    const accessRes = await evaluateApplyAccess(authUser, job, applySettings);
+    if (!accessRes.allowed) {
+      return res.status(403).json({ success: false, message: 'PREMIUM_REQUIRED', gate: accessRes.gate });
+    }
+
     const applicantName = String(
       dbUser?.name || dbUser?.fullName || authUser?.name || ''
     ).trim();
@@ -451,7 +463,6 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
     const settings = Database.getApplySettings();
 
     // Verify target job exists and is currently live/approved
-    const job = await JobRepository.getById(jobId);
     if (!job) {
       return res.status(404).json({
         success: false,

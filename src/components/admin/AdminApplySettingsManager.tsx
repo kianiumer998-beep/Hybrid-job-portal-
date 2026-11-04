@@ -42,6 +42,10 @@ export const AdminApplySettingsManager: React.FC = () => {
     allowExternalApplication: true,
     externalApplicationWarning: 'Notice: You will be redirected to the official department/portal hiring page to submit your application directly.',
     expiredJobMessage: 'This employment opportunity has passed its application deadline and is no longer accepting new submissions.',
+    applyButtonRequiresPremium: false,
+    premiumPopupTitle: "Premium Access Required",
+    premiumPopupMessage: "This feature requires a premium subscription.",
+    premiumFieldMessages: {},
     customQuestions: []
   });
 
@@ -239,6 +243,57 @@ export const AdminApplySettingsManager: React.FC = () => {
                 onChange={(e) => setSettings({ ...settings, expiredJobMessage: e.target.value })}
                 className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm"
               />
+            </div>
+          </div>
+
+          <h3 className="font-bold text-white text-base border-b border-slate-800 pb-3 pt-4 flex items-center space-x-2">
+            <Lock className="w-4 h-4 text-amber-400" />
+            <span>Membership Gate & Premium Gating</span>
+          </h3>
+
+          <div className="space-y-4 text-sm pt-2">
+            <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-white block">Global Premium Apply Gate</span>
+                <span className="text-[10px] text-slate-400">Require Premium Subscription for ALL apply buttons portal-wide.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSettings({ ...settings, applyButtonRequiresPremium: !settings.applyButtonRequiresPremium })}
+                className={`p-1 rounded-lg transition-colors ${settings.applyButtonRequiresPremium ? 'text-amber-400 bg-amber-500/10' : 'text-slate-500 bg-slate-800'}`}
+              >
+                {settings.applyButtonRequiresPremium ? <ToggleRight className="w-8 h-8" /> : <ToggleLeft className="w-8 h-8" />}
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                Premium Popup Title
+              </label>
+              <input
+                type="text"
+                value={settings.premiumPopupTitle || ''}
+                onChange={(e) => setSettings({ ...settings, premiumPopupTitle: e.target.value })}
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                Default Premium Popup Message
+              </label>
+              <textarea
+                rows={2}
+                value={settings.premiumPopupMessage || ''}
+                onChange={(e) => setSettings({ ...settings, premiumPopupMessage: e.target.value })}
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm"
+              />
+            </div>
+
+            <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+              <p className="text-[10px] text-amber-400/80 leading-relaxed italic">
+                Note: Field-specific gates are controlled via Job Visibility Manager (Default Rules or Individual Job Overrides). When a field is set to "Premium", the apply button will automatically gate if any designated apply URL is locked.
+              </p>
             </div>
           </div>
         </div>

@@ -14,6 +14,7 @@ import { getProvinceForCity } from '../../src/utils/locationCatalog';
 export const jobRouter = Router();
 
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
+import { evaluateApplyAccess } from '../services/applyAccessPolicy';
 
 // 1. Get Live Approved Jobs with Query Filters & Pagination
 jobRouter.get('/', async (req, res) => {
@@ -56,11 +57,22 @@ jobRouter.get('/', async (req, res) => {
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
 
     let sanitizedJobs = result.jobs;
+    const applySettings = Database.getApplySettings();
     if (Array.isArray(sanitizedJobs)) {
       sanitizedJobs = await Promise.all(
         sanitizedJobs.map(async (job: any) => {
           const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
-          return JobVisibilityRepository.filterJobForUser(policyApplied, user, isPremium);
+          let filtered = JobVisibilityRepository.filterJobForUser(policyApplied, user, isPremium);
+          
+          const accessRes = await evaluateApplyAccess(user, job, applySettings);
+          if (!accessRes.allowed) {
+            // Attach metadata and redact URLs
+            filtered.externalApplyUrl = "[LOCKED]";
+            filtered.applicationUrl = "[LOCKED]";
+            filtered.sourceUrl = "[LOCKED]";
+            filtered._applyGate = accessRes.gate;
+          }
+          return filtered;
         })
       );
     }
@@ -903,7 +915,17 @@ jobRouter.get('/slug/:slug', async (req, res) => {
     const user = (req as any).user;
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
     const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
-    const filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
+    let filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
+
+    const applySettings = Database.getApplySettings();
+    const accessRes = await evaluateApplyAccess(user, job, applySettings);
+    if (!accessRes.allowed) {
+      // Attach metadata and redact URLs
+      filteredJob.externalApplyUrl = "[LOCKED]";
+      filteredJob.applicationUrl = "[LOCKED]";
+      filteredJob.sourceUrl = "[LOCKED]";
+      filteredJob._applyGate = accessRes.gate;
+    }
 
     res.json({ success: true, job: filteredJob });
   } catch (err: any) {
@@ -1195,7 +1217,17 @@ jobRouter.get('/:idOrSlug', async (req, res) => {
     const user = (req as any).user;
     const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
     const policyAppliedJob = await JobVisibilityRepository.applyPolicyToJob(job);
-    const filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
+    let filteredJob = JobVisibilityRepository.filterJobForUser(policyAppliedJob, user, isPremium);
+
+    const applySettings = Database.getApplySettings();
+    const accessRes = await evaluateApplyAccess(user, job, applySettings);
+    if (!accessRes.allowed) {
+      // Attach metadata and redact URLs
+      filteredJob.externalApplyUrl = "[LOCKED]";
+      filteredJob.applicationUrl = "[LOCKED]";
+      filteredJob.sourceUrl = "[LOCKED]";
+      filteredJob._applyGate = accessRes.gate;
+    }
 
     res.json({ success: true, job: filteredJob });
   } catch (err: any) {

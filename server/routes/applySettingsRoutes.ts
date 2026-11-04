@@ -24,6 +24,20 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
       updatedAt: new Date().toISOString()
     };
 
+    // Validate new premium gate settings
+    if (req.body.applyButtonRequiresPremium !== undefined && typeof req.body.applyButtonRequiresPremium !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'Invalid applyButtonRequiresPremium type.' });
+    }
+    if (req.body.premiumPopupTitle && typeof req.body.premiumPopupTitle !== 'string') {
+      return res.status(400).json({ success: false, message: 'Invalid premiumPopupTitle type.' });
+    }
+    if (req.body.premiumPopupMessage && typeof req.body.premiumPopupMessage !== 'string') {
+      return res.status(400).json({ success: false, message: 'Invalid premiumPopupMessage type.' });
+    }
+    if (req.body.premiumFieldMessages && typeof req.body.premiumFieldMessages !== 'object') {
+      return res.status(400).json({ success: false, message: 'Invalid premiumFieldMessages object.' });
+    }
+
     Database.saveApplySettings(updated);
 
     Database.addAuditLog({

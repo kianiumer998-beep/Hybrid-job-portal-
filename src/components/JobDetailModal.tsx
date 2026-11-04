@@ -28,6 +28,7 @@ import { Job, JobAttachment } from '../types/job';
 import { sanitizeJob } from '../utils/jobSanitizer';
 import { injectJobJsonLd } from '../utils/seoHelper';
 import { api } from '../services/api';
+import { PremiumUpgradeModal } from './PremiumUpgradeModal';
 
 interface JobDetailModalProps {
   job: Job | null;
@@ -87,6 +88,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   const [copiedText, setCopiedText] = useState(false);
   const [showFullExtracted, setShowFullExtracted] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<JobAttachment | { name: string; fileUrl: string; fileType: string } | null>(null);
+  const [showPremiumUpgrade, setShowPremiumUpgrade] = useState(false);
 
   const formatBytes = (bytes?: number) => {
     if (!bytes || bytes === 0) return '0 KB';
@@ -123,8 +125,9 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   // The primary external URL to show (if authorized)
   const validExternalUrl = hasValidExternalApplyUrl ? job.externalApplyUrl : (hasValidApplicationUrl ? job.applicationUrl : (isSourceUrlAuthorizedAsApplyDestination ? job.sourceUrl : undefined));
 
-  // Determine if application is restricted based on the intended field visibility
-  const isApplyRestricted = isApplicationUrlRedacted || isExternalApplyUrlRedacted || (isSourceUrlAuthorizedAsApplyDestination && isSourceUrlRedacted);
+  // Determine if application is restricted based on the intended field visibility or global gate
+  const applyGate = (job as any)._applyGate;
+  const isApplyRestricted = isApplicationUrlRedacted || isExternalApplyUrlRedacted || (isSourceUrlAuthorizedAsApplyDestination && isSourceUrlRedacted) || applyGate?.requiresUpgrade;
 
   const hasRedactedExternal = isRedactedUrl(job.externalApplyUrl) || isRedactedUrl(job.applicationUrl) || (isSourceUrlAuthorizedAsApplyDestination && isRedactedUrl(job.sourceUrl));
 
@@ -229,12 +232,9 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               
               {hints.salary?.requiresUpgrade && (
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onUpgrade) {
-                      onClose();
-                      onUpgrade();
-                    }
+                  onClick={() => {
+                    setShowPremiumUpgrade(true);
+                    if (onUpgrade) onUpgrade();
                   }}
                   className="ml-auto flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
                 >
@@ -316,12 +316,9 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   </div>
                   {hasPremiumAttachments && (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (onUpgrade) {
-                          onClose();
-                          onUpgrade();
-                        }
+                      onClick={() => {
+                        setShowPremiumUpgrade(true);
+                        if (onUpgrade) onUpgrade();
                       }}
                       className="flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
                     >
@@ -415,10 +412,8 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (onUpgrade) {
-                        onClose();
-                        onUpgrade();
-                      }
+                      setShowPremiumUpgrade(true);
+                      if (onUpgrade) onUpgrade();
                     }}
                     className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
                   >
@@ -448,10 +443,8 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (onUpgrade) {
-                        onClose();
-                        onUpgrade();
-                      }
+                      setShowPremiumUpgrade(true);
+                      if (onUpgrade) onUpgrade();
                     }}
                     className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
                   >
@@ -603,10 +596,8 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (onUpgrade) {
-                    onClose();
-                    onUpgrade();
-                  }
+                  setShowPremiumUpgrade(true);
+                  if (onUpgrade) onUpgrade();
                 }}
                 className="px-5 py-2.5 rounded-xl font-extrabold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 flex items-center space-x-2 shadow-lg shrink-0 cursor-pointer transition-all active:scale-95"
                 title="Upgrade to Premium Subscription to unlock application destination"
@@ -707,6 +698,17 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           </div>
         </div>
       )}
+      <PremiumUpgradeModal 
+        isOpen={showPremiumUpgrade} 
+        onClose={() => setShowPremiumUpgrade(false)} 
+        jobTitle={job.title}
+        customTitle={applyGate?.title}
+        customMessage={applyGate?.message}
+        onUpgradeClick={() => {
+           setShowPremiumUpgrade(false);
+           if (onUpgrade) onUpgrade();
+        }}
+      />
     </div>
   );
 };

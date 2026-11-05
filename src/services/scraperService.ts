@@ -53,6 +53,21 @@ export interface ScrapedJobResult {
   sourceUrl: string;
   sourceJobId?: string;
   originalApplyUrl?: string;
+  applicationUrl?: string;
+
+  // Additive Structured Field Extensions (STEP 66-A)
+  advertisedPositions?: string[];
+  totalVacancies?: number;
+  employmentType?: string;
+  ageLimit?: string;
+  minimumAge?: number;
+  maximumAge?: number;
+  qualificationSummary?: string;
+  domicile?: string;
+  contactEmail?: string;
+  responsibilitiesList?: string[];
+  extractedText?: string;
+  relatedSourceUrls?: string[];
 
   // Verified Source Evidence
   sourcePortal?: string;
@@ -232,7 +247,8 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
         status: config.autoApprove ? 'Approved' : 'Pending',
         sourceUrl: j.absolute_url || targetUrl,
         sourceJobId: String(j.id),
-        originalApplyUrl: j.absolute_url || targetUrl,
+        originalApplyUrl: undefined,
+        applicationUrl: undefined,
         sourcePortal: config.name,
         extractionMethod: 'greenhouse_api',
         scrapeRunId: options.runId,
@@ -297,9 +313,10 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
         datePosted: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
         applicationsCount: 0,
         status: config.autoApprove ? 'Approved' : 'Pending',
-        sourceUrl: j.hostedUrl || j.applyUrl || targetUrl,
+        sourceUrl: j.hostedUrl || targetUrl,
         sourceJobId: String(j.id),
-        originalApplyUrl: j.applyUrl || j.hostedUrl || targetUrl,
+        originalApplyUrl: (j.applyUrl && j.applyUrl !== j.hostedUrl) ? j.applyUrl : undefined,
+        applicationUrl: (j.applyUrl && j.applyUrl !== j.hostedUrl) ? j.applyUrl : undefined,
         sourcePortal: config.name,
         extractionMethod: 'lever_api',
         scrapeRunId: options.runId,
@@ -357,7 +374,8 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               status: config.autoApprove ? 'Approved' : 'Pending',
               sourceUrl: `https://jobs.smartrecruiters.com/${company}/${j.id}`,
               sourceJobId: String(j.id),
-              originalApplyUrl: `https://jobs.smartrecruiters.com/${company}/${j.id}`,
+              originalApplyUrl: (j.applyUrl && j.applyUrl !== `https://jobs.smartrecruiters.com/${company}/${j.id}`) ? j.applyUrl : undefined,
+              applicationUrl: (j.applyUrl && j.applyUrl !== `https://jobs.smartrecruiters.com/${company}/${j.id}`) ? j.applyUrl : undefined,
               sourcePortal: config.name,
               extractionMethod: 'smartrecruiters_api',
               scrapeRunId: options.runId,
@@ -402,7 +420,8 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
               status: config.autoApprove ? 'Approved' : 'Pending',
               sourceUrl: j.jobUrl || targetUrl,
               sourceJobId: String(j.id),
-              originalApplyUrl: j.jobUrl || targetUrl,
+              originalApplyUrl: (j.applyUrl && j.applyUrl !== j.jobUrl) ? j.applyUrl : undefined,
+              applicationUrl: (j.applyUrl && j.applyUrl !== j.jobUrl) ? j.applyUrl : undefined,
               sourcePortal: config.name,
               extractionMethod: 'ashby_api',
               scrapeRunId: options.runId,
@@ -494,7 +513,8 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       status: config.autoApprove ? 'Approved' : 'Pending',
       sourceUrl: targetPdfUrl,
       sourceJobId: j.pdfCaseNumber || undefined,
-      originalApplyUrl: undefined,
+      originalApplyUrl: j.originalApplyUrl || undefined,
+      applicationUrl: j.applicationUrl || undefined,
       sourcePortal: config.name,
       extractionMethod: 'government_pdf_engine',
       scrapeRunId: options.runId,
@@ -510,7 +530,18 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
       pdfTotalVacanciesInCase: j.pdfTotalVacanciesInCase,
       domicileQuota: j.domicileQuota,
       ageRelaxationNote: j.ageRelaxationNote,
-      pdfParserEngine: 'pdfplumber'
+      pdfParserEngine: 'pdfplumber',
+      advertisedPositions: j.advertisedPositions,
+      totalVacancies: j.totalVacancies,
+      employmentType: j.employmentType,
+      ageLimit: j.ageLimit,
+      minimumAge: typeof j.minimumAge === 'number' ? j.minimumAge : (j.minimumAge ? Number(j.minimumAge) : undefined),
+      maximumAge: typeof j.maximumAge === 'number' ? j.maximumAge : (j.maximumAge ? Number(j.maximumAge) : undefined),
+      qualificationSummary: j.qualificationSummary,
+      domicile: j.domicile,
+      contactEmail: j.contactEmail,
+      responsibilitiesList: j.responsibilitiesList || j.responsibilities,
+      relatedSourceUrls: j.relatedSourceUrls
     }));
 
     return {
@@ -605,7 +636,8 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
             status: config.autoApprove ? 'Approved' : 'Pending',
             sourceUrl: item.url || baseUrl,
             sourceJobId: item.identifier?.value || undefined,
-            originalApplyUrl: item.url || baseUrl,
+            originalApplyUrl: (item.applicationUrl || item.applyUrl) ? resolveUrl(item.applicationUrl || item.applyUrl, baseUrl) : undefined,
+            applicationUrl: (item.applicationUrl || item.applyUrl) ? resolveUrl(item.applicationUrl || item.applyUrl, baseUrl) : undefined,
             sourcePortal: config.name,
             extractionMethod: 'json_ld',
             scrapeRunId: options.runId,
@@ -662,7 +694,8 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
             status: config.autoApprove ? 'Approved' : 'Pending',
             sourceUrl: item.url ? resolveUrl(item.url, currentUrl) : currentUrl,
             sourceJobId: item.id ? String(item.id) : undefined,
-            originalApplyUrl: item.url ? resolveUrl(item.url, currentUrl) : currentUrl,
+            originalApplyUrl: item.applyUrl ? resolveUrl(item.applyUrl, currentUrl) : undefined,
+            applicationUrl: item.applyUrl ? resolveUrl(item.applyUrl, currentUrl) : undefined,
             sourcePortal: config.name,
             extractionMethod: 'javascript_state_extraction',
             scrapeRunId: options.runId,

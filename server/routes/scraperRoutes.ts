@@ -252,6 +252,7 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
       status: 'Pending',
       sourceUrl: r.sourceUrl || cleanUrl,
       originalApplyUrl: r.originalApplyUrl || undefined,
+      applicationUrl: r.applicationUrl || undefined,
       sourceJobId: r.sourceJobId || undefined,
       isGovtJob: r.isGovtJob ?? true,
       govtDepartment: r.govtDepartment,
@@ -264,7 +265,19 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
       sourcePortal: organization || domain,
       extractionMethod: r.extractionMethod || 'html_cheerio',
       scrapedAt: now,
-      paymentStatus: 'Exempt'
+      paymentStatus: 'Exempt',
+      advertisedPositions: r.advertisedPositions,
+      totalVacancies: r.totalVacancies,
+      employmentType: r.employmentType,
+      ageLimit: r.ageLimit,
+      minimumAge: r.minimumAge,
+      maximumAge: r.maximumAge,
+      qualificationSummary: r.qualificationSummary,
+      domicile: r.domicile,
+      contactEmail: r.contactEmail,
+      responsibilitiesList: r.responsibilitiesList,
+      extractedText: r.extractedText,
+      relatedSourceUrls: r.relatedSourceUrls
     }));
 
     return res.json({

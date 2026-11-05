@@ -85,7 +85,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
     visibility: {
       title: true, company: true, location: true, postedDate: true, description: true,
       tags: true, salary: true, jobType: true, govtBadge: true, featuredBadge: true,
-      urgentBadge: true, newspaperBadge: true, pdfBadge: true, saveButton: true,
+      urgentBadge: true, newspaperBadge: true, pdfBadge: true, futureBadge: true, saveButton: true,
       detailsButton: true, applyButton: true
     },
     labels: { saveButton: 'Save', detailsButton: 'Details', applyButton: 'Apply', cardHeading: '' },
@@ -267,7 +267,10 @@ export const JobListings: React.FC<JobListingsProps> = ({
                         {design.visibility.pdfBadge && job.isPdfScraped && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/35">PDF</span>
                         )}
-                        {job.isFutureJob && (
+                        {design.visibility.newspaperBadge && job.isNewspaperAd && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40">News</span>
+                        )}
+                        {design.visibility.futureBadge && job.isFutureJob && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">Future</span>
                         )}
                     </div>
@@ -335,7 +338,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           )}
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-3">
             <div className="flex flex-wrap gap-1 sm:gap-1.5">
-              {job.isFutureJob && (
+              {design.visibility.futureBadge && job.isFutureJob && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
                   <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-cyan-400" />
                   <span>Future {job.futureIntakeDate ? `(${job.futureIntakeDate})` : ''}</span>

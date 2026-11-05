@@ -55,8 +55,20 @@ export class PricingRepository {
             isPersistedToMongo: true
           };
         }
+        // If MongoDB is configured but no document exists yet, it's the first run
+        return {
+          ...Database.getPricing(),
+          isPersistedToMongo: false,
+          isFirstRun: true
+        };
       } catch (err: any) {
-        console.warn('[PricingRepository] MongoDB fetch failed, serving local fallback:', err.message);
+        console.warn('[PricingRepository] MongoDB fetch failed:', err.message);
+        // Requirement: If MongoDB is configured but unavailable, do not silently use stale local JSON as authoritative in production.
+        // In Test mode, we can still fall back for development convenience.
+        if (process.env.IS_TEST === 'true') {
+           return Database.getPricing();
+        }
+        throw new Error(`Authoritative configuration database is unavailable: ${err.message}`);
       }
     }
     return Database.getPricing();

@@ -356,10 +356,14 @@ export default function App() {
   }, [loadBackendPricingConfig]);
 
   const handleUpdatePricingConfig = useCallback(async (nextPricingConfig: AdPricingConfig) => {
+    const previous = pricingConfig;
     setPricingConfig(nextPricingConfig);
     try {
       const res = await api.pricing.update({ adPricingConfig: nextPricingConfig });
-      if (res && res.success && res.pricing?.adPricingConfig) {
+      if (!res || !res.success) {
+        throw new Error(res?.message || 'Failed to update ad pricing configuration');
+      }
+      if (res.pricing?.adPricingConfig) {
         setPricingConfig({
           ...DEFAULT_AD_PRICING_CONFIG,
           ...res.pricing.adPricingConfig,
@@ -373,43 +377,60 @@ export default function App() {
           }
         });
       }
+      return res;
     } catch (err) {
-      console.error('[App] Failed to persist adPricingConfig to backend /api/pricing:', err);
+      console.error('[App] Failed to persist adPricingConfig:', err);
+      setPricingConfig(previous);
+      throw err;
     }
-  }, []);
+  }, [pricingConfig]);
 
   const handleUpdateCampaignConfig = useCallback(
     async (nextCampaignConfig: CampaignCustomizationConfig) => {
+      const previous = campaignConfig;
       setCampaignConfig(nextCampaignConfig);
       try {
         const res = await api.pricing.update({ campaignCustomizationConfig: nextCampaignConfig });
-        if (res && res.success && res.pricing?.campaignCustomizationConfig) {
+        if (!res || !res.success) {
+          throw new Error(res?.message || 'Failed to update campaign configuration');
+        }
+        if (res.pricing?.campaignCustomizationConfig) {
           setCampaignConfig({
             ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
             ...res.pricing.campaignCustomizationConfig
           });
         }
+        return res;
       } catch (err) {
-        console.error('[App] Failed to persist campaignCustomizationConfig to backend /api/pricing:', err);
+        console.error('[App] Failed to persist campaignCustomizationConfig:', err);
+        setCampaignConfig(previous);
+        throw err;
       }
     },
-    []
+    [campaignConfig]
   );
   
   const handleUpdateLandingConfig = useCallback(async (nextLandingConfig: LandingPageConfig) => {
+    const previous = landingConfig;
     setLandingConfig(nextLandingConfig);
     try {
       const res = await api.pricing.update({ landingPageConfig: nextLandingConfig });
-      if (res && res.success && res.pricing?.landingPageConfig) {
+      if (!res || !res.success) {
+        throw new Error(res?.message || 'Failed to update landing page configuration');
+      }
+      if (res.pricing?.landingPageConfig) {
         setLandingConfig({
           ...DEFAULT_LANDING_PAGE_CONFIG,
           ...res.pricing.landingPageConfig
         });
       }
+      return res;
     } catch (err) {
-      console.error('[App] Failed to persist landingPageConfig to backend /api/pricing:', err);
+      console.error('[App] Failed to persist landingPageConfig:', err);
+      setLandingConfig(previous);
+      throw err;
     }
-  }, []);
+  }, [landingConfig]);
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 

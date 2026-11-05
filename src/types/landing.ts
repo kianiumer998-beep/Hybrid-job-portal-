@@ -78,6 +78,7 @@ export interface JobCardDesignConfig {
     urgentBadge: boolean;
     newspaperBadge: boolean;
     pdfBadge: boolean;
+    futureBadge: boolean;
     saveButton: boolean;
     detailsButton: boolean;
     applyButton: boolean;
@@ -195,6 +196,7 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
       urgentBadge: true,
       newspaperBadge: true,
       pdfBadge: true,
+      futureBadge: true,
       saveButton: true,
       detailsButton: true,
       applyButton: true

@@ -10,6 +10,7 @@ import {
 import { Database } from '../database';
 import { generateJobSlug } from '../../utils/slugify';
 import { JobVisibilityRepository } from './JobVisibilityRepository';
+import { PricingRepository } from './PricingRepository';
 import { DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../../src/types/job';
 
 export interface JobFilterOptions {
@@ -422,7 +423,7 @@ export class JobRepository {
     tierCounts: { vip: number; pinned: number; featured: number; urgent: number };
     slotLimits: { vip: number; pinned: number; featured: number; urgent: number };
   }> {
-    const pricing = Database.getPricing();
+    const pricing = await PricingRepository.get();
     const slotConfig = pricing?.jobPosting?.homepagePrioritySlotConfig || DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG;
 
     const limits = {
@@ -431,6 +432,14 @@ export class JobRepository {
       featured: slotConfig.enabled && slotConfig.featured?.enabled !== false ? (slotConfig.featured?.maxSlots ?? 4) : 0,
       urgent: slotConfig.enabled && slotConfig.urgent?.enabled !== false ? (slotConfig.urgent?.maxSlots ?? 4) : 0
     };
+
+    if (!slotConfig.enabled) {
+      return {
+        jobs: [],
+        tierCounts: { vip: 0, pinned: 0, featured: 0, urgent: 0 },
+        slotLimits: limits
+      };
+    }
 
     // PRODUCTION: Direct MongoDB Query for Priority Candidates
     if (process.env.IS_TEST !== 'true' && isMongoConfigured()) {
@@ -476,10 +485,10 @@ export class JobRepository {
         // Secondary expiry check for safety
         if (checkJobExpired(job)) continue;
 
-        const isVip = job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent);
-        const isPinned = job.isPinnedTop || job.priorityTier === 'featured_top';
-        const isFeatured = job.featured;
-        const isUrgent = job.urgent || job.priorityTier === 'urgent';
+        const isVip = (slotConfig.vip?.enabled !== false) && (job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent));
+        const isPinned = (slotConfig.pinned?.enabled !== false) && (job.isPinnedTop || job.priorityTier === 'featured_top');
+        const isFeatured = (slotConfig.featured?.enabled !== false) && (job.featured);
+        const isUrgent = (slotConfig.urgent?.enabled !== false) && (job.urgent || job.priorityTier === 'urgent');
 
         if (isVip) vipOccupancy++;
         else if (isPinned) pinnedOccupancy++;
@@ -534,10 +543,10 @@ export class JobRepository {
       const isPriority = job.priorityTier === 'vip_bundle' || (job as any).activePriorityTier || job.isPinnedTop || job.featured || job.urgent;
       if (!isPriority) continue;
 
-      const isVip = job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent);
-      const isPinned = job.isPinnedTop || job.priorityTier === 'featured_top';
-      const isFeatured = job.featured;
-      const isUrgent = job.urgent || job.priorityTier === 'urgent';
+      const isVip = (slotConfig.vip?.enabled !== false) && (job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent));
+      const isPinned = (slotConfig.pinned?.enabled !== false) && (job.isPinnedTop || job.priorityTier === 'featured_top');
+      const isFeatured = (slotConfig.featured?.enabled !== false) && (job.featured);
+      const isUrgent = (slotConfig.urgent?.enabled !== false) && (job.urgent || job.priorityTier === 'urgent');
 
       if (isVip) vipOccupancy++;
       else if (isPinned) pinnedOccupancy++;

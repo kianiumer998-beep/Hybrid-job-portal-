@@ -683,14 +683,49 @@ export default function App() {
   const [dbError, setDbError] = useState<string | null>(null);
 
   // Fetch jobs from backend Single Source of Truth
+  // Filters & Pagination State
+  const [filters, setFilters] = useState<JobFilters>(() => {
+    try {
+      const savedCountry = localStorage.getItem('hybrid_user_country_preference');
+      if (savedCountry) {
+        const c: CountryOption = JSON.parse(savedCountry);
+        return {
+          searchQuery: '',
+          jobType: 'All',
+          region: c.code === 'GL' ? 'All' : (c.region || c.name),
+          province: '',
+          city: '',
+          district: '',
+          experienceLevel: 'All',
+          salaryMin: 0,
+          sortBy: 'latest'
+        };
+      }
+    } catch (e) {}
+    return {
+      searchQuery: '',
+      jobType: 'All',
+      region: 'All',
+      province: '',
+      city: '',
+      district: '',
+      experienceLevel: 'All',
+      salaryMin: 0,
+      sortBy: 'latest'
+    };
+  });
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [postsPerPage, setPostsPerPage] = useState<number>(10);
+
   const loadBackendJobs = useCallback(async (targetPage?: number, targetLimit?: number) => {
     const pageToFetch = targetPage ?? pendingPage;
     const limitToFetch = targetLimit ?? pendingLimit;
+    setIsLoadingJobs(true);
+    setDbError(null);
     try {
-      const [liveRes, pendingRes, priorityRes] = await Promise.all([
+      const [liveRes, pendingRes] = await Promise.all([
         api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
-        api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch }),
-        api.jobs.getPriority()
+        api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch })
       ]);
 
       let errorDetected = false;
@@ -706,9 +741,22 @@ export default function App() {
         setJobs(liveRes);
       }
 
-      if (priorityRes && priorityRes.success && Array.isArray(priorityRes.jobs)) {
-        setPriorityJobs(priorityRes.jobs);
-      }
+      // Isolated Priority Jobs Loading (won't block standard jobs)
+      api.jobs.getPriority({
+          search: filters.searchQuery,
+          jobType: filters.jobType !== 'All' ? filters.jobType : '',
+          region: filters.region !== 'All' ? filters.region : '',
+          province: filters.province,
+          city: filters.city,
+          experienceLevel: filters.experienceLevel !== 'All' ? filters.experienceLevel : '',
+          salaryMin: String(filters.salaryMin || '')
+      }).then(priorityRes => {
+          if (priorityRes && priorityRes.success && Array.isArray(priorityRes.jobs)) {
+            setPriorityJobs(priorityRes.jobs);
+          }
+      }).catch(err => {
+          console.warn('[App] Failed to load priority jobs (non-blocking):', err);
+      });
 
       const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
       if (pendingRes && pendingRes.success && Array.isArray(pendingList)) {
@@ -740,7 +788,7 @@ export default function App() {
     } finally {
       setIsLoadingJobs(false);
     }
-  }, [pendingPage, pendingLimit]);
+  }, [pendingPage, pendingLimit, filters]);
 
   const handlePendingPageChange = useCallback(async (newPage: number, newLimit?: number) => {
     const limitToUse = newLimit ?? pendingLimit;
@@ -893,39 +941,6 @@ export default function App() {
     }
   };
 
-  // Filters & Pagination State
-  const [filters, setFilters] = useState<JobFilters>(() => {
-    try {
-      const savedCountry = localStorage.getItem('hybrid_user_country_preference');
-      if (savedCountry) {
-        const c: CountryOption = JSON.parse(savedCountry);
-        return {
-          searchQuery: '',
-          jobType: 'All',
-          region: c.code === 'GL' ? 'All' : (c.region || c.name),
-          province: '',
-          city: '',
-          district: '',
-          experienceLevel: 'All',
-          salaryMin: 0,
-          sortBy: 'latest'
-        };
-      }
-    } catch (e) {}
-    return {
-      searchQuery: '',
-      jobType: 'All',
-      region: 'All',
-      province: '',
-      city: '',
-      district: '',
-      experienceLevel: 'All',
-      salaryMin: 0,
-      sortBy: 'latest'
-    };
-  });
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [postsPerPage, setPostsPerPage] = useState<number>(10);
 
   const handleSelectCountry = (country: CountryOption) => {
     setUserSelectedCountry(country);

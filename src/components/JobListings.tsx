@@ -208,6 +208,18 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   <span>PDF</span>
                 </span>
               )}
+              {job.isNewspaperAd && (
+                <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 flex items-center space-x-1">
+                  <FileText className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-orange-400" />
+                  <span>Newspaper ({job.newspaperName})</span>
+                </span>
+              )}
+              {job.isDuplicateOverride && (
+                <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-red-500/20 text-red-300 border border-red-500/40 flex items-center space-x-1">
+                  <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-400" />
+                  <span>Override: {job.duplicateOverrideNote || 'Active'}</span>
+                </span>
+              )}
               {job.isGovtJob && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
                   <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-400" />
@@ -256,17 +268,40 @@ export const JobListings: React.FC<JobListingsProps> = ({
           >
             {cleanTitle}
           </h3>
-          <div className="hidden sm:flex flex-wrap items-center gap-1.5 text-slate-400 text-xs font-medium mb-3">
+          <div className="flex flex-wrap items-center gap-1.5 text-slate-400 text-xs font-medium mb-3">
             <div className="flex items-center space-x-1">
               <Building2 className="w-3.5 h-3.5 text-slate-500" />
               <span className="text-slate-300 font-semibold">{cleanCompany}</span>
             </div>
+            {job.city && (
+                <>
+                <span>•</span>
+                <div className="flex items-center space-x-1">
+                    <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                    <span>{job.city}{job.province ? `, ${job.province}` : ''}</span>
+                </div>
+                </>
+            )}
             <span>•</span>
             <div className="flex items-center space-x-1">
               <Clock className="w-3.5 h-3.5 text-slate-500" />
               <span>{job.postedAt}</span>
             </div>
           </div>
+          {job.description && (
+            <p className="text-xs text-slate-400 line-clamp-2 mb-3">
+                {job.description}
+            </p>
+          )}
+          {cleanTags.length > 0 && (
+             <div className="flex flex-wrap gap-1 mb-3">
+                 {cleanTags.map((tag, idx) => (
+                     <span key={idx} className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                         {tag}
+                     </span>
+                 ))}
+             </div>
+          )}
         </div>
         <div className="pt-1.5 sm:pt-3 border-t border-slate-800/80 flex items-center justify-between gap-1 sm:gap-2">
           <div className="min-w-0 pr-1">
@@ -342,7 +377,14 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
       {/* 3. STANDARD JOBS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6">
-        {currentStandardJobs.map((job, index) => renderJobCard(job, index, false))}
+        {currentStandardJobs.map((job, index) => {
+          const elements = [renderJobCard(job, index, false)];
+          // Insert ad every 3 jobs if available
+          if ((index + 1) % 3 === 0 && ads[Math.floor(index / 3)]) {
+             elements.push(<InlineFeedAd key={`ad-${index}`} ad={ads[Math.floor(index / 3)]} onAdClick={onAdClick} />);
+          }
+          return elements;
+        })}
       </div>
 
       {/* BOTTOM PAGINATION CONTROLS BAR */}

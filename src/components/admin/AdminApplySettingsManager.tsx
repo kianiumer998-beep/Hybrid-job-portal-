@@ -45,6 +45,7 @@ export const AdminApplySettingsManager: React.FC = () => {
     applyButtonRequiresPremium: false,
     premiumPopupTitle: "Premium Access Required",
     premiumPopupMessage: "This feature requires a premium subscription.",
+    premiumCtaText: "Upgrade to Premium",
     premiumFieldMessages: {},
     customQuestions: []
   });
@@ -286,6 +287,19 @@ export const AdminApplySettingsManager: React.FC = () => {
                 rows={2}
                 value={settings.premiumPopupMessage || ''}
                 onChange={(e) => setSettings({ ...settings, premiumPopupMessage: e.target.value })}
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                Premium Upgrade CTA Button Label
+              </label>
+              <input
+                type="text"
+                value={settings.premiumCtaText || ''}
+                onChange={(e) => setSettings({ ...settings, premiumCtaText: e.target.value })}
+                placeholder="e.g. Upgrade to Premium"
                 className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm"
               />
             </div>

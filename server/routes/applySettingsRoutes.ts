@@ -34,6 +34,9 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
     if (req.body.premiumPopupMessage && typeof req.body.premiumPopupMessage !== 'string') {
       return res.status(400).json({ success: false, message: 'Invalid premiumPopupMessage type.' });
     }
+    if (req.body.premiumCtaText && typeof req.body.premiumCtaText !== 'string') {
+      return res.status(400).json({ success: false, message: 'Invalid premiumCtaText type.' });
+    }
     if (req.body.premiumFieldMessages) {
       if (typeof req.body.premiumFieldMessages !== 'object' || Array.isArray(req.body.premiumFieldMessages)) {
         return res.status(400).json({ success: false, message: 'Invalid premiumFieldMessages object.' });

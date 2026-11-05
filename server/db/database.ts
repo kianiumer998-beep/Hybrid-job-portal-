@@ -99,6 +99,7 @@ const DEFAULT_APPLY_SETTINGS = {
   applyButtonRequiresPremium: false,
   premiumPopupTitle: "Premium Access Required",
   premiumPopupMessage: "This feature requires a premium subscription.",
+  premiumCtaText: "Upgrade to Premium",
   premiumFieldMessages: {},
   customQuestions: [
     {

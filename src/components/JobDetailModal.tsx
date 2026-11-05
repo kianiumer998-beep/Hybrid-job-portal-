@@ -563,13 +563,13 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
         </div>
 
         {/* Sticky Modal Footer Actions */}
-        <div className="sticky bottom-0 z-20 shrink-0 p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="sticky bottom-0 z-20 shrink-0 p-3 sm:p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 max-w-full overflow-hidden">
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-w-full">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center space-x-1.5 shrink-0"
+              className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center space-x-1.5 shrink-0"
               aria-label="Close Modal"
             >
               <X className="w-4 h-4 text-slate-400 shrink-0" />
@@ -579,7 +579,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             <button
               type="button"
               onClick={() => onToggleSave(job.id)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center space-x-1.5 shrink-0 ${
+              className={`px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center space-x-1.5 shrink-0 ${
                 isSaved
                   ? 'bg-emerald-500 text-slate-950 border-emerald-400'
                   : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
@@ -590,14 +590,14 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 max-w-full">
             {/* External Portal link button (renders ONLY if valid URL exists, or shows locked Premium badge) */}
             {validExternalUrl ? (
               <a
                 href={validExternalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition-colors shrink-0"
+                className="px-3.5 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition-colors shrink-0 max-w-full truncate"
               >
                 <ExternalLink className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <span>External Portal (باہر کا لنک)</span>
@@ -606,7 +606,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowPremiumUpgrade(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-[#071d15] hover:bg-[#0a281d] text-emerald-300 border border-emerald-500/30 flex items-center space-x-1.5 transition-all shrink-0 cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.12)]"
+                className="px-3.5 py-2.5 rounded-xl font-bold text-xs bg-[#071d15] hover:bg-[#0a281d] text-emerald-300 border border-emerald-500/30 flex items-center space-x-1.5 transition-all shrink-0 cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.12)] max-w-full truncate"
                 title="Premium Feature — External Link Locked (Click to Upgrade)"
               >
                 <Crown className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -621,7 +621,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 onClick={() => {
                   setShowPremiumUpgrade(true);
                 }}
-                className="px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.25)] border border-emerald-400/40 flex items-center space-x-2 shrink-0 cursor-pointer transition-all active:scale-95 motion-reduce:animate-none"
+                className="px-4 sm:px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.25)] border border-emerald-400/40 flex items-center space-x-2 shrink-0 cursor-pointer transition-all active:scale-95 motion-reduce:animate-none max-w-full truncate"
                 title="Upgrade to Premium Subscription to unlock application destination"
               >
                 <Crown className="w-4 h-4 text-slate-950 shrink-0" />
@@ -635,7 +635,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   onApply(job);
                 }}
                 disabled={isExpired || applySettings.enableApplyButton === false}
-                className={`px-6 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm shadow-xl transition-all flex items-center space-x-2 shrink-0 ${
+                className={`px-4 sm:px-6 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm shadow-xl transition-all flex items-center space-x-2 shrink-0 max-w-full truncate ${
                   isExpired || applySettings.enableApplyButton === false
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                     : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20 hover:scale-105 active:scale-95'

@@ -463,7 +463,7 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
                 ) : (
                   <Send className="w-4 h-4 text-slate-950" />
                 )}
-                <span>{settings.applyButtonText || 'Submit Job Application'}</span>
+                <span>{(settings.modalSettings?.candidateApplication?.submitCta) || settings.applyButtonText || 'Submit Application Now'}</span>
               </button>
             </form>
           )}

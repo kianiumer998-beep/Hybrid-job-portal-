@@ -63,6 +63,7 @@ import {
   FileSpreadsheet,
   BarChart3,
   Database,
+  Sliders,
   Coins,
   BadgeCheck,
   BookmarkPlus,
@@ -119,6 +120,7 @@ import { AdminWhatsAppSettings } from './admin/AdminWhatsAppSettings';
 import { AdminPaymentVerificationHub, PaymentVerificationResult } from './admin/AdminPaymentVerificationHub';
 import { AdminPricingController } from './admin/AdminPricingController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
+import { AdminModalContentManager } from './admin/AdminModalContentManager';
 import { AdminLocationManager } from './admin/AdminLocationManager';
 import { getProvinceForCity } from '../utils/locationCatalog';
 import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
@@ -320,6 +322,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'form-customizer'
     | 'pricing-controller'
     | 'apply-settings'
+    | 'modal-content-manager'
     | 'job-visibility'
     | 'add-job'
     | 'jobs'
@@ -476,7 +479,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (['activity-logs'].includes(tabId)) {
       return hasAdminUiPermission('audit.view');
     }
-    if (['apply-settings', 'job-visibility', 'settings', 'form-customizer', 'data-backup', 'analytics', 'whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(tabId)) {
+    if (['apply-settings', 'modal-content-manager', 'job-visibility', 'settings', 'form-customizer', 'data-backup', 'analytics', 'whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(tabId)) {
       return hasAdminUiPermission('settings.manage');
     }
     return false;
@@ -2568,6 +2571,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <>
               {[
                 { id: 'apply-settings', label: 'Apply Button & Form Flow', urdu: 'اپلائی بٹن اور سوالات', icon: FileText, isNew: true },
+                { id: 'modal-content-manager', label: 'Modals & Popups Content Manager', urdu: 'پاپ اپس اور موڈالز مینیجر', icon: Sliders, isNew: true },
                 { id: 'job-visibility', label: 'Job Visibility Manager', urdu: 'ملازمت کی نمائش', icon: ShieldCheck },
                 { id: 'seo-config', label: '🌐 Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او', icon: Globe },
                 { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز', icon: Settings },
@@ -2850,6 +2854,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB: APPLICATION FLOW & BUTTON CUSTOMIZER */}
       {adminTab === 'apply-settings' && (
         <AdminApplySettingsManager />
+      )}
+
+      {/* TAB: MODAL & POPUP CONTENT MANAGER */}
+      {adminTab === 'modal-content-manager' && (
+        <AdminModalContentManager />
       )}
 
       {/* TAB: PER-CATEGORY POSTING FEES & 1-CLICK WAIVERS */}

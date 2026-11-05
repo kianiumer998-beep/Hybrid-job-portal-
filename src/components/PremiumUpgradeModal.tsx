@@ -21,12 +21,14 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
 }) => {
   const [lowestPricePkr, setLowestPricePkr] = useState<number | null>(null);
   const [adminCtaText, setAdminCtaText] = useState<string>('');
+  const [modalCustoms, setModalCustoms] = useState<Record<string, string>>({});
 
   useEffect(() => {
     // Reset state whenever modal is closed or reopening
     if (!isOpen) {
       setLowestPricePkr(null);
       setAdminCtaText('');
+      setModalCustoms({});
       return;
     }
 
@@ -65,19 +67,27 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
       if (isMounted) setLowestPricePkr(null);
     });
 
-    // Load apply settings for Admin-editable CTA label
+    // Load apply settings for Admin-editable CTA label and modalSettings customizations
     api.applySettings.get().then((res) => {
       if (!isMounted) return;
-      if (res && res.success && res.settings && typeof res.settings.premiumCtaText === 'string') {
-        const trimmed = res.settings.premiumCtaText.trim();
-        if (trimmed.length > 0) {
-          setAdminCtaText(trimmed.slice(0, 80));
-        } else {
-          setAdminCtaText('');
+      if (res && res.success && res.settings) {
+        if (res.settings.modalSettings?.premiumUpgrade) {
+          setModalCustoms(res.settings.modalSettings.premiumUpgrade);
+        }
+        if (typeof res.settings.premiumCtaText === 'string') {
+          const trimmed = res.settings.premiumCtaText.trim();
+          if (trimmed.length > 0) {
+            setAdminCtaText(trimmed.slice(0, 80));
+          } else {
+            setAdminCtaText('');
+          }
         }
       }
     }).catch(() => {
-      if (isMounted) setAdminCtaText('');
+      if (isMounted) {
+        setAdminCtaText('');
+        setModalCustoms({});
+      }
     });
 
     return () => {
@@ -87,7 +97,7 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
 
   if (!isOpen) return null;
 
-  const baseCtaLabel = adminCtaText || 'Upgrade to Premium';
+  const baseCtaLabel = adminCtaText || modalCustoms.ctaText || 'Upgrade to Premium';
   const ctaButtonText = lowestPricePkr !== null
     ? `${baseCtaLabel} — From Rs. ${lowestPricePkr}`
     : 'View Available Premium Plans';
@@ -115,10 +125,10 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
           </div>
 
           <h2 className="text-xl sm:text-2xl font-black text-white mb-1.5 tracking-tight">
-            {customTitle || 'Unlock Premium Access'}
+            {customTitle || modalCustoms.customTitle || 'Unlock Premium Access'}
           </h2>
           <p className="text-xs sm:text-sm text-emerald-100/70 max-w-md mx-auto leading-relaxed">
-            {customMessage || (jobTitle ? (
+            {customMessage || modalCustoms.customMessage || (jobTitle ? (
               <>Upgrade your account to apply for <span className="text-emerald-300 font-bold">{jobTitle}</span> and unlock all premium portal features.</>
             ) : (
               'Upgrade to unlock direct application links, official department gazette PDFs, and priority member features.'
@@ -129,9 +139,9 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
         {/* Benefits List - Internally Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 bg-[#05130e]">
           {[
-            { icon: Zap, title: 'Direct Application URLs', desc: 'Instant 1-click access to official department & portal application links.' },
-            { icon: ShieldCheck, title: 'Official Gazette & Source PDFs', desc: 'Download original recruitment circulars and newspaper ads.' },
-            { icon: Sparkles, title: 'Priority Member Access', desc: 'Unlock full department details and priority vacancy listings.' }
+            { icon: Zap, title: modalCustoms.benefit1Title || 'Direct Application URLs', desc: modalCustoms.benefit1Desc || 'Instant 1-click access to official department & portal application links.' },
+            { icon: ShieldCheck, title: modalCustoms.benefit2Title || 'Official Gazette & Source PDFs', desc: modalCustoms.benefit2Desc || 'Download original recruitment circulars and newspaper ads.' },
+            { icon: Sparkles, title: modalCustoms.benefit3Title || 'Priority Member Access', desc: modalCustoms.benefit3Desc || 'Unlock full department details and priority vacancy listings.' }
           ].map((benefit, i) => (
             <div key={i} className="flex items-start space-x-3.5 p-3 sm:p-3.5 bg-[#081a14] rounded-2xl border border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
               <div className="p-2 sm:p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20 shrink-0 mt-0.5">
@@ -158,7 +168,7 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
 
           <p className="text-[10px] sm:text-[11px] text-emerald-100/50 text-center flex items-center justify-center space-x-1">
             <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
-            <span>Instant Access Upon Admin Verification • Easy Online Subscriptions</span>
+            <span>{modalCustoms.footerNote || 'Instant Access Upon Admin Verification • Easy Online Subscriptions'}</span>
           </p>
         </div>
 

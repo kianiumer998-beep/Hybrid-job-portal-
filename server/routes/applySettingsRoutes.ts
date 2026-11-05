@@ -44,6 +44,25 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
       }
       updated.premiumCtaText = trimmedCta;
     }
+    if (req.body.modalSettings !== undefined) {
+      if (typeof req.body.modalSettings !== 'object' || Array.isArray(req.body.modalSettings) || req.body.modalSettings === null) {
+        return res.status(400).json({ success: false, message: 'Invalid modalSettings object.' });
+      }
+      const sanitizedModals: Record<string, Record<string, string>> = {};
+      for (const [modalKey, fieldObj] of Object.entries(req.body.modalSettings as any)) {
+        if (typeof modalKey !== 'string' || modalKey.length > 50) continue;
+        if (typeof fieldObj !== 'object' || Array.isArray(fieldObj) || fieldObj === null) continue;
+        
+        sanitizedModals[modalKey] = {};
+        for (const [fieldKey, val] of Object.entries(fieldObj as any)) {
+          if (typeof fieldKey !== 'string' || fieldKey.length > 50) continue;
+          if (typeof val === 'string') {
+            sanitizedModals[modalKey][fieldKey] = val.trim().replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '').slice(0, 500);
+          }
+        }
+      }
+      updated.modalSettings = sanitizedModals;
+    }
     if (req.body.premiumFieldMessages) {
       if (typeof req.body.premiumFieldMessages !== 'object' || Array.isArray(req.body.premiumFieldMessages)) {
         return res.status(400).json({ success: false, message: 'Invalid premiumFieldMessages object.' });

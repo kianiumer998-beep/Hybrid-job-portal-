@@ -101,6 +101,7 @@ const DEFAULT_APPLY_SETTINGS = {
   premiumPopupMessage: "This feature requires a premium subscription.",
   premiumCtaText: "Upgrade to Premium",
   premiumFieldMessages: {},
+  modalSettings: {},
   customQuestions: [
     {
       id: 'q-notice',

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Sparkles, CheckCircle2, Lock, ShieldCheck, ArrowRight } from 'lucide-react';
+import { api } from '../services/api';
 
 interface CvPaywallModalProps {
   isOpen: boolean;
@@ -12,6 +13,23 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
   onClose,
   onUnlock
 }) => {
+  const [customs, setCustoms] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    api.applySettings.get().then((res) => {
+      if (!isMounted) return;
+      if (res && res.success && res.settings && res.settings.modalSettings?.cvPaywall) {
+        setCustoms(res.settings.modalSettings.cvPaywall);
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -30,24 +48,24 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
             <Lock className="w-7 h-7" />
           </div>
 
-          <h3 className="text-xl font-black">Unlock Premium HD PDF Download</h3>
+          <h3 className="text-xl font-black">{customs.title || 'Unlock Premium HD PDF Download'}</h3>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Download your watermarked-free, high-resolution vector PDF resume optimized for ATS corporate scanners.
+            {customs.subtitle || 'Download your watermarked-free, high-resolution vector PDF resume optimized for ATS corporate scanners.'}
           </p>
 
           <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 text-left space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-sm text-white">Single Premium CV Export</span>
+              <span className="font-bold text-sm text-white">{customs.packageTitle || 'Single Premium CV Export'}</span>
               <span className="text-base font-black text-emerald-400">PKR 150 <span className="text-xs text-slate-500 font-normal">($1)</span></span>
             </div>
             <ul className="text-xs text-slate-300 space-y-1">
               <li className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>100% Vector Quality Print Engine</span>
+                <span>{customs.bullet1 || '100% Vector Quality Print Engine'}</span>
               </li>
               <li className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>99.4% ATS Parser Score</span>
+                <span>{customs.bullet2 || '99.4% ATS Parser Score'}</span>
               </li>
               <li className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -61,9 +79,9 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
               onUnlock();
               onClose();
             }}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-extrabold text-sm shadow-xl shadow-emerald-500/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center space-x-2"
+            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-extrabold text-sm shadow-xl shadow-emerald-500/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
           >
-            <span>Upgrade to Pro / Pay PKR 150</span>
+            <span>{customs.ctaText || 'Upgrade to Pro / Export Resume'}</span>
             <ArrowRight className="w-4 h-4 text-slate-950" />
           </button>
 

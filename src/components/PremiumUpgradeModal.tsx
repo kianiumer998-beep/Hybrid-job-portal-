@@ -23,27 +23,37 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
   const [adminCtaText, setAdminCtaText] = useState<string>('');
 
   useEffect(() => {
-    if (!isOpen) return;
-    let isMounted = true;
+    // Reset state whenever modal is closed or reopening
+    if (!isOpen) {
+      setLowestPricePkr(null);
+      setAdminCtaText('');
+      return;
+    }
 
-    // Load pricing packages for lowest valid price
+    let isMounted = true;
+    setLowestPricePkr(null);
+
+    // Load pricing packages using strictly pricePkr and enabled === true
     api.pricing.get().then((res) => {
       if (!isMounted) return;
       if (res && res.success && res.pricing && Array.isArray(res.pricing.subscriptionPackages)) {
-        const enabledPkgs = res.pricing.subscriptionPackages.filter((p: any) => {
-          if (!p || p.enabled === false) return false;
-          const rawPrice = p.pricePkr ?? p.price;
-          const val = typeof rawPrice === 'number' ? rawPrice : parseFloat(String(rawPrice || ''));
-          return typeof val === 'number' && isFinite(val) && val > 0;
-        });
+        const validPrices: number[] = [];
 
-        if (enabledPkgs.length > 0) {
-          const sorted = [...enabledPkgs].sort((a: any, b: any) => {
-            const priceA = Number(a.pricePkr ?? a.price);
-            const priceB = Number(b.pricePkr ?? b.price);
-            return priceA - priceB;
-          });
-          const minPrice = Number(sorted[0].pricePkr ?? sorted[0].price);
+        for (const pkg of res.pricing.subscriptionPackages) {
+          // Strictly require enabled === true
+          if (!pkg || pkg.enabled !== true) continue;
+
+          const raw = pkg.pricePkr;
+          if (raw === null || raw === undefined || raw === '') continue;
+
+          const parsed = typeof raw === 'number' ? raw : (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN);
+          if (typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0) {
+            validPrices.push(parsed);
+          }
+        }
+
+        if (validPrices.length > 0) {
+          const minPrice = Math.min(...validPrices);
           setLowestPricePkr(minPrice);
         } else {
           setLowestPricePkr(null);
@@ -58,11 +68,16 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
     // Load apply settings for Admin-editable CTA label
     api.applySettings.get().then((res) => {
       if (!isMounted) return;
-      if (res && res.success && res.settings && res.settings.premiumCtaText) {
-        setAdminCtaText(res.settings.premiumCtaText.trim());
+      if (res && res.success && res.settings && typeof res.settings.premiumCtaText === 'string') {
+        const trimmed = res.settings.premiumCtaText.trim();
+        if (trimmed.length > 0) {
+          setAdminCtaText(trimmed.slice(0, 80));
+        } else {
+          setAdminCtaText('');
+        }
       }
     }).catch(() => {
-      // Ignore errors silently
+      if (isMounted) setAdminCtaText('');
     });
 
     return () => {
@@ -73,6 +88,9 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
   if (!isOpen) return null;
 
   const baseCtaLabel = adminCtaText || 'Upgrade to Premium';
+  const ctaButtonText = lowestPricePkr !== null
+    ? `${baseCtaLabel} — From Rs. ${lowestPricePkr}`
+    : 'View Available Premium Plans';
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4 bg-slate-950/90 backdrop-blur-md overflow-hidden">
@@ -103,7 +121,7 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
             {customMessage || (jobTitle ? (
               <>Upgrade your account to apply for <span className="text-emerald-300 font-bold">{jobTitle}</span> and unlock all premium portal features.</>
             ) : (
-              'Upgrade to unlock direct application links, official department gazette PDFs, and priority WhatsApp alerts.'
+              'Upgrade to unlock direct application links, official department gazette PDFs, and priority member features.'
             ))}
           </p>
         </div>
@@ -113,7 +131,7 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
           {[
             { icon: Zap, title: 'Direct Application URLs', desc: 'Instant 1-click access to official department & portal application links.' },
             { icon: ShieldCheck, title: 'Official Gazette & Source PDFs', desc: 'Download original recruitment circulars and newspaper ads.' },
-            { icon: Sparkles, title: 'WhatsApp Job Alerts', desc: 'Receive daily verified job openings directly on WhatsApp.' }
+            { icon: Sparkles, title: 'Priority Member Access', desc: 'Unlock full department details and priority vacancy listings.' }
           ].map((benefit, i) => (
             <div key={i} className="flex items-start space-x-3.5 p-3 sm:p-3.5 bg-[#081a14] rounded-2xl border border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
               <div className="p-2 sm:p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20 shrink-0 mt-0.5">
@@ -134,9 +152,7 @@ export const PremiumUpgradeModal: React.FC<PremiumUpgradeModalProps> = ({
             onClick={onUpgradeClick}
             className="w-full py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 text-slate-950 font-black text-xs sm:text-sm shadow-[0_0_25px_rgba(16,185,129,0.25)] hover:shadow-[0_0_30px_rgba(16,185,129,0.4)] hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
           >
-            <span>
-              {lowestPricePkr !== null ? `${baseCtaLabel} — From Rs. ${lowestPricePkr}` : baseCtaLabel || 'View Available Premium Plans'}
-            </span>
+            <span>{ctaButtonText}</span>
             <ArrowRight className="w-4 h-4 text-slate-950 shrink-0" />
           </button>
 

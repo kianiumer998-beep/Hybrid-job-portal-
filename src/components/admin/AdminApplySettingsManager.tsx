@@ -297,6 +297,7 @@ export const AdminApplySettingsManager: React.FC = () => {
               </label>
               <input
                 type="text"
+                maxLength={80}
                 value={settings.premiumCtaText || ''}
                 onChange={(e) => setSettings({ ...settings, premiumCtaText: e.target.value })}
                 placeholder="e.g. Upgrade to Premium"

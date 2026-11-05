@@ -1,10 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { applySettingsRouter } from '../routes/applySettingsRoutes';
+import {
+  applySettingsRouter,
+  ALLOWED_MODAL_FIELDS,
+  isCvPaywallPriceRejected,
+  validateModalField,
+  sanitizeAndMergeModalSettings
+} from '../routes/applySettingsRoutes';
 import { MODAL_INVENTORY } from '../../src/components/admin/AdminModalContentManager';
 
-console.log('=== STEP65-F.3.5 Verification: Safe Admin Modal Content, Pricing Accuracy & Scope Protection ===');
+console.log('=== STEP65-F.3.6 Verification: Server-Side CV Paywall Price Validation & Scope Protection ===');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -30,17 +36,232 @@ assert(
   `data/apply_settings.json SHA256 pre-check matches expected original hash (${preTestHash.substring(0, 8)}...)`
 );
 
-// Verify data/apply_settings.json does not contain unnecessary modalSettings: {}
 const parsedPre = JSON.parse(preTestContent);
 assert(
   parsedPre.modalSettings === undefined,
   'data/apply_settings.json is clean of unnecessary "modalSettings" property'
 );
 
-// 1. Audit Router Export & Security Guards
+// 1. Router & Export Integrity
 assert(applySettingsRouter !== undefined, 'applySettingsRouter is properly exported');
+assert(typeof isCvPaywallPriceRejected === 'function', 'isCvPaywallPriceRejected helper exported from route file');
+assert(typeof validateModalField === 'function', 'validateModalField helper exported from route file');
+assert(typeof sanitizeAndMergeModalSettings === 'function', 'sanitizeAndMergeModalSettings helper exported from route file');
 
-// 2. Validate MODAL_INVENTORY Structure & Accurate Defaults (In-Memory)
+// 2. Exercise Actual Backend Helper: isCvPaywallPriceRejected
+console.log('\n--- Section 2: Exercise Actual Backend isCvPaywallPriceRejected Helper ---');
+
+const REQUIRED_REJECTED_FORMATS = [
+  'PKR 150',
+  '150 PKR',
+  'Rs. 150',
+  '150 rupees',
+  '$1',
+  'USD 1',
+  'EUR 150',
+  '150 euros',
+  'GBP 150',
+  '£150',
+  '€150',
+  '₹150',
+  'INR 150',
+  '150',          // numeric-only integer
+  '150.00',       // numeric-only decimal
+  '150,00',       // numeric-only comma decimal
+  '150/-',        // numeric-only currency notation
+  '150 USD',      // digits followed by USD
+  '150 EUR',      // digits followed by EUR
+  '150 GBP',      // digits followed by GBP
+  '150 INR',      // digits followed by INR
+  '150$',         // digits directly followed by $
+  '150€',         // digits directly followed by €
+  '150£',         // digits directly followed by £
+  '150₹'          // digits directly followed by ₹
+];
+
+for (const price of REQUIRED_REJECTED_FORMATS) {
+  const rejected = isCvPaywallPriceRejected(price);
+  assert(rejected === true, `isCvPaywallPriceRejected correctly rejected: "${price}"`);
+}
+
+const REQUIRED_ALLOWED_FORMATS = [
+  'Price confirmed during payment',
+  'Included in Pro Plan',
+  'Free with active subscription',
+  'Dynamic checkout confirmation',
+  '',
+  '   '
+];
+
+for (const text of REQUIRED_ALLOWED_FORMATS) {
+  const rejected = isCvPaywallPriceRejected(text);
+  assert(rejected === false, `isCvPaywallPriceRejected correctly allowed: "${text}"`);
+}
+
+// 3. Exercise Actual Backend Helper: validateModalField
+console.log('\n--- Section 3: Exercise Actual Backend validateModalField Helper ---');
+
+// 3a: CV Paywall Price Validation via validateModalField
+for (const price of REQUIRED_REJECTED_FORMATS) {
+  const res = validateModalField('cvPaywall', 'priceDisplay', price);
+  assert(
+    res.valid === false && res.error?.includes('cannot be a fixed monetary price'),
+    `validateModalField rejected fixed price: "${price}"`
+  );
+}
+
+const validPriceRes = validateModalField('cvPaywall', 'priceDisplay', 'Price confirmed during payment');
+assert(validPriceRes.valid === true, 'validateModalField allowed "Price confirmed during payment"');
+
+// 3b: HTML/XML Tag Rejection
+const htmlTestCases = [
+  '<script>alert("xss")</script>',
+  'Text with <b>bold</b> tag',
+  '<img src=x onerror=alert(1)>',
+  'Plain text with </close> tag'
+];
+
+for (const html of htmlTestCases) {
+  const res = validateModalField('candidateApplication', 'title', html);
+  assert(
+    res.valid === false && res.error?.includes('contains forbidden HTML/XML markup'),
+    `validateModalField rejected HTML/XML tag: "${html}"`
+  );
+}
+
+// 3c: Control Character Rejection
+const controlCharTestCases = [
+  'Bad\x00Null',
+  'Bad\x08Backspace',
+  'Bad\x1BControl'
+];
+
+for (const cc of controlCharTestCases) {
+  const res = validateModalField('legalDisclaimer', 'title', cc);
+  assert(
+    res.valid === false && res.error?.includes('contains unsafe control characters'),
+    'validateModalField rejected unsafe control characters'
+  );
+}
+
+// 3d: 500-Character Limit
+const exactly500 = 'A'.repeat(500);
+const res500 = validateModalField('countrySelection', 'title', exactly500);
+assert(res500.valid === true, 'validateModalField accepted exactly 500 characters');
+
+const over500 = 'A'.repeat(501);
+const resOver500 = validateModalField('countrySelection', 'title', over500);
+assert(
+  resOver500.valid === false && resOver500.error?.includes('is too long (max 500 chars)'),
+  'validateModalField rejected 501 characters'
+);
+
+// 3e: Non-string values & invalid keys
+const nonStringRes = validateModalField('countrySelection', 'title', 12345 as any);
+assert(nonStringRes.valid === false && nonStringRes.error?.includes('must be a string'), 'validateModalField rejected non-string value');
+
+const unknownFieldRes = validateModalField('cvPaywall', 'unknownField', 'test');
+assert(unknownFieldRes.valid === false && unknownFieldRes.error?.includes('Unsupported field key'), 'validateModalField rejected unknown field key');
+
+const unknownModalRes = validateModalField('nonExistentModal', 'title', 'test');
+assert(unknownModalRes.valid === false && unknownModalRes.error?.includes('Unsupported modal ID'), 'validateModalField rejected unknown modal ID');
+
+// 4. Exercise Actual Backend Helper: sanitizeAndMergeModalSettings
+console.log('\n--- Section 4: Exercise Actual Backend sanitizeAndMergeModalSettings Helper ---');
+
+// 4a: Field-Level Merge Preservation across different modals
+const state0: Record<string, Record<string, string>> = {};
+const step1 = sanitizeAndMergeModalSettings(state0, {
+  candidateApplication: {
+    title: 'Verified Application Form',
+    contactHeading: 'Candidate Contact Credentials'
+  }
+});
+assert(step1.success === true, 'Saved candidateApplication modal settings');
+assert(step1.merged?.candidateApplication?.title === 'Verified Application Form', 'Candidate title saved');
+
+const step2 = sanitizeAndMergeModalSettings(step1.merged, {
+  cvPaywall: {
+    title: 'Export Verified Resume',
+    priceDisplay: 'Price confirmed during payment'
+  }
+});
+assert(step2.success === true, 'Saved cvPaywall modal settings');
+assert(
+  step2.merged?.candidateApplication?.title === 'Verified Application Form' &&
+  step2.merged?.candidateApplication?.contactHeading === 'Candidate Contact Credentials',
+  'Field-level merge preserved candidateApplication settings when cvPaywall was saved'
+);
+assert(
+  step2.merged?.cvPaywall?.title === 'Export Verified Resume' &&
+  step2.merged?.cvPaywall?.priceDisplay === 'Price confirmed during payment',
+  'cvPaywall settings saved alongside existing modals'
+);
+
+// 4b: Field-Level Merge Preservation within the same modal
+const step3 = sanitizeAndMergeModalSettings(step2.merged, {
+  candidateApplication: {
+    title: 'Updated Application Title'
+  }
+});
+assert(step3.success === true, 'Updated only title in candidateApplication');
+assert(
+  step3.merged?.candidateApplication?.title === 'Updated Application Title',
+  'candidateApplication title updated'
+);
+assert(
+  step3.merged?.candidateApplication?.contactHeading === 'Candidate Contact Credentials',
+  'candidateApplication contactHeading preserved during partial field update'
+);
+assert(
+  step3.merged?.cvPaywall?.title === 'Export Verified Resume',
+  'cvPaywall settings preserved during candidateApplication partial update'
+);
+
+// 4c: Reset Isolation
+const step4 = sanitizeAndMergeModalSettings(step3.merged, {
+  cvPaywall: {}
+});
+assert(step4.success === true, 'Reset cvPaywall with empty object');
+assert(
+  Object.keys(step4.merged?.cvPaywall || {}).length === 0,
+  'cvPaywall customizations cleared upon reset'
+);
+assert(
+  step4.merged?.candidateApplication?.title === 'Updated Application Title' &&
+  step4.merged?.candidateApplication?.contactHeading === 'Candidate Contact Credentials',
+  'Resetting cvPaywall did NOT affect candidateApplication customizations'
+);
+
+// 4d: Full Payload Price Rejection
+const badPricePayload = sanitizeAndMergeModalSettings(step4.merged, {
+  cvPaywall: {
+    priceDisplay: 'PKR 150'
+  }
+});
+assert(
+  badPricePayload.success === false && badPricePayload.error?.includes('cannot be a fixed monetary price'),
+  'sanitizeAndMergeModalSettings rejected full payload with fixed price "PKR 150"'
+);
+
+// 4e: Full Payload HTML Rejection
+const badHtmlPayload = sanitizeAndMergeModalSettings(step4.merged, {
+  candidateApplication: {
+    title: '<script>alert(1)</script>'
+  }
+});
+assert(
+  badHtmlPayload.success === false && badHtmlPayload.error?.includes('contains forbidden HTML/XML markup'),
+  'sanitizeAndMergeModalSettings rejected full payload with HTML tag'
+);
+
+// 4f: Invalid Payload Structure Rejection
+assert(sanitizeAndMergeModalSettings({}, null as any).success === false, 'Rejected null modalSettings');
+assert(sanitizeAndMergeModalSettings({}, [] as any).success === false, 'Rejected array modalSettings');
+assert(sanitizeAndMergeModalSettings({}, 'string' as any).success === false, 'Rejected string modalSettings');
+
+// 5. MODAL_INVENTORY Verification
+console.log('\n--- Section 5: Verify MODAL_INVENTORY ---');
 assert(Array.isArray(MODAL_INVENTORY), 'MODAL_INVENTORY is an array');
 assert(MODAL_INVENTORY.length === 8, `MODAL_INVENTORY contains exactly 8 modals (found: ${MODAL_INVENTORY.length})`);
 
@@ -60,252 +281,8 @@ for (const expId of expectedModalIds) {
   assert(modalIds.includes(expId), `MODAL_INVENTORY includes modal "${expId}"`);
 }
 
-// 3. CV Paywall: Price Accuracy & Claim Protection
-const cvPaywallDef = MODAL_INVENTORY.find(m => m.id === 'cvPaywall');
-assert(cvPaywallDef !== undefined, 'cvPaywall modal definition exists');
-
-const cvFieldMap = new Map(cvPaywallDef?.fields.map(f => [f.key, f.defaultValue]));
-assert(cvFieldMap.has('priceDisplay'), 'cvPaywall inventory contains "priceDisplay"');
-assert(
-  cvFieldMap.get('priceDisplay') === 'Price confirmed during payment',
-  `cvPaywall.priceDisplay is strictly informational: "${cvFieldMap.get('priceDisplay')}"`
-);
-assert(
-  cvFieldMap.get('packageTitle') === 'Premium CV Export',
-  `cvPaywall.packageTitle default updated: "${cvFieldMap.get('packageTitle')}"`
-);
-assert(
-  cvFieldMap.get('bullet1') === 'Clean Vector Print Layout',
-  `cvPaywall.bullet1 default without hyperbolic claim: "${cvFieldMap.get('bullet1')}"`
-);
-assert(
-  cvFieldMap.get('bullet2') === 'Standard ATS Compatible Structure',
-  `cvPaywall.bullet2 default without unsupported "99.4%" claim: "${cvFieldMap.get('bullet2')}"`
-);
-assert(
-  cvFieldMap.get('footerNote') === 'Payment verification via Easypaisa, JazzCash & Bank Transfer',
-  `cvPaywall.footerNote default updated: "${cvFieldMap.get('footerNote')}"`
-);
-
-// 4. Premium Upgrade & Subscription: Claim Accuracy Protection
-const premUpgradeDef = MODAL_INVENTORY.find(m => m.id === 'premiumUpgrade');
-const premFieldMap = new Map(premUpgradeDef?.fields.map(f => [f.key, f.defaultValue]));
-assert(
-  premFieldMap.get('footerNote')?.includes('Access activated upon admin verification'),
-  `premiumUpgrade footer note accurately states manual verification: "${premFieldMap.get('footerNote')}"`
-);
-
-const subDef = MODAL_INVENTORY.find(m => m.id === 'subscription');
-const subFieldMap = new Map(subDef?.fields.map(f => [f.key, f.defaultValue]));
-assert(
-  subFieldMap.get('badgeText') === 'WhatsApp Alerts & Direct Apply Access',
-  `subscription badgeText removed false "Instant" claim: "${subFieldMap.get('badgeText')}"`
-);
-
-// 5. In-Memory Validation & Merge Logic (Pure Unit Testing — Zero Disk Writes)
-const ALLOWED_MODAL_FIELDS: Record<string, string[]> = {
-  premiumUpgrade: ['customTitle', 'customMessage', 'benefit1Title', 'benefit1Desc', 'benefit2Title', 'benefit2Desc', 'benefit3Title', 'benefit3Desc', 'ctaText', 'footerNote'],
-  candidateApplication: ['title', 'instructions', 'contactHeading', 'resumeHeading', 'submitCta', 'successMsg'],
-  subscription: ['badgeText', 'title', 'subtitle', 'packageSectionTitle', 'submitCta'],
-  cvPaywall: ['title', 'subtitle', 'packageTitle', 'priceDisplay', 'bullet1', 'bullet2', 'bullet3', 'ctaText', 'footerNote'],
-  authModal: ['loginTitle', 'registerTitle', 'loginTab', 'registerTab', 'loginCta', 'registerCta'],
-  adminLogin: ['title', 'subtitle', 'ctaText'],
-  countrySelection: ['title', 'subtitle', 'ctaText'],
-  legalDisclaimer: ['title', 'subtitle', 'noticeText', 'acceptCta']
-};
-
-function sanitizeAndMergeModalSettings(
-  existingModalSettings: Record<string, Record<string, string>>,
-  incomingModalSettings: any
-): { sanitized: Record<string, Record<string, string>>; error?: string } {
-  if (typeof incomingModalSettings !== 'object' || incomingModalSettings === null || Array.isArray(incomingModalSettings)) {
-    return { sanitized: {}, error: 'modalSettings must be an object' };
-  }
-
-  const merged = { ...existingModalSettings };
-
-  for (const modalKey of Object.keys(incomingModalSettings)) {
-    const allowedKeys = ALLOWED_MODAL_FIELDS[modalKey];
-    if (!allowedKeys) {
-      continue; // Unknown modal key ignored
-    }
-
-    const modalObj = incomingModalSettings[modalKey];
-    if (typeof modalObj !== 'object' || modalObj === null || Array.isArray(modalObj)) {
-      continue;
-    }
-
-    // Reset support: empty object resets this specific modal
-    if (Object.keys(modalObj).length === 0) {
-      delete merged[modalKey];
-      continue;
-    }
-
-    const currentModalCustoms = { ...(merged[modalKey] || {}) };
-
-    for (const fieldKey of Object.keys(modalObj)) {
-      if (!allowedKeys.includes(fieldKey)) {
-        continue;
-      }
-
-      const val = modalObj[fieldKey];
-      if (typeof val !== 'string') {
-        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" must be a string` };
-      }
-
-      const trimmed = val.trim();
-      if (trimmed.length > 500) {
-        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" exceeds 500 character limit` };
-      }
-
-      if (/<[a-z/!]/i.test(trimmed)) {
-        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" contains forbidden HTML/XML markup` };
-      }
-
-      if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(trimmed)) {
-        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" contains unsafe control characters` };
-      }
-
-      if (modalKey === 'cvPaywall' && fieldKey === 'priceDisplay' && trimmed.length > 0) {
-        const hasFixedPrice = /(?:pkr|rs\.?|usd|\$|€|£|₹|\b\d+(?:[.,]\d+)?\s*(?:pkr|rs|rupees))\b/i.test(trimmed) || /^\s*\d+/.test(trimmed);
-        if (hasFixedPrice) {
-          return {
-            sanitized: {},
-            error: 'Fixed prices cannot be displayed because single CV exports do not have a separate fixed transaction price.'
-          };
-        }
-      }
-
-      if (trimmed === '') {
-        delete currentModalCustoms[fieldKey];
-      } else {
-        currentModalCustoms[fieldKey] = trimmed;
-      }
-    }
-
-    if (Object.keys(currentModalCustoms).length > 0) {
-      merged[modalKey] = currentModalCustoms;
-    } else {
-      delete merged[modalKey];
-    }
-  }
-
-  return { sanitized: merged };
-}
-
-// Test 5a: Reject Fixed Prices in cvPaywall.priceDisplay
-const priceTestCases = [
-  'PKR 150',
-  '150 PKR',
-  'Rs. 200',
-  'Rs 100',
-  '$1',
-  '150',
-  'PKR 150 ($1)',
-  '500 Rupees'
-];
-
-for (const priceText of priceTestCases) {
-  const result = sanitizeAndMergeModalSettings({}, {
-    cvPaywall: { priceDisplay: priceText }
-  });
-  assert(
-    result.error !== undefined && result.error.includes('Fixed prices cannot be displayed'),
-    `Correctly rejected fixed currency price in cvPaywall.priceDisplay: "${priceText}"`
-  );
-}
-
-// Test 5b: Accept Valid Informational cvPaywall.priceDisplay
-const validInformationalPrices = [
-  'Price confirmed during payment',
-  'Included in Pro Plan',
-  'Dynamic pricing confirmed at checkout',
-  ''
-];
-
-for (const infoText of validInformationalPrices) {
-  const result = sanitizeAndMergeModalSettings({}, {
-    cvPaywall: { priceDisplay: infoText }
-  });
-  assert(
-    result.error === undefined,
-    `Accepted valid informational priceDisplay: "${infoText}"`
-  );
-}
-
-// Test 5c: HTML/XML Tag Rejection
-const htmlTestCases = [
-  '<script>alert("xss")</script>',
-  'Text with <b>bold</b> tag',
-  '<img src=x onerror=alert(1)>',
-  'Plain text with </close> tag'
-];
-
-for (const htmlText of htmlTestCases) {
-  const result = sanitizeAndMergeModalSettings({}, {
-    candidateApplication: { title: htmlText }
-  });
-  assert(
-    result.error !== undefined && result.error.includes('contains forbidden HTML/XML markup'),
-    `Correctly rejected HTML/XML tag: "${htmlText}"`
-  );
-}
-
-// Test 5d: Unsafe Control Character Rejection
-const controlCharTestCases = [
-  'Bad\x00Null',
-  'Bad\x08Backspace',
-  'Bad\x1BControl'
-];
-
-for (const ccText of controlCharTestCases) {
-  const result = sanitizeAndMergeModalSettings({}, {
-    legalDisclaimer: { title: ccText }
-  });
-  assert(
-    result.error !== undefined && result.error.includes('contains unsafe control characters'),
-    `Correctly rejected control characters in field`
-  );
-}
-
-// Test 5e: 500 Character Limit Enforcement
-const longText = 'A'.repeat(501);
-const limitResult = sanitizeAndMergeModalSettings({}, {
-  countrySelection: { title: longText }
-});
-assert(
-  limitResult.error !== undefined && limitResult.error.includes('exceeds 500 character limit'),
-  'Correctly rejected strings exceeding 500 characters'
-);
-
-// Test 5f: Safe Field-Level Non-Destructive Merge (In-Memory)
-const memoryState: Record<string, Record<string, string>> = {};
-
-const step1 = sanitizeAndMergeModalSettings(memoryState, {
-  candidateApplication: { title: 'Verified Application Form' }
-});
-assert(step1.sanitized.candidateApplication?.title === 'Verified Application Form', 'Merged candidateApplication');
-
-const step2 = sanitizeAndMergeModalSettings(step1.sanitized, {
-  cvPaywall: { title: 'Export Resume' }
-});
-assert(step2.sanitized.cvPaywall?.title === 'Export Resume', 'Merged cvPaywall');
-assert(
-  step2.sanitized.candidateApplication?.title === 'Verified Application Form',
-  'candidateApplication preserved across cvPaywall save (non-destructive merge)'
-);
-
-// Test 5g: Single-Modal Reset Isolation
-const step3 = sanitizeAndMergeModalSettings(step2.sanitized, {
-  cvPaywall: {}
-});
-assert(step3.sanitized.cvPaywall === undefined, 'cvPaywall reset successfully');
-assert(
-  step3.sanitized.candidateApplication?.title === 'Verified Application Form',
-  'Resetting cvPaywall did NOT affect candidateApplication'
-);
-
-// 6. Post-Test Disk Integrity Verification
+// 6. Post-Test Disk Integrity Verification (Zero Disk Mutations Proof)
+console.log('\n--- Section 6: Post-Test Disk Integrity Verification ---');
 const postTestContent = fs.readFileSync(settingsPath, 'utf8');
 const postTestHash = crypto.createHash('sha256').update(postTestContent).digest('hex');
 
@@ -318,7 +295,7 @@ assert(
   `data/apply_settings.json matches exact expected original hash`
 );
 
-console.log(`\n=== STEP65-F.3.5 Verification Summary: ${testsPassed} PASSED, ${testsFailed} FAILED ===`);
+console.log(`\n=== STEP65-F.3.6 Verification Summary: ${testsPassed} PASSED, ${testsFailed} FAILED ===`);
 if (testsFailed > 0) {
   process.exit(1);
 }

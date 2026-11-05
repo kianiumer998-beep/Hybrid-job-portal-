@@ -10,6 +10,7 @@ import {
 import { Database } from '../database';
 import { generateJobSlug } from '../../utils/slugify';
 import { JobVisibilityRepository } from './JobVisibilityRepository';
+import { DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../../src/types/job';
 
 export interface JobFilterOptions {
   search?: string;

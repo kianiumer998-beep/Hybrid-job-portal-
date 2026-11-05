@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  Crown,
   Image as ImageIcon
 } from 'lucide-react';
 import { Job, JobAttachment } from '../types/job';
@@ -235,12 +236,13 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               
               {hints.salary?.requiresUpgrade && (
                 <button
+                  type="button"
                   onClick={() => {
                     setShowPremiumUpgrade(true);
                   }}
-                  className="ml-auto flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
+                  className="ml-auto flex items-center space-x-1.5 px-3 py-1.5 bg-[#071d15] hover:bg-[#0a281d] text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition-all shadow-[0_0_12px_rgba(16,185,129,0.12)] active:scale-95 cursor-pointer"
                 >
-                  <Lock className="w-3 h-3" />
+                  <Crown className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   <span>Upgrade to View Salary</span>
                 </button>
               )}
@@ -318,12 +320,13 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   </div>
                   {hasPremiumAttachments && (
                     <button
+                      type="button"
                       onClick={() => {
                         setShowPremiumUpgrade(true);
                       }}
-                      className="flex items-center space-x-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all active:scale-95"
+                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#071d15] hover:bg-[#0a281d] text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition-all shadow-[0_0_12px_rgba(16,185,129,0.12)] active:scale-95 cursor-pointer"
                     >
-                      <Lock className="w-3 h-3" />
+                      <Crown className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>Unlock {rawJob?.attachments?.length || 'Premium'} Docs</span>
                     </button>
                   )}
@@ -415,9 +418,9 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     onClick={() => {
                       setShowPremiumUpgrade(true);
                     }}
-                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
+                    className="px-3.5 py-2 rounded-xl bg-[#071d15] hover:bg-[#0a281d] text-emerald-300 text-xs font-bold border border-emerald-500/30 flex items-center space-x-1.5 transition-all shadow-[0_0_12px_rgba(16,185,129,0.12)] cursor-pointer"
                   >
-                    <Lock className="w-4 h-4" />
+                    <Crown className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>Unlock Source PDF</span>
                   </button>
                 )}
@@ -445,9 +448,9 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     onClick={() => {
                       setShowPremiumUpgrade(true);
                     }}
-                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold border border-amber-500/30 flex items-center space-x-1.5 transition-all cursor-pointer"
+                    className="px-3.5 py-2 rounded-xl bg-[#071d15] hover:bg-[#0a281d] text-emerald-300 text-xs font-bold border border-emerald-500/30 flex items-center space-x-1.5 transition-all shadow-[0_0_12px_rgba(16,185,129,0.12)] cursor-pointer"
                   >
-                    <Lock className="w-4 h-4" />
+                    <Crown className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>Unlock Ad Clipping</span>
                   </button>
                 )}
@@ -510,29 +513,48 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
           {/* External Application Notice & Warning */}
           {isExternal && (
-            <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2">
-              <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
-                {validExternalUrl ? <ExternalLink className="w-4 h-4 shrink-0" /> : <Lock className="w-4 h-4 shrink-0" />}
-                <span>
-                  {validExternalUrl ? 'External Department / Official Portal Application (سرکاری و دفتری پورٹل)' : 'Premium Feature — External Application Link'}
+            <div className={`p-4 rounded-2xl space-y-2.5 transition-all ${
+              validExternalUrl 
+                ? 'bg-slate-900/90 border border-slate-800' 
+                : 'bg-[#051811] border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.12)]'
+            }`}>
+              <div className="flex items-center space-x-2 font-bold text-xs">
+                {validExternalUrl ? (
+                  <ExternalLink className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <Crown className="w-4 h-4 text-emerald-400 shrink-0" />
+                )}
+                <span className="text-white font-extrabold text-xs sm:text-sm">
+                  {validExternalUrl ? 'External Department / Official Portal Application (سرکاری و دفتری پورٹل)' : 'Premium Feature — Direct External Application Link'}
                 </span>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
+              <p className="text-xs text-emerald-100/70 leading-relaxed">
                 {validExternalUrl 
                   ? (applySettings.externalApplicationWarning || 'Notice: You can submit your application directly on the official employer/department recruitment website.')
-                  : 'Notice: The external portal link for this vacancy is restricted to Premium Subscribers. Upgrade your account to unlock direct application URLs.'}
+                  : 'Notice: The direct external portal URL and official application link for this vacancy are restricted to Premium Subscribers. Upgrade your account to unlock direct application URLs.'}
               </p>
-              {validExternalUrl && (
+              {validExternalUrl ? (
                 <div className="pt-1">
                   <a
                     href={validExternalUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center space-x-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg transition-all"
+                    className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs shadow-lg transition-all"
                   >
                     <span>سرکاری پورٹل پر جائیں (Visit Official Portal)</span>
                     <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                   </a>
+                </div>
+              ) : (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowPremiumUpgrade(true)}
+                    className="inline-flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black rounded-xl text-xs shadow-[0_0_15px_rgba(16,185,129,0.2)] transition-all cursor-pointer active:scale-95"
+                  >
+                    <Crown className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+                    <span>Unlock Direct Application Link (اپلائی لنک انلاک کریں)</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -577,17 +599,19 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 rel="noopener noreferrer"
                 className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition-colors shrink-0"
               >
-                <ExternalLink className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <ExternalLink className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <span>External Portal (باہر کا لنک)</span>
               </a>
             ) : hasRedactedExternal ? (
-              <div
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800/80 text-amber-400/90 border border-amber-500/30 flex items-center space-x-1.5 cursor-not-allowed shrink-0"
-                title="Premium Feature — External Link Locked"
+              <button
+                type="button"
+                onClick={() => setShowPremiumUpgrade(true)}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-[#071d15] hover:bg-[#0a281d] text-emerald-300 border border-emerald-500/30 flex items-center space-x-1.5 transition-all shrink-0 cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.12)]"
+                title="Premium Feature — External Link Locked (Click to Upgrade)"
               >
-                <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>Premium Feature — External Link</span>
-              </div>
+                <Crown className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Premium Link Locked</span>
+              </button>
             ) : null}
 
             {/* Apply Button */}
@@ -597,11 +621,11 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 onClick={() => {
                   setShowPremiumUpgrade(true);
                 }}
-                className="px-5 py-2.5 rounded-xl font-extrabold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 flex items-center space-x-2 shadow-lg shrink-0 cursor-pointer transition-all active:scale-95"
+                className="px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.25)] border border-emerald-400/40 flex items-center space-x-2 shrink-0 cursor-pointer transition-all active:scale-95 motion-reduce:animate-none"
                 title="Upgrade to Premium Subscription to unlock application destination"
               >
-                <Lock className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>🔒 Premium Feature (Upgrade to Apply)</span>
+                <Crown className="w-4 h-4 text-slate-950 shrink-0" />
+                <span>Upgrade to Apply (اپلائی کے لیے اپگریڈ کریں)</span>
               </button>
             ) : (
               <button

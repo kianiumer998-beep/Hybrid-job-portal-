@@ -48,14 +48,33 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
       if (typeof req.body.modalSettings !== 'object' || Array.isArray(req.body.modalSettings) || req.body.modalSettings === null) {
         return res.status(400).json({ success: false, message: 'Invalid modalSettings object.' });
       }
+
+      const ALLOWED_MODAL_FIELDS: Record<string, string[]> = {
+        premiumUpgrade: ['customTitle', 'customMessage', 'benefit1Title', 'benefit1Desc', 'benefit2Title', 'benefit2Desc', 'benefit3Title', 'benefit3Desc', 'ctaText', 'footerNote'],
+        candidateApplication: ['title', 'instructions', 'contactHeading', 'resumeHeading', 'submitCta', 'successMsg'],
+        subscription: ['badgeText', 'title', 'subtitle', 'packageSectionTitle', 'submitCta'],
+        cvPaywall: ['title', 'subtitle', 'packageTitle', 'bullet1', 'bullet2', 'ctaText'],
+        authModal: ['loginTab', 'registerTab', 'loginTitle', 'registerTitle', 'loginCta', 'registerCta'],
+        adminLogin: ['title', 'subtitle', 'ctaText'],
+        countrySelection: ['title', 'subtitle', 'ctaText'],
+        legalDisclaimer: ['title', 'acceptCta']
+      };
+
       const sanitizedModals: Record<string, Record<string, string>> = {};
+
       for (const [modalKey, fieldObj] of Object.entries(req.body.modalSettings as any)) {
-        if (typeof modalKey !== 'string' || modalKey.length > 50) continue;
+        if (!Object.keys(ALLOWED_MODAL_FIELDS).includes(modalKey)) {
+          return res.status(400).json({ success: false, message: `Unsupported modal ID "${modalKey}".` });
+        }
         if (typeof fieldObj !== 'object' || Array.isArray(fieldObj) || fieldObj === null) continue;
-        
+
+        const allowedKeys = ALLOWED_MODAL_FIELDS[modalKey];
         sanitizedModals[modalKey] = {};
+
         for (const [fieldKey, val] of Object.entries(fieldObj as any)) {
-          if (typeof fieldKey !== 'string' || fieldKey.length > 50) continue;
+          if (!allowedKeys.includes(fieldKey)) {
+            return res.status(400).json({ success: false, message: `Unsupported field key "${fieldKey}" for modal "${modalKey}".` });
+          }
           if (typeof val === 'string') {
             sanitizedModals[modalKey][fieldKey] = val.trim().replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '').slice(0, 500);
           }

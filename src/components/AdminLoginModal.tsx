@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ShieldCheck, Mail, KeyRound, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -17,6 +17,17 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [modalSettings, setModalSettings] = useState<any>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      api.applySettings.get().then((res) => {
+        if (res && res.success && res.settings?.modalSettings) {
+          setModalSettings(res.settings.modalSettings);
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -66,9 +77,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           <div className="w-14 h-14 bg-amber-500/10 text-amber-400 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/30">
             <ShieldCheck className="w-7 h-7" />
           </div>
-          <h3 className="text-xl font-black">Portal Admin Access</h3>
+          <h3 className="text-xl font-black">
+            {modalSettings?.adminLogin?.title || 'Portal Admin Access'}
+          </h3>
           <p className="text-xs text-slate-400">
-            Enter administrative credentials to access system management suite.
+            {modalSettings?.adminLogin?.subtitle || 'Enter administrative credentials to access system management suite.'}
           </p>
         </div>
 
@@ -120,7 +133,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            <span>Access Admin Dashboard</span>
+            <span>{modalSettings?.adminLogin?.ctaText || 'Access Admin Dashboard'}</span>
           </button>
         </form>
 

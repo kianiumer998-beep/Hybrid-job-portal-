@@ -60,6 +60,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [isLoadingSettings, setIsLoadingSettings] = useState<boolean>(true);
   const [selectedMethodKey, setSelectedMethodKey] = useState<string>('');
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
+  const [modalCustoms, setModalCustoms] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!isOpen) return;
@@ -75,6 +76,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     }).finally(() => {
       setIsLoadingPackages(false);
     });
+
+    api.applySettings.get().then((res) => {
+      if (res && res.success && res.settings && res.settings.modalSettings?.subscription) {
+        setModalCustoms(res.settings.modalSettings.subscription);
+      }
+    }).catch(() => {});
   }, [isOpen]);
 
   useEffect(() => {
@@ -317,11 +324,13 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold mb-3">
             <Zap className="w-3.5 h-3.5" />
-            <span>Instant WhatsApp &amp; Direct Apply Unlock</span>
+            <span>{modalCustoms.badgeText || 'Instant WhatsApp & Direct Apply Unlock'}</span>
           </div>
 
           <h2 className="text-2xl font-black text-white leading-snug">
-            {initialSelectedJobTitle ? (
+            {modalCustoms.title ? (
+              modalCustoms.title
+            ) : initialSelectedJobTitle ? (
               <>
                 Unlock Instant Apply for <span className="text-emerald-400">{initialSelectedJobTitle}</span>
               </>
@@ -330,7 +339,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             )}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Subscribe once to receive daily verified remote &amp; hybrid job openings directly on WhatsApp and apply instantly with 1-click.
+            {modalCustoms.subtitle || 'Subscribe once to receive daily verified remote & hybrid job openings directly on WhatsApp and apply instantly with 1-click.'}
           </p>
         </div>
 
@@ -417,7 +426,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             {/* Package Selector */}
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                Select Subscription Package
+                {modalCustoms.packageSectionTitle || 'Select Subscription Package'}
               </label>
               {isLoadingPackages ? (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl text-center">
@@ -766,7 +775,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                   ) : (
                     <>
                       <Lock className="w-4 h-4 text-slate-950" />
-                      <span>Submit Payment Proof for Verification (PKR {amountPaid})</span>
+                      <span>{modalCustoms.submitCta || `Submit Payment Proof for Verification (PKR ${amountPaid})`}</span>
                       <ArrowRight className="w-4 h-4 text-slate-950 ml-1" />
                     </>
                   )}

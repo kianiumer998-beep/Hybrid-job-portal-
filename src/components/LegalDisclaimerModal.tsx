@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, 
   FileText, 
@@ -17,6 +17,7 @@ import {
   Sparkles,
   Info
 } from 'lucide-react';
+import { api } from '../services/api';
 
 interface LegalDisclaimerModalProps {
   isOpen: boolean;
@@ -38,6 +39,17 @@ export const LegalDisclaimerModal: React.FC<LegalDisclaimerModalProps> = ({
   const [contactSubject, setContactSubject] = useState('');
   const [contactMessage, setContactMessage] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [modalSettings, setModalSettings] = useState<any>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      api.applySettings.get().then((res) => {
+        if (res && res.success && res.settings?.modalSettings) {
+          setModalSettings(res.settings.modalSettings);
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -71,7 +83,9 @@ export const LegalDisclaimerModal: React.FC<LegalDisclaimerModalProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-black text-white">Legal, Trust & Compliance Center</h3>
+                <h3 className="text-lg font-black text-white">
+                  {modalSettings?.legalDisclaimer?.title || 'Legal, Trust & Compliance Center'}
+                </h3>
                 <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   Verified Standards
                 </span>
@@ -461,7 +475,7 @@ export const LegalDisclaimerModal: React.FC<LegalDisclaimerModalProps> = ({
             onClick={onClose}
             className="w-full sm:w-auto px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all cursor-pointer"
           >
-            Acknowledge & Close
+            {modalSettings?.legalDisclaimer?.acceptCta || 'Acknowledge & Close'}
           </button>
         </div>
 

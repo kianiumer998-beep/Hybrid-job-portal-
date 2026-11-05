@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserAccount, UserRole, CustomFormField } from '../types/job';
 import { User, Mail, Lock, Phone, X, CheckCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
@@ -29,6 +29,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [dynamicValues, setDynamicValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [modalSettings, setModalSettings] = useState<any>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      api.applySettings.get().then((res) => {
+        if (res && res.success && res.settings?.modalSettings) {
+          setModalSettings(res.settings.modalSettings);
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -121,7 +132,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <User className="w-6 h-6 text-slate-950" />
           </div>
           <h2 className="text-2xl font-black">
-            {mode === 'login' ? 'Welcome Back' : 'Create an Account'}
+            {mode === 'login'
+              ? (modalSettings?.authModal?.loginTitle || 'Welcome Back')
+              : (modalSettings?.authModal?.registerTitle || 'Create an Account')}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             Access remote job alerts, job posting tools, and two-way messaging.
@@ -139,7 +152,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Register
+            {modalSettings?.authModal?.registerTab || 'Register'}
           </button>
           <button
             type="button"
@@ -150,7 +163,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Login
+            {modalSettings?.authModal?.loginTab || 'Login'}
           </button>
         </div>
 
@@ -304,7 +317,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all mt-4 flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            <span>{mode === 'login' ? 'Login to Portal' : `Complete Registration as ${role}`}</span>
+            <span>
+              {mode === 'login'
+                ? (modalSettings?.authModal?.loginCta || 'Login to Portal')
+                : (modalSettings?.authModal?.registerCta || `Complete Registration as ${role}`)}
+            </span>
           </button>
         </form>
 

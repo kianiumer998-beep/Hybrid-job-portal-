@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Globe, Search, Check, MapPin, Sparkles, X, ChevronRight } from 'lucide-react';
 import { CountryOption, SUPPORTED_COUNTRIES } from '../types/landing';
+import { api } from '../services/api';
 
 interface CountrySelectionModalProps {
   isOpen: boolean;
@@ -19,6 +20,17 @@ export const CountrySelectionModal: React.FC<CountrySelectionModalProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCode, setSelectedCode] = useState<string>(currentSelectedCode || 'PK');
+  const [modalSettings, setModalSettings] = useState<any>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      api.applySettings.get().then((res) => {
+        if (res && res.success && res.settings?.modalSettings) {
+          setModalSettings(res.settings.modalSettings);
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
 
   const filteredCountries = useMemo(() => {
     if (!searchQuery.trim()) return SUPPORTED_COUNTRIES;
@@ -54,13 +66,15 @@ export const CountrySelectionModal: React.FC<CountrySelectionModalProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-black text-white">Select Your Country / ملک منتخب کریں</h3>
+                <h3 className="text-lg font-black text-white">
+                  {modalSettings?.countrySelection?.title || 'Select Your Country / ملک منتخب کریں'}
+                </h3>
                 <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
                   Step 1
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                آپ جس ملک کی جابز دیکھنا چاہتے ہیں وہ منتخب کریں (Personalized Job Feed)
+                {modalSettings?.countrySelection?.subtitle || 'آپ جس ملک کی جابز دیکھنا چاہتے ہیں وہ منتخب کریں (Personalized Job Feed)'}
               </p>
             </div>
           </div>
@@ -192,7 +206,7 @@ export const CountrySelectionModal: React.FC<CountrySelectionModalProps> = ({
             }}
             className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all active:scale-95 cursor-pointer flex items-center justify-center space-x-1.5"
           >
-            <span>Confirm Selection</span>
+            <span>{modalSettings?.countrySelection?.ctaText || 'Confirm Selection'}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>

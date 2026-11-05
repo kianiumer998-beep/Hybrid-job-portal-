@@ -98,11 +98,36 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
         }
       }
       
-      // FIX B: Merge submitted modal settings into latest stored settings
-      updated.modalSettings = {
-        ...(current.modalSettings || {}),
-        ...sanitizedModals
-      };
+      // FIX A (Field-Level Safe Merge):
+      // Read latest stored settings (already in `current`)
+      const currentModals = (current.modalSettings && typeof current.modalSettings === 'object' && !Array.isArray(current.modalSettings))
+        ? current.modalSettings
+        : {};
+
+      const mergedModals: Record<string, Record<string, string>> = {};
+
+      // 1. Copy all existing modal settings and their fields to preserve unrelated modals & fields
+      for (const [mKey, mVal] of Object.entries(currentModals)) {
+        if (mVal && typeof mVal === 'object' && !Array.isArray(mVal)) {
+          mergedModals[mKey] = { ...(mVal as Record<string, string>) };
+        }
+      }
+
+      // 2. Merge submitted modal IDs and their fields
+      for (const [modalKey, fieldObj] of Object.entries(sanitizedModals)) {
+        if (Object.keys(fieldObj).length === 0) {
+          // Explicit reset: empty object submitted for this modal clears only this modal's customizations
+          mergedModals[modalKey] = {};
+        } else {
+          // Field-level merge: merge submitted fields into existing fields for this modal
+          mergedModals[modalKey] = {
+            ...(mergedModals[modalKey] || {}),
+            ...fieldObj
+          };
+        }
+      }
+
+      updated.modalSettings = mergedModals;
     }
     if (req.body.premiumFieldMessages) {
       if (typeof req.body.premiumFieldMessages !== 'object' || Array.isArray(req.body.premiumFieldMessages)) {

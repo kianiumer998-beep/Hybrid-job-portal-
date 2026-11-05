@@ -513,7 +513,7 @@ export class JobRepository {
     };
 
     for (const field of correctedFields) {
-      if (existingDoc[field] !== undefined && existingDoc[field] !== null && existingDoc[field] !== '') {
+      if (existingDoc[field] !== undefined) {
         protectedObj[field] = existingDoc[field];
       }
     }

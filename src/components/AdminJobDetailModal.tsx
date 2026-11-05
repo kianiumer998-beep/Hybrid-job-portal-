@@ -789,6 +789,60 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
             </div>
           </div>
 
+          {/* Structured Extracted Fields (STEP 66-A.3) */}
+          {(job.totalVacancies !== undefined || job.employmentType || job.ageLimit || job.qualificationSummary || job.domicile || job.contactEmail || job.originalApplyUrl || (job.responsibilitiesList && job.responsibilitiesList.length > 0)) && (
+            <div className="p-4 bg-slate-950 rounded-xl border border-purple-500/30 space-y-3 text-xs">
+              <h4 className="font-bold uppercase text-purple-300 flex items-center space-x-1.5">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                <span>Structured Extraction Intelligence</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {job.totalVacancies !== undefined && (
+                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[11px] font-bold">Total Vacancies</span>
+                    <span className="text-emerald-300 font-bold font-mono text-sm">{job.totalVacancies}</span>
+                  </div>
+                )}
+                {job.employmentType && (
+                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[11px] font-bold">Employment Type</span>
+                    <span className="text-indigo-300 font-bold">{job.employmentType}</span>
+                  </div>
+                )}
+                {job.ageLimit && (
+                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[11px] font-bold">Age Limit & Relaxation</span>
+                    <span className="text-amber-300 font-bold">{job.ageLimit}</span>
+                  </div>
+                )}
+                {job.domicile && (
+                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[11px] font-bold">Domicile / Quota</span>
+                    <span className="text-slate-200 font-bold">{job.domicile}</span>
+                  </div>
+                )}
+                {job.contactEmail && (
+                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[11px] font-bold">Contact Email</span>
+                    <a href={`mailto:${job.contactEmail}`} className="text-cyan-400 hover:underline font-mono">{job.contactEmail}</a>
+                  </div>
+                )}
+                {job.originalApplyUrl && (
+                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[11px] font-bold">Original Apply URL (Admin-Only)</span>
+                    <a href={job.originalApplyUrl} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline font-mono break-all text-[11px]">🔗 {job.originalApplyUrl}</a>
+                  </div>
+                )}
+              </div>
+              {job.qualificationSummary && (
+                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1">
+                  <span className="text-slate-400 block text-[11px] font-bold">Qualification Summary</span>
+                  <p className="text-slate-200">{job.qualificationSummary}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Job Description */}
           <div>
             <h3 className="text-base font-bold text-white mb-2">Job Description</h3>

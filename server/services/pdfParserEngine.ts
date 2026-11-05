@@ -157,6 +157,19 @@ export function extractJobsFromPdfText(
         domicileQuota = quotaMatch[1].trim();
       }
 
+      const emailMatch = trimmedChunk.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+      let minAge: number | undefined;
+      let maxAge: number | undefined;
+      if (ageRelaxation) {
+        const nums = ageRelaxation.match(/\d+/g);
+        if (nums && nums.length >= 2) {
+          minAge = parseInt(nums[0], 10);
+          maxAge = parseInt(nums[1], 10);
+        } else if (nums && nums.length === 1) {
+          maxAge = parseInt(nums[0], 10);
+        }
+      }
+
       const jobId = `doc-real-${Date.now().toString(36)}-${index}-${Math.random().toString(36).substring(2, 6)}`;
 
       const isFederal = org.toLowerCase().includes('federal') || org.toLowerCase().includes('fpsc') || org.toLowerCase().includes('islamabad');
@@ -196,11 +209,22 @@ export function extractJobsFromPdfText(
         pdfSourceUrl: sourceUrl.toLowerCase().endsWith('.pdf') ? sourceUrl : undefined,
         pdfCaseNumber: caseNumber,
         pdfTotalVacanciesInCase: vacanciesCount,
+        // Structured extraction fields (STEP 66-A.3)
+        advertisedPositions: [detectedTitle],
+        totalVacancies: vacanciesCount,
+        employmentType: 'Permanent',
+        ageLimit: ageRelaxation,
+        minimumAge: minAge,
+        maximumAge: maxAge,
+        qualificationSummary: qualificationSnippet,
+        domicile: domicileQuota || undefined,
+        contactEmail: emailMatch ? emailMatch[0] : undefined,
         domicileQuota: domicileQuota || undefined,
         ageRelaxationNote: ageRelaxation,
         pdfParserEngine: 'pdfplumber',
         deadlineDate: deadline,
         sourceUrl: sourceUrl,
+        originalApplyUrl: sourceUrl,
         clippingImageUrl: mediaUrl,
         mediaUrl: mediaUrl,
         scrapedSourceDomain: domain,

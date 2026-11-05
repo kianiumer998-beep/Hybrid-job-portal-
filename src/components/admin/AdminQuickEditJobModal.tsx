@@ -791,6 +791,83 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 />
               </div>
 
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Original Apply URL (Admin-Only)</label>
+                <input
+                  type="url"
+                  value={formData.originalApplyUrl || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, originalApplyUrl: e.target.value }))}
+                  placeholder="https://fpsc.gov.pk/apply"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Total Vacancies</label>
+                <input
+                  type="number"
+                  value={formData.totalVacancies !== undefined ? formData.totalVacancies : ''}
+                  onChange={(e) => setFormData(p => ({ ...p, totalVacancies: e.target.value ? parseInt(e.target.value, 10) : undefined }))}
+                  placeholder="e.g. 5"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Employment Type</label>
+                <input
+                  type="text"
+                  value={formData.employmentType || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, employmentType: e.target.value }))}
+                  placeholder="e.g. Permanent, Contract"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Age Limit & Relaxation</label>
+                <input
+                  type="text"
+                  value={formData.ageLimit || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, ageLimit: e.target.value }))}
+                  placeholder="e.g. 21-30 years plus 5 years relaxation"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Domicile / Quota</label>
+                <input
+                  type="text"
+                  value={formData.domicile || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, domicile: e.target.value }))}
+                  placeholder="e.g. Punjab, Sindh (R), KPK"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Contact Email</label>
+                <input
+                  type="email"
+                  value={formData.contactEmail || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, contactEmail: e.target.value }))}
+                  placeholder="e.g. info@fpsc.gov.pk"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none text-xs"
+                />
+              </div>
+
+              <div className="md:col-span-2 space-y-1">
+                <label className="font-bold text-slate-300">Qualification Summary</label>
+                <textarea
+                  rows={2}
+                  value={formData.qualificationSummary || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, qualificationSummary: e.target.value }))}
+                  placeholder="Summary of required educational qualifications or degree requirements"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-amber-400 outline-none"
+                />
+              </div>
+
               <div className="md:col-span-2 space-y-1">
                 <label className="font-bold text-slate-300">Job Description & Details</label>
                 <textarea

@@ -141,33 +141,52 @@ export function extractJobsFromPdfText(
       index++;
       const scale = bpsMatch ? `${bpsMatch[1].toUpperCase()}-${bpsMatch[2]}` : 'BPS / Standard Cadre';
       const caseNumber = caseMatch ? caseMatch[1] : undefined;
-      const vacanciesCount = vacancyMatch ? parseInt(vacancyMatch[1], 10) : 1;
-      const ageRelaxation = ageMatch ? ageMatch[1].trim() : undefined;
+      const vacanciesCount = vacancyMatch ? parseInt(vacancyMatch[1], 10) : undefined;
+
+      const empTypeMatch = trimmedChunk.match(/\b(Permanent|Contract|Regular|Temporary|Adhoc|Probation|Part[- ]time|Full[- ]time)\b/i);
+      const explicitEmploymentType = empTypeMatch ? empTypeMatch[0] : undefined;
+
       const deadline = closingMatch ? closingMatch[1].trim() : undefined;
 
-      let qualificationSnippet = '';
+      let qualificationSnippet: string | undefined;
       const qualMatch = trimmedChunk.match(/(?:Qualification[s]?|Eligibility|Minimum\s*Requirements?)\s*[:=]?\s*([^\n\.]+)/i);
       if (qualMatch) {
         qualificationSnippet = qualMatch[1].trim();
       }
 
-      let domicileQuota = '';
+      let domicileQuota: string | undefined;
       const quotaMatch = trimmedChunk.match(/(?:Domicile|Quota|Regional\s*Quota)\s*[:=]?\s*([^\n\.]+)/i);
       if (quotaMatch) {
         domicileQuota = quotaMatch[1].trim();
       }
 
       const emailMatch = trimmedChunk.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+
       let minAge: number | undefined;
       let maxAge: number | undefined;
-      if (ageRelaxation) {
-        const nums = ageRelaxation.match(/\d+/g);
-        if (nums && nums.length >= 2) {
-          minAge = parseInt(nums[0], 10);
-          maxAge = parseInt(nums[1], 10);
-        } else if (nums && nums.length === 1) {
-          maxAge = parseInt(nums[0], 10);
-        }
+      let ageLimitText: string | undefined;
+
+      const explicitAgeRangeMatch = trimmedChunk.match(/(?:Age\s*(?:Limit)?|Age\s*Range)\s*[:=]?\s*(\d{2})\s*(?:to|-|–)\s*(\d{2})\s*(?:years|yrs)?/i);
+      if (explicitAgeRangeMatch) {
+        minAge = parseInt(explicitAgeRangeMatch[1], 10);
+        maxAge = parseInt(explicitAgeRangeMatch[2], 10);
+        ageLimitText = `${minAge}-${maxAge} years`;
+      } else if (ageMatch && !/relaxation/i.test(ageMatch[1])) {
+        ageLimitText = ageMatch[1].trim();
+      }
+
+      let ageRelaxationNote: string | undefined;
+      const relaxationMatch = trimmedChunk.match(/(?:age\s*relaxation|general\s*age\s*relaxation|relaxation\s*in\s*upper\s*age\s*limit)\s*[:=]?\s*([^\n\.]+)/i);
+      if (relaxationMatch) {
+        ageRelaxationNote = relaxationMatch[1].trim();
+      } else if (ageMatch && /relaxation/i.test(ageMatch[1])) {
+        ageRelaxationNote = ageMatch[1].trim();
+      }
+
+      let explicitApplyUrl: string | undefined;
+      const applyUrlMatch = trimmedChunk.match(/https?:\/\/[^\s\)\>]+(?:apply|online|registration|portal)[^\s\)\>]*/i);
+      if (applyUrlMatch) {
+        explicitApplyUrl = applyUrlMatch[0];
       }
 
       const jobId = `doc-real-${Date.now().toString(36)}-${index}-${Math.random().toString(36).substring(2, 6)}`;
@@ -212,19 +231,20 @@ export function extractJobsFromPdfText(
         // Structured extraction fields (STEP 66-A.3)
         advertisedPositions: [detectedTitle],
         totalVacancies: vacanciesCount,
-        employmentType: 'Permanent',
-        ageLimit: ageRelaxation,
+        employmentType: explicitEmploymentType,
+        ageLimit: ageLimitText,
         minimumAge: minAge,
         maximumAge: maxAge,
         qualificationSummary: qualificationSnippet,
-        domicile: domicileQuota || undefined,
+        domicile: domicileQuota,
         contactEmail: emailMatch ? emailMatch[0] : undefined,
-        domicileQuota: domicileQuota || undefined,
-        ageRelaxationNote: ageRelaxation,
+        domicileQuota: domicileQuota,
+        ageRelaxationNote: ageRelaxationNote,
         pdfParserEngine: 'pdfplumber',
         deadlineDate: deadline,
         sourceUrl: sourceUrl,
-        originalApplyUrl: sourceUrl,
+        originalApplyUrl: explicitApplyUrl,
+        applicationUrl: explicitApplyUrl,
         clippingImageUrl: mediaUrl,
         mediaUrl: mediaUrl,
         scrapedSourceDomain: domain,

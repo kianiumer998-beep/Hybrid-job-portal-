@@ -821,6 +821,14 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                     <span className="text-slate-200 font-bold">{job.domicile}</span>
                   </div>
                 )}
+                {(job.minimumAge !== undefined || job.maximumAge !== undefined) && (
+                  <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[11px] font-bold font-mono">Age Range (Min - Max)</span>
+                    <span className="text-amber-300 font-bold font-mono">
+                      {job.minimumAge !== undefined ? `${job.minimumAge} yrs` : 'Min N/A'} - {job.maximumAge !== undefined ? `${job.maximumAge} yrs` : 'Max N/A'}
+                    </span>
+                  </div>
+                )}
                 {job.contactEmail && (
                   <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
                     <span className="text-slate-400 block text-[11px] font-bold">Contact Email</span>
@@ -834,6 +842,18 @@ export const AdminJobDetailModal: React.FC<AdminJobDetailModalProps> = ({
                   </div>
                 )}
               </div>
+              {job.advertisedPositions && job.advertisedPositions.length > 0 && (
+                <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                  <span className="text-slate-400 block text-[11px] font-bold mb-1">Advertised Positions</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {job.advertisedPositions.map((pos, idx) => (
+                      <span key={idx} className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-bold">
+                        {pos}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {job.qualificationSummary && (
                 <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1">
                   <span className="text-slate-400 block text-[11px] font-bold">Qualification Summary</span>

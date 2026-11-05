@@ -17,14 +17,14 @@ async function runStep66a3RegressionTests() {
     }
   }
 
-  // 1. Test PDF adapter extractedText forwarding & structured extraction mapping
-  console.log('\n--- 1. Testing PDF Adapter Structured Extraction ---');
+  // 1. Test PDF adapter structured extraction & factual accuracy
+  console.log('\n--- 1. Testing PDF Adapter Structured Extraction & Factual Accuracy ---');
   const samplePdfText = `
     FEDERAL PUBLIC SERVICE COMMISSION
     CASE NO. F.4-150/2026-R
     DIRECTOR GENERAL (BPS-21)
     Total Vacancies: 5
-    Employment Type: Permanent
+    Employment Type: Contract
     Age Limit: 32-45 years
     Qualification: Ph.D. in Computer Science or IT with 15 years experience.
     Domicile: Punjab (Open Merit: 4, Women: 1)
@@ -38,17 +38,36 @@ async function runStep66a3RegressionTests() {
     const j = extractedPdfJobs[0];
     assert(Boolean(j.extractedText && j.extractedText.length > 20), 'extractedText is successfully forwarded and populated');
     assert(j.totalVacancies === 5, 'totalVacancies correctly parsed as 5');
-    assert(j.employmentType === 'Permanent', 'employmentType correctly extracted');
+    assert(j.employmentType === 'Contract', 'Contract employment type correctly extracted (not hardcoded Permanent)');
     assert(Boolean(j.ageLimit), 'ageLimit correctly populated');
-    assert(j.minimumAge === 32 && j.maximumAge === 45, 'minimumAge and maximumAge correctly parsed from age limit');
+    assert(j.minimumAge === 32 && j.maximumAge === 45, 'minimumAge (32) and maximumAge (45) correctly parsed from age range');
     assert(Boolean(j.qualificationSummary), 'qualificationSummary correctly populated');
     assert(Boolean(j.domicile), 'domicile correctly populated');
     assert(j.contactEmail === 'info@fpsc.gov.pk', 'contactEmail correctly extracted');
     assert(Array.isArray(j.advertisedPositions) && j.advertisedPositions.length > 0, 'advertisedPositions array populated');
   }
 
-  // 2. Test URL Separation (sourceUrl vs applicationUrl vs originalApplyUrl)
-  console.log('\n--- 2. Testing URL Separation ---');
+  // 2. Test PDF extraction without vacancy count & without employment type
+  console.log('\n--- 2. Testing PDF Extraction with Missing Vacancy Count & Unstated Employment Type ---');
+  const pdfTextWithoutVacancies = `
+    NATIONAL HIGHWAY AUTHORITY
+    ASSISTANT ENGINEER (BPS-17)
+    Qualification: Bachelor degree in Civil Engineering.
+    Closing Date: 30 Nov 2026
+  `;
+
+  const jobsNoVacancies = extractJobsFromPdfText(pdfTextWithoutVacancies, 'https://nha.gov.pk/jobs.pdf', 'NHA', 'jobs.pdf');
+  assert(jobsNoVacancies.length === 1, 'Extracted job from PDF without explicit vacancy count');
+  if (jobsNoVacancies.length > 0) {
+    const j2 = jobsNoVacancies[0];
+    assert(j2.totalVacancies === undefined, 'Missing vacancy count remains undefined (no false default of 1)');
+    assert(j2.pdfTotalVacanciesInCase === undefined, 'pdfTotalVacanciesInCase remains undefined when no count found');
+    assert(j2.employmentType === undefined, 'Unstated employmentType remains undefined (no hardcoded Permanent)');
+    assert(j2.originalApplyUrl === undefined, 'sourceUrl is not copied into originalApplyUrl automatically');
+  }
+
+  // 3. Test URL Separation
+  console.log('\n--- 3. Testing URL Separation ---');
   const testJobWithUrls = {
     id: 'test-url-sep-1',
     title: 'Software Engineer',
@@ -73,8 +92,8 @@ async function runStep66a3RegressionTests() {
   assert(testJobWithUrls.sourceUrl !== testJobWithUrls.originalApplyUrl, 'sourceUrl is distinct from originalApplyUrl');
   assert(testJobWithUrls.originalApplyUrl === testJobWithUrls.applicationUrl, 'originalApplyUrl aligns with applicationUrl');
 
-  // 3. Test Manual Correction Protection & Intentionally Cleared Values
-  console.log('\n--- 3. Test Manual Correction Protection & Cleared Values ---');
+  // 4. Test Manual Correction Protection & Intentionally Cleared Values
+  console.log('\n--- 4. Test Manual Correction Protection & Cleared Values ---');
   const existingRecord = {
     id: 'job-protect-1',
     title: 'Manually Corrected Title',
@@ -99,22 +118,23 @@ async function runStep66a3RegressionTests() {
   assert(protectedResult.company === 'Corrected Company', 'Manually corrected company name is protected');
   assert(protectedResult.city === '', 'Intentionally cleared city value ("") is preserved and not overwritten by scraper');
 
-  // 4. Test Guest / Premium / Admin Visibility Boundaries
-  console.log('\n--- 4. Test Guest / Premium / Admin Visibility Boundaries ---');
+  // 5. Test Guest / Free / Premium / Admin Visibility & originalApplyUrl Security
+  console.log('\n--- 5. Test originalApplyUrl Security & Guest / Free / Premium / Admin Visibility ---');
   const sampleSensitiveJob = {
     id: 'job-vis-1',
-    title: 'Secret Job',
+    title: 'Executive Position',
     company: 'Enterprise',
     salary: 'USD 5,000',
     sourceUrl: 'https://enterprise.com/secret',
-    originalApplyUrl: 'https://enterprise.com/apply',
+    originalApplyUrl: 'https://enterprise.com/internal-admin-apply-link',
+    applicationUrl: 'https://enterprise.com/apply',
     region: 'Global' as const,
     currency: 'USD' as const,
     experienceLevel: 'Senior' as const,
     jobType: 'Remote' as const,
     department: 'Executive',
-    tags: ['Secret'],
-    description: 'Secret job description for testing visibility policy boundaries.',
+    tags: ['Executive'],
+    description: 'Executive job description for testing visibility policy boundaries.',
     requirements: ['NDA'],
     benefits: ['Stock'],
     postedAt: '2026-11-05',
@@ -125,15 +145,30 @@ async function runStep66a3RegressionTests() {
     }
   };
 
-  const guestUser = { id: 'user-1', role: 'Job Seeker' };
-  const filteredForGuest = JobVisibilityRepository.filterJobForUser(sampleSensitiveJob, guestUser, false);
-  assert(filteredForGuest.salary === '🔒 Unlock with Premium Subscription', 'Sensitive salary is redacted for guest/free user');
-  assert(filteredForGuest.sourceUrl === '🔒 Unlock with Premium Subscription', 'Sensitive sourceUrl is redacted for guest/free user');
-
+  const guestUser = { id: 'user-guest', role: 'Job Seeker' };
+  const freeUser = { id: 'user-free', role: 'Job Seeker', plan: 'Free' };
+  const premiumUser = { id: 'user-prem', role: 'Job Seeker', plan: 'Premium', membershipStatus: 'Active' };
   const adminUser = { id: 'admin-1', role: 'Admin' };
+
+  // Guest Filtering
+  const filteredForGuest = JobVisibilityRepository.filterJobForUser(sampleSensitiveJob, guestUser, false);
+  assert(filteredForGuest.originalApplyUrl === undefined, 'originalApplyUrl is completely stripped for Guest user');
+  assert(filteredForGuest.salary === '🔒 Unlock with Premium Subscription', 'Sensitive salary is redacted for Guest user');
+
+  // Free User Filtering
+  const filteredForFree = JobVisibilityRepository.filterJobForUser(sampleSensitiveJob, freeUser, false);
+  assert(filteredForFree.originalApplyUrl === undefined, 'originalApplyUrl is completely stripped for Free user');
+  assert(filteredForFree.salary === '🔒 Unlock with Premium Subscription', 'Sensitive salary is redacted for Free user');
+
+  // Premium User Filtering (authoritativePremium = true)
+  const filteredForPremium = JobVisibilityRepository.filterJobForUser(sampleSensitiveJob, premiumUser, true);
+  assert(filteredForPremium.originalApplyUrl === undefined, 'originalApplyUrl is strictly inaccessible to Premium user (Admin-Only)');
+  assert(filteredForPremium.salary === 'USD 5,000', 'Premium user retains access to Premium salary field');
+
+  // Admin Filtering
   const filteredForAdmin = JobVisibilityRepository.filterJobForUser(sampleSensitiveJob, adminUser, false);
-  assert(filteredForAdmin.salary === 'USD 5,000', 'Sensitive salary is fully visible to Admin');
-  assert(filteredForAdmin.sourceUrl === 'https://enterprise.com/secret', 'Sensitive sourceUrl is fully visible to Admin');
+  assert(filteredForAdmin.originalApplyUrl === 'https://enterprise.com/internal-admin-apply-link', 'Admin user retains full access to originalApplyUrl');
+  assert(filteredForAdmin.salary === 'USD 5,000', 'Admin user retains full access to salary');
 
   console.log(`\n=== REGRESSION TEST RESULTS: ${passed} PASSED, ${failed} FAILED ===`);
   if (failed > 0) {

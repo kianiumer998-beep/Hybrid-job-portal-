@@ -21,7 +21,8 @@ export const ADMIN_INTERNAL_FIELDS = [
   'pdfParserEngine', 'extractionSourceType', 'isLocationConfirmed', 
   'locationConfirmedAt', 'isManuallyCorrected', 'manuallyCorrectedAt', 
   'metadata', 'lastScrapedAt', 'scraperSourceId', 'scraperSourceName', 
-  'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', '_isAdminView'
+  'scrapedSourceDomain', 'scrapedAt', 'scrapedTime', '_isAdminView', 
+  'originalApplyUrl'
 ];
 export const ADMIN_INTERNAL_SET = new Set(ADMIN_INTERNAL_FIELDS);
 
@@ -30,7 +31,7 @@ export const CONFIGURABLE_SENSITIVE_FIELDS = [
   'applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 
   'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl', 'mediaUrl', 'salary', 
   'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase',
-  'relatedSourceUrls', 'originalApplyUrl'
+  'relatedSourceUrls'
 ];
 export const CONFIGURABLE_SENSITIVE_SET = new Set(CONFIGURABLE_SENSITIVE_FIELDS);
 

@@ -251,7 +251,7 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
       applicationsCount: 0,
       status: 'Pending',
       sourceUrl: r.sourceUrl || cleanUrl,
-      originalApplyUrl: r.originalApplyUrl || r.sourceUrl || cleanUrl,
+      originalApplyUrl: r.originalApplyUrl || undefined,
       sourceJobId: r.sourceJobId || undefined,
       isGovtJob: r.isGovtJob ?? true,
       govtDepartment: r.govtDepartment,

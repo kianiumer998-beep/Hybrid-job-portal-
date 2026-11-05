@@ -19,8 +19,7 @@ export const SENSITIVE_FIELD_KEYS = new Set([
   'pdfFileName',
   'pdfCaseNumber',
   'pdfTotalVacanciesInCase',
-  'relatedSourceUrls',
-  'originalApplyUrl'
+  'relatedSourceUrls'
 ]);
 
 export const ALL_REGISTRY_FIELDS: RegistryFieldDef[] = [
@@ -92,8 +91,7 @@ export const ALL_REGISTRY_FIELDS: RegistryFieldDef[] = [
   { key: 'pdfFileName', label: 'PDF Filename', category: 'Sensitive' },
   { key: 'pdfCaseNumber', label: 'PDF Case Number', category: 'Sensitive' },
   { key: 'pdfTotalVacanciesInCase', label: 'PDF Total Vacancies in Case', category: 'Sensitive' },
-  { key: 'relatedSourceUrls', label: 'Related Source URLs', category: 'Sensitive' },
-  { key: 'originalApplyUrl', label: 'Original Apply URL', category: 'Sensitive' }
+  { key: 'relatedSourceUrls', label: 'Related Source URLs', category: 'Sensitive' }
 ];
 
 export const ALL_REGISTRY_KEYS = ALL_REGISTRY_FIELDS.map(f => f.key);

@@ -836,6 +836,28 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
               </div>
 
               <div className="space-y-1">
+                <label className="font-bold text-slate-300">Minimum Age (Years)</label>
+                <input
+                  type="number"
+                  value={formData.minimumAge !== undefined ? formData.minimumAge : ''}
+                  onChange={(e) => setFormData(p => ({ ...p, minimumAge: e.target.value ? parseInt(e.target.value, 10) : undefined }))}
+                  placeholder="e.g. 18"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Maximum Age (Years)</label>
+                <input
+                  type="number"
+                  value={formData.maximumAge !== undefined ? formData.maximumAge : ''}
+                  onChange={(e) => setFormData(p => ({ ...p, maximumAge: e.target.value ? parseInt(e.target.value, 10) : undefined }))}
+                  placeholder="e.g. 30"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
                 <label className="font-bold text-slate-300">Domicile / Quota</label>
                 <input
                   type="text"

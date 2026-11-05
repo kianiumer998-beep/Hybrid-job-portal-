@@ -192,6 +192,43 @@ export function extractNextPageUrl(html: string, currentUrl: string): string | n
   }
 }
 
+export function mapGreenhouseJob(j: any, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult {
+  const targetUrl = config.url || config.portalUrl || '';
+  const locName = j.location?.name || '';
+  const isRemote = locName.toLowerCase().includes('remote') || (j.title || '').toLowerCase().includes('remote');
+  const isPk = locName.toLowerCase().includes('pakistan') || (config.keywords || '').toLowerCase().includes('pakistan');
+  const cleanDesc = (j.content || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+
+  return {
+    id: `gh-${config.id}-${j.id}`,
+    title: (j.title || '').trim() || 'Untitled Position',
+    company: config.name,
+    jobType: isRemote ? 'Remote' : 'On-site',
+    region: isPk ? 'Pakistan' : 'Global',
+    city: locName || undefined,
+    salary: 'Salary not disclosed',
+    currency: 'USD' as Currency,
+    experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : 'Mid',
+    department: j.departments?.[0]?.name || config.keywords || 'General',
+    tags: [config.name, 'Greenhouse ATS', isRemote ? 'Remote' : 'On-site'],
+    description: cleanDesc.slice(0, 1500) || `Official job listing on ${config.name} careers portal.`,
+    requirements: [],
+    benefits: [],
+    postedAt: j.updated_at ? new Date(j.updated_at).toLocaleDateString() : 'Recent',
+    datePosted: j.updated_at,
+    applicationsCount: 0,
+    status: config.autoApprove ? 'Approved' : 'Pending',
+    sourceUrl: j.absolute_url || targetUrl,
+    sourceJobId: String(j.id),
+    originalApplyUrl: undefined,
+    applicationUrl: undefined,
+    sourcePortal: config.name,
+    extractionMethod: 'greenhouse_api',
+    scrapeRunId: options.runId,
+    scrapedAt: new Date().toISOString()
+  };
+}
+
 /**
  * ADAPTER 1: Greenhouse API Adapter (boards-api.greenhouse.io)
  */
@@ -220,41 +257,7 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
     const data: any = await res.json();
     if (!data || !Array.isArray(data.jobs)) return { jobs: [], extractionMethod: 'greenhouse_api', totalFoundOnPage: 0 };
 
-    const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => {
-      const locName = j.location?.name || '';
-      const isRemote = locName.toLowerCase().includes('remote') || (j.title || '').toLowerCase().includes('remote');
-      const isPk = locName.toLowerCase().includes('pakistan') || (config.keywords || '').toLowerCase().includes('pakistan');
-      const cleanDesc = (j.content || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
-
-      return {
-        id: `gh-${config.id}-${j.id}`,
-        title: (j.title || '').trim() || 'Untitled Position',
-        company: config.name,
-        jobType: isRemote ? 'Remote' : 'On-site',
-        region: isPk ? 'Pakistan' : 'Global',
-        city: locName || undefined,
-        salary: 'Salary not disclosed',
-        currency: 'USD' as Currency,
-        experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : (j.title || '').toLowerCase().includes('lead') ? 'Lead' : 'Mid',
-        department: j.departments?.[0]?.name || config.keywords || 'General',
-        tags: [config.name, 'Greenhouse ATS', isRemote ? 'Remote' : 'On-site'],
-        description: cleanDesc.slice(0, 1500) || `Official job listing on ${config.name} careers portal.`,
-        requirements: [],
-        benefits: [],
-        postedAt: j.updated_at ? new Date(j.updated_at).toLocaleDateString() : 'Recent',
-        datePosted: j.updated_at,
-        applicationsCount: 0,
-        status: config.autoApprove ? 'Approved' : 'Pending',
-        sourceUrl: j.absolute_url || targetUrl,
-        sourceJobId: String(j.id),
-        originalApplyUrl: undefined,
-        applicationUrl: undefined,
-        sourcePortal: config.name,
-        extractionMethod: 'greenhouse_api',
-        scrapeRunId: options.runId,
-        scrapedAt: new Date().toISOString()
-      };
-    });
+    const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => mapGreenhouseJob(j, config, options));
 
     return {
       jobs,
@@ -265,6 +268,42 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
     console.warn(`[Greenhouse Adapter] Extraction failed for ${targetUrl}:`, err?.message || err);
     return { jobs: [], extractionMethod: 'greenhouse_api', totalFoundOnPage: 0 };
   }
+}
+
+export function mapLeverJob(j: any, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult {
+  const targetUrl = config.url || config.portalUrl || '';
+  const loc = j.categories?.location || '';
+  const isRemote = loc.toLowerCase().includes('remote') || j.workplaceType === 'remote';
+  const isPk = loc.toLowerCase().includes('pakistan');
+
+  return {
+    id: `lever-${config.id}-${j.id}`,
+    title: (j.text || '').trim() || 'Untitled Position',
+    company: config.name,
+    jobType: isRemote ? 'Remote' : 'On-site',
+    region: isPk ? 'Pakistan' : 'Global',
+    city: loc || undefined,
+    salary: 'Salary not disclosed',
+    currency: 'USD' as Currency,
+    experienceLevel: (j.text || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
+    department: j.categories?.team || j.categories?.department || 'General',
+    tags: [config.name, 'Lever ATS', isRemote ? 'Remote' : 'On-site'],
+    description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official vacancy on ${config.name}.`,
+    requirements: [],
+    benefits: [],
+    postedAt: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : 'Recent',
+    datePosted: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
+    applicationsCount: 0,
+    status: config.autoApprove ? 'Approved' : 'Pending',
+    sourceUrl: j.hostedUrl || targetUrl,
+    sourceJobId: String(j.id),
+    originalApplyUrl: (j.applyUrl && j.applyUrl !== j.hostedUrl) ? j.applyUrl : undefined,
+    applicationUrl: (j.applyUrl && j.applyUrl !== j.hostedUrl) ? j.applyUrl : undefined,
+    sourcePortal: config.name,
+    extractionMethod: 'lever_api',
+    scrapeRunId: options.runId,
+    scrapedAt: new Date().toISOString()
+  };
 }
 
 /**
@@ -289,40 +328,7 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
     const data: any = await res.json();
     if (!Array.isArray(data)) return { jobs: [], extractionMethod: 'lever_api', totalFoundOnPage: 0 };
 
-    const jobs: ScrapedJobResult[] = data.map((j: any) => {
-      const loc = j.categories?.location || '';
-      const isRemote = loc.toLowerCase().includes('remote') || j.workplaceType === 'remote';
-      const isPk = loc.toLowerCase().includes('pakistan');
-
-      return {
-        id: `lever-${config.id}-${j.id}`,
-        title: (j.text || '').trim() || 'Untitled Position',
-        company: config.name,
-        jobType: isRemote ? 'Remote' : 'On-site',
-        region: isPk ? 'Pakistan' : 'Global',
-        city: loc || undefined,
-        salary: 'Salary not disclosed',
-        currency: 'USD' as Currency,
-        experienceLevel: (j.text || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-        department: j.categories?.team || j.categories?.department || 'General',
-        tags: [config.name, 'Lever ATS', isRemote ? 'Remote' : 'On-site'],
-        description: (j.descriptionPlain || j.description || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official vacancy on ${config.name}.`,
-        requirements: [],
-        benefits: [],
-        postedAt: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : 'Recent',
-        datePosted: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
-        applicationsCount: 0,
-        status: config.autoApprove ? 'Approved' : 'Pending',
-        sourceUrl: j.hostedUrl || targetUrl,
-        sourceJobId: String(j.id),
-        originalApplyUrl: (j.applyUrl && j.applyUrl !== j.hostedUrl) ? j.applyUrl : undefined,
-        applicationUrl: (j.applyUrl && j.applyUrl !== j.hostedUrl) ? j.applyUrl : undefined,
-        sourcePortal: config.name,
-        extractionMethod: 'lever_api',
-        scrapeRunId: options.runId,
-        scrapedAt: new Date().toISOString()
-      };
-    });
+    const jobs: ScrapedJobResult[] = data.map((j: any) => mapLeverJob(j, config, options));
 
     return {
       jobs,
@@ -333,6 +339,72 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
     console.warn(`[Lever Adapter] Extraction failed for ${targetUrl}:`, err?.message || err);
     return { jobs: [], extractionMethod: 'lever_api', totalFoundOnPage: 0 };
   }
+}
+
+export function mapSmartRecruitersJob(j: any, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult {
+  const targetUrl = config.url || config.portalUrl || '';
+  const company = targetUrl.split('smartrecruiters.com/')[1]?.split('/')[0]?.split('?')[0] || '';
+  const detailUrl = `https://jobs.smartrecruiters.com/${company}/${j.id}`;
+  return {
+    id: `sr-${config.id}-${j.id}`,
+    title: j.name || 'Untitled Position',
+    company: j.company?.name || config.name,
+    jobType: (j.location?.remote || (j.name || '').toLowerCase().includes('remote')) ? 'Remote' : 'On-site',
+    region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : 'Global',
+    city: j.location?.city || undefined,
+    salary: 'Salary not disclosed',
+    currency: 'USD' as Currency,
+    experienceLevel: (j.experienceLevel?.id === 'senior' || (j.name || '').toLowerCase().includes('senior')) ? 'Senior' : 'Mid',
+    department: j.department?.label || 'General',
+    tags: [config.name, 'SmartRecruiters'],
+    description: `Position at ${config.name}. Apply on official portal.`,
+    requirements: [],
+    benefits: [],
+    postedAt: j.releasedDate ? new Date(j.releasedDate).toLocaleDateString() : 'Recent',
+    datePosted: j.releasedDate,
+    applicationsCount: 0,
+    status: config.autoApprove ? 'Approved' : 'Pending',
+    sourceUrl: detailUrl,
+    sourceJobId: String(j.id),
+    originalApplyUrl: (j.applyUrl && j.applyUrl !== detailUrl) ? j.applyUrl : undefined,
+    applicationUrl: (j.applyUrl && j.applyUrl !== detailUrl) ? j.applyUrl : undefined,
+    sourcePortal: config.name,
+    extractionMethod: 'smartrecruiters_api',
+    scrapeRunId: options.runId,
+    scrapedAt: new Date().toISOString()
+  };
+}
+
+export function mapAshbyJob(j: any, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult {
+  const targetUrl = config.url || config.portalUrl || '';
+  return {
+    id: `ashby-${config.id}-${j.id}`,
+    title: j.title || 'Untitled Position',
+    company: config.name,
+    jobType: j.isRemote ? 'Remote' : 'On-site',
+    region: (j.location || '').toLowerCase().includes('pakistan') ? 'Pakistan' : 'Global',
+    city: j.location || undefined,
+    salary: 'Salary not disclosed',
+    currency: 'USD' as Currency,
+    experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
+    department: j.department || 'General',
+    tags: [config.name, 'Ashby ATS'],
+    description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official listing at ${config.name}`,
+    requirements: [],
+    benefits: [],
+    postedAt: j.publishedDate ? new Date(j.publishedDate).toLocaleDateString() : 'Recent',
+    datePosted: j.publishedDate,
+    applicationsCount: 0,
+    status: config.autoApprove ? 'Approved' : 'Pending',
+    sourceUrl: j.jobUrl || targetUrl,
+    sourceJobId: String(j.id),
+    originalApplyUrl: (j.applyUrl && j.applyUrl !== j.jobUrl) ? j.applyUrl : undefined,
+    applicationUrl: (j.applyUrl && j.applyUrl !== j.jobUrl) ? j.applyUrl : undefined,
+    sourcePortal: config.name,
+    extractionMethod: 'ashby_api',
+    scrapeRunId: options.runId,
+    scrapedAt: new Date().toISOString()
+  };
 }
 
 /**
@@ -353,34 +425,7 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
         if (res.ok) {
           const data: any = await res.json();
           if (data && Array.isArray(data.content)) {
-            const jobs: ScrapedJobResult[] = data.content.map((j: any) => ({
-              id: `sr-${config.id}-${j.id}`,
-              title: j.name || 'Untitled Position',
-              company: j.company?.name || config.name,
-              jobType: (j.location?.remote || (j.name || '').toLowerCase().includes('remote')) ? 'Remote' : 'On-site',
-              region: (j.location?.country || '').toLowerCase() === 'pk' ? 'Pakistan' : 'Global',
-              city: j.location?.city || undefined,
-              salary: 'Salary not disclosed',
-              currency: 'USD' as Currency,
-              experienceLevel: (j.experienceLevel?.id === 'senior' || (j.name || '').toLowerCase().includes('senior')) ? 'Senior' : 'Mid',
-              department: j.department?.label || 'General',
-              tags: [config.name, 'SmartRecruiters'],
-              description: `Position at ${config.name}. Apply on official portal.`,
-              requirements: [],
-              benefits: [],
-              postedAt: j.releasedDate ? new Date(j.releasedDate).toLocaleDateString() : 'Recent',
-              datePosted: j.releasedDate,
-              applicationsCount: 0,
-              status: config.autoApprove ? 'Approved' : 'Pending',
-              sourceUrl: `https://jobs.smartrecruiters.com/${company}/${j.id}`,
-              sourceJobId: String(j.id),
-              originalApplyUrl: (j.applyUrl && j.applyUrl !== `https://jobs.smartrecruiters.com/${company}/${j.id}`) ? j.applyUrl : undefined,
-              applicationUrl: (j.applyUrl && j.applyUrl !== `https://jobs.smartrecruiters.com/${company}/${j.id}`) ? j.applyUrl : undefined,
-              sourcePortal: config.name,
-              extractionMethod: 'smartrecruiters_api',
-              scrapeRunId: options.runId,
-              scrapedAt: new Date().toISOString()
-            }));
+            const jobs: ScrapedJobResult[] = data.content.map((j: any) => mapSmartRecruitersJob(j, config, options));
 
             return { jobs, extractionMethod: 'smartrecruiters_api', totalFoundOnPage: jobs.length };
           }
@@ -399,34 +444,7 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
         if (res.ok) {
           const data: any = await res.json();
           if (data && Array.isArray(data.jobs)) {
-            const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => ({
-              id: `ashby-${config.id}-${j.id}`,
-              title: j.title || 'Untitled Position',
-              company: config.name,
-              jobType: j.isRemote ? 'Remote' : 'On-site',
-              region: (j.location || '').toLowerCase().includes('pakistan') ? 'Pakistan' : 'Global',
-              city: j.location || undefined,
-              salary: 'Salary not disclosed',
-              currency: 'USD' as Currency,
-              experienceLevel: (j.title || '').toLowerCase().includes('senior') ? 'Senior' : 'Mid',
-              department: j.department || 'General',
-              tags: [config.name, 'Ashby ATS'],
-              description: (j.descriptionHtml || '').replace(/<[^>]*>?/gm, ' ').slice(0, 1500) || `Official listing at ${config.name}`,
-              requirements: [],
-              benefits: [],
-              postedAt: j.publishedDate ? new Date(j.publishedDate).toLocaleDateString() : 'Recent',
-              datePosted: j.publishedDate,
-              applicationsCount: 0,
-              status: config.autoApprove ? 'Approved' : 'Pending',
-              sourceUrl: j.jobUrl || targetUrl,
-              sourceJobId: String(j.id),
-              originalApplyUrl: (j.applyUrl && j.applyUrl !== j.jobUrl) ? j.applyUrl : undefined,
-              applicationUrl: (j.applyUrl && j.applyUrl !== j.jobUrl) ? j.applyUrl : undefined,
-              sourcePortal: config.name,
-              extractionMethod: 'ashby_api',
-              scrapeRunId: options.runId,
-              scrapedAt: new Date().toISOString()
-            }));
+            const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => mapAshbyJob(j, config, options));
 
             return { jobs, extractionMethod: 'ashby_api', totalFoundOnPage: jobs.length };
           }
@@ -558,7 +576,7 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
 /**
  * ADAPTER 5: JSON-LD Schema.org JobPosting Extractor
  */
-function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetConfig, options: ScrapeOptions): ScrapedJobResult[] {
+export function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult[] {
   const $ = cheerio.load(html);
   const results: ScrapedJobResult[] = [];
 
@@ -658,7 +676,7 @@ function extractJsonLdJobs(html: string, baseUrl: string, config: ScraperTargetC
  * ADAPTER 6: JavaScript Websites Embedded State Extractor
  * Extracts server-rendered state (__NEXT_DATA__, __NUXT_DATA__, window.__INITIAL_STATE__)
  */
-function extractEmbeddedStateJobs(html: string, currentUrl: string, config: ScraperTargetConfig, options: ScrapeOptions): ScrapedJobResult[] {
+export function extractEmbeddedStateJobs(html: string, currentUrl: string, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult[] {
   const $ = cheerio.load(html);
   const results: ScrapedJobResult[] = [];
 
@@ -712,7 +730,7 @@ function extractEmbeddedStateJobs(html: string, currentUrl: string, config: Scra
 /**
  * ADAPTER 7: HTML / Cheerio Semantic Table & Job Cards Extractor
  */
-function extractHtmlSemanticJobs(html: string, currentUrl: string, config: ScraperTargetConfig, options: ScrapeOptions): ScrapedJobResult[] {
+export function extractHtmlSemanticJobs(html: string, currentUrl: string, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult[] {
   const $ = cheerio.load(html);
   const extractedJobs: ScrapedJobResult[] = [];
 

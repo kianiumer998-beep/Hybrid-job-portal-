@@ -183,6 +183,63 @@ scraperRouter.put('/scheduler-settings', requireAdminPermission('scraper.manage'
   }
 });
 
+/**
+ * Pure mapping helper for converting ScrapedJobResult into a standard Job instance for scraper routes.
+ */
+export function mapScrapedResultToRouteJob(
+  r: any,
+  idx: number = 0,
+  organization?: string,
+  domain?: string,
+  cleanUrl: string = '',
+  now: string = new Date().toISOString().replace('T', ' ').substring(0, 19)
+): Job {
+  return {
+    id: `scraped-${Date.now().toString(36)}-${idx}`,
+    title: r.title,
+    company: r.company || organization || domain || 'Target Portal',
+    jobType: r.jobType || 'On-site',
+    region: r.region || 'Pakistan',
+    salary: r.salary || 'Salary not disclosed',
+    currency: r.currency || 'PKR',
+    experienceLevel: (r.experienceLevel === 'Junior' ? 'Entry' : (r.experienceLevel || 'Mid')) as any,
+    department: r.department || organization || 'General',
+    tags: r.tags || (domain ? [domain] : []),
+    description: r.description || `Original vacancy scraped from ${domain || cleanUrl}. Refer to original URL for full details.`,
+    requirements: r.requirements || [],
+    benefits: r.benefits || [],
+    postedAt: r.postedAt || 'Recent',
+    applicationsCount: 0,
+    status: 'Pending',
+    sourceUrl: r.sourceUrl || cleanUrl,
+    originalApplyUrl: r.originalApplyUrl || undefined,
+    applicationUrl: r.applicationUrl || undefined,
+    isGovtJob: r.isGovtJob ?? true,
+    govtDepartment: r.govtDepartment,
+    govtScale: r.govtScale,
+    deadlineDate: r.deadlineDate,
+    pdfTotalVacanciesInCase: r.pdfTotalVacanciesInCase,
+    ageRelaxationNote: r.ageRelaxationNote,
+    scrapedSourceDomain: domain,
+    scraperSourceName: `${organization || domain || 'Target'} Scraper`,
+    extractionSourceType: 'web_html',
+    scrapedAt: now,
+    paymentStatus: 'Exempt',
+    advertisedPositions: r.advertisedPositions,
+    totalVacancies: r.totalVacancies,
+    employmentType: r.employmentType,
+    ageLimit: r.ageLimit,
+    minimumAge: r.minimumAge,
+    maximumAge: r.maximumAge,
+    qualificationSummary: r.qualificationSummary,
+    domicile: r.domicile,
+    contactEmail: r.contactEmail,
+    responsibilitiesList: r.responsibilitiesList,
+    extractedText: r.extractedText,
+    relatedSourceUrls: r.relatedSourceUrls
+  };
+}
+
 // 6. Parse a specific URL or PDF document with 100% factual integrity (NO demo/synthetic jobs)
 scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async (req, res) => {
   try {
@@ -233,52 +290,7 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
     const enrichedScraped = await enrichScrapedJobsBatch(scraped, tempConfig);
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-    const jobs: Job[] = (enrichedScraped || []).map((r, idx) => ({
-      id: `scraped-${Date.now().toString(36)}-${idx}`,
-      title: r.title,
-      company: r.company || organization || domain,
-      jobType: r.jobType || 'On-site',
-      region: r.region || 'Pakistan',
-      salary: r.salary || 'Salary not disclosed',
-      currency: r.currency || 'PKR',
-      experienceLevel: (r.experienceLevel === 'Junior' ? 'Entry' : (r.experienceLevel || 'Mid')) as any,
-      department: r.department || organization || 'General',
-      tags: r.tags || [domain],
-      description: r.description || `Original vacancy scraped from ${domain}. Refer to original URL for full details.`,
-      requirements: r.requirements || [],
-      benefits: r.benefits || [],
-      postedAt: r.postedAt || 'Recent',
-      applicationsCount: 0,
-      status: 'Pending',
-      sourceUrl: r.sourceUrl || cleanUrl,
-      originalApplyUrl: r.originalApplyUrl || undefined,
-      applicationUrl: r.applicationUrl || undefined,
-      sourceJobId: r.sourceJobId || undefined,
-      isGovtJob: r.isGovtJob ?? true,
-      govtDepartment: r.govtDepartment,
-      govtScale: r.govtScale,
-      deadlineDate: r.deadlineDate,
-      pdfTotalVacanciesInCase: r.pdfTotalVacanciesInCase,
-      ageRelaxationNote: r.ageRelaxationNote,
-      scrapedSourceDomain: domain,
-      scraperSourceName: `${organization || domain} Scraper`,
-      sourcePortal: organization || domain,
-      extractionMethod: r.extractionMethod || 'html_cheerio',
-      scrapedAt: now,
-      paymentStatus: 'Exempt',
-      advertisedPositions: r.advertisedPositions,
-      totalVacancies: r.totalVacancies,
-      employmentType: r.employmentType,
-      ageLimit: r.ageLimit,
-      minimumAge: r.minimumAge,
-      maximumAge: r.maximumAge,
-      qualificationSummary: r.qualificationSummary,
-      domicile: r.domicile,
-      contactEmail: r.contactEmail,
-      responsibilitiesList: r.responsibilitiesList,
-      extractedText: r.extractedText,
-      relatedSourceUrls: r.relatedSourceUrls
-    }));
+    const jobs: Job[] = (enrichedScraped || []).map((r, idx) => mapScrapedResultToRouteJob(r, idx, organization, domain, cleanUrl, now));
 
     return res.json({
       success: true,

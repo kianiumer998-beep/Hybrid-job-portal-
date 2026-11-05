@@ -27,6 +27,8 @@ import { Advertisement, FeedInlineAdSettings, BannerDimensionSettings, FeedCardA
 import { sanitizeJobTitle, sanitizeJobCompanyName, sanitizeJobTags } from '../utils/jobSanitizer';
 import { InlineFeedAd } from './ads/InlineFeedAd';
 
+import { JobCardDesignConfig } from '../types/landing';
+
 interface JobListingsProps {
   jobs: Job[];
   priorityJobs?: Job[];
@@ -45,6 +47,7 @@ interface JobListingsProps {
   feedCardAppearance?: FeedCardAppearanceSettings;
   onAdClick?: (ad: Advertisement) => void;
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  jobCardDesign?: JobCardDesignConfig;
 }
 
 export const JobListings: React.FC<JobListingsProps> = ({
@@ -64,7 +67,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
   bannerDimensions,
   feedCardAppearance,
   onAdClick,
-  onNavigateTab
+  onNavigateTab,
+  jobCardDesign
 }) => {
   // Local state fallback if not controlled from parent
   const [internalPage, setInternalPage] = useState<number>(1);
@@ -73,6 +77,22 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
   const currentPage = controlledPage !== undefined ? controlledPage : internalPage;
   const postsPerPage = controlledPostsPerPage !== undefined ? controlledPostsPerPage : internalPostsPerPage;
+
+  // STEP66-B.2: Default Design configuration if missing
+  const design: JobCardDesignConfig = jobCardDesign || {
+    layout: 'default',
+    theme: { accentColor: 'emerald', borderRadius: 'xl', cardBgPreset: 'slate', density: 'normal' },
+    visibility: {
+      title: true, company: true, location: true, postedDate: true, description: true,
+      tags: true, salary: true, jobType: true, govtBadge: true, featuredBadge: true,
+      urgentBadge: true, newspaperBadge: true, pdfBadge: true, saveButton: true,
+      detailsButton: true, applyButton: true
+    },
+    labels: { saveButton: 'Save', detailsButton: 'Details', applyButton: 'Apply', cardHeading: '' },
+    limits: { descriptionMaxWords: 25, maxTags: 4 }
+  };
+
+  const accentColor = design.theme.accentColor || 'emerald';
 
   // STEP66-B.1: Separate Priority Jobs and Standard Jobs
   const priorityList = React.useMemo(() => {
@@ -111,15 +131,6 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const el = document.getElementById('jobs-section');
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
-  const handleJumpSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsed = parseInt(jumpPageInput, 10);
-    if (!isNaN(parsed) && parsed >= 1 && parsed <= totalPages) {
-      handlePageSelect(parsed);
-      setJumpPageInput('');
     }
   };
 
@@ -179,10 +190,109 @@ export const JobListings: React.FC<JobListingsProps> = ({
       tierBadgeStyle = 'from-rose-500/30 via-rose-500/20 to-slate-900 border-rose-400/80 text-rose-300';
     }
 
+    // Apply design theme overrides
+    const borderRadiusClass = design.theme.borderRadius === 'none' ? 'rounded-none' : design.theme.borderRadius === 'md' ? 'rounded-md' : design.theme.borderRadius === 'xl' ? 'rounded-xl' : 'rounded-3xl';
+  const densityPadding = design.theme.density === 'compact' ? 'p-2 sm:p-3.5' : design.theme.density === 'spacious' ? 'p-4 sm:p-7' : 'p-2 sm:p-5';
+    
+    if (design.theme.cardBgPreset === 'glass') {
+      cardBgStyle = `bg-slate-950/40 backdrop-blur-md border border-white/10 hover:border-${accentColor}-500/50`;
+    } else if (design.theme.cardBgPreset === 'gradient' && !tierBadgeText) {
+      cardBgStyle = `bg-gradient-to-br from-slate-900 via-slate-900 to-${accentColor}-950/30 border border-slate-800 hover:border-${accentColor}-500/50`;
+    }
+
+    const description = job.description || '';
+    const words = description.split(' ');
+    const shortDesc = words.slice(0, design.limits.descriptionMaxWords || 25).join(' ') + (words.length > (design.limits.descriptionMaxWords || 25) ? '...' : '');
+
+    // DESIGN 2: COMPACT MODERN
+    if (design.layout === 'compact') {
+        return (
+            <div
+              key={job.id ? `${job.id}-${index}` : `job-${index}`}
+              className={`group relative ${borderRadiusClass} ${densityPadding} shadow-xl transition-all duration-300 flex flex-col justify-between ${cardBgStyle}`}
+            >
+               <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                            {design.visibility.title && (
+                                <h3 
+                                    onClick={() => onSelectJob(job)}
+                                    className="text-sm sm:text-base font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight line-clamp-1"
+                                >
+                                    {cleanTitle}
+                                </h3>
+                            )}
+                            {design.visibility.company && (
+                                <div className="flex items-center space-x-1 mt-0.5">
+                                    <span className="text-[10px] sm:text-xs text-slate-400 font-medium truncate">{cleanCompany}</span>
+                                </div>
+                            )}
+                        </div>
+                        {design.visibility.saveButton && (
+                            <button
+                                onClick={() => onToggleSaveJob(job.id)}
+                                className={`p-1.5 rounded-lg transition-all shrink-0 cursor-pointer ${isSaved ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800/80 text-slate-400'}`}
+                            >
+                                <Bookmark className="w-3 h-3 fill-current" />
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 items-center">
+                        {design.visibility.salary && (
+                             <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">{job.salary}</span>
+                        )}
+                        {design.visibility.jobType && (
+                             <span className="text-[10px] font-semibold text-slate-300 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">{job.jobType}</span>
+                        )}
+                        {design.visibility.location && job.city && (
+                             <span className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                                 <MapPin className="w-2.5 h-2.5" />
+                                 {job.city}
+                             </span>
+                        )}
+                    </div>
+
+                    {design.visibility.description && description && (
+                         <p className="text-[10px] sm:text-xs text-slate-400 line-clamp-2 leading-snug">
+                             {shortDesc}
+                         </p>
+                    )}
+               </div>
+
+               <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-800/50 pt-2">
+                   <div className="flex items-center gap-2">
+                        {design.visibility.urgentBadge && job.urgent && <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />}
+                        {design.visibility.featuredBadge && job.featured && <Sparkles className="w-3.5 h-3.5 text-purple-400" />}
+                   </div>
+                   <div className="flex items-center gap-1.5">
+                       {design.visibility.detailsButton && (
+                            <button 
+                                onClick={() => onSelectJob(job)}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-white text-[10px] font-bold hover:bg-slate-700 transition-colors"
+                            >
+                                {design.labels.detailsButton}
+                            </button>
+                       )}
+                       {design.visibility.applyButton && (
+                            <button 
+                                onClick={() => onApplyClick(job)}
+                                className={`px-3 py-1.5 rounded-lg bg-${accentColor}-500 text-slate-950 text-[10px] font-black hover:bg-${accentColor}-400 transition-colors`}
+                            >
+                                {design.labels.applyButton}
+                            </button>
+                       )}
+                   </div>
+               </div>
+            </div>
+        );
+    }
+
+    // DESIGN 1: DEFAULT (RESTORED & ENHANCED)
     return (
       <div
         key={job.id ? `${job.id}-${index}` : `job-${index}`}
-        className={`group relative rounded-xl sm:rounded-2xl p-2 sm:p-5 shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${cardBgStyle}`}
+        className={`group relative ${borderRadiusClass} ${densityPadding} shadow-sm sm:shadow-xl transition-all duration-300 flex flex-col justify-between ${cardBgStyle}`}
       >
         <div>
           {tierBadgeText && (
@@ -196,19 +306,19 @@ export const JobListings: React.FC<JobListingsProps> = ({
           )}
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-3">
             <div className="flex flex-wrap gap-1 sm:gap-1.5">
-              {job.isFutureJob && (
+              {design.visibility.pdfBadge && job.isFutureJob && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
                   <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-cyan-400" />
                   <span>Future {job.futureIntakeDate ? `(${job.futureIntakeDate})` : ''}</span>
                 </span>
               )}
-              {job.isPdfScraped && (
+              {design.visibility.pdfBadge && job.isPdfScraped && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/35 flex items-center space-x-1">
                   <FileText className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-400" />
                   <span>PDF</span>
                 </span>
               )}
-              {job.isNewspaperAd && (
+              {design.visibility.newspaperBadge && job.isNewspaperAd && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 flex items-center space-x-1">
                   <FileText className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-orange-400" />
                   <span>Newspaper ({job.newspaperName})</span>
@@ -220,60 +330,68 @@ export const JobListings: React.FC<JobListingsProps> = ({
                   <span>Override: {job.duplicateOverrideNote || 'Active'}</span>
                 </span>
               )}
-              {job.isGovtJob && (
+              {design.visibility.govtBadge && job.isGovtJob && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
                   <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-400" />
                   <span>Govt {job.govtScale || ''}</span>
                 </span>
               )}
-              <span
-                className={`text-[9px] sm:text-xs font-semibold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded border ${
-                  job.jobType === 'Remote'
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                    : job.jobType === 'Hybrid'
-                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
-                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                }`}
-              >
-                {job.jobType}
-              </span>
-              {job.featured && (
+              {design.visibility.jobType && (
+                <span
+                    className={`text-[9px] sm:text-xs font-semibold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded border ${
+                    job.jobType === 'Remote'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        : job.jobType === 'Hybrid'
+                        ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                        : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    }`}
+                >
+                    {job.jobType}
+                </span>
+              )}
+              {design.visibility.featuredBadge && job.featured && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center space-x-1">
                   <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-purple-400" />
                   <span>Featured</span>
                 </span>
               )}
-              {job.urgent && (
+              {design.visibility.urgentBadge && job.urgent && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center space-x-1">
                   <Flame className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-rose-400 fill-rose-400" />
                   <span>Urgent</span>
                 </span>
               )}
             </div>
-            <button
-              onClick={() => onToggleSaveJob(job.id)}
-              className={`p-1 sm:p-2 rounded-lg sm:rounded-xl transition-all shrink-0 cursor-pointer ${
-                isSaved
-                  ? 'bg-emerald-500 text-slate-950 font-bold'
-                  : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'
-              }`}
-              title={isSaved ? 'Remove from Saved Jobs' : 'Save Job'}
-            >
-              <Bookmark className="w-3 h-3 sm:w-4 sm:h-4 fill-current" />
-            </button>
+            {design.visibility.saveButton && (
+                <button
+                onClick={() => onToggleSaveJob(job.id)}
+                className={`p-1 sm:p-2 rounded-lg sm:rounded-xl transition-all shrink-0 cursor-pointer ${
+                    isSaved
+                    ? `bg-${accentColor}-500 text-slate-950 font-bold`
+                    : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title={isSaved ? 'Remove from Saved Jobs' : 'Save Job'}
+                >
+                <Bookmark className="w-3 h-3 sm:w-4 sm:h-4 fill-current" />
+                </button>
+            )}
           </div>
-          <h3
-            onClick={() => onSelectJob(job)}
-            className="text-xs sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight sm:leading-snug line-clamp-1 sm:line-clamp-2 mb-1"
-          >
-            {cleanTitle}
-          </h3>
+          {design.visibility.title && (
+            <h3
+                onClick={() => onSelectJob(job)}
+                className="text-xs sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors cursor-pointer leading-tight sm:leading-snug line-clamp-1 sm:line-clamp-2 mb-1"
+            >
+                {cleanTitle}
+            </h3>
+          )}
           <div className="flex flex-wrap items-center gap-1.5 text-slate-400 text-xs font-medium mb-3">
-            <div className="flex items-center space-x-1">
-              <Building2 className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-slate-300 font-semibold">{cleanCompany}</span>
-            </div>
-            {job.city && (
+            {design.visibility.company && (
+                <div className="flex items-center space-x-1">
+                    <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="text-slate-300 font-semibold">{cleanCompany}</span>
+                </div>
+            )}
+            {design.visibility.location && job.city && (
                 <>
                 <span>•</span>
                 <div className="flex items-center space-x-1">
@@ -282,21 +400,25 @@ export const JobListings: React.FC<JobListingsProps> = ({
                 </div>
                 </>
             )}
-            <span>•</span>
-            <div className="flex items-center space-x-1">
-              <Clock className="w-3.5 h-3.5 text-slate-500" />
-              <span>{job.postedAt}</span>
-            </div>
+            {design.visibility.postedDate && (
+                <>
+                <span>•</span>
+                <div className="flex items-center space-x-1">
+                <Clock className="w-3.5 h-3.5 text-slate-500" />
+                <span>{job.postedAt}</span>
+                </div>
+                </>
+            )}
           </div>
-          {job.description && (
+          {design.visibility.description && description && (
             <p className="text-xs text-slate-400 line-clamp-2 mb-3">
-                {job.description}
+                {shortDesc}
             </p>
           )}
-          {cleanTags.length > 0 && (
+          {design.visibility.tags && cleanTags.length > 0 && (
              <div className="flex flex-wrap gap-1 mb-3">
-                 {cleanTags.map((tag, idx) => (
-                     <span key={idx} className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                 {cleanTags.slice(0, design.limits.maxTags || 4).map((tag, idx) => (
+                     <span key={idx} className={`text-[10px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/50`}>
                          {tag}
                      </span>
                  ))}
@@ -305,23 +427,31 @@ export const JobListings: React.FC<JobListingsProps> = ({
         </div>
         <div className="pt-1.5 sm:pt-3 border-t border-slate-800/80 flex items-center justify-between gap-1 sm:gap-2">
           <div className="min-w-0 pr-1">
-            <span className="text-[8px] sm:text-[10px] uppercase font-semibold text-slate-500 block truncate">Salary</span>
-            <span className="text-[11px] sm:text-sm font-bold text-emerald-400 truncate block">{job.salary}</span>
+            {design.visibility.salary && (
+                <>
+                    <span className="text-[8px] sm:text-[10px] uppercase font-semibold text-slate-500 block truncate">Salary</span>
+                    <span className={`text-[11px] sm:text-sm font-bold text-${accentColor}-400 truncate block`}>{job.salary}</span>
+                </>
+            )}
           </div>
           <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
-            <button
-              onClick={() => onSelectJob(job)}
-              className="px-2 sm:px-3.5 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-[10px] sm:text-xs border border-slate-700/60 transition-all cursor-pointer shadow-sm active:scale-95"
-            >
-              Details
-            </button>
-            <button
-              onClick={() => onApplyClick(job)}
-              className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md shadow-emerald-500/20 flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer"
-            >
-              <Send className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-950" />
-              <span>Apply</span>
-            </button>
+            {design.visibility.detailsButton && (
+                <button
+                    onClick={() => onSelectJob(job)}
+                    className="px-2 sm:px-3.5 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-[10px] sm:text-xs border border-slate-700/60 transition-all cursor-pointer shadow-sm active:scale-95"
+                >
+                    {design.labels.detailsButton}
+                </button>
+            )}
+            {design.visibility.applyButton && (
+                <button
+                    onClick={() => onApplyClick(job)}
+                    className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r from-${accentColor}-500 to-teal-600 hover:from-${accentColor}-400 hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md shadow-${accentColor}-500/20 flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
+                >
+                    <Send className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-950" />
+                    <span>{design.labels.applyButton}</span>
+                </button>
+            )}
           </div>
         </div>
       </div>
@@ -351,7 +481,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
             <div className="flex items-center space-x-2.5">
               <Zap className="w-5 h-5 text-amber-400 animate-pulse" />
               <h3 className="font-black text-white text-base sm:text-lg tracking-tight">
-                Priority Featured Opportunities
+                {design.labels.cardHeading || 'Priority Featured Opportunities'}
               </h3>
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
                 {priorityList.length} Top Slots
@@ -381,7 +511,16 @@ export const JobListings: React.FC<JobListingsProps> = ({
           const elements = [renderJobCard(job, index, false)];
           // Insert ad every 3 jobs if available
           if ((index + 1) % 3 === 0 && ads[Math.floor(index / 3)]) {
-             elements.push(<InlineFeedAd key={`ad-${index}`} ad={ads[Math.floor(index / 3)]} onAdClick={onAdClick} />);
+             elements.push(
+               <InlineFeedAd 
+                 key={`ad-${index}`} 
+                 ad={ads[Math.floor(index / 3)]} 
+                 onAdClick={onAdClick}
+                 onNavigateTab={onNavigateTab}
+                 bannerDimensions={bannerDimensions}
+                 feedCardAppearance={feedCardAppearance}
+               />
+             );
           }
           return elements;
         })}
@@ -420,7 +559,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     onClick={() => handlePageSelect(pageNum)}
                     className={`min-w-[32px] sm:min-w-[36px] h-8 sm:h-9 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       pageNum === safePage
-                        ? 'bg-emerald-500 text-slate-950 shadow-lg scale-105 font-black ring-2 ring-emerald-400/40'
+                        ? `bg-${accentColor}-500 text-slate-950 shadow-lg scale-105 font-black ring-2 ring-${accentColor}-400/40`
                         : 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
                     }`}
                   >

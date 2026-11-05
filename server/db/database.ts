@@ -3,6 +3,7 @@ import path from 'path';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../../src/data/mockTransactions';
 import { INITIAL_ADVERTISEMENTS, DEFAULT_AD_PRICING_CONFIG, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../../src/types/ad';
 import { DEFAULT_JOB_POSTING_PRICING_CONFIG, DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../src/types/job';
+import { DEFAULT_LANDING_PAGE_CONFIG } from '../../src/types/landing';
 import { INITIAL_SITE_SEO_CONFIG } from '../../src/data/mockAdminSuiteData';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../src/data/allScraperPortals';
 
@@ -139,6 +140,7 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     vipBundleDurationDays: 45,
     homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
   },
+  landingPageConfig: DEFAULT_LANDING_PAGE_CONFIG,
   advertisements: {
     bannerPerDayPkr: 1500,
     topBannerPerDayPkr: 3000,
@@ -600,6 +602,40 @@ export class Database {
         placementOptions: Array.isArray(stored?.campaignCustomizationConfig?.placementOptions)
           ? stored.campaignCustomizationConfig.placementOptions
           : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
+      },
+      landingPageConfig: {
+        ...DEFAULT_LANDING_PAGE_CONFIG,
+        ...(stored?.landingPageConfig || {}),
+        hero: {
+          ...DEFAULT_LANDING_PAGE_CONFIG.hero,
+          ...(stored?.landingPageConfig?.hero || {})
+        },
+        sections: Array.isArray(stored?.landingPageConfig?.sections)
+          ? stored.landingPageConfig.sections
+          : DEFAULT_LANDING_PAGE_CONFIG.sections,
+        customCards: Array.isArray(stored?.landingPageConfig?.customCards)
+          ? stored.landingPageConfig.customCards
+          : DEFAULT_LANDING_PAGE_CONFIG.customCards,
+        jobCardDesign: {
+          ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign,
+          ...(stored?.landingPageConfig?.jobCardDesign || {}),
+          theme: {
+            ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.theme,
+            ...(stored?.landingPageConfig?.jobCardDesign?.theme || {})
+          },
+          visibility: {
+            ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.visibility,
+            ...(stored?.landingPageConfig?.jobCardDesign?.visibility || {})
+          },
+          labels: {
+            ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.labels,
+            ...(stored?.landingPageConfig?.jobCardDesign?.labels || {})
+          },
+          limits: {
+            ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.limits,
+            ...(stored?.landingPageConfig?.jobCardDesign?.limits || {})
+          }
+        }
       }
     };
   }

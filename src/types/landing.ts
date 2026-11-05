@@ -56,6 +56,44 @@ export interface CategoryPostingFee {
   discountPercent: number;
 }
 
+export interface JobCardDesignConfig {
+  layout: 'default' | 'compact';
+  theme: {
+    accentColor: string; // Tailwind color name like 'emerald', 'indigo', etc.
+    borderRadius: 'none' | 'md' | 'xl' | '3xl';
+    cardBgPreset: 'slate' | 'glass' | 'gradient';
+    density: 'compact' | 'normal' | 'spacious';
+  };
+  visibility: {
+    title: boolean;
+    company: boolean;
+    location: boolean;
+    postedDate: boolean;
+    description: boolean;
+    tags: boolean;
+    salary: boolean;
+    jobType: boolean;
+    govtBadge: boolean;
+    featuredBadge: boolean;
+    urgentBadge: boolean;
+    newspaperBadge: boolean;
+    pdfBadge: boolean;
+    saveButton: boolean;
+    detailsButton: boolean;
+    applyButton: boolean;
+  };
+  labels: {
+    saveButton: string;
+    detailsButton: string;
+    applyButton: string;
+    cardHeading: string;
+  };
+  limits: {
+    descriptionMaxWords: number;
+    maxTags: number;
+  };
+}
+
 export interface LandingPageConfig {
   hero: LandingHeroConfig;
   sections: LandingSectionOrder[];
@@ -63,6 +101,7 @@ export interface LandingPageConfig {
   categoryPostingFees: CategoryPostingFee[];
   exemptUserIds: string[]; // Users/Employers exempt from posting fees
   exemptUserEmails: string[];
+  jobCardDesign: JobCardDesignConfig;
 }
 
 export const DEFAULT_CATEGORY_POSTING_FEES: CategoryPostingFee[] = [
@@ -133,7 +172,44 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
   ],
   categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
   exemptUserIds: [],
-  exemptUserEmails: ['vip.employer@devsinc.com', 'admin@careers.com']
+  exemptUserEmails: ['vip.employer@devsinc.com', 'admin@careers.com'],
+  jobCardDesign: {
+    layout: 'default',
+    theme: {
+      accentColor: 'emerald',
+      borderRadius: 'xl',
+      cardBgPreset: 'slate',
+      density: 'normal'
+    },
+    visibility: {
+      title: true,
+      company: true,
+      location: true,
+      postedDate: true,
+      description: true,
+      tags: true,
+      salary: true,
+      jobType: true,
+      govtBadge: true,
+      featuredBadge: true,
+      urgentBadge: true,
+      newspaperBadge: true,
+      pdfBadge: true,
+      saveButton: true,
+      detailsButton: true,
+      applyButton: true
+    },
+    labels: {
+      saveButton: 'Save',
+      detailsButton: 'Details',
+      applyButton: 'Apply',
+      cardHeading: ''
+    },
+    limits: {
+      descriptionMaxWords: 25,
+      maxTags: 4
+    }
+  }
 };
 
 export interface CountryOption {

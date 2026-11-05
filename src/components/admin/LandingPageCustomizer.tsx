@@ -42,10 +42,11 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   campaignConfig,
   onUpdateCampaignConfig
 }) => {
-  const [activeTab, setActiveTab] = useState<'hero' | 'sections' | 'custom-cards' | 'promos' | 'preview'>('sections');
+  const [activeTab, setActiveTab] = useState<'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'>('sections');
   const [heroForm, setHeroForm] = useState(config.hero);
   const [sections, setSections] = useState<LandingSectionOrder[]>(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
   const [customCards, setCustomCards] = useState<CustomLandingCard[]>(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
+  const [jobCardDesignForm, setJobCardDesignForm] = useState(config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
@@ -144,7 +145,8 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       ...config,
       hero: heroForm,
       sections,
-      customCards
+      customCards,
+      jobCardDesign: jobCardDesignForm
     };
 
     const newCampaignConfig: CampaignCustomizationConfig = {
@@ -164,6 +166,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       setHeroForm(DEFAULT_LANDING_PAGE_CONFIG.hero);
       setSections(DEFAULT_LANDING_PAGE_CONFIG.sections);
       setCustomCards(DEFAULT_LANDING_PAGE_CONFIG.customCards);
+      setJobCardDesignForm(DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
       const newCfg = { ...DEFAULT_LANDING_PAGE_CONFIG };
       onUpdateConfig(newCfg);
       setSaveToast('Restored default landing page configuration.');
@@ -234,6 +237,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
           { id: 'sections', label: '🔢 Section Sequence & Ordering', icon: Layers },
           { id: 'hero', label: '✍️ Hero Text & CTA Buttons', icon: Type },
           { id: 'custom-cards', label: `🎴 Dynamic Announcement Cards (${customCards.length})`, icon: Layout },
+          { id: 'design', label: '🎨 Job Card Designer (Layout & Theme)', icon: Palette },
           { id: 'promos', label: `🔥 Top Promo Discount Banners (${promoBanners.length})`, icon: Megaphone }
         ].map((t) => {
           const Icon = t.icon;
@@ -520,137 +524,273 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
         </div>
       )}
 
-      {/* TAB 3: DYNAMIC ANNOUNCEMENT CARDS BUILDER */}
-      {activeTab === 'custom-cards' && (
-        <div className="space-y-4">
+      {/* TAB 4: JOB CARD DESIGNER */}
+      {activeTab === 'design' && (
+        <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-base font-black text-white">Custom Announcement & Marketing Cards</h3>
+              <h3 className="text-base font-black text-white">Universal Job Card Designer & Layout Engine</h3>
               <p className="text-xs text-slate-400">
-                Add new customizable blocks and cards on the landing page with custom badges, gradients, and actions.
+                Customize how job postings appear to users. Switch between card layouts, toggle element visibility, and set word limits.
               </p>
             </div>
-            <button
-              onClick={handleAddCustomCard}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white font-black text-xs flex items-center space-x-1.5 shadow-lg cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add New Card</span>
-            </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {customCards.map((card, index) => (
-              <div
-                key={card.id}
-                className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3.5 relative shadow-xl"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center text-xs font-black font-mono">
-                      #{index + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={card.badge}
-                      onChange={(e) => handleUpdateCard(card.id, { badge: e.target.value })}
-                      placeholder="Badge (e.g. Overseas Jobs)"
-                      className="px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-[11px] font-bold text-amber-300 uppercase"
-                    />
-                  </div>
-
-                  <div className="flex items-center space-x-1">
-                    <button
-                      onClick={() => moveCard(index, 'up')}
-                      disabled={index === 0}
-                      className="p-1 rounded bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700"
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Design Controls */}
+            <div className="lg:col-span-2 space-y-6">
+              
+              {/* Layout & Core Theme */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <h4 className="text-sm font-black text-white flex items-center gap-2">
+                  <Layout className="w-4 h-4 text-indigo-400" />
+                  Core Layout & Visual Theme
+                </h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Base Card Layout:</label>
+                    <select
+                      value={jobCardDesignForm.layout}
+                      onChange={(e) => setJobCardDesignForm({ ...jobCardDesignForm, layout: e.target.value as any })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
                     >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => moveCard(index, 'down')}
-                      disabled={index === customCards.length - 1}
-                      className="p-1 rounded bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700"
+                      <option value="default">Standard Design 1 (Modern Cards)</option>
+                      <option value="compact">Compact Design 2 (High-Density List)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Density Preset:</label>
+                    <select
+                      value={jobCardDesignForm.theme.density}
+                      onChange={(e) => setJobCardDesignForm({ 
+                        ...jobCardDesignForm, 
+                        theme: { ...jobCardDesignForm.theme, density: e.target.value as any } 
+                      })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
                     >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteCard(card.id)}
-                      className="p-1 rounded bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 ml-1 cursor-pointer"
+                      <option value="normal">Normal / Balanced</option>
+                      <option value="compact">Compact / Narrow</option>
+                      <option value="spacious">Spacious / Breathable</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Accent Color Theme:</label>
+                    <select
+                      value={jobCardDesignForm.theme.accentColor}
+                      onChange={(e) => setJobCardDesignForm({ 
+                        ...jobCardDesignForm, 
+                        theme: { ...jobCardDesignForm.theme, accentColor: e.target.value } 
+                      })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                      <option value="emerald">Emerald Green (Default)</option>
+                      <option value="indigo">Indigo Blue</option>
+                      <option value="violet">Violet Purple</option>
+                      <option value="rose">Rose Red</option>
+                      <option value="amber">Amber Orange</option>
+                      <option value="sky">Sky Blue</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Border Radius Style:</label>
+                    <select
+                      value={jobCardDesignForm.theme.borderRadius}
+                      onChange={(e) => setJobCardDesignForm({ 
+                        ...jobCardDesignForm, 
+                        theme: { ...jobCardDesignForm.theme, borderRadius: e.target.value as any } 
+                      })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="none">Square (Sharp)</option>
+                      <option value="md">Medium (Modern)</option>
+                      <option value="xl">Extra Large (Curvy)</option>
+                      <option value="3xl">Full Rounded (Bubble)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400">Card Background Preset:</label>
+                    <select
+                      value={jobCardDesignForm.theme.cardBgPreset}
+                      onChange={(e) => setJobCardDesignForm({ 
+                        ...jobCardDesignForm, 
+                        theme: { ...jobCardDesignForm.theme, cardBgPreset: e.target.value as any } 
+                      })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="slate">Dark Slate (Solid)</option>
+                      <option value="glass">Glassmorphism (Frosted)</option>
+                      <option value="gradient">Soft Gradient (Subtle)</option>
+                    </select>
                   </div>
                 </div>
-
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={card.title}
-                    onChange={(e) => handleUpdateCard(card.id, { title: e.target.value })}
-                    placeholder="Card Title"
-                    className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-sm font-black text-white"
-                  />
-
-                  <textarea
-                    rows={2}
-                    value={card.description}
-                    onChange={(e) => handleUpdateCard(card.id, { description: e.target.value })}
-                    placeholder="Card description text..."
-                    className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-300"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-400">Button Label:</label>
-                    <input
-                      type="text"
-                      value={card.buttonText}
-                      onChange={(e) => handleUpdateCard(card.id, { buttonText: e.target.value })}
-                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400">Button URL / Hash:</label>
-                    <input
-                      type="text"
-                      value={card.buttonUrl}
-                      onChange={(e) => handleUpdateCard(card.id, { buttonUrl: e.target.value })}
-                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-white font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] text-slate-400">Background Gradient:</label>
-                  <select
-                    value={card.bgGradient}
-                    onChange={(e) => handleUpdateCard(card.id, { bgGradient: e.target.value })}
-                    className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-slate-200"
-                  >
-                    {gradientOptions.map(g => (
-                      <option key={g.value} value={g.value}>{g.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Card Mockup Mini Preview */}
-                <div className={`p-3 rounded-xl bg-gradient-to-r ${card.bgGradient} text-white space-y-1`}>
-                  <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-black/40 text-white">
-                    {card.badge || 'CARD'}
-                  </span>
-                  <div className="text-xs font-bold">{card.title}</div>
-                  <div className="text-[10px] text-white/80 line-clamp-1">{card.description}</div>
-                </div>
-
               </div>
-            ))}
+
+              {/* Element Visibility Toggles */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <h4 className="text-sm font-black text-white flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-emerald-400" />
+                  Element Visibility Toggles
+                </h4>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {Object.entries(jobCardDesignForm.visibility).map(([key, val]) => (
+                    <button
+                      key={key}
+                      onClick={() => setJobCardDesignForm({
+                        ...jobCardDesignForm,
+                        visibility: { ...jobCardDesignForm.visibility, [key]: !val }
+                      })}
+                      className={`flex items-center justify-between px-3 py-2 rounded-xl border text-[10px] font-bold uppercase transition-all cursor-pointer ${
+                        val 
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                          : 'bg-slate-950 border-slate-800 text-slate-500'
+                      }`}
+                    >
+                      <span>{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                      {val ? <CheckCircle2 className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Labels & Limits */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                  <h4 className="text-sm font-black text-white flex items-center gap-2">
+                    <Type className="w-4 h-4 text-amber-400" />
+                    Custom Labels
+                  </h4>
+                  <div className="space-y-3">
+                    {Object.entries(jobCardDesignForm.labels).map(([key, val]) => (
+                      <div key={key}>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                          {key.replace(/([A-Z])/g, ' $1').trim()} Label:
+                        </label>
+                        <input
+                          type="text"
+                          value={val}
+                          onChange={(e) => setJobCardDesignForm({
+                            ...jobCardDesignForm,
+                            labels: { ...jobCardDesignForm.labels, [key]: e.target.value }
+                          })}
+                          className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                  <h4 className="text-sm font-black text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-purple-400" />
+                    Content Limits
+                  </h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                        Description Max Words:
+                      </label>
+                      <input
+                        type="number"
+                        value={jobCardDesignForm.limits.descriptionMaxWords}
+                        onChange={(e) => setJobCardDesignForm({
+                          ...jobCardDesignForm,
+                          limits: { ...jobCardDesignForm.limits, descriptionMaxWords: Number(e.target.value) }
+                        })}
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                        Max Skill Tags Shown:
+                      </label>
+                      <input
+                        type="number"
+                        value={jobCardDesignForm.limits.maxTags}
+                        onChange={(e) => setJobCardDesignForm({
+                          ...jobCardDesignForm,
+                          limits: { ...jobCardDesignForm.limits, maxTags: Number(e.target.value) }
+                        })}
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Preview (Simulated) */}
+            <div className="space-y-4">
+              <div className="sticky top-6">
+                <h4 className="text-xs font-black text-indigo-400 uppercase mb-3 flex items-center gap-2">
+                  <Eye className="w-3.5 h-3.5" />
+                  Design 1:1 Live Preview
+                </h4>
+                
+                <div className={`p-5 bg-slate-950 border-2 border-dashed border-indigo-500/20 rounded-3xl min-h-[400px] flex items-center justify-center`}>
+                  <div className={`w-full max-w-sm p-4 border shadow-2xl transition-all duration-300 ${
+                    jobCardDesignForm.theme.cardBgPreset === 'glass' ? 'bg-white/5 backdrop-blur-md border-white/10' :
+                    jobCardDesignForm.theme.cardBgPreset === 'gradient' ? 'bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700' :
+                    'bg-slate-900 border-slate-800'
+                  } ${
+                    jobCardDesignForm.theme.borderRadius === 'none' ? 'rounded-none' :
+                    jobCardDesignForm.theme.borderRadius === 'md' ? 'rounded-lg' :
+                    jobCardDesignForm.theme.borderRadius === 'xl' ? 'rounded-2xl' :
+                    'rounded-[2.5rem]'
+                  }`}>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start">
+                        {jobCardDesignForm.visibility.title && (
+                          <div className={`h-4 bg-slate-800 rounded w-2/3 animate-pulse`} />
+                        )}
+                        {jobCardDesignForm.visibility.saveButton && (
+                          <div className="w-6 h-6 rounded-lg bg-slate-800 animate-pulse" />
+                        )}
+                      </div>
+                      
+                      {jobCardDesignForm.visibility.company && (
+                        <div className="h-3 bg-slate-800/60 rounded w-1/3 animate-pulse" />
+                      )}
+
+                      <div className="flex gap-2">
+                        {jobCardDesignForm.visibility.jobType && <div className={`h-4 bg-${jobCardDesignForm.theme.accentColor}-500/20 rounded-full w-12`} />}
+                        {jobCardDesignForm.visibility.location && <div className="h-4 bg-slate-800 rounded-full w-16" />}
+                      </div>
+
+                      {jobCardDesignForm.visibility.description && (
+                        <div className="space-y-1.5 pt-2">
+                          <div className="h-2.5 bg-slate-800/40 rounded w-full" />
+                          <div className="h-2.5 bg-slate-800/40 rounded w-5/6" />
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center pt-4">
+                         {jobCardDesignForm.visibility.salary && (
+                           <div className={`h-4 bg-${jobCardDesignForm.theme.accentColor}-500/10 rounded w-16`} />
+                         )}
+                         <div className="flex gap-2">
+                           {jobCardDesignForm.visibility.detailsButton && <div className="h-7 w-16 bg-slate-800 rounded-lg" />}
+                           {jobCardDesignForm.visibility.applyButton && <div className={`h-7 w-16 bg-${jobCardDesignForm.theme.accentColor}-500 rounded-lg`} />}
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-center text-slate-500 mt-4 font-medium italic">
+                  * Preview shows a wireframe representation of Design 1 with current visibility & theme settings.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* TAB 4: PROMOTIONAL DISCOUNT BANNERS */}
+      {/* TAB 5: PROMOTIONAL DISCOUNT BANNERS */}
       {activeTab === 'promos' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">

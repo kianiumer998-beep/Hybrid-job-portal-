@@ -330,12 +330,19 @@ export default function App() {
               : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
           });
         }
+        if (res.pricing.landingPageConfig) {
+          setLandingConfig({
+            ...DEFAULT_LANDING_PAGE_CONFIG,
+            ...res.pricing.landingPageConfig
+          });
+        }
         if (Array.isArray(res.pricing.subscriptionPackages)) {
           setSubscriptionPackages(res.pricing.subscriptionPackages.filter((p: any) => p.enabled));
         }
         try {
           localStorage.removeItem('hybrid_ad_pricing_config');
           localStorage.removeItem('hybrid_campaign_customization_config');
+          localStorage.removeItem('hybrid_landing_page_config');
           localStorage.removeItem('hybrid_monthly_fee');
         } catch {}
       }
@@ -388,6 +395,21 @@ export default function App() {
     },
     []
   );
+  
+  const handleUpdateLandingConfig = useCallback(async (nextLandingConfig: LandingPageConfig) => {
+    setLandingConfig(nextLandingConfig);
+    try {
+      const res = await api.pricing.update({ landingPageConfig: nextLandingConfig });
+      if (res && res.success && res.pricing?.landingPageConfig) {
+        setLandingConfig({
+          ...DEFAULT_LANDING_PAGE_CONFIG,
+          ...res.pricing.landingPageConfig
+        });
+      }
+    } catch (err) {
+      console.error('[App] Failed to persist landingPageConfig to backend /api/pricing:', err);
+    }
+  }, []);
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
@@ -3035,7 +3057,7 @@ export default function App() {
             jobPostingPricing={jobPostingPricing}
             onChangeJobPostingPricing={setJobPostingPricing}
             landingConfig={landingConfig}
-            onUpdateLandingConfig={setLandingConfig}
+            onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
             onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
             paymentTransactions={paymentTransactions}
@@ -3199,7 +3221,8 @@ export default function App() {
                           />
 
                           {/* Job Cards Grid with Pagination and Inline Ads */}
-                          <JobListings priorityJobs={priorityJobs}
+                          <JobListings
+                            priorityJobs={priorityJobs}
                             jobs={filteredJobs}
                             savedJobIds={savedJobIds}
                             onToggleSaveJob={handleToggleSaveJob}
@@ -3214,6 +3237,7 @@ export default function App() {
                             feedInlineSettings={campaignConfig.feedInlineSettings}
                             bannerDimensions={campaignConfig.bannerDimensions}
                             feedCardAppearance={campaignConfig.feedCardAppearance}
+                            jobCardDesign={landingConfig.jobCardDesign}
                             onAdClick={handleAdClick}
                             onNavigateTab={setActiveTab}
                           />

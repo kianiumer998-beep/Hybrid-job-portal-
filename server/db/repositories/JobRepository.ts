@@ -414,7 +414,8 @@ export class JobRepository {
   /**
    * Retrieves priority placement jobs according to configured slot limits and precedence:
    * VIP (vip_bundle) -> Pinned (isPinnedTop) -> Featured (featured) -> Urgent (urgent).
-   * Enforces single-assignment rule: a job appears in at most one priority slot tier.
+   * Enforces single-assignment rule for the returned jobs list.
+   * Calculates true occupancy counts across all matching priority jobs.
    */
   static async getPriorityPlacementJobs(filter: JobFilterOptions = {}): Promise<{
     jobs: any[];
@@ -431,11 +432,23 @@ export class JobRepository {
       urgent: slotConfig.enabled && slotConfig.urgent?.enabled !== false ? (slotConfig.urgent?.maxSlots ?? 4) : 0
     };
 
-    // Get candidate active approved jobs
-    const { jobs: candidateJobs } = await this.getAll({
+    // isolated query for priority candidates to bypass generic 1000 limit
+    // Conditions for being a priority candidate
+    const priorityQuery = {
+      $or: [
+        { priorityTier: { $in: ['vip_bundle', 'featured_top', 'urgent'] } },
+        { isPinnedTop: true },
+        { featured: true },
+        { urgent: true }
+      ]
+    };
+
+    // Combine with generic approval/non-suspended/expiry filters from getAll logic
+    const { jobs: allPriorityCandidates } = await this.getAll({
       ...filter,
+      ...priorityQuery, // Merge priority conditions
       page: 1,
-      limit: 1000,
+      limit: 1000, // Still use a high enough limit but specifically for priority jobs
       status: 'Approved',
       includeExpired: false
     });
@@ -444,40 +457,55 @@ export class JobRepository {
     const pinnedJobs: any[] = [];
     const featuredJobs: any[] = [];
     const urgentJobs: any[] = [];
+    
+    // Occupancy counts (True counts regardless of display limits)
+    let vipOccupancy = 0;
+    let pinnedOccupancy = 0;
+    let featuredOccupancy = 0;
+    let urgentOccupancy = 0;
+
     const assignedIds = new Set<string>();
 
-    for (const job of candidateJobs) {
-      if (!job || !job.id || assignedIds.has(job.id)) continue;
+    for (const job of allPriorityCandidates) {
+      if (!job || !job.id) continue;
 
-      const isVipCandidate = job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent);
-      const isPinnedCandidate = job.isPinnedTop || job.priorityTier === 'featured_top';
-      const isFeaturedCandidate = job.featured;
-      const isUrgentCandidate = job.urgent || job.priorityTier === 'urgent';
+      const isVip = job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent);
+      const isPinned = job.isPinnedTop || job.priorityTier === 'featured_top';
+      const isFeatured = job.featured;
+      const isUrgent = job.urgent || job.priorityTier === 'urgent';
 
-      if (isVipCandidate && vipJobs.length < limits.vip) {
+      // Increment occupancy (a job can contribute to multiple tier occupancies if flags overlap, 
+      // but in the UI list it will only appear once based on precedence)
+      if (isVip) vipOccupancy++;
+      else if (isPinned) pinnedOccupancy++;
+      else if (isFeatured) featuredOccupancy++;
+      else if (isUrgent) urgentOccupancy++;
+
+      // Selection for display list (single-assignment rule)
+      if (assignedIds.has(job.id)) continue;
+
+      if (isVip && vipJobs.length < limits.vip) {
         vipJobs.push({ ...job, activePriorityTier: 'vip' });
         assignedIds.add(job.id);
-      } else if (isPinnedCandidate && pinnedJobs.length < limits.pinned) {
+      } else if (isPinned && pinnedJobs.length < limits.pinned) {
         pinnedJobs.push({ ...job, activePriorityTier: 'pinned' });
         assignedIds.add(job.id);
-      } else if (isFeaturedCandidate && featuredJobs.length < limits.featured) {
+      } else if (isFeatured && featuredJobs.length < limits.featured) {
         featuredJobs.push({ ...job, activePriorityTier: 'featured' });
         assignedIds.add(job.id);
-      } else if (isUrgentCandidate && urgentJobs.length < limits.urgent) {
+      } else if (isUrgent && urgentJobs.length < limits.urgent) {
         urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
         assignedIds.add(job.id);
       }
     }
 
-    const priorityJobs = [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs];
-
     return {
-      jobs: priorityJobs,
+      jobs: [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs],
       tierCounts: {
-        vip: vipJobs.length,
-        pinned: pinnedJobs.length,
-        featured: featuredJobs.length,
-        urgent: urgentJobs.length
+        vip: vipOccupancy,
+        pinned: pinnedOccupancy,
+        featured: featuredOccupancy,
+        urgent: urgentOccupancy
       },
       slotLimits: limits
     };

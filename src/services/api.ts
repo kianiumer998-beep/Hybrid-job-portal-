@@ -191,7 +191,7 @@ export const api = {
   jobs: {
     async getAll(params?: Record<string, string>) {
       const qs = params ? new URLSearchParams(params).toString() : '';
-      return safeFetchJson(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`);
+      return safeFetchJson(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() });
     },
     async getAdminAll(params?: { page?: number; limit?: number; livePage?: number; pendingPage?: number; status?: string; source?: string; owner?: string; scraper?: string; search?: string; visibility?: string }) {
       const queryObj: Record<string, string> = {};
@@ -209,7 +209,7 @@ export const api = {
       return safeFetchJson(`${API_BASE}/jobs/admin/all${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() });
     },
     async getById(id: string) {
-      return safeFetchJson(`${API_BASE}/jobs/${id}`);
+      return safeFetchJson(`${API_BASE}/jobs/${id}`, { headers: getAuthHeader() });
     },
     async getBySlug(slug: string) {
       return safeFetchJson(`${API_BASE}/jobs/slug/${slug}`);

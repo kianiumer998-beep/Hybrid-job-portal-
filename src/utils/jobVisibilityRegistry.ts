@@ -18,7 +18,9 @@ export const SENSITIVE_FIELD_KEYS = new Set([
   'salary',
   'pdfFileName',
   'pdfCaseNumber',
-  'pdfTotalVacanciesInCase'
+  'pdfTotalVacanciesInCase',
+  'relatedSourceUrls',
+  'originalApplyUrl'
 ]);
 
 export const ALL_REGISTRY_FIELDS: RegistryFieldDef[] = [
@@ -64,6 +66,16 @@ export const ALL_REGISTRY_FIELDS: RegistryFieldDef[] = [
   { key: 'domicileQuota', label: 'Domicile Quota', category: 'Standard' },
   { key: 'challanFee', label: 'Challan Fee', category: 'Standard' },
   { key: 'ageRelaxationNote', label: 'Age Relaxation Note', category: 'Standard' },
+  { key: 'advertisedPositions', label: 'Advertised Positions', category: 'Standard' },
+  { key: 'totalVacancies', label: 'Total Vacancies', category: 'Standard' },
+  { key: 'employmentType', label: 'Employment Type', category: 'Standard' },
+  { key: 'ageLimit', label: 'Age Limit', category: 'Standard' },
+  { key: 'minimumAge', label: 'Minimum Age', category: 'Standard' },
+  { key: 'maximumAge', label: 'Maximum Age', category: 'Standard' },
+  { key: 'qualificationSummary', label: 'Qualification Summary', category: 'Standard' },
+  { key: 'domicile', label: 'Domicile', category: 'Standard' },
+  { key: 'newspaperPtid', label: 'Newspaper PTID', category: 'Standard' },
+  { key: 'datePosted', label: 'Date Posted', category: 'Standard' },
   { key: 'createdAt', label: 'Created At', category: 'Standard' },
   { key: 'updatedAt', label: 'Updated At', category: 'Standard' },
 
@@ -79,7 +91,9 @@ export const ALL_REGISTRY_FIELDS: RegistryFieldDef[] = [
   { key: 'salary', label: 'Salary Information / Text', category: 'Sensitive' },
   { key: 'pdfFileName', label: 'PDF Filename', category: 'Sensitive' },
   { key: 'pdfCaseNumber', label: 'PDF Case Number', category: 'Sensitive' },
-  { key: 'pdfTotalVacanciesInCase', label: 'PDF Total Vacancies in Case', category: 'Sensitive' }
+  { key: 'pdfTotalVacanciesInCase', label: 'PDF Total Vacancies in Case', category: 'Sensitive' },
+  { key: 'relatedSourceUrls', label: 'Related Source URLs', category: 'Sensitive' },
+  { key: 'originalApplyUrl', label: 'Original Apply URL', category: 'Sensitive' }
 ];
 
 export const ALL_REGISTRY_KEYS = ALL_REGISTRY_FIELDS.map(f => f.key);

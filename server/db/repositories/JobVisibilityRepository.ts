@@ -29,7 +29,8 @@ export const ADMIN_INTERNAL_SET = new Set(ADMIN_INTERNAL_FIELDS);
 export const CONFIGURABLE_SENSITIVE_FIELDS = [
   'applicationUrl', 'contactEmail', 'contactEmailOrPhone', 'attachments', 
   'externalApplyUrl', 'sourceUrl', 'pdfSourceUrl', 'mediaUrl', 'salary', 
-  'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase'
+  'pdfFileName', 'pdfCaseNumber', 'pdfTotalVacanciesInCase',
+  'relatedSourceUrls', 'originalApplyUrl'
 ];
 export const CONFIGURABLE_SENSITIVE_SET = new Set(CONFIGURABLE_SENSITIVE_FIELDS);
 
@@ -43,6 +44,9 @@ export const PUBLIC_STANDARD_FIELDS = [
   'applicationsCount', 'status', 'jobCategory', 'isGovtJob', 'govtDepartment', 
   'govtScale', 'govtCategory', 'isNewspaperAd', 'newspaperName', 'clippingImageUrl', 
   'newspaperDate', 'deadlineDate', 'domicileQuota', 'challanFee', 'ageRelaxationNote', 
+  'advertisedPositions', 'totalVacancies', 'employmentType', 'ageLimit',
+  'minimumAge', 'maximumAge', 'qualificationSummary', 'domicile',
+  'newspaperPtid', 'datePosted',
   'createdAt', 'updatedAt'
 ];
 

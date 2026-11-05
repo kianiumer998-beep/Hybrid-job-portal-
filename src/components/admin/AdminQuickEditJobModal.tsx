@@ -177,22 +177,36 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+
+    const changedFields: string[] = [];
+    if (job) {
+      for (const key of Object.keys(formData)) {
+        if (JSON.stringify((job as any)[key]) !== JSON.stringify((formData as any)[key])) {
+          changedFields.push(key);
+        }
+      }
+    } else {
+      changedFields.push('title', 'company', 'description');
+    }
+
+    const hasLocationChanged = changedFields.some(f => ['city', 'province', 'region', 'country', 'district'].includes(f));
     const now = new Date().toISOString();
     const resolvedCountry = formData.country || (formData.region === 'Pakistan' ? 'Pakistan' : (formData.region || 'Pakistan'));
     const updatedJob: Job = {
       ...formData,
       country: resolvedCountry,
       status: job?.status === 'Pending' && formData.status === 'Approved' ? 'Pending' : formData.status,
-      isManuallyCorrected: true,
-      manuallyCorrectedAt: now,
-      isLocationConfirmed: true,
-      locationConfirmedAt: now,
+      isManuallyCorrected: changedFields.length > 0,
+      manuallyCorrectedAt: changedFields.length > 0 ? now : formData.manuallyCorrectedAt,
+      isLocationConfirmed: hasLocationChanged ? true : (job?.isLocationConfirmed || false),
+      locationConfirmedAt: hasLocationChanged ? now : job?.locationConfirmedAt,
       metadata: {
         ...(formData.metadata || {}),
-        isManuallyCorrected: true,
-        manuallyCorrectedAt: now,
-        isLocationConfirmed: true,
-        locationConfirmedAt: now,
+        isManuallyCorrected: changedFields.length > 0,
+        manuallyCorrectedAt: changedFields.length > 0 ? now : formData.metadata?.manuallyCorrectedAt,
+        isLocationConfirmed: hasLocationChanged ? true : (formData.metadata?.isLocationConfirmed || false),
+        locationConfirmedAt: hasLocationChanged ? now : formData.metadata?.locationConfirmedAt,
+        manuallyCorrectedFields: Array.from(new Set([...(job?.metadata?.manuallyCorrectedFields || []), ...changedFields])),
         confirmedBy: 'Admin User'
       }
     };
@@ -755,14 +769,25 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                 />
               </div>
 
-              <div className="md:col-span-2 space-y-1">
-                <label className="font-bold text-slate-300">Official Online Application URL / Portal Link</label>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Application URL (Apply Link)</label>
                 <input
                   type="url"
-                  value={formData.applicationUrl || formData.sourceUrl || ''}
-                  onChange={(e) => setFormData(p => ({ ...p, applicationUrl: e.target.value, sourceUrl: e.target.value }))}
-                  placeholder="https://fpsc.gov.pk or https://company.com/apply"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                  value={formData.applicationUrl || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, applicationUrl: e.target.value }))}
+                  placeholder="https://company.com/apply"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">Source Web Page URL</label>
+                <input
+                  type="url"
+                  value={formData.sourceUrl || ''}
+                  onChange={(e) => setFormData(p => ({ ...p, sourceUrl: e.target.value }))}
+                  placeholder="https://fpsc.gov.pk/node/401"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none text-xs"
                 />
               </div>
 

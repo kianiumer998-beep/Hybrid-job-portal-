@@ -489,7 +489,11 @@ export class JobRepository {
       return incomingDoc;
     }
 
-    return {
+    const correctedFields: string[] = Array.isArray(existingDoc.metadata?.manuallyCorrectedFields)
+      ? existingDoc.metadata.manuallyCorrectedFields
+      : [];
+
+    const protectedObj: any = {
       ...incomingDoc,
       region: existingDoc.region || incomingDoc.region,
       country: existingDoc.country || incomingDoc.country || 'Pakistan',
@@ -507,6 +511,14 @@ export class JobRepository {
         isManuallyCorrected: existingDoc.metadata?.isManuallyCorrected ?? existingDoc.isManuallyCorrected ?? true
       }
     };
+
+    for (const field of correctedFields) {
+      if (existingDoc[field] !== undefined && existingDoc[field] !== null && existingDoc[field] !== '') {
+        protectedObj[field] = existingDoc[field];
+      }
+    }
+
+    return protectedObj;
   }
 
   /**

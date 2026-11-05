@@ -212,6 +212,22 @@ export interface Job {
   pdfParserEngine?: 'pdfplumber' | 'PyPDF2' | 'OCR-PyTesseract' | 'Camelot-Table-Extractor';
   extractedText?: string;
 
+  // Additive Structured Field Extensions (STEP 66-A)
+  advertisedPositions?: string[];
+  relatedSourceUrls?: string[];
+  totalVacancies?: number;
+  employmentType?: string;
+  ageLimit?: string;
+  minimumAge?: number | string;
+  maximumAge?: number | string;
+  qualificationSummary?: string;
+  domicile?: string;
+  newspaperPtid?: string;
+  datePosted?: string;
+  originalApplyUrl?: string;
+  contactEmail?: string;
+  responsibilitiesList?: string[];
+
   // Hybrid Extraction & Duplicate Detection & Override Attributes
   extractionSourceType?: 'pdf_gazette' | 'web_html' | 'hybrid_feed';
   isDuplicate?: boolean;

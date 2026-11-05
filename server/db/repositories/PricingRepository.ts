@@ -35,14 +35,35 @@ export interface AdPriceCalculationRequest {
   targetedRegion?: string;
   impressionsCap?: number;
 }
+import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
 
 export class PricingRepository {
-  static get(): any {
+  static async get(): Promise<any> {
+    if (isMongoConfigured()) {
+      try {
+        const db = await getMongoDb();
+        const coll = db.collection('payment_settings');
+        const doc = await withMongoTimeout(
+          coll.findOne({ key: 'authoritative_pricing_config' }),
+          10000,
+          'fetch authoritative pricing config'
+        );
+        if (doc && doc.settings) {
+          return {
+            ...Database.getPricing(),
+            ...doc.settings,
+            isPersistedToMongo: true
+          };
+        }
+      } catch (err: any) {
+        console.warn('[PricingRepository] MongoDB fetch failed, serving local fallback:', err.message);
+      }
+    }
     return Database.getPricing();
   }
 
-  static update(updates: any): any {
-    const current = Database.getPricing();
+  static async update(updates: any): Promise<any> {
+    const current = await this.get();
 
     if (updates?.jobPosting?.homepagePrioritySlotConfig) {
       const slotCfg = updates.jobPosting.homepagePrioritySlotConfig;
@@ -76,19 +97,48 @@ export class PricingRepository {
       },
       updatedAt: new Date().toISOString()
     };
+
+    if (isMongoConfigured()) {
+      try {
+        const db = await getMongoDb();
+        const coll = db.collection('payment_settings');
+        const result = await withMongoTimeout(
+          coll.updateOne(
+            { key: 'authoritative_pricing_config' },
+            { 
+              $set: { 
+                key: 'authoritative_pricing_config',
+                settings: updated,
+                updatedAt: updated.updatedAt
+              } 
+            },
+            { upsert: true }
+          ),
+          12000,
+          'save authoritative pricing config'
+        );
+        if (result && result.acknowledged === false) {
+           throw new Error('Write not acknowledged by MongoDB');
+        }
+      } catch (err: any) {
+        console.error('[PricingRepository] Failed to persist pricing to MongoDB:', err.message);
+        throw new Error(`Durable persistence failed: ${err.message}`);
+      }
+    }
+
     Database.savePricing(updated);
     return updated;
   }
 
-  static calculateJobPostingPrice(req: JobPriceCalculationRequest): {
+  static async calculateJobPostingPrice(req: JobPriceCalculationRequest): Promise<{
     basePrice: number;
     addonsTotal: number;
     discountAmount: number;
     finalPrice: number;
     currency: string;
     breakdown: Array<{ name: string; amount: number }>;
-  } {
-    const pricing = Database.getPricing();
+  }> {
+    const pricing = await this.get();
     const currency = pricing.currency || 'PKR';
     const breakdown: Array<{ name: string; amount: number }> = [];
 
@@ -165,7 +215,7 @@ export class PricingRepository {
     };
   }
 
-  static calculateAdPrice(req: AdPriceCalculationRequest): {
+  static async calculateAdPrice(req: AdPriceCalculationRequest): Promise<{
     basePrice: number;
     baseCost: number;
     placement: AdPlacement;
@@ -185,8 +235,8 @@ export class PricingRepository {
     finalPrice: number;
     currency: string;
     breakdown: Array<{ name: string; amount: number }>;
-  } {
-    const pricing = Database.getPricing();
+  }> {
+    const pricing = await this.get();
     const currency = pricing.currency || 'PKR';
     const adPricingConfig: AdPricingConfig = pricing.adPricingConfig || DEFAULT_AD_PRICING_CONFIG;
     const campaignConfig: CampaignCustomizationConfig =

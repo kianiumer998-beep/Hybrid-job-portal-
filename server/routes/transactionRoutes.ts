@@ -359,7 +359,7 @@ transactionRouter.post('/', async (req, res) => {
       let resolvedAdPricingSnapshot: Record<string, any> | undefined = undefined;
 
       if (effectiveType === 'Job Posting') {
-        const calc = PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
+        const calc = await PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
         enforcedAmount = calc.finalPrice;
         pricingBreakdown = calc.breakdown;
       } else if (effectiveType === 'Advertisement') {
@@ -377,7 +377,7 @@ transactionRouter.post('/', async (req, res) => {
                 smsRecipientsCount: req.body?.smsRecipientsCount,
                 type: req.body?.adType || req.body?.campaignType || req.body?.type
               };
-        const calc = PricingRepository.calculateAdPrice(adCalcInput);
+        const calc = await PricingRepository.calculateAdPrice(adCalcInput);
         enforcedAmount = calc.finalPrice;
         pricingBreakdown = calc.breakdown;
         isAdFreeOverride = Boolean(calc.isFreeOverride && calc.finalPrice === 0);
@@ -401,7 +401,7 @@ transactionRouter.post('/', async (req, res) => {
         };
       } else if (effectiveType === 'Subscription') {
         const rawPlan = typeof plan === 'string' ? plan.trim() : '';
-        const pricingConfig = PricingRepository.get() || {};
+        const pricingConfig = (await PricingRepository.get()) || {};
         const packages = pricingConfig.subscriptionPackages || [];
         
         // Find package by exact ID only (No name or legacy alias fallbacks allowed)

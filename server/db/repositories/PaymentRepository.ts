@@ -687,7 +687,7 @@ export class PaymentRepository {
           throw new Error('Cannot approve Subscription: transaction is missing plan information.');
         }
         
-        const pricing = PricingRepository.get() || {};
+        const pricing = (await PricingRepository.get()) || {};
         
         // Priority: Use the server-verified snapshot stored at transaction creation
         const snapshot = tx.packageSnapshot;

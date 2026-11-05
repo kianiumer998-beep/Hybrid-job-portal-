@@ -140,7 +140,7 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   };
 
   // Save All Changes
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     const newLandingConfig: LandingPageConfig = {
       ...config,
       hero: heroForm,
@@ -154,11 +154,22 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
       promoBanners
     };
 
-    onUpdateConfig(newLandingConfig);
-    onUpdateCampaignConfig(newCampaignConfig);
+    try {
+      setSaveToast('⏳ Publishing changes to production database...');
+      
+      // Parent handleUpdateLandingConfig/handleUpdateCampaignConfig in App.tsx are async
+      await Promise.all([
+        onUpdateConfig(newLandingConfig),
+        onUpdateCampaignConfig(newCampaignConfig)
+      ]);
 
-    setSaveToast('Landing page design & section sequence saved successfully!');
-    setTimeout(() => setSaveToast(null), 3500);
+      setSaveToast('✅ Landing page design & section sequence published successfully!');
+      setTimeout(() => setSaveToast(null), 4500);
+    } catch (err: any) {
+      console.error('Failed to publish landing page config:', err);
+      setSaveToast(null);
+      alert('❌ Failed to publish changes. The database might be temporarily unavailable. Please try again in a moment.');
+    }
   };
 
   const handleResetDefaults = () => {

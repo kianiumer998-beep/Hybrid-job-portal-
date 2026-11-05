@@ -432,25 +432,90 @@ export class JobRepository {
       urgent: slotConfig.enabled && slotConfig.urgent?.enabled !== false ? (slotConfig.urgent?.maxSlots ?? 4) : 0
     };
 
-    // isolated query for priority candidates to bypass generic 1000 limit
-    // Conditions for being a priority candidate
-    const priorityQuery = {
-      $or: [
-        { priorityTier: { $in: ['vip_bundle', 'featured_top', 'urgent'] } },
-        { isPinnedTop: true },
-        { featured: true },
-        { urgent: true }
-      ]
-    };
+    // PRODUCTION: Direct MongoDB Query for Priority Candidates
+    if (process.env.IS_TEST !== 'true' && isMongoConfigured()) {
+      assertMongoAvailable();
+      const jobsColl = await getJobsCollection();
 
-    // Combine with generic approval/non-suspended/expiry filters from getAll logic
+      // Combined Priority Candidate Query
+      const query: any = {
+        isSuspended: { $ne: true },
+        status: 'Approved',
+        isExpired: { $ne: true },
+        $or: [
+          { priorityTier: { $in: ['vip_bundle', 'featured_top', 'urgent'] } },
+          { isPinnedTop: true },
+          { featured: true },
+          { urgent: true }
+        ]
+      };
+
+      // Apply basic location filters if provided
+      if (filter.region && filter.region !== 'All') query.region = filter.region;
+      if (filter.province && filter.province !== 'All') query.province = filter.province;
+      if (filter.city && filter.city !== 'All') query.city = filter.city;
+
+      // Fetch ALL potential candidates (no limit for occupancy calculation)
+      const cursor = jobsColl.find(query).sort({ createdAt: -1 });
+      const docs = await cursor.toArray();
+
+      const vipJobs: any[] = [];
+      const pinnedJobs: any[] = [];
+      const featuredJobs: any[] = [];
+      const urgentJobs: any[] = [];
+      
+      let vipOccupancy = 0;
+      let pinnedOccupancy = 0;
+      let featuredOccupancy = 0;
+      let urgentOccupancy = 0;
+
+      const assignedIds = new Set<string>();
+
+      for (const doc of docs) {
+        const job = normalizeMongoJob(doc);
+        // Secondary expiry check for safety
+        if (checkJobExpired(job)) continue;
+
+        const isVip = job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent);
+        const isPinned = job.isPinnedTop || job.priorityTier === 'featured_top';
+        const isFeatured = job.featured;
+        const isUrgent = job.urgent || job.priorityTier === 'urgent';
+
+        if (isVip) vipOccupancy++;
+        else if (isPinned) pinnedOccupancy++;
+        else if (isFeatured) featuredOccupancy++;
+        else if (isUrgent) urgentOccupancy++;
+
+        if (assignedIds.has(job.id)) continue;
+
+        if (isVip && vipJobs.length < limits.vip) {
+          vipJobs.push({ ...job, activePriorityTier: 'vip' });
+          assignedIds.add(job.id);
+        } else if (isPinned && pinnedJobs.length < limits.pinned) {
+          pinnedJobs.push({ ...job, activePriorityTier: 'pinned' });
+          assignedIds.add(job.id);
+        } else if (isFeatured && featuredJobs.length < limits.featured) {
+          featuredJobs.push({ ...job, activePriorityTier: 'featured' });
+          assignedIds.add(job.id);
+        } else if (isUrgent && urgentJobs.length < limits.urgent) {
+          urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
+          assignedIds.add(job.id);
+        }
+      }
+
+      return {
+        jobs: [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs],
+        tierCounts: { vip: vipOccupancy, pinned: pinnedOccupancy, featured: featuredOccupancy, urgent: urgentOccupancy },
+        slotLimits: limits
+      };
+    }
+
+    // FALLBACK: Generic getAll logic for tests or local dev without Mongo
     const { jobs: allPriorityCandidates } = await this.getAll({
       ...filter,
-      ...priorityQuery, // Merge priority conditions
-      page: 1,
-      limit: 1000, // Still use a high enough limit but specifically for priority jobs
       status: 'Approved',
-      includeExpired: false
+      includeExpired: false,
+      limit: 1000
     });
 
     const vipJobs: any[] = [];
@@ -458,7 +523,6 @@ export class JobRepository {
     const featuredJobs: any[] = [];
     const urgentJobs: any[] = [];
     
-    // Occupancy counts (True counts regardless of display limits)
     let vipOccupancy = 0;
     let pinnedOccupancy = 0;
     let featuredOccupancy = 0;
@@ -467,21 +531,19 @@ export class JobRepository {
     const assignedIds = new Set<string>();
 
     for (const job of allPriorityCandidates) {
-      if (!job || !job.id) continue;
+      const isPriority = job.priorityTier === 'vip_bundle' || (job as any).activePriorityTier || job.isPinnedTop || job.featured || job.urgent;
+      if (!isPriority) continue;
 
       const isVip = job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent);
       const isPinned = job.isPinnedTop || job.priorityTier === 'featured_top';
       const isFeatured = job.featured;
       const isUrgent = job.urgent || job.priorityTier === 'urgent';
 
-      // Increment occupancy (a job can contribute to multiple tier occupancies if flags overlap, 
-      // but in the UI list it will only appear once based on precedence)
       if (isVip) vipOccupancy++;
       else if (isPinned) pinnedOccupancy++;
       else if (isFeatured) featuredOccupancy++;
       else if (isUrgent) urgentOccupancy++;
 
-      // Selection for display list (single-assignment rule)
       if (assignedIds.has(job.id)) continue;
 
       if (isVip && vipJobs.length < limits.vip) {
@@ -501,12 +563,7 @@ export class JobRepository {
 
     return {
       jobs: [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs],
-      tierCounts: {
-        vip: vipOccupancy,
-        pinned: pinnedOccupancy,
-        featured: featuredOccupancy,
-        urgent: urgentOccupancy
-      },
+      tierCounts: { vip: vipOccupancy, pinned: pinnedOccupancy, featured: featuredOccupancy, urgent: urgentOccupancy },
       slotLimits: limits
     };
   }

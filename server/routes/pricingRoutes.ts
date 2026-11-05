@@ -5,9 +5,9 @@ import { requireAdminPermission } from '../auth/authManager';
 export const pricingRouter = Router();
 
 // 1. Get Complete Dynamic Pricing Configuration
-pricingRouter.get('/', (req, res) => {
+pricingRouter.get('/', async (req, res) => {
   try {
-    const pricing = PricingRepository.get();
+    const pricing = await PricingRepository.get();
     res.json({ success: true, pricing });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching pricing' });
@@ -15,9 +15,9 @@ pricingRouter.get('/', (req, res) => {
 });
 
 // 2. Calculate Job Posting Price Server-Side (Authoritative)
-pricingRouter.post('/calculate-job', (req, res) => {
+pricingRouter.post('/calculate-job', async (req, res) => {
   try {
-    const calculation = PricingRepository.calculateJobPostingPrice(req.body);
+    const calculation = await PricingRepository.calculateJobPostingPrice(req.body);
     res.json({ success: true, calculation });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error calculating job price' });
@@ -25,9 +25,9 @@ pricingRouter.post('/calculate-job', (req, res) => {
 });
 
 // 3. Calculate Advertisement Price Server-Side (Authoritative)
-pricingRouter.post('/calculate-ad', (req, res) => {
+pricingRouter.post('/calculate-ad', async (req, res) => {
   try {
-    const calculation = PricingRepository.calculateAdPrice(req.body);
+    const calculation = await PricingRepository.calculateAdPrice(req.body);
     res.json({ success: true, calculation });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error calculating ad price' });
@@ -35,9 +35,9 @@ pricingRouter.post('/calculate-ad', (req, res) => {
 });
 
 // 4. Update Dynamic Pricing Configuration (Admin Only)
-pricingRouter.put('/', requireAdminPermission('finance.manage'), (req, res) => {
+pricingRouter.put('/', requireAdminPermission('finance.manage'), async (req, res) => {
   try {
-    const updated = PricingRepository.update(req.body);
+    const updated = await PricingRepository.update(req.body);
 
     AuditRepository.add({
       user: 'Administrator',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Advertisement, BannerDimensionSettings, DEFAULT_BANNER_DIMENSIONS, FeedCardAppearanceSettings, DEFAULT_FEED_CARD_APPEARANCE } from '../../types/ad';
+import { Advertisement, BannerDimensionSettings, DEFAULT_BANNER_DIMENSIONS, FeedCardAppearanceSettings, DEFAULT_FEED_CARD_APPEARANCE, FeedInlineAdSettings } from '../../types/ad';
 import { Sparkles, ExternalLink, ArrowRight, CheckCircle2, ShieldCheck, Megaphone } from 'lucide-react';
 
 interface InlineFeedAdProps {
@@ -8,6 +8,7 @@ interface InlineFeedAdProps {
   onNavigateTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
   bannerDimensions?: BannerDimensionSettings;
   feedCardAppearance?: FeedCardAppearanceSettings;
+  feedInlineSettings?: FeedInlineAdSettings;
 }
 
 export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
@@ -15,7 +16,8 @@ export const InlineFeedAd: React.FC<InlineFeedAdProps> = ({
   onAdClick,
   onNavigateTab,
   bannerDimensions = DEFAULT_BANNER_DIMENSIONS,
-  feedCardAppearance = DEFAULT_FEED_CARD_APPEARANCE
+  feedCardAppearance = DEFAULT_FEED_CARD_APPEARANCE,
+  feedInlineSettings
 }) => {
   const handleAction = () => {
     onAdClick(ad);

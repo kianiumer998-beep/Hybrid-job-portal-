@@ -251,12 +251,41 @@ export const JobListings: React.FC<JobListingsProps> = ({
                                  {job.city}
                              </span>
                         )}
+                        {design.visibility.postedDate && (
+                             <span className="text-[10px] font-medium text-slate-500 flex items-center gap-1">
+                                 <Clock className="w-2.5 h-2.5" />
+                                 {job.postedAt}
+                             </span>
+                        )}
+                    </div>
+
+                    {/* Status Badges in Compact */}
+                    <div className="flex flex-wrap gap-1">
+                        {design.visibility.govtBadge && job.isGovtJob && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">Govt</span>
+                        )}
+                        {design.visibility.pdfBadge && job.isPdfScraped && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/35">PDF</span>
+                        )}
+                        {job.isFutureJob && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">Future</span>
+                        )}
                     </div>
 
                     {design.visibility.description && description && (
                          <p className="text-[10px] sm:text-xs text-slate-400 line-clamp-2 leading-snug">
                              {shortDesc}
                          </p>
+                    )}
+
+                    {design.visibility.tags && cleanTags.length > 0 && (
+                       <div className="flex flex-wrap gap-1">
+                           {cleanTags.slice(0, design.limits.maxTags || 3).map((tag, idx) => (
+                               <span key={idx} className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                   {tag}
+                               </span>
+                           ))}
+                       </div>
                     )}
                </div>
 
@@ -271,7 +300,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                                 onClick={() => onSelectJob(job)}
                                 className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-white text-[10px] font-bold hover:bg-slate-700 transition-colors"
                             >
-                                {design.labels.detailsButton}
+                                {design.labels.detailsButton || 'Details'}
                             </button>
                        )}
                        {design.visibility.applyButton && (
@@ -279,7 +308,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                                 onClick={() => onApplyClick(job)}
                                 className={`px-3 py-1.5 rounded-lg bg-${accentColor}-500 text-slate-950 text-[10px] font-black hover:bg-${accentColor}-400 transition-colors`}
                             >
-                                {design.labels.applyButton}
+                                {design.labels.applyButton || 'Apply'}
                             </button>
                        )}
                    </div>
@@ -306,7 +335,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           )}
           <div className="flex items-start justify-between gap-1.5 sm:gap-2 mb-1.5 sm:mb-3">
             <div className="flex flex-wrap gap-1 sm:gap-1.5">
-              {design.visibility.pdfBadge && job.isFutureJob && (
+              {job.isFutureJob && (
                 <span className="text-[9px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
                   <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-cyan-400" />
                   <span>Future {job.futureIntakeDate ? `(${job.futureIntakeDate})` : ''}</span>
@@ -440,7 +469,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     onClick={() => onSelectJob(job)}
                     className="px-2 sm:px-3.5 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-[10px] sm:text-xs border border-slate-700/60 transition-all cursor-pointer shadow-sm active:scale-95"
                 >
-                    {design.labels.detailsButton}
+                    {design.labels.detailsButton || 'Details'}
                 </button>
             )}
             {design.visibility.applyButton && (
@@ -449,7 +478,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                     className={`px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r from-${accentColor}-500 to-teal-600 hover:from-${accentColor}-400 hover:to-teal-500 text-slate-950 font-extrabold text-[10px] sm:text-xs shadow-md shadow-${accentColor}-500/20 flex items-center space-x-1 sm:space-x-1.5 active:scale-95 transition-all cursor-pointer`}
                 >
                     <Send className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-950" />
-                    <span>{design.labels.applyButton}</span>
+                    <span>{design.labels.applyButton || 'Apply'}</span>
                 </button>
             )}
           </div>
@@ -519,6 +548,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
                  onNavigateTab={onNavigateTab}
                  bannerDimensions={bannerDimensions}
                  feedCardAppearance={feedCardAppearance}
+                 feedInlineSettings={feedInlineSettings}
                />
              );
           }

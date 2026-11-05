@@ -94,6 +94,16 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
             return res.status(400).json({ success: false, message: `Field "${fieldKey}" in modal "${modalKey}" contains unsafe control characters.` });
           }
 
+          // P0 Price Accuracy Protection: cvPaywall single export has no standalone billing amount
+          if (modalKey === 'cvPaywall' && fieldKey === 'priceDisplay') {
+            if (/(?:pkr|rs\.?|\$|usd|eur|gbp)\s*\d+|\d+\s*(?:pkr|rs\.?|\$|usd)/i.test(trimmed)) {
+              return res.status(400).json({
+                success: false,
+                message: 'Field "priceDisplay" in modal "cvPaywall" cannot be a fixed monetary price because single CV exports do not have a dedicated checkout transaction. Please use an informational note such as "Price confirmed during payment".'
+              });
+            }
+          }
+
           sanitizedModals[modalKey][fieldKey] = trimmed;
         }
       }

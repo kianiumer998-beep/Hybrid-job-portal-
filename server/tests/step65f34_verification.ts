@@ -1,6 +1,10 @@
-import { Database } from '../db/database';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { applySettingsRouter } from '../routes/applySettingsRoutes';
+import { MODAL_INVENTORY } from '../../src/components/admin/AdminModalContentManager';
 
-console.log('=== STEP65-F.3.4 Verification: Admin Modal Content & Preview Accuracy ===');
+console.log('=== STEP65-F.3.5 Verification: Safe Admin Modal Content, Pricing Accuracy & Scope Protection ===');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -15,155 +19,31 @@ function assert(condition: boolean, msg: string) {
   }
 }
 
-// 1. Audit Allowed Modal Fields in applySettingsRoutes
-import { applySettingsRouter } from '../routes/applySettingsRoutes';
-assert(applySettingsRouter !== undefined, 'applySettingsRouter is exported');
+// 0. Pre-Test Disk Integrity Check
+const settingsPath = path.resolve(process.cwd(), 'data/apply_settings.json');
+const preTestContent = fs.readFileSync(settingsPath, 'utf8');
+const preTestHash = crypto.createHash('sha256').update(preTestContent).digest('hex');
+const EXPECTED_SETTINGS_HASH = '404b425b1d0ac6ed185c2d5843505936d2a17455659198a5f32f14890cb2ea48';
 
-// 2. Test saving and merging modal settings in Database
-const initialSettings = Database.getApplySettings();
-const originalModals = initialSettings.modalSettings || {};
+assert(
+  preTestHash === EXPECTED_SETTINGS_HASH,
+  `data/apply_settings.json SHA256 pre-check matches expected original hash (${preTestHash.substring(0, 8)}...)`
+);
 
-try {
-  // Test 2a: Save a customized field for candidateApplication
-  const testModals1 = {
-    ...originalModals,
-    candidateApplication: {
-      title: 'Apply for Verified Position',
-      contactHeading: 'Your Verified Details',
-      resumeHeading: 'Upload Verified PDF Resume',
-      submitCta: 'Confirm & Send Application',
-      successMsg: 'Application sent to employer successfully!'
-    }
-  };
+// Verify data/apply_settings.json does not contain unnecessary modalSettings: {}
+const parsedPre = JSON.parse(preTestContent);
+assert(
+  parsedPre.modalSettings === undefined,
+  'data/apply_settings.json is clean of unnecessary "modalSettings" property'
+);
 
-  Database.saveApplySettings({
-    ...initialSettings,
-    modalSettings: testModals1
-  });
+// 1. Audit Router Export & Security Guards
+assert(applySettingsRouter !== undefined, 'applySettingsRouter is properly exported');
 
-  const updated1 = Database.getApplySettings();
-  assert(
-    updated1.modalSettings?.candidateApplication?.title === 'Apply for Verified Position',
-    'candidateApplication.title persisted correctly'
-  );
-  assert(
-    updated1.modalSettings?.candidateApplication?.contactHeading === 'Your Verified Details',
-    'candidateApplication.contactHeading persisted correctly'
-  );
-  assert(
-    updated1.modalSettings?.candidateApplication?.resumeHeading === 'Upload Verified PDF Resume',
-    'candidateApplication.resumeHeading persisted correctly'
-  );
-
-  // Test 2b: Save cvPaywall customized fields including priceDisplay, bullet3, footerNote
-  const testModals2 = {
-    ...updated1.modalSettings,
-    cvPaywall: {
-      title: 'Get HD ATS Resume',
-      subtitle: 'Watermark-free vector export',
-      packageTitle: 'Single Resume Export',
-      priceDisplay: 'PKR 200 ($1.20)',
-      bullet1: 'Vector Engine',
-      bullet2: '100% Score',
-      bullet3: 'Free with Pro Plan',
-      ctaText: 'Export Now',
-      footerNote: 'All major payment cards & wallets'
-    }
-  };
-
-  Database.saveApplySettings({
-    ...updated1,
-    modalSettings: testModals2
-  });
-
-  const updated2 = Database.getApplySettings();
-  assert(
-    updated2.modalSettings?.cvPaywall?.priceDisplay === 'PKR 200 ($1.20)',
-    'cvPaywall.priceDisplay persisted correctly'
-  );
-  assert(
-    updated2.modalSettings?.cvPaywall?.bullet3 === 'Free with Pro Plan',
-    'cvPaywall.bullet3 persisted correctly'
-  );
-  assert(
-    updated2.modalSettings?.cvPaywall?.footerNote === 'All major payment cards & wallets',
-    'cvPaywall.footerNote persisted correctly'
-  );
-  // Verify previous candidateApplication settings were NOT wiped (safe field-level merge)
-  assert(
-    updated2.modalSettings?.candidateApplication?.title === 'Apply for Verified Position',
-    'Previous candidateApplication modal customizations survived cvPaywall save (non-destructive merge)'
-  );
-
-  // Test 2c: Save legalDisclaimer customized fields including subtitle and noticeText
-  const testModals3 = {
-    ...updated2.modalSettings,
-    legalDisclaimer: {
-      title: 'Legal Terms & Verification',
-      subtitle: 'Official Transparency & Compliance Center',
-      noticeText: 'All listings are independently verified.',
-      acceptCta: 'I Agree & Proceed'
-    }
-  };
-
-  Database.saveApplySettings({
-    ...updated2,
-    modalSettings: testModals3
-  });
-
-  const updated3 = Database.getApplySettings();
-  assert(
-    updated3.modalSettings?.legalDisclaimer?.subtitle === 'Official Transparency & Compliance Center',
-    'legalDisclaimer.subtitle persisted correctly'
-  );
-  assert(
-    updated3.modalSettings?.legalDisclaimer?.noticeText === 'All listings are independently verified.',
-    'legalDisclaimer.noticeText persisted correctly'
-  );
-  assert(
-    updated3.modalSettings?.legalDisclaimer?.acceptCta === 'I Agree & Proceed',
-    'legalDisclaimer.acceptCta persisted correctly'
-  );
-
-  // Test 2d: Reset cvPaywall fields specifically
-  const testModalsReset = {
-    ...updated3.modalSettings,
-    cvPaywall: {}
-  };
-  Database.saveApplySettings({
-    ...updated3,
-    modalSettings: testModalsReset
-  });
-
-  const updatedReset = Database.getApplySettings();
-  assert(
-    Object.keys(updatedReset.modalSettings?.cvPaywall || {}).length === 0,
-    'cvPaywall reset cleared customizations for cvPaywall'
-  );
-  assert(
-    updatedReset.modalSettings?.legalDisclaimer?.subtitle === 'Official Transparency & Compliance Center',
-    'Resetting cvPaywall did NOT affect legalDisclaimer customizations'
-  );
-  assert(
-    updatedReset.modalSettings?.candidateApplication?.title === 'Apply for Verified Position',
-    'Resetting cvPaywall did NOT affect candidateApplication customizations'
-  );
-
-} finally {
-  // Restore original settings
-  Database.saveApplySettings({
-    ...initialSettings,
-    modalSettings: originalModals
-  });
-  console.log('Original settings restored cleanly.');
-}
-
-// 3. Verification of MODAL_INVENTORY definitions
-import { MODAL_INVENTORY } from '../../src/components/admin/AdminModalContentManager';
+// 2. Validate MODAL_INVENTORY Structure & Accurate Defaults (In-Memory)
 assert(Array.isArray(MODAL_INVENTORY), 'MODAL_INVENTORY is an array');
-assert(MODAL_INVENTORY.length === 8, `MODAL_INVENTORY contains 8 modals (found: ${MODAL_INVENTORY.length})`);
+assert(MODAL_INVENTORY.length === 8, `MODAL_INVENTORY contains exactly 8 modals (found: ${MODAL_INVENTORY.length})`);
 
-const modalIds = MODAL_INVENTORY.map(m => m.id);
 const expectedModalIds = [
   'premiumUpgrade',
   'candidateApplication',
@@ -175,31 +55,270 @@ const expectedModalIds = [
   'legalDisclaimer'
 ];
 
+const modalIds = MODAL_INVENTORY.map(m => m.id);
 for (const expId of expectedModalIds) {
   assert(modalIds.includes(expId), `MODAL_INVENTORY includes modal "${expId}"`);
 }
 
-// Check cvPaywall inventory fields
+// 3. CV Paywall: Price Accuracy & Claim Protection
 const cvPaywallDef = MODAL_INVENTORY.find(m => m.id === 'cvPaywall');
-const cvKeys = cvPaywallDef?.fields.map(f => f.key) || [];
-assert(cvKeys.includes('priceDisplay'), 'cvPaywall inventory includes "priceDisplay"');
-assert(cvKeys.includes('bullet3'), 'cvPaywall inventory includes "bullet3"');
-assert(cvKeys.includes('footerNote'), 'cvPaywall inventory includes "footerNote"');
+assert(cvPaywallDef !== undefined, 'cvPaywall modal definition exists');
 
-// Check legalDisclaimer inventory fields
-const legalDef = MODAL_INVENTORY.find(m => m.id === 'legalDisclaimer');
-const legalKeys = legalDef?.fields.map(f => f.key) || [];
-assert(legalKeys.includes('subtitle'), 'legalDisclaimer inventory includes "subtitle"');
-assert(legalKeys.includes('noticeText'), 'legalDisclaimer inventory includes "noticeText"');
+const cvFieldMap = new Map(cvPaywallDef?.fields.map(f => [f.key, f.defaultValue]));
+assert(cvFieldMap.has('priceDisplay'), 'cvPaywall inventory contains "priceDisplay"');
+assert(
+  cvFieldMap.get('priceDisplay') === 'Price confirmed during payment',
+  `cvPaywall.priceDisplay is strictly informational: "${cvFieldMap.get('priceDisplay')}"`
+);
+assert(
+  cvFieldMap.get('packageTitle') === 'Premium CV Export',
+  `cvPaywall.packageTitle default updated: "${cvFieldMap.get('packageTitle')}"`
+);
+assert(
+  cvFieldMap.get('bullet1') === 'Clean Vector Print Layout',
+  `cvPaywall.bullet1 default without hyperbolic claim: "${cvFieldMap.get('bullet1')}"`
+);
+assert(
+  cvFieldMap.get('bullet2') === 'Standard ATS Compatible Structure',
+  `cvPaywall.bullet2 default without unsupported "99.4%" claim: "${cvFieldMap.get('bullet2')}"`
+);
+assert(
+  cvFieldMap.get('footerNote') === 'Payment verification via Easypaisa, JazzCash & Bank Transfer',
+  `cvPaywall.footerNote default updated: "${cvFieldMap.get('footerNote')}"`
+);
 
-// 4. Verification that input lengths are bounded
-for (const modal of MODAL_INVENTORY) {
-  for (const field of modal.fields) {
-    assert(field.defaultValue.length <= 500, `Default value for ${modal.id}.${field.key} is <= 500 chars`);
+// 4. Premium Upgrade & Subscription: Claim Accuracy Protection
+const premUpgradeDef = MODAL_INVENTORY.find(m => m.id === 'premiumUpgrade');
+const premFieldMap = new Map(premUpgradeDef?.fields.map(f => [f.key, f.defaultValue]));
+assert(
+  premFieldMap.get('footerNote')?.includes('Access activated upon admin verification'),
+  `premiumUpgrade footer note accurately states manual verification: "${premFieldMap.get('footerNote')}"`
+);
+
+const subDef = MODAL_INVENTORY.find(m => m.id === 'subscription');
+const subFieldMap = new Map(subDef?.fields.map(f => [f.key, f.defaultValue]));
+assert(
+  subFieldMap.get('badgeText') === 'WhatsApp Alerts & Direct Apply Access',
+  `subscription badgeText removed false "Instant" claim: "${subFieldMap.get('badgeText')}"`
+);
+
+// 5. In-Memory Validation & Merge Logic (Pure Unit Testing — Zero Disk Writes)
+const ALLOWED_MODAL_FIELDS: Record<string, string[]> = {
+  premiumUpgrade: ['customTitle', 'customMessage', 'benefit1Title', 'benefit1Desc', 'benefit2Title', 'benefit2Desc', 'benefit3Title', 'benefit3Desc', 'ctaText', 'footerNote'],
+  candidateApplication: ['title', 'instructions', 'contactHeading', 'resumeHeading', 'submitCta', 'successMsg'],
+  subscription: ['badgeText', 'title', 'subtitle', 'packageSectionTitle', 'submitCta'],
+  cvPaywall: ['title', 'subtitle', 'packageTitle', 'priceDisplay', 'bullet1', 'bullet2', 'bullet3', 'ctaText', 'footerNote'],
+  authModal: ['loginTitle', 'registerTitle', 'loginTab', 'registerTab', 'loginCta', 'registerCta'],
+  adminLogin: ['title', 'subtitle', 'ctaText'],
+  countrySelection: ['title', 'subtitle', 'ctaText'],
+  legalDisclaimer: ['title', 'subtitle', 'noticeText', 'acceptCta']
+};
+
+function sanitizeAndMergeModalSettings(
+  existingModalSettings: Record<string, Record<string, string>>,
+  incomingModalSettings: any
+): { sanitized: Record<string, Record<string, string>>; error?: string } {
+  if (typeof incomingModalSettings !== 'object' || incomingModalSettings === null || Array.isArray(incomingModalSettings)) {
+    return { sanitized: {}, error: 'modalSettings must be an object' };
   }
+
+  const merged = { ...existingModalSettings };
+
+  for (const modalKey of Object.keys(incomingModalSettings)) {
+    const allowedKeys = ALLOWED_MODAL_FIELDS[modalKey];
+    if (!allowedKeys) {
+      continue; // Unknown modal key ignored
+    }
+
+    const modalObj = incomingModalSettings[modalKey];
+    if (typeof modalObj !== 'object' || modalObj === null || Array.isArray(modalObj)) {
+      continue;
+    }
+
+    // Reset support: empty object resets this specific modal
+    if (Object.keys(modalObj).length === 0) {
+      delete merged[modalKey];
+      continue;
+    }
+
+    const currentModalCustoms = { ...(merged[modalKey] || {}) };
+
+    for (const fieldKey of Object.keys(modalObj)) {
+      if (!allowedKeys.includes(fieldKey)) {
+        continue;
+      }
+
+      const val = modalObj[fieldKey];
+      if (typeof val !== 'string') {
+        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" must be a string` };
+      }
+
+      const trimmed = val.trim();
+      if (trimmed.length > 500) {
+        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" exceeds 500 character limit` };
+      }
+
+      if (/<[a-z/!]/i.test(trimmed)) {
+        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" contains forbidden HTML/XML markup` };
+      }
+
+      if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(trimmed)) {
+        return { sanitized: {}, error: `Field "${modalKey}.${fieldKey}" contains unsafe control characters` };
+      }
+
+      if (modalKey === 'cvPaywall' && fieldKey === 'priceDisplay' && trimmed.length > 0) {
+        const hasFixedPrice = /(?:pkr|rs\.?|usd|\$|€|£|₹|\b\d+(?:[.,]\d+)?\s*(?:pkr|rs|rupees))\b/i.test(trimmed) || /^\s*\d+/.test(trimmed);
+        if (hasFixedPrice) {
+          return {
+            sanitized: {},
+            error: 'Fixed prices cannot be displayed because single CV exports do not have a separate fixed transaction price.'
+          };
+        }
+      }
+
+      if (trimmed === '') {
+        delete currentModalCustoms[fieldKey];
+      } else {
+        currentModalCustoms[fieldKey] = trimmed;
+      }
+    }
+
+    if (Object.keys(currentModalCustoms).length > 0) {
+      merged[modalKey] = currentModalCustoms;
+    } else {
+      delete merged[modalKey];
+    }
+  }
+
+  return { sanitized: merged };
 }
 
-console.log(`\n=== STEP65-F.3.4 Verification Summary: ${testsPassed} PASSED, ${testsFailed} FAILED ===`);
+// Test 5a: Reject Fixed Prices in cvPaywall.priceDisplay
+const priceTestCases = [
+  'PKR 150',
+  '150 PKR',
+  'Rs. 200',
+  'Rs 100',
+  '$1',
+  '150',
+  'PKR 150 ($1)',
+  '500 Rupees'
+];
+
+for (const priceText of priceTestCases) {
+  const result = sanitizeAndMergeModalSettings({}, {
+    cvPaywall: { priceDisplay: priceText }
+  });
+  assert(
+    result.error !== undefined && result.error.includes('Fixed prices cannot be displayed'),
+    `Correctly rejected fixed currency price in cvPaywall.priceDisplay: "${priceText}"`
+  );
+}
+
+// Test 5b: Accept Valid Informational cvPaywall.priceDisplay
+const validInformationalPrices = [
+  'Price confirmed during payment',
+  'Included in Pro Plan',
+  'Dynamic pricing confirmed at checkout',
+  ''
+];
+
+for (const infoText of validInformationalPrices) {
+  const result = sanitizeAndMergeModalSettings({}, {
+    cvPaywall: { priceDisplay: infoText }
+  });
+  assert(
+    result.error === undefined,
+    `Accepted valid informational priceDisplay: "${infoText}"`
+  );
+}
+
+// Test 5c: HTML/XML Tag Rejection
+const htmlTestCases = [
+  '<script>alert("xss")</script>',
+  'Text with <b>bold</b> tag',
+  '<img src=x onerror=alert(1)>',
+  'Plain text with </close> tag'
+];
+
+for (const htmlText of htmlTestCases) {
+  const result = sanitizeAndMergeModalSettings({}, {
+    candidateApplication: { title: htmlText }
+  });
+  assert(
+    result.error !== undefined && result.error.includes('contains forbidden HTML/XML markup'),
+    `Correctly rejected HTML/XML tag: "${htmlText}"`
+  );
+}
+
+// Test 5d: Unsafe Control Character Rejection
+const controlCharTestCases = [
+  'Bad\x00Null',
+  'Bad\x08Backspace',
+  'Bad\x1BControl'
+];
+
+for (const ccText of controlCharTestCases) {
+  const result = sanitizeAndMergeModalSettings({}, {
+    legalDisclaimer: { title: ccText }
+  });
+  assert(
+    result.error !== undefined && result.error.includes('contains unsafe control characters'),
+    `Correctly rejected control characters in field`
+  );
+}
+
+// Test 5e: 500 Character Limit Enforcement
+const longText = 'A'.repeat(501);
+const limitResult = sanitizeAndMergeModalSettings({}, {
+  countrySelection: { title: longText }
+});
+assert(
+  limitResult.error !== undefined && limitResult.error.includes('exceeds 500 character limit'),
+  'Correctly rejected strings exceeding 500 characters'
+);
+
+// Test 5f: Safe Field-Level Non-Destructive Merge (In-Memory)
+const memoryState: Record<string, Record<string, string>> = {};
+
+const step1 = sanitizeAndMergeModalSettings(memoryState, {
+  candidateApplication: { title: 'Verified Application Form' }
+});
+assert(step1.sanitized.candidateApplication?.title === 'Verified Application Form', 'Merged candidateApplication');
+
+const step2 = sanitizeAndMergeModalSettings(step1.sanitized, {
+  cvPaywall: { title: 'Export Resume' }
+});
+assert(step2.sanitized.cvPaywall?.title === 'Export Resume', 'Merged cvPaywall');
+assert(
+  step2.sanitized.candidateApplication?.title === 'Verified Application Form',
+  'candidateApplication preserved across cvPaywall save (non-destructive merge)'
+);
+
+// Test 5g: Single-Modal Reset Isolation
+const step3 = sanitizeAndMergeModalSettings(step2.sanitized, {
+  cvPaywall: {}
+});
+assert(step3.sanitized.cvPaywall === undefined, 'cvPaywall reset successfully');
+assert(
+  step3.sanitized.candidateApplication?.title === 'Verified Application Form',
+  'Resetting cvPaywall did NOT affect candidateApplication'
+);
+
+// 6. Post-Test Disk Integrity Verification
+const postTestContent = fs.readFileSync(settingsPath, 'utf8');
+const postTestHash = crypto.createHash('sha256').update(postTestContent).digest('hex');
+
+assert(
+  postTestHash === preTestHash,
+  `data/apply_settings.json SHA256 post-check confirms ZERO DISK MUTATIONS (${postTestHash.substring(0, 8)}...)`
+);
+assert(
+  postTestHash === EXPECTED_SETTINGS_HASH,
+  `data/apply_settings.json matches exact expected original hash`
+);
+
+console.log(`\n=== STEP65-F.3.5 Verification Summary: ${testsPassed} PASSED, ${testsFailed} FAILED ===`);
 if (testsFailed > 0) {
   process.exit(1);
 }

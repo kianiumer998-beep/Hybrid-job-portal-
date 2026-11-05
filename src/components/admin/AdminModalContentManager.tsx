@@ -63,13 +63,13 @@ export const MODAL_INVENTORY: ModalDefinition[] = [
       { key: 'customTitle', label: 'Main Modal Title', type: 'input', defaultValue: 'Unlock Premium Access', placeholder: 'e.g. Unlock Premium Access' },
       { key: 'customMessage', label: 'Subtitle / Description', type: 'textarea', defaultValue: 'Upgrade your account to apply for jobs and unlock all premium portal features.', placeholder: 'Subtitle description...' },
       { key: 'benefit1Title', label: 'Benefit 1 Title', type: 'input', defaultValue: 'Direct Application URLs', placeholder: 'Direct Application URLs' },
-      { key: 'benefit1Desc', label: 'Benefit 1 Description', type: 'textarea', defaultValue: 'Instant 1-click access to official department & portal application links.', placeholder: 'Description...' },
+      { key: 'benefit1Desc', label: 'Benefit 1 Description', type: 'textarea', defaultValue: 'Access official department & portal application links directly.', placeholder: 'Description...' },
       { key: 'benefit2Title', label: 'Benefit 2 Title', type: 'input', defaultValue: 'Official Gazette & Source PDFs', placeholder: 'Official Gazette & Source PDFs' },
       { key: 'benefit2Desc', label: 'Benefit 2 Description', type: 'textarea', defaultValue: 'Download original recruitment circulars and newspaper ads.', placeholder: 'Description...' },
-      { key: 'benefit3Title', label: 'Benefit 3 Title', type: 'input', defaultValue: 'Priority Member Access', placeholder: 'Priority Member Access' },
-      { key: 'benefit3Desc', label: 'Benefit 3 Description', type: 'textarea', defaultValue: 'Unlock full department details and priority vacancy listings.', placeholder: 'Description...' },
+      { key: 'benefit3Title', label: 'Benefit 3 Title', type: 'input', defaultValue: 'Verified Vacancy Details', placeholder: 'Verified Vacancy Details' },
+      { key: 'benefit3Desc', label: 'Benefit 3 Description', type: 'textarea', defaultValue: 'Unlock full department details and direct vacancy listings.', placeholder: 'Description...' },
       { key: 'ctaText', label: 'Primary CTA Button Text', type: 'input', defaultValue: 'Upgrade to Premium', placeholder: 'e.g. Upgrade to Premium' },
-      { key: 'footerNote', label: 'Footer Security Note', type: 'input', defaultValue: 'Instant Access Upon Admin Verification • Easy Online Subscriptions', placeholder: 'Security note...' }
+      { key: 'footerNote', label: 'Footer Security Note', type: 'input', defaultValue: 'Access activated upon admin verification • Easy Online Subscriptions', placeholder: 'Security note...' }
     ]
   },
   {
@@ -82,7 +82,7 @@ export const MODAL_INVENTORY: ModalDefinition[] = [
       { key: 'title', label: 'Modal Header Title', type: 'input', defaultValue: 'Submit Job Application', placeholder: 'Submit Job Application' },
       { key: 'instructions', label: 'Candidate Instructions', type: 'textarea', defaultValue: 'Complete the verified application details below. The hiring employer or department will review your credentials directly.', placeholder: 'Instructions...' },
       { key: 'contactHeading', label: 'Contact Details Section Title', type: 'input', defaultValue: 'Candidate Contact Credentials', placeholder: 'Candidate Contact Credentials' },
-      { key: 'resumeHeading', label: 'Resume Section Title', type: 'input', defaultValue: 'Verified ATS Resume Attachment', placeholder: 'Verified ATS Resume Attachment' },
+      { key: 'resumeHeading', label: 'Resume Section Title', type: 'input', defaultValue: 'Resume / Curriculum Vitae Attachment', placeholder: 'Resume Attachment' },
       { key: 'submitCta', label: 'Submit Button Text', type: 'input', defaultValue: 'Submit Application Now', placeholder: 'Submit Application Now' },
       { key: 'successMsg', label: 'Submission Success Message', type: 'textarea', defaultValue: 'Your application has been received successfully and forwarded to the hiring team!', placeholder: 'Success message...' }
     ]
@@ -94,9 +94,9 @@ export const MODAL_INVENTORY: ModalDefinition[] = [
     filePath: 'src/components/SubscriptionModal.tsx',
     description: 'Payment selection and transaction proof submission modal for premium subscriptions.',
     fields: [
-      { key: 'badgeText', label: 'Header Badge Label', type: 'input', defaultValue: 'Instant WhatsApp & Direct Apply Unlock', placeholder: 'Badge text...' },
+      { key: 'badgeText', label: 'Header Badge Label', type: 'input', defaultValue: 'WhatsApp Alerts & Direct Apply Access', placeholder: 'Badge text...' },
       { key: 'title', label: 'Main Modal Heading', type: 'input', defaultValue: 'Get Daily Job Alerts & Direct Application Access', placeholder: 'Heading...' },
-      { key: 'subtitle', label: 'Subtitle Description', type: 'textarea', defaultValue: 'Subscribe once to receive daily verified remote & hybrid job openings directly on WhatsApp and apply instantly with 1-click.', placeholder: 'Subtitle...' },
+      { key: 'subtitle', label: 'Subtitle Description', type: 'textarea', defaultValue: 'Subscribe to receive daily verified remote & hybrid job openings directly on WhatsApp and apply instantly with 1-click.', placeholder: 'Subtitle...' },
       { key: 'packageSectionTitle', label: 'Package Selection Label', type: 'input', defaultValue: 'Select Subscription Package', placeholder: 'Select Subscription Package' },
       { key: 'submitCta', label: 'Submit Proof CTA Label', type: 'input', defaultValue: 'Submit Payment Proof for Verification', placeholder: 'Submit Payment Proof...' }
     ]
@@ -106,17 +106,17 @@ export const MODAL_INVENTORY: ModalDefinition[] = [
     name: 'CV Download Paywall Modal',
     category: 'Job Applications',
     filePath: 'src/components/CvPaywallModal.tsx',
-    description: 'Prompt modal shown when candidate requests watermark-free HD PDF resume download.',
+    description: 'Prompt modal shown when candidate requests watermark-free PDF resume download.',
     fields: [
-      { key: 'title', label: 'Modal Title', type: 'input', defaultValue: 'Unlock Premium HD PDF Download', placeholder: 'Unlock Premium HD PDF Download' },
-      { key: 'subtitle', label: 'Modal Subtitle', type: 'textarea', defaultValue: 'Download your watermarked-free, high-resolution vector PDF resume optimized for ATS corporate scanners.', placeholder: 'Subtitle...' },
-      { key: 'packageTitle', label: 'Export Plan Title', type: 'input', defaultValue: 'Single Premium CV Export', placeholder: 'Single Premium CV Export' },
-      { key: 'priceDisplay', label: 'Price Display Note', type: 'input', defaultValue: 'PKR 150 ($1)', placeholder: 'e.g. PKR 150 ($1)' },
-      { key: 'bullet1', label: 'Feature Bullet 1', type: 'input', defaultValue: '100% Vector Quality Print Engine', placeholder: 'Bullet 1...' },
-      { key: 'bullet2', label: 'Feature Bullet 2', type: 'input', defaultValue: '99.4% ATS Parser Score', placeholder: 'Bullet 2...' },
-      { key: 'bullet3', label: 'Feature Bullet 3', type: 'input', defaultValue: 'Included free with Pro Job Alerts Subscription', placeholder: 'Bullet 3...' },
+      { key: 'title', label: 'Modal Title', type: 'input', defaultValue: 'Unlock Premium PDF Download', placeholder: 'Unlock Premium PDF Download' },
+      { key: 'subtitle', label: 'Modal Subtitle', type: 'textarea', defaultValue: 'Download your watermark-free vector PDF resume formatted for employment applications.', placeholder: 'Subtitle...' },
+      { key: 'packageTitle', label: 'Export Plan Title', type: 'input', defaultValue: 'Premium CV Export', placeholder: 'Premium CV Export' },
+      { key: 'priceDisplay', label: 'Pricing Information (Informational)', type: 'input', defaultValue: 'Price confirmed during payment', placeholder: 'e.g. Price confirmed during payment' },
+      { key: 'bullet1', label: 'Feature Bullet 1', type: 'input', defaultValue: 'Clean Vector Print Layout', placeholder: 'Bullet 1...' },
+      { key: 'bullet2', label: 'Feature Bullet 2', type: 'input', defaultValue: 'Standard ATS Compatible Structure', placeholder: 'Bullet 2...' },
+      { key: 'bullet3', label: 'Feature Bullet 3', type: 'input', defaultValue: 'Included with Pro Job Alerts Subscription', placeholder: 'Bullet 3...' },
       { key: 'ctaText', label: 'Primary CTA Button Label', type: 'input', defaultValue: 'Upgrade to Pro / Export Resume', placeholder: 'CTA Label...' },
-      { key: 'footerNote', label: 'Footer Payment Note', type: 'input', defaultValue: 'Secure payment verification via Easypaisa, JazzCash & Bank Transfer', placeholder: 'Footer note...' }
+      { key: 'footerNote', label: 'Footer Payment Note', type: 'input', defaultValue: 'Payment verification via Easypaisa, JazzCash & Bank Transfer', placeholder: 'Footer note...' }
     ]
   },
   {
@@ -305,6 +305,13 @@ export const AdminModalContentManager: React.FC = () => {
             setSaveError(`Field "${field.label}" in "${modalDef.name}" contains unsafe control characters.`);
             setSaving(false);
             return;
+          }
+          if (modalDef.id === 'cvPaywall' && field.key === 'priceDisplay' && trimmed.length > 0) {
+            if (/(?:pkr|rs\.?|usd|\$|€|£|₹|\b\d+(?:[.,]\d+)?\s*(?:pkr|rs|rupees))\b/i.test(trimmed) || /^\s*\d+/.test(trimmed)) {
+              setSaveError('Fixed prices cannot be displayed because single CV exports do not have a separate fixed transaction price. Please use an informational note such as "Price confirmed during payment".');
+              setSaving(false);
+              return;
+            }
           }
         }
       }
@@ -685,7 +692,7 @@ export const AdminModalContentManager: React.FC = () => {
                   </div>
                   <p className="text-[10px] text-emerald-100/50 flex items-center justify-center space-x-1">
                     <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
-                    <span>{getPreviewValue('footerNote', 'Instant Access Upon Admin Verification • Easy Online Subscriptions')}</span>
+                    <span>{getPreviewValue('footerNote', 'Access activated upon admin verification • Easy Online Subscriptions')}</span>
                   </p>
                 </div>
               </div>
@@ -741,7 +748,7 @@ export const AdminModalContentManager: React.FC = () => {
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-[11px] font-bold text-slate-300 block">
-                        {getPreviewValue('resumeHeading', 'Verified ATS Resume Attachment')}
+                        {getPreviewValue('resumeHeading', 'Resume / Curriculum Vitae Attachment')}
                       </label>
                       <span className="text-[9px] text-amber-400/80 font-mono">Sample Attachment</span>
                     </div>
@@ -777,7 +784,7 @@ export const AdminModalContentManager: React.FC = () => {
                 <div className="p-4 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800">
                   <div className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-semibold mb-2">
                     <Zap className="w-3 h-3" />
-                    <span>{getPreviewValue('badgeText', 'Instant WhatsApp & Direct Apply Unlock')}</span>
+                    <span>{getPreviewValue('badgeText', 'WhatsApp Alerts & Direct Apply Access')}</span>
                   </div>
                   <h4 className="text-base font-black text-white leading-snug">
                     {getPreviewValue('title', 'Get Daily Job Alerts & Direct Application Access')}
@@ -898,26 +905,26 @@ export const AdminModalContentManager: React.FC = () => {
                   {getPreviewValue('title', 'Unlock Premium HD PDF Download')}
                 </h4>
                 <p className="text-xs text-slate-300 leading-relaxed max-w-sm mx-auto">
-                  {getPreviewValue('subtitle', 'Download your watermarked-free, high-resolution vector PDF resume optimized for ATS corporate scanners.')}
+                  {getPreviewValue('subtitle', 'Download your watermark-free, high-resolution vector PDF resume formatted for corporate applications.')}
                 </p>
 
                 <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 text-left space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-xs text-white">
-                      {getPreviewValue('packageTitle', 'Single Premium CV Export')}
+                      {getPreviewValue('packageTitle', 'Premium CV Export')}
                     </span>
-                    <span className="text-sm font-black text-emerald-400">
-                      {getPreviewValue('priceDisplay', 'PKR 150 ($1)')}
+                    <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                      {getPreviewValue('priceDisplay', 'Price confirmed during payment')}
                     </span>
                   </div>
                   <ul className="text-[11px] text-slate-300 space-y-1">
                     <li className="flex items-center space-x-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>{getPreviewValue('bullet1', '100% Vector Quality Print Engine')}</span>
+                      <span>{getPreviewValue('bullet1', 'Clean Vector Print Layout')}</span>
                     </li>
                     <li className="flex items-center space-x-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>{getPreviewValue('bullet2', '99.4% ATS Parser Score')}</span>
+                      <span>{getPreviewValue('bullet2', 'Standard ATS Compatible Structure')}</span>
                     </li>
                     <li className="flex items-center space-x-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -935,7 +942,7 @@ export const AdminModalContentManager: React.FC = () => {
                   <ArrowRight className="w-3.5 h-3.5 text-slate-950" />
                 </button>
                 <p className="text-[10px] text-slate-500">
-                  {getPreviewValue('footerNote', 'Secure payment verification via Easypaisa, JazzCash & Bank Transfer')}
+                  {getPreviewValue('footerNote', 'Payment verification via Easypaisa, JazzCash & Bank Transfer')}
                 </p>
               </div>
             )}

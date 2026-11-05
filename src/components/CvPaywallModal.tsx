@@ -48,28 +48,30 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
             <Lock className="w-7 h-7" />
           </div>
 
-          <h3 className="text-xl font-black">{customs.title || 'Unlock Premium HD PDF Download'}</h3>
+          <h3 className="text-xl font-black">{customs.title || 'Unlock Premium PDF Download'}</h3>
           <p className="text-xs text-slate-300 leading-relaxed">
-            {customs.subtitle || 'Download your watermarked-free, high-resolution vector PDF resume optimized for ATS corporate scanners.'}
+            {customs.subtitle || 'Download your watermark-free vector PDF resume formatted for employment applications.'}
           </p>
 
           <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 text-left space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-sm text-white">{customs.packageTitle || 'Single Premium CV Export'}</span>
-              <span className="text-base font-black text-emerald-400">{customs.priceDisplay || 'PKR 150 ($1)'}</span>
+              <span className="font-bold text-sm text-white">{customs.packageTitle || 'Premium CV Export'}</span>
+              <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+                {customs.priceDisplay || 'Price confirmed during payment'}
+              </span>
             </div>
             <ul className="text-xs text-slate-300 space-y-1">
               <li className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>{customs.bullet1 || '100% Vector Quality Print Engine'}</span>
+                <span>{customs.bullet1 || 'Clean Vector Print Layout'}</span>
               </li>
               <li className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>{customs.bullet2 || '99.4% ATS Parser Score'}</span>
+                <span>{customs.bullet2 || 'Standard ATS Compatible Structure'}</span>
               </li>
               <li className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>{customs.bullet3 || 'Included free with Pro Job Alerts Subscription'}</span>
+                <span>{customs.bullet3 || 'Included with Pro Job Alerts Subscription'}</span>
               </li>
             </ul>
           </div>
@@ -86,7 +88,7 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
           </button>
 
           <p className="text-[11px] text-slate-500">
-            {customs.footerNote || 'Secure payment verification via Easypaisa, JazzCash & Bank Transfer'}
+            {customs.footerNote || 'Payment verification via Easypaisa, JazzCash & Bank Transfer'}
           </p>
         </div>
 

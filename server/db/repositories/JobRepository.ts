@@ -411,6 +411,78 @@ export class JobRepository {
   }
 
   /**
+   * Retrieves priority placement jobs according to configured slot limits and precedence:
+   * VIP (vip_bundle) -> Pinned (isPinnedTop) -> Featured (featured) -> Urgent (urgent).
+   * Enforces single-assignment rule: a job appears in at most one priority slot tier.
+   */
+  static async getPriorityPlacementJobs(filter: JobFilterOptions = {}): Promise<{
+    jobs: any[];
+    tierCounts: { vip: number; pinned: number; featured: number; urgent: number };
+    slotLimits: { vip: number; pinned: number; featured: number; urgent: number };
+  }> {
+    const pricing = Database.getPricing();
+    const slotConfig = pricing?.jobPosting?.homepagePrioritySlotConfig || DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG;
+
+    const limits = {
+      vip: slotConfig.enabled && slotConfig.vip?.enabled !== false ? (slotConfig.vip?.maxSlots ?? 2) : 0,
+      pinned: slotConfig.enabled && slotConfig.pinned?.enabled !== false ? (slotConfig.pinned?.maxSlots ?? 2) : 0,
+      featured: slotConfig.enabled && slotConfig.featured?.enabled !== false ? (slotConfig.featured?.maxSlots ?? 4) : 0,
+      urgent: slotConfig.enabled && slotConfig.urgent?.enabled !== false ? (slotConfig.urgent?.maxSlots ?? 4) : 0
+    };
+
+    // Get candidate active approved jobs
+    const { jobs: candidateJobs } = await this.getAll({
+      ...filter,
+      page: 1,
+      limit: 1000,
+      status: 'Approved',
+      includeExpired: false
+    });
+
+    const vipJobs: any[] = [];
+    const pinnedJobs: any[] = [];
+    const featuredJobs: any[] = [];
+    const urgentJobs: any[] = [];
+    const assignedIds = new Set<string>();
+
+    for (const job of candidateJobs) {
+      if (!job || !job.id || assignedIds.has(job.id)) continue;
+
+      const isVipCandidate = job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent);
+      const isPinnedCandidate = job.isPinnedTop || job.priorityTier === 'featured_top';
+      const isFeaturedCandidate = job.featured;
+      const isUrgentCandidate = job.urgent || job.priorityTier === 'urgent';
+
+      if (isVipCandidate && vipJobs.length < limits.vip) {
+        vipJobs.push({ ...job, activePriorityTier: 'vip' });
+        assignedIds.add(job.id);
+      } else if (isPinnedCandidate && pinnedJobs.length < limits.pinned) {
+        pinnedJobs.push({ ...job, activePriorityTier: 'pinned' });
+        assignedIds.add(job.id);
+      } else if (isFeaturedCandidate && featuredJobs.length < limits.featured) {
+        featuredJobs.push({ ...job, activePriorityTier: 'featured' });
+        assignedIds.add(job.id);
+      } else if (isUrgentCandidate && urgentJobs.length < limits.urgent) {
+        urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
+        assignedIds.add(job.id);
+      }
+    }
+
+    const priorityJobs = [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs];
+
+    return {
+      jobs: priorityJobs,
+      tierCounts: {
+        vip: vipJobs.length,
+        pinned: pinnedJobs.length,
+        featured: featuredJobs.length,
+        urgent: urgentJobs.length
+      },
+      slotLimits: limits
+    };
+  }
+
+  /**
    * Get single job by ID directly from MongoDB.
    */
   static async getById(id: string): Promise<any | null> {

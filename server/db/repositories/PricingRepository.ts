@@ -43,9 +43,37 @@ export class PricingRepository {
 
   static update(updates: any): any {
     const current = Database.getPricing();
+
+    if (updates?.jobPosting?.homepagePrioritySlotConfig) {
+      const slotCfg = updates.jobPosting.homepagePrioritySlotConfig;
+      const sanitizeSlot = (tierCfg: any, defaultMax: number) => {
+        let max = tierCfg?.maxSlots;
+        if (typeof max !== 'number' || !Number.isFinite(max) || max < 0) {
+          max = Math.max(0, Math.min(100, Math.floor(Number(max) || defaultMax)));
+        } else {
+          max = Math.min(100, Math.max(0, Math.floor(max)));
+        }
+        return {
+          enabled: tierCfg?.enabled !== false,
+          maxSlots: max
+        };
+      };
+      updates.jobPosting.homepagePrioritySlotConfig = {
+        enabled: slotCfg.enabled !== false,
+        vip: sanitizeSlot(slotCfg.vip, 2),
+        pinned: sanitizeSlot(slotCfg.pinned, 2),
+        featured: sanitizeSlot(slotCfg.featured, 4),
+        urgent: sanitizeSlot(slotCfg.urgent, 4)
+      };
+    }
+
     const updated = {
       ...current,
       ...updates,
+      jobPosting: {
+        ...(current.jobPosting || {}),
+        ...(updates?.jobPosting || {})
+      },
       updatedAt: new Date().toISOString()
     };
     Database.savePricing(updated);

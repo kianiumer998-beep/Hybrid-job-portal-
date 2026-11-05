@@ -193,6 +193,10 @@ export const api = {
       const qs = params ? new URLSearchParams(params).toString() : '';
       return safeFetchJson(`${API_BASE}/jobs${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() });
     },
+    async getPriority(params?: Record<string, string>) {
+      const qs = params ? new URLSearchParams(params).toString() : '';
+      return safeFetchJson(`${API_BASE}/jobs/priority${qs ? `?${qs}` : ''}`, { headers: getAuthHeader() });
+    },
     async getAdminAll(params?: { page?: number; limit?: number; livePage?: number; pendingPage?: number; status?: string; source?: string; owner?: string; scraper?: string; search?: string; visibility?: string }) {
       const queryObj: Record<string, string> = {};
       if (params?.page) queryObj.page = String(params.page);

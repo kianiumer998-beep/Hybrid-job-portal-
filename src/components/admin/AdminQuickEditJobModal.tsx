@@ -961,6 +961,32 @@ export const AdminQuickEditJobModal: React.FC<AdminQuickEditJobModalProps> = ({
                   </span>
                 </div>
 
+                <div className="flex items-center justify-between bg-slate-900/90 p-3 rounded-xl border border-amber-500/20 mb-3">
+                  <div className="space-y-0.5">
+                    <span className="font-bold text-white text-xs block">Priority Placement Tier</span>
+                    <span className="text-[10px] text-slate-400">Assigns job to top priority homepage slots (VIP &gt; Pinned &gt; Featured &gt; Urgent)</span>
+                  </div>
+                  <select
+                    value={formData.priorityTier || (formData.isPinnedTop && formData.featured && formData.urgent ? 'vip_bundle' : (formData.isPinnedTop ? 'featured_top' : (formData.featured ? 'featured_top' : (formData.urgent ? 'urgent' : 'standard'))))}
+                    onChange={(e) => {
+                      const val = e.target.value as any;
+                      setFormData(p => ({
+                        ...p,
+                        priorityTier: val,
+                        isPinnedTop: val === 'vip_bundle' || val === 'featured_top',
+                        featured: val === 'vip_bundle' || val === 'featured_top',
+                        urgent: val === 'vip_bundle' || val === 'urgent'
+                      }));
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-bold text-xs focus:border-amber-400 outline-none"
+                  >
+                    <option value="standard">Standard Listing (Default)</option>
+                    <option value="urgent">🔥 Urgent Hiring Tier</option>
+                    <option value="featured_top">📌 Pinned Top & Featured Tier</option>
+                    <option value="vip_bundle">👑 VIP Ultimate Placement Tier</option>
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
                   <label className="flex items-center space-x-2 cursor-pointer p-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/40">
                     <input

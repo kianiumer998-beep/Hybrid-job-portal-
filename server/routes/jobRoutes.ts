@@ -87,6 +87,67 @@ jobRouter.get('/', async (req, res) => {
   }
 });
 
+// 1b. Get Priority Placement Jobs (VIP, Pinned, Featured, Urgent)
+jobRouter.get('/priority', async (req, res) => {
+  try {
+    const {
+      search,
+      jobType,
+      region,
+      province,
+      city,
+      experienceLevel,
+      salaryMin,
+      sortBy,
+      isGovt
+    } = req.query as Record<string, string>;
+
+    const result = await JobRepository.getPriorityPlacementJobs({
+      search,
+      jobType,
+      region,
+      province,
+      city,
+      experienceLevel,
+      salaryMin: salaryMin ? parseInt(salaryMin, 10) : undefined,
+      sortBy,
+      isGovt: isGovt === 'true'
+    });
+
+    const user = (req as any).user;
+    const isPremium = await JobVisibilityRepository.isUserPremiumAuthoritative(user?.userId || user?.id);
+
+    let sanitizedJobs = result.jobs;
+    const applySettings = Database.getApplySettings();
+    if (Array.isArray(sanitizedJobs)) {
+      sanitizedJobs = await Promise.all(
+        sanitizedJobs.map(async (job: any) => {
+          const policyApplied = await JobVisibilityRepository.applyPolicyToJob(job);
+          let filtered = JobVisibilityRepository.filterJobForUser(policyApplied, user, isPremium);
+
+          const accessRes = await evaluateApplyAccess(user, policyApplied, applySettings, isPremium);
+          if (!accessRes.allowed) {
+            filtered.externalApplyUrl = "[LOCKED]";
+            filtered.applicationUrl = "[LOCKED]";
+            filtered._applyGate = accessRes.gate;
+          }
+          return filtered;
+        })
+      );
+    }
+
+    res.json({
+      success: true,
+      tierCounts: result.tierCounts,
+      slotLimits: result.slotLimits,
+      jobs: sanitizedJobs
+    });
+  } catch (err: any) {
+    console.error('Error in GET /api/jobs/priority:', err);
+    res.status(500).json({ success: false, message: err.message || 'Error fetching priority jobs' });
+  }
+});
+
 // 2. Get Pending Jobs Queue (Admin Only)
 jobRouter.get('/queue/pending', requireAdminPermission('jobs.manage'), async (req, res) => {
   res.setHeader('Content-Type', 'application/json');

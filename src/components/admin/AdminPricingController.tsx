@@ -61,6 +61,14 @@ export const AdminPricingController: React.FC = () => {
     }
   });
 
+  const [priorityMetrics, setPriorityMetrics] = useState<{
+    tierCounts: { vip: number; pinned: number; featured: number; urgent: number };
+    slotLimits: { vip: number; pinned: number; featured: number; urgent: number };
+  }>({
+    tierCounts: { vip: 0, pinned: 0, featured: 0, urgent: 0 },
+    slotLimits: { vip: 2, pinned: 2, featured: 4, urgent: 4 }
+  });
+
   useEffect(() => {
     loadPricing();
   }, []);
@@ -72,11 +80,43 @@ export const AdminPricingController: React.FC = () => {
       if (data.success && data.pricing) {
         setPricing(data.pricing);
       }
+      const priorityRes = await api.jobs.getPriority();
+      if (priorityRes.success && priorityRes.tierCounts) {
+        setPriorityMetrics({
+          tierCounts: priorityRes.tierCounts,
+          slotLimits: priorityRes.slotLimits || { vip: 2, pinned: 2, featured: 4, urgent: 4 }
+        });
+      }
     } catch (err) {
       console.error('Failed to load pricing:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const updatePrioritySlot = (tier: 'vip' | 'pinned' | 'featured' | 'urgent', field: 'enabled' | 'maxSlots', value: any) => {
+    setPricing((prev: any) => {
+      const currentConfig = prev.jobPosting?.homepagePrioritySlotConfig || {
+        enabled: true,
+        vip: { enabled: true, maxSlots: 2 },
+        pinned: { enabled: true, maxSlots: 2 },
+        featured: { enabled: true, maxSlots: 4 },
+        urgent: { enabled: true, maxSlots: 4 }
+      };
+      return {
+        ...prev,
+        jobPosting: {
+          ...prev.jobPosting,
+          homepagePrioritySlotConfig: {
+            ...currentConfig,
+            [tier]: {
+              ...currentConfig[tier],
+              [field]: field === 'maxSlots' ? Math.max(0, Math.floor(Number(value) || 0)) : value
+            }
+          }
+        }
+      };
+    });
   };
 
   const handleSave = async () => {
@@ -296,6 +336,129 @@ export const AdminPricingController: React.FC = () => {
                   onChange={(e) => updateNested('jobPosting', 'vipBundleDurationDays', Number(e.target.value))}
                   className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
                 />
+              </div>
+            </div>
+
+            {/* STEP66-B.1: Homepage Priority Placement Slots Management */}
+            <div className="mt-6 pt-6 border-t border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-white text-sm flex items-center space-x-2">
+                    <Sliders className="w-4 h-4 text-amber-400" />
+                    <span>Homepage Priority Placement Slots</span>
+                  </h4>
+                  <p className="text-xs text-slate-400">Configure top-of-page slot caps for VIP, Pinned, Featured, and Urgent postings.</p>
+                </div>
+                <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pricing.jobPosting?.homepagePrioritySlotConfig?.enabled !== false}
+                    onChange={(e) => {
+                      const cur = pricing.jobPosting?.homepagePrioritySlotConfig || {
+                        enabled: true,
+                        vip: { enabled: true, maxSlots: 2 },
+                        pinned: { enabled: true, maxSlots: 2 },
+                        featured: { enabled: true, maxSlots: 4 },
+                        urgent: { enabled: true, maxSlots: 4 }
+                      };
+                      updateNested('jobPosting', 'homepagePrioritySlotConfig', { ...cur, enabled: e.target.checked });
+                    }}
+                    className="w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500"
+                  />
+                  <span>Enable System</span>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {/* VIP Slot */}
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-amber-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-amber-300">👑 VIP Placement Slots</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">
+                      {priorityMetrics.tierCounts.vip} / {pricing.jobPosting?.homepagePrioritySlotConfig?.vip?.maxSlots ?? 2} Occupied
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-400">Max Card Slots:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.vip?.maxSlots ?? 2}
+                      onChange={(e) => updatePrioritySlot('vip', 'maxSlots', e.target.value)}
+                      className="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-center text-white font-bold"
+                    />
+                  </div>
+                  {priorityMetrics.tierCounts.vip > (pricing.jobPosting?.homepagePrioritySlotConfig?.vip?.maxSlots ?? 2) && (
+                    <p className="text-[10px] text-amber-400 flex items-center space-x-1">
+                      <AlertCircle className="w-3 h-3 inline" />
+                      <span>Occupied slots exceed configured cap.</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Pinned Slot */}
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-blue-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-blue-400">📌 Pinned Top Slots</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-medium">
+                      {priorityMetrics.tierCounts.pinned} / {pricing.jobPosting?.homepagePrioritySlotConfig?.pinned?.maxSlots ?? 2} Occupied
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-400">Max Card Slots:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.pinned?.maxSlots ?? 2}
+                      onChange={(e) => updatePrioritySlot('pinned', 'maxSlots', e.target.value)}
+                      className="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-center text-white font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* Featured Slot */}
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-purple-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-purple-400">⭐ Featured Slots</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">
+                      {priorityMetrics.tierCounts.featured} / {pricing.jobPosting?.homepagePrioritySlotConfig?.featured?.maxSlots ?? 4} Occupied
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-400">Max Card Slots:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.featured?.maxSlots ?? 4}
+                      onChange={(e) => updatePrioritySlot('featured', 'maxSlots', e.target.value)}
+                      className="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-center text-white font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* Urgent Slot */}
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-rose-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-rose-400">🔥 Urgent Slots</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-medium">
+                      {priorityMetrics.tierCounts.urgent} / {pricing.jobPosting?.homepagePrioritySlotConfig?.urgent?.maxSlots ?? 4} Occupied
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-400">Max Card Slots:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={pricing.jobPosting?.homepagePrioritySlotConfig?.urgent?.maxSlots ?? 4}
+                      onChange={(e) => updatePrioritySlot('urgent', 'maxSlots', e.target.value)}
+                      className="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-center text-white font-bold"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>

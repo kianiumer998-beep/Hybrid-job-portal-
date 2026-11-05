@@ -668,6 +668,7 @@ export default function App() {
 
   // Approved Live Jobs (Single Backend Source of Truth via /api/jobs)
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [priorityJobs, setPriorityJobs] = useState<Job[]>([]); // STEP 66-B.1
 
   // Subscription Packages State (Authoritative Backend /api/pricing)
   const [subscriptionPackages, setSubscriptionPackages] = useState<any[]>([]);
@@ -686,9 +687,10 @@ export default function App() {
     const pageToFetch = targetPage ?? pendingPage;
     const limitToFetch = targetLimit ?? pendingLimit;
     try {
-      const [liveRes, pendingRes] = await Promise.all([
+      const [liveRes, pendingRes, priorityRes] = await Promise.all([
         api.jobs.getAll({ limit: '10000', includeExpired: 'true' }),
-        api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch })
+        api.jobs.getPendingQueue({ page: pageToFetch, limit: limitToFetch }),
+        api.jobs.getPriority()
       ]);
 
       let errorDetected = false;
@@ -700,9 +702,12 @@ export default function App() {
         errorDetected = true;
         errorDesc = liveRes.message || 'Authoritative database is temporarily unavailable.';
         console.warn('[App] Live jobs database temporarily unavailable:', liveRes?.message);
-        // Preserve existing jobs - DO NOT overwrite with empty array
       } else if (Array.isArray(liveRes)) {
         setJobs(liveRes);
+      }
+
+      if (priorityRes && priorityRes.success && Array.isArray(priorityRes.jobs)) {
+        setPriorityJobs(priorityRes.jobs);
       }
 
       const pendingList = pendingRes?.pendingJobs || pendingRes?.jobs;
@@ -720,7 +725,6 @@ export default function App() {
         errorDetected = true;
         errorDesc = errorDesc || pendingRes.message || 'Authoritative pending database (MongoDB) is temporarily unavailable.';
         console.warn('[App] Authoritative pending queue is temporarily unavailable:', pendingRes?.message);
-        // Preserve existing pendingJobs - DO NOT overwrite with empty array
       } else if (Array.isArray(pendingRes)) {
         setPendingJobs(pendingRes);
       }
@@ -3180,7 +3184,7 @@ export default function App() {
                           />
 
                           {/* Job Cards Grid with Pagination and Inline Ads */}
-                          <JobListings
+                          <JobListings priorityJobs={priorityJobs}
                             jobs={filteredJobs}
                             savedJobIds={savedJobIds}
                             onToggleSaveJob={handleToggleSaveJob}

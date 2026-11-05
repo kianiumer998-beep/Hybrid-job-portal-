@@ -550,6 +550,27 @@ export interface ScraperBatchRun {
   logTrace: string[];
 }
 
+export interface PriorityCategorySlotConfig {
+  enabled: boolean;
+  maxSlots: number;
+}
+
+export interface HomepagePrioritySlotConfig {
+  enabled: boolean;
+  vip: PriorityCategorySlotConfig;
+  pinned: PriorityCategorySlotConfig;
+  featured: PriorityCategorySlotConfig;
+  urgent: PriorityCategorySlotConfig;
+}
+
+export const DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG: HomepagePrioritySlotConfig = {
+  enabled: true,
+  vip: { enabled: true, maxSlots: 2 },
+  pinned: { enabled: true, maxSlots: 2 },
+  featured: { enabled: true, maxSlots: 4 },
+  urgent: { enabled: true, maxSlots: 4 }
+};
+
 export interface JobPostingPricingConfig {
   standardFeePkr: number;       // Base fee for standard job posting (PKR)
   urgentFeePkr: number;         // Priority surcharge for Urgent Hiring badge & boost (PKR)
@@ -582,6 +603,9 @@ export interface JobPostingPricingConfig {
   featuredTopDescription?: string;
   futureJobDescription?: string;
   vipBundleDescription?: string;
+
+  // STEP66-B.1: Universal Priority Placement Slots Config
+  homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
 }
 
 export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
@@ -612,7 +636,9 @@ export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
   urgentDescription: 'Flashing badge & ranks above regular jobs for rapid hiring.',
   featuredTopDescription: 'Locks position at top of search results and homepage cards.',
   futureJobDescription: 'Accepts advance candidate pre-registrations with countdown.',
-  vipBundleDescription: 'Full package: Top Pinned #1 + Urgent Badge + Gold Highlighting.'
+  vipBundleDescription: 'Full package: Top Pinned #1 + Urgent Badge + Gold Highlighting.',
+
+  homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
 };
 
 

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../../src/data/mockTransactions';
 import { INITIAL_ADVERTISEMENTS, DEFAULT_AD_PRICING_CONFIG, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../../src/types/ad';
-import { DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../../src/types/job';
+import { DEFAULT_JOB_POSTING_PRICING_CONFIG, DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../src/types/job';
 import { INITIAL_SITE_SEO_CONFIG } from '../../src/data/mockAdminSuiteData';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../src/data/allScraperPortals';
 
@@ -136,7 +136,8 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     urgentDurationDays: 15,
     featuredTopDurationDays: 30,
     futureJobDurationDays: 60,
-    vipBundleDurationDays: 45
+    vipBundleDurationDays: 45,
+    homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
   },
   advertisements: {
     bannerPerDayPkr: 1500,
@@ -548,6 +549,30 @@ export class Database {
     return {
       ...DEFAULT_COMPREHENSIVE_PRICING,
       ...(stored || {}),
+      jobPosting: {
+        ...DEFAULT_JOB_POSTING_PRICING_CONFIG,
+        ...(stored?.jobPosting || {}),
+        homepagePrioritySlotConfig: {
+          ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
+          ...(stored?.jobPosting?.homepagePrioritySlotConfig || {}),
+          vip: {
+            ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.vip,
+            ...(stored?.jobPosting?.homepagePrioritySlotConfig?.vip || {})
+          },
+          pinned: {
+            ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.pinned,
+            ...(stored?.jobPosting?.homepagePrioritySlotConfig?.pinned || {})
+          },
+          featured: {
+            ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.featured,
+            ...(stored?.jobPosting?.homepagePrioritySlotConfig?.featured || {})
+          },
+          urgent: {
+            ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.urgent,
+            ...(stored?.jobPosting?.homepagePrioritySlotConfig?.urgent || {})
+          }
+        }
+      },
       subscriptionPackages: Array.isArray(stored?.subscriptionPackages)
         ? stored.subscriptionPackages
         : DEFAULT_COMPREHENSIVE_PRICING.subscriptionPackages,

@@ -193,7 +193,7 @@ export function mapScrapedResultToRouteJob(
   domain?: string,
   cleanUrl: string = '',
   now: string = new Date().toISOString().replace('T', ' ').substring(0, 19)
-): Job {
+): any {
   return {
     id: `scraped-${Date.now().toString(36)}-${idx}`,
     title: r.title,
@@ -214,6 +214,7 @@ export function mapScrapedResultToRouteJob(
     sourceUrl: r.sourceUrl || cleanUrl,
     originalApplyUrl: r.originalApplyUrl || undefined,
     applicationUrl: r.applicationUrl || undefined,
+    sourceJobId: r.sourceJobId || undefined,
     isGovtJob: r.isGovtJob ?? true,
     govtDepartment: r.govtDepartment,
     govtScale: r.govtScale,
@@ -222,7 +223,8 @@ export function mapScrapedResultToRouteJob(
     ageRelaxationNote: r.ageRelaxationNote,
     scrapedSourceDomain: domain,
     scraperSourceName: `${organization || domain || 'Target'} Scraper`,
-    extractionSourceType: 'web_html',
+    sourcePortal: organization || domain,
+    extractionMethod: r.extractionMethod || 'html_cheerio',
     scrapedAt: now,
     paymentStatus: 'Exempt',
     advertisedPositions: r.advertisedPositions,

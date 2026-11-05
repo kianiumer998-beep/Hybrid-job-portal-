@@ -209,10 +209,12 @@ async function runStep66a3RegressionTests() {
 
   // 9. Actual Scraper Route Mapping Logic (mapScrapedResultToRouteJob)
   console.log('\n--- 9. Scraper Route Production Mapping (mapScrapedResultToRouteJob) ---');
-  const scrapedRouteFixture = {
-    id: 'scraped-rt-1',
+  const scrapedHtmlRouteFixture = {
+    id: 'scraped-rt-html',
     title: 'Deputy Director (BPS-18)',
     company: 'Federal Ministry',
+    sourceJobId: 'CASE-2026-F4',
+    extractionMethod: 'html_cheerio',
     totalVacancies: 12,
     employmentType: 'Contract',
     minimumAge: 25,
@@ -220,10 +222,11 @@ async function runStep66a3RegressionTests() {
     contactEmail: 'recruitment@ministry.gov.pk',
     extractedText: 'Official recruitment gazette notification text sample.',
     sourceUrl: 'https://ministry.gov.pk/ad-18',
+    originalApplyUrl: 'https://ministry.gov.pk/admin-apply',
     applicationUrl: 'https://ministry.gov.pk/apply-now'
   };
-  const mappedRouteJob = mapScrapedResultToRouteJob(
-    scrapedRouteFixture,
+  const mappedHtmlRouteJob = mapScrapedResultToRouteJob(
+    scrapedHtmlRouteFixture,
     0,
     'Federal Ministry',
     'ministry.gov.pk',
@@ -231,11 +234,35 @@ async function runStep66a3RegressionTests() {
     '2026-11-05 12:00:00'
   );
 
-  assert(mappedRouteJob.totalVacancies === 12, 'mapScrapedResultToRouteJob: totalVacancies preserved');
-  assert(mappedRouteJob.employmentType === 'Contract', 'mapScrapedResultToRouteJob: employmentType preserved');
-  assert(mappedRouteJob.minimumAge === 25 && mappedRouteJob.maximumAge === 35, 'mapScrapedResultToRouteJob: age limits preserved');
-  assert(mappedRouteJob.contactEmail === 'recruitment@ministry.gov.pk', 'mapScrapedResultToRouteJob: contactEmail preserved');
-  assert(mappedRouteJob.extractedText === 'Official recruitment gazette notification text sample.', 'mapScrapedResultToRouteJob: extractedText preserved');
+  assert(mappedHtmlRouteJob.sourceJobId === 'CASE-2026-F4', 'mapScrapedResultToRouteJob: sourceJobId preserved');
+  assert(mappedHtmlRouteJob.sourcePortal === 'Federal Ministry', 'mapScrapedResultToRouteJob: sourcePortal preserved');
+  assert(mappedHtmlRouteJob.extractionMethod === 'html_cheerio', 'mapScrapedResultToRouteJob: extractionMethod preserved for HTML');
+  assert(mappedHtmlRouteJob.totalVacancies === 12, 'mapScrapedResultToRouteJob: totalVacancies preserved');
+  assert(mappedHtmlRouteJob.employmentType === 'Contract', 'mapScrapedResultToRouteJob: employmentType preserved');
+  assert(mappedHtmlRouteJob.minimumAge === 25 && mappedHtmlRouteJob.maximumAge === 35, 'mapScrapedResultToRouteJob: age limits preserved');
+  assert(mappedHtmlRouteJob.contactEmail === 'recruitment@ministry.gov.pk', 'mapScrapedResultToRouteJob: contactEmail preserved');
+  assert(mappedHtmlRouteJob.extractedText === 'Official recruitment gazette notification text sample.', 'mapScrapedResultToRouteJob: extractedText preserved');
+
+  const scrapedPdfRouteFixture = {
+    id: 'scraped-rt-pdf',
+    title: 'Inspector (BPS-16)',
+    company: 'Federal Police',
+    sourceJobId: 'POLICE-2026-01',
+    extractionMethod: 'government_pdf_engine',
+    sourceUrl: 'https://police.gov.pk/notice.pdf'
+  };
+  const mappedPdfRouteJob = mapScrapedResultToRouteJob(
+    scrapedPdfRouteFixture,
+    1,
+    'Federal Police',
+    'police.gov.pk',
+    'https://police.gov.pk/notice.pdf',
+    '2026-11-05 12:00:00'
+  );
+
+  assert(mappedPdfRouteJob.sourceJobId === 'POLICE-2026-01', 'mapScrapedResultToRouteJob: PDF sourceJobId preserved');
+  assert(mappedPdfRouteJob.sourcePortal === 'Federal Police', 'mapScrapedResultToRouteJob: PDF sourcePortal preserved');
+  assert(mappedPdfRouteJob.extractionMethod === 'government_pdf_engine', 'mapScrapedResultToRouteJob: PDF extractionMethod preserved (not hardcoded web_html)');
 
   // 10. Explicit applicationUrl Preservation
   console.log('\n--- 10. Explicit applicationUrl Preservation ---');

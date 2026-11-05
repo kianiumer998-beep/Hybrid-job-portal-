@@ -66,7 +66,9 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
         if (!Object.keys(ALLOWED_MODAL_FIELDS).includes(modalKey)) {
           return res.status(400).json({ success: false, message: `Unsupported modal ID "${modalKey}".` });
         }
-        if (typeof fieldObj !== 'object' || Array.isArray(fieldObj) || fieldObj === null) continue;
+        if (typeof fieldObj !== 'object' || Array.isArray(fieldObj) || fieldObj === null) {
+          return res.status(400).json({ success: false, message: `Invalid field object for modal "${modalKey}".` });
+        }
 
         const allowedKeys = ALLOWED_MODAL_FIELDS[modalKey];
         sanitizedModals[modalKey] = {};
@@ -75,12 +77,32 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
           if (!allowedKeys.includes(fieldKey)) {
             return res.status(400).json({ success: false, message: `Unsupported field key "${fieldKey}" for modal "${modalKey}".` });
           }
-          if (typeof val === 'string') {
-            sanitizedModals[modalKey][fieldKey] = val.trim().replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '').slice(0, 500);
+          if (typeof val !== 'string') {
+            return res.status(400).json({ success: false, message: `Field "${fieldKey}" in modal "${modalKey}" must be a string.` });
           }
+
+          const trimmed = val.trim();
+          if (trimmed.length > 500) {
+            return res.status(400).json({ success: false, message: `Field "${fieldKey}" in modal "${modalKey}" is too long (max 500 chars).` });
+          }
+
+          // FIX A: Reject HTML/XML markup and unsafe control characters
+          if (/<[a-z/!]/i.test(trimmed)) {
+            return res.status(400).json({ success: false, message: `Field "${fieldKey}" in modal "${modalKey}" contains forbidden HTML/XML markup.` });
+          }
+          if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(trimmed)) {
+            return res.status(400).json({ success: false, message: `Field "${fieldKey}" in modal "${modalKey}" contains unsafe control characters.` });
+          }
+
+          sanitizedModals[modalKey][fieldKey] = trimmed;
         }
       }
-      updated.modalSettings = sanitizedModals;
+      
+      // FIX B: Merge submitted modal settings into latest stored settings
+      updated.modalSettings = {
+        ...(current.modalSettings || {}),
+        ...sanitizedModals
+      };
     }
     if (req.body.premiumFieldMessages) {
       if (typeof req.body.premiumFieldMessages !== 'object' || Array.isArray(req.body.premiumFieldMessages)) {

@@ -193,11 +193,10 @@ export const AdminModalContentManager: React.FC = () => {
   };
 
   const handleResetModalFields = (modalId: string) => {
-    setModalSettings((prev) => {
-      const next = { ...prev };
-      delete next[modalId];
-      return next;
-    });
+    setModalSettings((prev) => ({
+      ...prev,
+      [modalId]: {}
+    }));
     setShowResetConfirm(false);
   };
 

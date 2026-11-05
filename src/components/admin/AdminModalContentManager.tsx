@@ -111,9 +111,12 @@ export const MODAL_INVENTORY: ModalDefinition[] = [
       { key: 'title', label: 'Modal Title', type: 'input', defaultValue: 'Unlock Premium HD PDF Download', placeholder: 'Unlock Premium HD PDF Download' },
       { key: 'subtitle', label: 'Modal Subtitle', type: 'textarea', defaultValue: 'Download your watermarked-free, high-resolution vector PDF resume optimized for ATS corporate scanners.', placeholder: 'Subtitle...' },
       { key: 'packageTitle', label: 'Export Plan Title', type: 'input', defaultValue: 'Single Premium CV Export', placeholder: 'Single Premium CV Export' },
+      { key: 'priceDisplay', label: 'Price Display Note', type: 'input', defaultValue: 'PKR 150 ($1)', placeholder: 'e.g. PKR 150 ($1)' },
       { key: 'bullet1', label: 'Feature Bullet 1', type: 'input', defaultValue: '100% Vector Quality Print Engine', placeholder: 'Bullet 1...' },
       { key: 'bullet2', label: 'Feature Bullet 2', type: 'input', defaultValue: '99.4% ATS Parser Score', placeholder: 'Bullet 2...' },
-      { key: 'ctaText', label: 'Primary CTA Button Label', type: 'input', defaultValue: 'Upgrade to Pro / Export Resume', placeholder: 'CTA Label...' }
+      { key: 'bullet3', label: 'Feature Bullet 3', type: 'input', defaultValue: 'Included free with Pro Job Alerts Subscription', placeholder: 'Bullet 3...' },
+      { key: 'ctaText', label: 'Primary CTA Button Label', type: 'input', defaultValue: 'Upgrade to Pro / Export Resume', placeholder: 'CTA Label...' },
+      { key: 'footerNote', label: 'Footer Payment Note', type: 'input', defaultValue: 'Secure payment verification via Easypaisa, JazzCash & Bank Transfer', placeholder: 'Footer note...' }
     ]
   },
   {
@@ -163,6 +166,8 @@ export const MODAL_INVENTORY: ModalDefinition[] = [
     description: 'Legal terms, privacy policy, and contact modal.',
     fields: [
       { key: 'title', label: 'Legal Modal Title', type: 'input', defaultValue: 'Portal Terms, Privacy & Legal Guidelines', placeholder: 'Title...' },
+      { key: 'subtitle', label: 'Legal Modal Subtitle', type: 'input', defaultValue: 'Independent Listings Disclaimer & Compliance Center', placeholder: 'Subtitle...' },
+      { key: 'noticeText', label: 'Primary Disclaimer Notice', type: 'textarea', defaultValue: 'All jobs and advertisements listed on this platform are independent of the websites and should be pursued at your own risk. We are not responsible for any investments or applications made.', placeholder: 'Notice text...' },
       { key: 'acceptCta', label: 'Accept Agreement CTA Text', type: 'input', defaultValue: 'I Understand & Accept Terms', placeholder: 'I Understand...' }
     ]
   }
@@ -181,6 +186,11 @@ export const AdminModalContentManager: React.FC = () => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [authPreviewTab, setAuthPreviewTab] = useState<'login' | 'register'>('register');
 
+  // Dynamic Production Settings for Previews
+  const [lowestPricePkr, setLowestPricePkr] = useState<number | null>(null);
+  const [pricingPackages, setPricingPackages] = useState<any[]>([]);
+  const [configuredPaymentMethods, setConfiguredPaymentMethods] = useState<any[]>([]);
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -188,9 +198,42 @@ export const AdminModalContentManager: React.FC = () => {
   const loadSettings = async () => {
     setLoading(true);
     try {
-      const res = await api.applySettings.get();
-      if (res && res.success && res.settings && res.settings.modalSettings) {
-        setModalSettings(res.settings.modalSettings || {});
+      const [settingsRes, pricingRes, paymentRes] = await Promise.allSettled([
+        api.applySettings.get(),
+        api.pricing.get(),
+        api.paymentSettings.get()
+      ]);
+
+      if (settingsRes.status === 'fulfilled' && settingsRes.value?.success && settingsRes.value?.settings?.modalSettings) {
+        setModalSettings(settingsRes.value.settings.modalSettings || {});
+      }
+
+      if (pricingRes.status === 'fulfilled' && pricingRes.value?.success && pricingRes.value?.pricing?.subscriptionPackages) {
+        const pkgs = pricingRes.value.pricing.subscriptionPackages.filter((p: any) => p && p.enabled);
+        setPricingPackages(pkgs);
+
+        const validPrices: number[] = [];
+        for (const pkg of pkgs) {
+          const raw = pkg.pricePkr;
+          if (raw !== null && raw !== undefined && raw !== '') {
+            const parsed = typeof raw === 'number' ? raw : (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN);
+            if (typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0) {
+              validPrices.push(parsed);
+            }
+          }
+        }
+        if (validPrices.length > 0) {
+          setLowestPricePkr(Math.min(...validPrices));
+        } else {
+          setLowestPricePkr(null);
+        }
+      }
+
+      if (paymentRes.status === 'fulfilled' && paymentRes.value?.success && paymentRes.value?.settings?.methods) {
+        const enabledMethods = Object.entries(paymentRes.value.settings.methods)
+          .filter(([_, m]: [string, any]) => m && m.enabled && m.accountNumber)
+          .map(([k, m]: [string, any]) => ({ id: k, ...m }));
+        setConfiguredPaymentMethods(enabledMethods);
       }
     } catch (err) {
       console.error('Failed to load modal content settings:', err);
@@ -240,6 +283,33 @@ export const AdminModalContentManager: React.FC = () => {
   const handleSaveAll = async () => {
     setSaving(true);
     setSaveError(null);
+
+    // Strict Frontend Pre-Validation
+    for (const modalDef of MODAL_INVENTORY) {
+      const modalCustoms = modalSettings[modalDef.id] || {};
+      for (const field of modalDef.fields) {
+        const val = modalCustoms[field.key];
+        if (val !== undefined && typeof val === 'string') {
+          const trimmed = val.trim();
+          if (trimmed.length > 500) {
+            setSaveError(`Field "${field.label}" in "${modalDef.name}" exceeds maximum allowed length of 500 characters.`);
+            setSaving(false);
+            return;
+          }
+          if (/<[a-z/!]/i.test(trimmed)) {
+            setSaveError(`Field "${field.label}" in "${modalDef.name}" contains forbidden HTML/XML markup. Please enter plain text only.`);
+            setSaving(false);
+            return;
+          }
+          if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(trimmed)) {
+            setSaveError(`Field "${field.label}" in "${modalDef.name}" contains unsafe control characters.`);
+            setSaving(false);
+            return;
+          }
+        }
+      }
+    }
+
     try {
       const res = await api.applySettings.update({
         modalSettings
@@ -528,14 +598,22 @@ export const AdminModalContentManager: React.FC = () => {
 
           {/* Live Interactive Preview */}
           <div className="bg-[#05130e] border border-emerald-500/30 rounded-2xl p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-emerald-500/20 pb-3 gap-1">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-emerald-500/20 pb-3 gap-2">
               <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs">
                 <Eye className="w-4 h-4" />
                 <span>Live Real-Time Modal Preview</span>
               </div>
-              <span className="text-[10px] text-amber-400/90 font-mono bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                ADMIN VISUAL PREVIEW ONLY — Non-transactional simulation
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span className="text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                  🟢 Admin Editable
+                </span>
+                <span className="text-sky-400 font-mono bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded">
+                  🔵 Dynamic Data
+                </span>
+                <span className="text-amber-400 font-mono bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+                  🟡 Illustrative Sample
+                </span>
+              </div>
             </div>
 
             {/* PREVIEW 1: Premium Upgrade Modal */}
@@ -595,9 +673,16 @@ export const AdminModalContentManager: React.FC = () => {
                     onClick={(e) => e.preventDefault()}
                     className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 text-slate-950 font-black text-xs shadow-md flex items-center justify-center space-x-1.5 cursor-default"
                   >
-                    <span>{getPreviewValue('ctaText', 'Upgrade to Premium')} — From Rs. 1,200</span>
+                    <span>
+                      {getPreviewValue('ctaText', 'Upgrade to Premium')}
+                      {lowestPricePkr !== null ? ` — From Rs. ${lowestPricePkr}` : ' — View Available Plans'}
+                    </span>
                     <ArrowRight className="w-4 h-4 text-slate-950 shrink-0" />
                   </button>
+                  <div className="text-[10px] text-emerald-400/80 flex items-center justify-center space-x-1 pt-0.5">
+                    <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
+                    <span>Dynamic lowest plan from Pricing Engine: {lowestPricePkr !== null ? `Rs. ${lowestPricePkr}` : 'Configure in Pricing Engine'}</span>
+                  </div>
                   <p className="text-[10px] text-emerald-100/50 flex items-center justify-center space-x-1">
                     <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
                     <span>{getPreviewValue('footerNote', 'Instant Access Upon Admin Verification • Easy Online Subscriptions')}</span>
@@ -624,14 +709,25 @@ export const AdminModalContentManager: React.FC = () => {
                 </div>
 
                 <div className="p-4 space-y-3 text-xs">
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center space-x-2 text-[10px] text-amber-300">
+                    <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="font-bold block">Illustrative Preview Data — Not Real Records</span>
+                      <span>Sample candidate fields demonstrate applicant submission experience.</span>
+                    </div>
+                  </div>
+
                   <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
                     {getPreviewValue('instructions', 'Complete the verified application details below. The hiring employer or department will review your credentials directly.')}
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-300 block">
-                      {getPreviewValue('contactHeading', 'Candidate Contact Credentials')}
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-slate-300 block">
+                        {getPreviewValue('contactHeading', 'Candidate Contact Credentials')}
+                      </label>
+                      <span className="text-[9px] text-amber-400/80 font-mono">Sample Form Inputs</span>
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-400 text-[11px]">
                         Muhammad Ali
@@ -643,12 +739,15 @@ export const AdminModalContentManager: React.FC = () => {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-300 block">
-                      {getPreviewValue('resumeHeading', 'Verified ATS Resume Attachment')}
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-slate-300 block">
+                        {getPreviewValue('resumeHeading', 'Verified ATS Resume Attachment')}
+                      </label>
+                      <span className="text-[9px] text-amber-400/80 font-mono">Sample Attachment</span>
+                    </div>
                     <div className="p-3 bg-slate-950 border border-dashed border-slate-800 rounded-xl text-center flex items-center justify-center space-x-2 text-slate-400">
                       <UploadCloud className="w-4 h-4 text-amber-400" />
-                      <span className="text-[11px]">Ali_Resume_2026.pdf (Ready)</span>
+                      <span className="text-[11px]">Ali_Resume_2026.pdf (Sample Ready)</span>
                     </div>
                   </div>
 
@@ -690,33 +789,84 @@ export const AdminModalContentManager: React.FC = () => {
 
                 <div className="p-4 space-y-3 text-xs">
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-                      {getPreviewValue('packageSectionTitle', 'Select Subscription Package')}
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="p-2.5 rounded-xl border-2 border-emerald-500 bg-emerald-500/10 text-white">
-                        <div className="flex justify-between items-center text-[11px] font-bold">
-                          <span>Pro Alerts</span>
-                          <span className="text-[9px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded font-bold">POPULAR</span>
-                        </div>
-                        <div className="text-sm font-black text-emerald-400 mt-0.5">PKR 1,200 <span className="text-[9px] font-normal text-slate-400">/ 30 days</span></div>
-                      </div>
-                      <div className="p-2.5 rounded-xl border border-slate-800 bg-slate-950 text-slate-400">
-                        <div className="text-[11px] font-bold">VIP Executive</div>
-                        <div className="text-sm font-black text-slate-300 mt-0.5">PKR 3,000 <span className="text-[9px] font-normal text-slate-500">/ 45 days</span></div>
-                      </div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        {getPreviewValue('packageSectionTitle', 'Select Subscription Package')}
+                      </label>
+                      <span className="text-[9px] text-sky-400 font-mono bg-sky-500/10 px-1.5 py-0.2 rounded border border-sky-500/20">
+                        {pricingPackages.length > 0 ? 'Live Pricing Engine' : 'Sample Indicative'}
+                      </span>
                     </div>
+                    {pricingPackages.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {pricingPackages.slice(0, 2).map((pkg: any, idx: number) => (
+                          <div
+                            key={pkg.id || idx}
+                            className={`p-2.5 rounded-xl border ${
+                              idx === 0
+                                ? 'border-2 border-emerald-500 bg-emerald-500/10 text-white'
+                                : 'border-slate-800 bg-slate-950 text-slate-400'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center text-[11px] font-bold">
+                              <span>{pkg.name}</span>
+                              {pkg.badge && (
+                                <span className="text-[9px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded font-bold">
+                                  {pkg.badge}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm font-black text-emerald-400 mt-0.5">
+                              PKR {pkg.pricePkr} <span className="text-[9px] font-normal text-slate-400">/ {pkg.durationDays} days</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-center space-y-1">
+                        <div className="text-[11px] font-semibold text-amber-300">
+                          Illustrative Sample Packages — Configure in Pricing Manager
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <div className="p-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-white text-left">
+                            <div className="text-[10px] font-bold">Pro Alerts</div>
+                            <div className="text-xs font-black text-emerald-400">PKR 1,200 <span className="text-[8px] text-slate-400">/ 30 days</span></div>
+                          </div>
+                          <div className="p-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 text-left">
+                            <div className="text-[10px] font-bold">VIP Executive</div>
+                            <div className="text-xs font-black text-slate-300">PKR 3,000 <span className="text-[8px] text-slate-500">/ 45 days</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                    <div className="flex justify-between items-center text-amber-300 font-bold">
-                      <span className="flex items-center space-x-1">
-                        <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>JazzCash / Easypaisa Verified Account</span>
-                      </span>
-                      <span className="text-emerald-400 font-mono">PKR 1,200</span>
-                    </div>
-                    <div className="text-slate-300">Account: <span className="text-emerald-400 font-mono font-bold">0300-1234567</span> (Muhammad Ali)</div>
+                    {configuredPaymentMethods.length > 0 ? (
+                      <>
+                        <div className="flex justify-between items-center text-emerald-300 font-bold">
+                          <span className="flex items-center space-x-1">
+                            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{configuredPaymentMethods[0].name} (Live Channel)</span>
+                          </span>
+                          <span className="text-[9px] text-sky-400 font-mono bg-sky-500/10 px-1 rounded">Live Account</span>
+                        </div>
+                        <div className="text-slate-300 text-[11px]">
+                          Account: <span className="text-emerald-400 font-mono font-bold">{configuredPaymentMethods[0].accountNumber}</span>
+                          {configuredPaymentMethods[0].accountTitle ? ` (${configuredPaymentMethods[0].accountTitle})` : ''}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center space-x-1.5 text-amber-300 font-bold">
+                          <Smartphone className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Receiving Accounts (Configured in Payment Settings)</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          Active receiving accounts and verified deposit instructions dynamically appear here from Payment Settings.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <button
@@ -756,7 +906,9 @@ export const AdminModalContentManager: React.FC = () => {
                     <span className="font-bold text-xs text-white">
                       {getPreviewValue('packageTitle', 'Single Premium CV Export')}
                     </span>
-                    <span className="text-sm font-black text-emerald-400">PKR 150 <span className="text-[10px] text-slate-500 font-normal">($1)</span></span>
+                    <span className="text-sm font-black text-emerald-400">
+                      {getPreviewValue('priceDisplay', 'PKR 150 ($1)')}
+                    </span>
                   </div>
                   <ul className="text-[11px] text-slate-300 space-y-1">
                     <li className="flex items-center space-x-1.5">
@@ -769,7 +921,7 @@ export const AdminModalContentManager: React.FC = () => {
                     </li>
                     <li className="flex items-center space-x-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Included free with Pro Job Alerts Subscription</span>
+                      <span>{getPreviewValue('bullet3', 'Included free with Pro Job Alerts Subscription')}</span>
                     </li>
                   </ul>
                 </div>
@@ -783,7 +935,7 @@ export const AdminModalContentManager: React.FC = () => {
                   <ArrowRight className="w-3.5 h-3.5 text-slate-950" />
                 </button>
                 <p className="text-[10px] text-slate-500">
-                  Secure payment verification via Easypaisa, JazzCash & Bank Transfer
+                  {getPreviewValue('footerNote', 'Secure payment verification via Easypaisa, JazzCash & Bank Transfer')}
                 </p>
               </div>
             )}
@@ -1003,7 +1155,7 @@ export const AdminModalContentManager: React.FC = () => {
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 mt-0.5">
-                        Independent Listings Disclaimer & Compliance Center
+                        {getPreviewValue('subtitle', 'Independent Listings Disclaimer & Compliance Center')}
                       </p>
                     </div>
                   </div>
@@ -1013,13 +1165,21 @@ export const AdminModalContentManager: React.FC = () => {
                 </div>
 
                 <div className="p-4 space-y-3 text-xs">
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center space-x-2 text-[10px] text-amber-300">
+                    <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="font-bold block">Illustrative Legal Summary Preview</span>
+                      <span>Full legal documentation and policies are configured in the Legal Center.</span>
+                    </div>
+                  </div>
+
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px] leading-relaxed space-y-1">
                     <div className="flex items-center space-x-1.5 text-amber-400 font-bold uppercase text-[10px]">
                       <AlertTriangle className="w-3.5 h-3.5" />
                       <span>Notice</span>
                     </div>
                     <p>
-                      All jobs and advertisements listed on this platform are independent of the websites and should be pursued at your own risk. We are not responsible for any investments or applications made.
+                      {getPreviewValue('noticeText', 'All jobs and advertisements listed on this platform are independent of the websites and should be pursued at your own risk. We are not responsible for any investments or applications made.')}
                     </p>
                   </div>
 

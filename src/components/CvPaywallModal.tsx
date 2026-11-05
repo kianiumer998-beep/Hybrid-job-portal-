@@ -56,7 +56,7 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
           <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 text-left space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-sm text-white">{customs.packageTitle || 'Single Premium CV Export'}</span>
-              <span className="text-base font-black text-emerald-400">PKR 150 <span className="text-xs text-slate-500 font-normal">($1)</span></span>
+              <span className="text-base font-black text-emerald-400">{customs.priceDisplay || 'PKR 150 ($1)'}</span>
             </div>
             <ul className="text-xs text-slate-300 space-y-1">
               <li className="flex items-center space-x-1.5">
@@ -69,7 +69,7 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
               </li>
               <li className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Included free with Pro Job Alerts Subscription</span>
+                <span>{customs.bullet3 || 'Included free with Pro Job Alerts Subscription'}</span>
               </li>
             </ul>
           </div>
@@ -86,7 +86,7 @@ export const CvPaywallModal: React.FC<CvPaywallModalProps> = ({
           </button>
 
           <p className="text-[11px] text-slate-500">
-            Secure payment verification via Easypaisa, JazzCash & Bank Transfer
+            {customs.footerNote || 'Secure payment verification via Easypaisa, JazzCash & Bank Transfer'}
           </p>
         </div>
 

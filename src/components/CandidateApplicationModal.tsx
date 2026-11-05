@@ -217,7 +217,7 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
           <div>
             <div className="flex items-center space-x-2 text-xs text-amber-400 font-bold uppercase tracking-wider mb-1">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>{settings.applicationModalTitle || 'Submit Job Application'}</span>
+              <span>{(settings.modalSettings?.candidateApplication?.title) || settings.applicationModalTitle || 'Submit Job Application'}</span>
             </div>
             <h3 className="text-xl font-black text-white">{job.title}</h3>
             <p className="text-xs text-slate-400 mt-0.5">{job.company} • {job.city || job.region}</p>
@@ -250,7 +250,7 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
               <div>
                 <h4 className="text-lg font-black text-white">Application Received!</h4>
                 <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto">
-                  {settings.successMessage}
+                  {(settings.modalSettings?.candidateApplication?.successMsg) || settings.successMessage || 'Your application has been received successfully and forwarded to the hiring team!'}
                 </p>
               </div>
               <button
@@ -266,7 +266,7 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
               
               {/* Employer Instructions */}
               <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 text-xs text-slate-400">
-                {settings.applicationInstructions}
+                {(settings.modalSettings?.candidateApplication?.instructions) || settings.applicationInstructions}
               </div>
 
               {/* External Redirect Warning if Scraped */}
@@ -290,54 +290,61 @@ export const CandidateApplicationModal: React.FC<CandidateApplicationModalProps>
               )}
 
               {/* Candidate Info Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Candidate Full Name <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={applicantName}
-                    onChange={(e) => setApplicantName(e.target.value)}
-                    placeholder="e.g. Muhammad Ali"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
-                  />
+              <div className="space-y-3">
+                {settings.modalSettings?.candidateApplication?.contactHeading && (
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    {settings.modalSettings.candidateApplication.contactHeading}
+                  </h4>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Candidate Full Name <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={applicantName}
+                      onChange={(e) => setApplicantName(e.target.value)}
+                      placeholder="e.g. Muhammad Ali"
+                      className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Email Address {settings.requireEmail && <span className="text-rose-400">*</span>}
+                    </label>
+                    <input
+                      type="email"
+                      required={settings.requireEmail}
+                      value={applicantEmail}
+                      onChange={(e) => setApplicantEmail(e.target.value)}
+                      placeholder="e.g. ali@example.com"
+                      className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Email Address {settings.requireEmail && <span className="text-rose-400">*</span>}
+                    Mobile / WhatsApp Number {settings.requirePhone && <span className="text-rose-400">*</span>}
                   </label>
                   <input
-                    type="email"
-                    required={settings.requireEmail}
-                    value={applicantEmail}
-                    onChange={(e) => setApplicantEmail(e.target.value)}
-                    placeholder="e.g. ali@example.com"
+                    type="tel"
+                    required={settings.requirePhone}
+                    value={applicantPhone}
+                    onChange={(e) => setApplicantPhone(e.target.value)}
+                    placeholder="e.g. +92 300 1234567"
                     className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Mobile / WhatsApp Number {settings.requirePhone && <span className="text-rose-400">*</span>}
-                </label>
-                <input
-                  type="tel"
-                  required={settings.requirePhone}
-                  value={applicantPhone}
-                  onChange={(e) => setApplicantPhone(e.target.value)}
-                  placeholder="e.g. +92 300 1234567"
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
-                />
               </div>
 
               {/* CV Upload */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Resume / Curriculum Vitae (PDF or DOCX) {settings.requireCv && <span className="text-rose-400">*</span>}
+                  {(settings.modalSettings?.candidateApplication?.resumeHeading) || 'Resume / Curriculum Vitae (PDF or DOCX)'} {settings.requireCv && <span className="text-rose-400">*</span>}
                 </label>
                 <div className="p-4 bg-slate-950 border-2 border-dashed border-slate-800 hover:border-amber-500/50 rounded-2xl text-center transition-colors">
                   <input

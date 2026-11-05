@@ -91,7 +91,7 @@ export const LegalDisclaimerModal: React.FC<LegalDisclaimerModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Independent Listings Disclaimer, Privacy Policy, Terms & Official Support
+                {modalSettings?.legalDisclaimer?.subtitle || 'Independent Listings Disclaimer, Privacy Policy, Terms & Official Support'}
               </p>
             </div>
           </div>
@@ -169,7 +169,7 @@ export const LegalDisclaimerModal: React.FC<LegalDisclaimerModalProps> = ({
                   <span>Official Independent Listings & Non-Affiliation Notice</span>
                 </div>
                 <p className="text-xs sm:text-sm font-medium leading-relaxed text-amber-100/95">
-                  <strong>Please Note:</strong> All jobs and advertisements listed on this platform are independent of the websites and should be pursued at your own risk. We are not responsible for any investments or applications made. While our customers post these jobs and advertisements, and we strive to ensure their validity, we cannot guarantee 100% accuracy. These listings have no direct affiliation with the websites mentioned.
+                  <strong>Please Note:</strong> {modalSettings?.legalDisclaimer?.noticeText || 'All jobs and advertisements listed on this platform are independent of the websites and should be pursued at your own risk. We are not responsible for any investments or applications made. While our customers post these jobs and advertisements, and we strive to ensure their validity, we cannot guarantee 100% accuracy. These listings have no direct affiliation with the websites mentioned.'}
                 </p>
                 <div className="text-[11px] text-amber-300/80 font-urdu pt-2 border-t border-amber-500/20">
                   <strong>اہم تنبیہ:</strong> اس پلیٹ فارم پر موجود تمام نوکریاں اور اشتہارات آزادانہ طور پر پوسٹ کیے گئے ہیں۔ کسی بھی ملازمت پر اپلائی کرنا یا مالی لین دین آپ کے اپنے رسک پر ہے۔ ہم 100٪ درستگی کی ضمانت نہیں دے سکتے۔

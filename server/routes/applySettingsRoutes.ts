@@ -53,11 +53,11 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
         premiumUpgrade: ['customTitle', 'customMessage', 'benefit1Title', 'benefit1Desc', 'benefit2Title', 'benefit2Desc', 'benefit3Title', 'benefit3Desc', 'ctaText', 'footerNote'],
         candidateApplication: ['title', 'instructions', 'contactHeading', 'resumeHeading', 'submitCta', 'successMsg'],
         subscription: ['badgeText', 'title', 'subtitle', 'packageSectionTitle', 'submitCta'],
-        cvPaywall: ['title', 'subtitle', 'packageTitle', 'bullet1', 'bullet2', 'ctaText'],
+        cvPaywall: ['title', 'subtitle', 'packageTitle', 'priceDisplay', 'bullet1', 'bullet2', 'bullet3', 'ctaText', 'footerNote'],
         authModal: ['loginTab', 'registerTab', 'loginTitle', 'registerTitle', 'loginCta', 'registerCta'],
         adminLogin: ['title', 'subtitle', 'ctaText'],
         countrySelection: ['title', 'subtitle', 'ctaText'],
-        legalDisclaimer: ['title', 'acceptCta']
+        legalDisclaimer: ['title', 'subtitle', 'noticeText', 'acceptCta']
       };
 
       const sanitizedModals: Record<string, Record<string, string>> = {};

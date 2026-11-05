@@ -33,5 +33,6 @@
       "type": "text",
       "required": false
     }
-  ]
+  ],
+  "modalSettings": {}
 }

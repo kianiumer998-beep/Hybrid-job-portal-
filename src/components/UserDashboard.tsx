@@ -2396,7 +2396,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 <div className="text-right">
                   <span className="text-[11px] text-slate-400">Total Posting Fee:</span>
                   <div className="text-base font-black text-emerald-400 font-mono">
-                    {currentTotalFee === 0 ? 'FREE' : `PKR ${currentTotalFee.toLocaleString()}`}
+                    {isCalculatingFee
+                      ? 'Calculating...'
+                      : calculationError
+                      ? 'Error'
+                      : currentTotalFee === 0
+                      ? 'FREE'
+                      : currentTotalFee !== null && currentTotalFee !== undefined
+                      ? `PKR ${currentTotalFee.toLocaleString()}`
+                      : 'Calculating...'}
                   </div>
                 </div>
               </div>
@@ -2613,13 +2621,24 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           <button
             type="submit"
-            className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 cursor-pointer transition-all flex items-center justify-center space-x-2"
+            disabled={isCalculatingFee || calculatedPostingFee === null || !!calculationError}
+            className={`w-full py-4 rounded-xl font-black text-sm shadow-xl transition-all flex items-center justify-center space-x-2 ${
+              isCalculatingFee || calculatedPostingFee === null || !!calculationError
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                : 'bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-emerald-500/20 cursor-pointer'
+            }`}
           >
-            <Send className="w-4 h-4 text-slate-950" />
+            <Send className="w-4 h-4" />
             <span>
-              {currentTotalFee > 0
+              {isCalculatingFee
+                ? 'Calculating Fee...'
+                : calculationError
+                ? 'Pricing Error - Select Options Again'
+                : currentTotalFee === 0
+                ? 'Submit Free Job Listing for Approval'
+                : currentTotalFee !== null && currentTotalFee !== undefined
                 ? `Proceed to Pay Fee (PKR ${currentTotalFee.toLocaleString()}) & Submit Listing`
-                : 'Publish Job Listing for Verification'}
+                : 'Calculating Fee...'}
             </span>
           </button>
         </form>
@@ -2977,7 +2996,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     ? 'Calculating...'
                     : calculationError
                     ? 'Error'
-                    : `PKR ${(calculatedPostingFee !== null ? calculatedPostingFee : 0).toLocaleString()}`}
+                    : calculatedPostingFee === 0
+                    ? 'FREE'
+                    : calculatedPostingFee !== null && calculatedPostingFee !== undefined
+                    ? `PKR ${calculatedPostingFee.toLocaleString()}`
+                    : 'Calculating...'}
                 </span>
               </div>
             </div>
@@ -3017,7 +3040,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   ? 'Calculating Fee...'
                   : calculationError
                   ? 'Calculation Error'
-                  : `Pay PKR ${(calculatedPostingFee !== null ? calculatedPostingFee : 0).toLocaleString()} & Submit Job`}
+                  : calculatedPostingFee === 0
+                  ? 'Confirm Free Job Submission'
+                  : calculatedPostingFee !== null && calculatedPostingFee !== undefined
+                  ? `Pay PKR ${calculatedPostingFee.toLocaleString()} & Submit Job`
+                  : 'Calculating Fee...'}
               </button>
             </div>
 

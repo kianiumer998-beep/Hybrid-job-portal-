@@ -45,7 +45,8 @@ import {
   PaymentTransaction, 
   JobApplication,
   JobPostingPricingConfig,
-  DEFAULT_JOB_POSTING_PRICING_CONFIG
+  DEFAULT_JOB_POSTING_PRICING_CONFIG,
+  FeePaymentData
 } from './types/job';
 import { Bell, Sparkles, CheckCircle2, Shield, Search, AlertTriangle, Info, CheckCircle, ArrowRight, X, Layers, Globe, MapPin, Zap } from 'lucide-react';
 import { SiteSeoConfig } from './types/adminSuite';
@@ -1442,6 +1443,18 @@ export default function App() {
             );
           }
         }
+        // If this is a Job Posting transaction, update corresponding fee log to Paid
+        if (normalized.type === 'Job Posting Fee' || (res.transaction.type as string) === 'Job Posting') {
+          const logId = 'log-' + (res.transaction.id || (res.transaction as any)._id);
+          setJobPostingFeeLogs((prev) =>
+            prev.map((log) => {
+              if (log.id === logId || (res.transaction.jobTitleRef && log.jobTitle === res.transaction.jobTitleRef)) {
+                return { ...log, status: 'Paid' };
+              }
+              return log;
+            })
+          );
+        }
 
         await loadBackendTransactions(currentUser?.id);
         await loadBackendJobs();
@@ -1531,6 +1544,19 @@ export default function App() {
                 return { ...sub, status: 'Expired' };
               }
               return sub;
+            })
+          );
+        }
+
+        // If Job Posting transaction was rejected, update fee log status to Failed
+        if (normalized.type === 'Job Posting Fee' || (res.transaction.type as string) === 'Job Posting') {
+          const logId = 'log-' + (res.transaction.id || (res.transaction as any)._id);
+          setJobPostingFeeLogs((prev) =>
+            prev.map((log) => {
+              if (log.id === logId || (res.transaction.jobTitleRef && log.jobTitle === res.transaction.jobTitleRef)) {
+                return { ...log, status: 'Failed' };
+              }
+              return log;
             })
           );
         }
@@ -2129,7 +2155,10 @@ export default function App() {
   };
 
   // User submits job for admin verification with optional Fee Payment
-  const handleSubmitJobForApproval = async (newJob: Job, feePayment?: { amount: number; paymentMethod: string }) => {
+  const handleSubmitJobForApproval = async (
+    newJob: Job,
+    feePayment?: FeePaymentData
+  ): Promise<{ success: boolean; transaction?: any; message?: string }> => {
     let createdJob: Job | null = null;
     try {
       const createRes = await api.jobs.create({ ...newJob, status: 'Pending' });
@@ -2137,10 +2166,10 @@ export default function App() {
         createdJob = createRes.job;
       }
       await loadBackendJobs();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating pending job on backend:', err);
       await loadBackendJobs();
-      return;
+      return { success: false, message: err?.message || 'Error creating job posting.' };
     }
 
     if (feePayment && currentUser && createdJob?.id) {
@@ -2161,7 +2190,12 @@ export default function App() {
             government: Boolean(newJob.isGovtJob),
             newspaper: Boolean(newJob.isNewspaperAd)
           },
-          senderName: currentUser.name,
+          transactionId: feePayment.transactionId,
+          senderName: feePayment.senderName || currentUser.name,
+          senderPhoneOrAccount: feePayment.senderPhoneOrAccount,
+          depositBankOrWalletName: feePayment.depositBankOrWalletName,
+          proofScreenshotUrl: feePayment.proofScreenshotUrl,
+          proofNote: feePayment.proofNote,
           userName: currentUser.name,
           userEmail: currentUser.email,
           idempotencyKey: `job-fee-${createdJob.id}-${Date.now()}`
@@ -2181,7 +2215,7 @@ export default function App() {
             currency: 'PKR',
             paymentMethod: feePayment.paymentMethod,
             dateTime: nowStr,
-            status: 'Paid'
+            status: normalizedTx.status === 'Success' ? 'Paid' : 'Pending'
           };
 
           setJobPostingFeeLogs((prev) => [newLog, ...prev.filter((l) => l.id !== newLog.id)]);
@@ -2191,14 +2225,17 @@ export default function App() {
           ]);
           await loadBackendTransactions(currentUser.id);
           await loadBackendJobs();
+          return { success: true, transaction: normalizedTx };
         } else {
-          alert(txRes?.message || 'Job submitted, but payment proof submission could not be completed.');
+          const msg = txRes?.message || 'Job submitted, but payment proof submission could not be completed.';
+          return { success: false, message: msg };
         }
       } catch (err: any) {
         console.error('Error submitting job posting payment transaction:', err);
-        alert(err?.message || 'Error submitting job posting payment transaction.');
+        return { success: false, message: err?.message || 'Error submitting job posting payment transaction.' };
       }
     }
+    return { success: true };
   };
 
   // User Manual Subscription Renewal (+30 Days)

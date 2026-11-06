@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS, JobPostingPricingConfig, DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../types/job';
+import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS, JobPostingPricingConfig, DEFAULT_JOB_POSTING_PRICING_CONFIG, FeePaymentData } from '../types/job';
 import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info } from 'lucide-react';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
@@ -47,7 +47,10 @@ interface UserDashboardProps {
   onDuplicateAd?: (ad: Advertisement) => void;
   onToggleAutoRenew: () => void;
   onRenewSubscription: () => void;
-  onSubmitJobForApproval: (job: Job, feePayment?: { amount: number; paymentMethod: string }) => void;
+  onSubmitJobForApproval: (
+    job: Job,
+    feePayment?: FeePaymentData
+  ) => Promise<{ success: boolean; transaction?: any; message?: string } | void> | void;
   onSendMessageToAdmin: (text: string) => void;
   onUpdateProfile?: (updated: Partial<UserAccount> | UserAccount) => Promise<boolean> | boolean | void;
   onChangePassword?: (currentPass: string, newPass: string) => Promise<{ success: boolean; message?: string } | boolean> | { success: boolean; message?: string } | boolean;
@@ -206,6 +209,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [isCalculatingFee, setIsCalculatingFee] = useState<boolean>(false);
   const [calculationError, setCalculationError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer'>('JazzCash');
+  const [jobFeeTid, setJobFeeTid] = useState<string>('');
+  const [jobFeeSenderName, setJobFeeSenderName] = useState<string>('');
+  const [jobFeeSenderPhone, setJobFeeSenderPhone] = useState<string>('');
+  const [jobFeeBankInfo, setJobFeeBankInfo] = useState<string>('');
+  const [jobFeeScreenshotUrl, setJobFeeScreenshotUrl] = useState<string>('');
+  const [jobFeeNote, setJobFeeNote] = useState<string>('');
+  const [isSubmittingFeePayment, setIsSubmittingFeePayment] = useState<boolean>(false);
+  const [feePaymentError, setFeePaymentError] = useState<string | null>(null);
 
   // Chat message input state
   const [newMessageText, setNewMessageText] = useState('');
@@ -596,8 +607,37 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   };
 
-  const handleConfirmFeePayment = () => {
-    if (!pendingJobData) return;
+  const resetJobFeeProofForm = () => {
+    setJobFeeTid('');
+    setJobFeeSenderName('');
+    setJobFeeSenderPhone('');
+    setJobFeeBankInfo('');
+    setJobFeeScreenshotUrl('');
+    setJobFeeNote('');
+    setIsSubmittingFeePayment(false);
+    setFeePaymentError(null);
+  };
+
+  const handleJobFeeScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setFeePaymentError('Receipt screenshot file size must be under 5MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setJobFeeScreenshotUrl(reader.result as string);
+      setFeePaymentError(null);
+    };
+    reader.onerror = () => {
+      setFeePaymentError('Failed to read image file. Please try another image.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleConfirmFeePayment = async () => {
+    if (!pendingJobData || isSubmittingFeePayment) return;
 
     if (isCalculatingFee) {
       alert('Fee calculation is in progress. Please wait a moment...');
@@ -611,16 +651,52 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
     const feeToPay = calculatedPostingFee;
 
-    onSubmitJobForApproval(pendingJobData, {
-      amount: feeToPay,
-      paymentMethod
-    });
+    // For paid postings, validate payment proof fields
+    if (feeToPay > 0) {
+      if (!jobFeeTid.trim() && !jobFeeScreenshotUrl) {
+        setFeePaymentError('Please enter a Transaction ID (TID) or upload a payment receipt screenshot as proof.');
+        return;
+      }
+    }
 
-    alert(`Payment of PKR ${feeToPay.toLocaleString()} via ${paymentMethod} received for plan "${pendingJobData.priorityTier?.toUpperCase() || 'STANDARD'}"! Job "${pendingJobData.title}" submitted to Admin queue for verification.`);
-    
-    setShowFeeInvoiceModal(false);
-    setPendingJobData(null);
-    resetJobForm();
+    setIsSubmittingFeePayment(true);
+    setFeePaymentError(null);
+
+    const feePaymentData: FeePaymentData = {
+      amount: feeToPay,
+      paymentMethod,
+      transactionId: jobFeeTid.trim() || undefined,
+      senderName: jobFeeSenderName.trim() || currentUser.name,
+      senderPhoneOrAccount: jobFeeSenderPhone.trim() || undefined,
+      depositBankOrWalletName: jobFeeBankInfo.trim() || undefined,
+      proofScreenshotUrl: jobFeeScreenshotUrl || undefined,
+      proofNote: jobFeeNote.trim() || undefined
+    };
+
+    try {
+      const res = await onSubmitJobForApproval(pendingJobData, feePaymentData);
+
+      if (res && typeof res === 'object' && res.success === false) {
+        setFeePaymentError(res.message || 'Payment proof submission could not be completed. Please check details and try again.');
+        setIsSubmittingFeePayment(false);
+        return;
+      }
+
+      alert(
+        feeToPay === 0
+          ? `Job "${pendingJobData.title}" submitted successfully! Status: Pending Verification.`
+          : `Payment proof of PKR ${feeToPay.toLocaleString()} via ${paymentMethod} submitted! Transaction status: Pending Verification. Job "${pendingJobData.title}" submitted to Admin queue for verification.`
+      );
+
+      setShowFeeInvoiceModal(false);
+      setPendingJobData(null);
+      resetJobForm();
+      resetJobFeeProofForm();
+    } catch (err: any) {
+      setFeePaymentError(err?.message || 'Error submitting payment proof.');
+    } finally {
+      setIsSubmittingFeePayment(false);
+    }
   };
 
   const resetJobForm = () => {
@@ -3025,25 +3101,132 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </div>
 
+            {calculatedPostingFee !== null && calculatedPostingFee > 0 && (
+              <div className="space-y-3 pt-1 border-t border-slate-800/80">
+                <div className="bg-slate-950/80 rounded-xl p-3 border border-slate-800 space-y-1.5 text-xs">
+                  <div className="text-amber-400 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5" /> Deposit Instructions ({paymentMethod})
+                  </div>
+                  <p className="text-slate-300 text-[11px] leading-relaxed">
+                    {paymentMethod === 'JazzCash' && 'Please send payment to JazzCash Account: 0300-1234567 (Title: Hybrid Portal) and submit your transaction proof below.'}
+                    {paymentMethod === 'Easypaisa' && 'Please send payment to Easypaisa Account: 0300-9876543 (Title: Hybrid Portal) and submit your transaction proof below.'}
+                    {paymentMethod === 'Bank Transfer' && 'Please transfer funds to Meezan Bank IBAN: PK12MEEZ000123456789 (Title: Hybrid Portal) and submit your transaction proof below.'}
+                    {paymentMethod === 'Credit Card' && 'Please initiate online transfer/deposit and enter your transaction ID (TID) or receipt screenshot below for manual verification.'}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Transaction ID / TID <span className="text-emerald-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={jobFeeTid}
+                      onChange={(e) => setJobFeeTid(e.target.value)}
+                      placeholder="e.g. 1029384756"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Sender Name</label>
+                    <input
+                      type="text"
+                      value={jobFeeSenderName}
+                      onChange={(e) => setJobFeeSenderName(e.target.value)}
+                      placeholder={currentUser.name}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Sender Phone / Account</label>
+                    <input
+                      type="text"
+                      value={jobFeeSenderPhone}
+                      onChange={(e) => setJobFeeSenderPhone(e.target.value)}
+                      placeholder="e.g. 03001234567"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Bank / Wallet Name</label>
+                    <input
+                      type="text"
+                      value={jobFeeBankInfo}
+                      onChange={(e) => setJobFeeBankInfo(e.target.value)}
+                      placeholder="e.g. JazzCash App, HBL"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Receipt Screenshot (Optional if TID provided)</label>
+                  {jobFeeScreenshotUrl ? (
+                    <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg p-1.5">
+                      <img src={jobFeeScreenshotUrl} alt="Receipt preview" className="w-10 h-10 object-cover rounded" />
+                      <span className="text-[11px] text-emerald-400 font-semibold truncate flex-1">Screenshot attached</span>
+                      <button
+                        type="button"
+                        onClick={() => setJobFeeScreenshotUrl('')}
+                        className="text-slate-400 hover:text-red-400 p-1 text-xs"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center justify-center gap-2 bg-slate-950 border border-dashed border-slate-700 hover:border-emerald-500 rounded-lg p-2 cursor-pointer transition-colors text-xs text-slate-400 hover:text-slate-200">
+                      <Upload className="w-4 h-4 text-emerald-400" />
+                      <span>Upload receipt image (Max 5MB)</span>
+                      <input type="file" accept="image/*" onChange={handleJobFeeScreenshotChange} className="hidden" />
+                    </label>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Payment Note (Optional)</label>
+                  <input
+                    type="text"
+                    value={jobFeeNote}
+                    onChange={(e) => setJobFeeNote(e.target.value)}
+                    placeholder="Optional details for verification..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
+                  />
+                </div>
+              </div>
+            )}
+
+            {feePaymentError && (
+              <div className="p-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{feePaymentError}</span>
+              </div>
+            )}
+
             <div className="pt-1.5 sm:pt-2">
               <button
                 type="button"
-                disabled={isCalculatingFee || calculatedPostingFee === null || !!calculationError}
+                disabled={isCalculatingFee || calculatedPostingFee === null || !!calculationError || isSubmittingFeePayment}
                 onClick={handleConfirmFeePayment}
                 className={`w-full py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl font-black text-xs shadow-xl transition-all ${
-                  isCalculatingFee || calculatedPostingFee === null || !!calculationError
+                  isCalculatingFee || calculatedPostingFee === null || !!calculationError || isSubmittingFeePayment
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
                     : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-emerald-500/20 cursor-pointer active:scale-95'
                 }`}
               >
-                {isCalculatingFee
+                {isSubmittingFeePayment
+                  ? 'Submitting Payment Proof...'
+                  : isCalculatingFee
                   ? 'Calculating Fee...'
                   : calculationError
                   ? 'Calculation Error'
                   : calculatedPostingFee === 0
                   ? 'Confirm Free Job Submission'
                   : calculatedPostingFee !== null && calculatedPostingFee !== undefined
-                  ? `Pay PKR ${calculatedPostingFee.toLocaleString()} & Submit Job`
+                  ? `Submit Proof & Post Job (PKR ${calculatedPostingFee.toLocaleString()})`
                   : 'Calculating Fee...'}
               </button>
             </div>

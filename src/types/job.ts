@@ -63,7 +63,18 @@ export interface JobPostingFeeLog {
   amount: number;
   currency: Currency;
   paymentMethod: string;
-  status: 'Paid' | 'Refunded';
+  status: 'Paid' | 'Pending' | 'Failed' | 'Refunded' | string;
+}
+
+export interface FeePaymentData {
+  amount: number;
+  paymentMethod: string;
+  transactionId?: string;
+  senderName?: string;
+  senderPhoneOrAccount?: string;
+  depositBankOrWalletName?: string;
+  proofScreenshotUrl?: string;
+  proofNote?: string;
 }
 
 export interface JobApplication {

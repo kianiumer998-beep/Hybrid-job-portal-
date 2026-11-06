@@ -3,7 +3,7 @@ import path from 'path';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../../src/data/mockTransactions';
 import { INITIAL_ADVERTISEMENTS, DEFAULT_AD_PRICING_CONFIG, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../../src/types/ad';
 import { DEFAULT_JOB_POSTING_PRICING_CONFIG, DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../src/types/job';
-import { DEFAULT_LANDING_PAGE_CONFIG } from '../../src/types/landing';
+import { DEFAULT_LANDING_PAGE_CONFIG, DEFAULT_CATEGORY_POSTING_FEES } from '../../src/types/landing';
 import { INITIAL_SITE_SEO_CONFIG } from '../../src/data/mockAdminSuiteData';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../src/data/allScraperPortals';
 
@@ -121,6 +121,7 @@ const DEFAULT_APPLY_SETTINGS = {
 };
 
 const DEFAULT_COMPREHENSIVE_PRICING = {
+  currency: 'PKR',
   jobPosting: {
     standardFeePkr: 1000,
     urgentFeePkr: 500,
@@ -138,7 +139,12 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     featuredTopDurationDays: 30,
     futureJobDurationDays: 60,
     vipBundleDurationDays: 45,
-    homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
+    homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
+    categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
+    exemptUserEmails: ['vip.employer@devsinc.com', 'admin@careers.com'],
+    isFreeAllPostings: false,
+    globalDiscount: 0,
+    extraWeekRate: 500
   },
   landingPageConfig: DEFAULT_LANDING_PAGE_CONFIG,
   advertisements: {
@@ -163,6 +169,12 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     standardPdfExportPkr: 0,
     premiumAiOptimizerPkr: 500,
     unlimitedTemplatesPkr: 1000
+  },
+  addons: {
+    highlightColor: 1000,
+    whatsappBlast: 3000,
+    socialShare: 2000,
+    extraWeekRate: 500
   },
   adPricingConfig: DEFAULT_AD_PRICING_CONFIG,
   campaignCustomizationConfig: DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
@@ -573,7 +585,27 @@ export class Database {
             ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.urgent,
             ...(stored?.jobPosting?.homepagePrioritySlotConfig?.urgent || {})
           }
-        }
+        },
+        categoryPostingFees: Array.isArray(stored?.jobPosting?.categoryPostingFees)
+          ? stored.jobPosting.categoryPostingFees
+          : (Array.isArray(stored?.landingPageConfig?.categoryPostingFees)
+            ? stored.landingPageConfig.categoryPostingFees
+            : DEFAULT_CATEGORY_POSTING_FEES),
+        exemptUserEmails: Array.isArray(stored?.jobPosting?.exemptUserEmails)
+          ? stored.jobPosting.exemptUserEmails
+          : (Array.isArray(stored?.landingPageConfig?.exemptUserEmails)
+            ? stored.landingPageConfig.exemptUserEmails
+            : ['vip.employer@devsinc.com', 'admin@careers.com']),
+        isFreeAllPostings: Boolean(stored?.jobPosting?.isFreeAllPostings),
+        globalDiscount: Number(stored?.jobPosting?.globalDiscount || 0),
+        extraWeekRate: Number(stored?.jobPosting?.extraWeekRate ?? 500)
+      },
+      addons: {
+        highlightColor: 1000,
+        whatsappBlast: 3000,
+        socialShare: 2000,
+        extraWeekRate: 500,
+        ...(stored?.addons || {})
       },
       subscriptionPackages: Array.isArray(stored?.subscriptionPackages)
         ? stored.subscriptionPackages

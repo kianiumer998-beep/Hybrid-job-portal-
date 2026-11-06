@@ -12,9 +12,22 @@ import {
   resolveCampaignDuration,
   getPlacementDisplayName
 } from '../../../src/types/ad';
+import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
 
 export interface JobPriceCalculationRequest {
-  jobPlan?: 'Standard' | 'Urgent' | 'Featured' | 'Top' | 'Future' | 'VIP Bundle';
+  jobPlan?: 'Standard' | 'Urgent' | 'Featured' | 'Top' | 'Future' | 'VIP Bundle' | string;
+  priorityTier?: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle' | string;
+  featured?: boolean;
+  urgent?: boolean;
+  pinnedTop?: boolean;
+  futureJob?: boolean;
+  vipBundle?: boolean;
+  government?: boolean;
+  newspaper?: boolean;
+  jobCategory?: string;
+  categoryId?: string;
+  userEmail?: string;
+  userId?: string;
   durationDays?: number;
   highlightColor?: boolean;
   whatsappBlast?: boolean;
@@ -35,9 +48,37 @@ export interface AdPriceCalculationRequest {
   targetedRegion?: string;
   impressionsCap?: number;
 }
-import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
+
+function validateNonNegativeNumber(val: any, fieldName: string, max?: number): number {
+  if (val === undefined || val === null) return 0;
+  const num = Number(val);
+  if (!Number.isFinite(num) || num < 0) {
+    throw new Error(`Invalid value for "${fieldName}": must be a finite number >= 0 (received ${val})`);
+  }
+  if (max !== undefined && num > max) {
+    throw new Error(`Invalid value for "${fieldName}": exceeds maximum allowed ${max} (received ${val})`);
+  }
+  return num;
+}
+
+function sanitizeSlotLimit(tierCfg: any, defaultMax: number): { enabled: boolean; maxSlots: number } {
+  let max = tierCfg?.maxSlots;
+  if (typeof max !== 'number' || !Number.isFinite(max) || max < 0) {
+    max = Math.max(0, Math.min(100, Math.floor(Number(max) || defaultMax)));
+  } else {
+    max = Math.min(100, Math.max(0, Math.floor(max)));
+  }
+  return {
+    enabled: tierCfg?.enabled !== false,
+    maxSlots: max
+  };
+}
 
 export class PricingRepository {
+  /**
+   * Retrieves complete authoritative pricing configuration.
+   * Single source of truth is MongoDB payment_settings collection (key: 'authoritative_pricing_config').
+   */
   static async get(): Promise<any> {
     if (isMongoConfigured()) {
       try {
@@ -55,7 +96,7 @@ export class PricingRepository {
             isPersistedToMongo: true
           };
         }
-        // If MongoDB is configured but no document exists yet, it's the first run
+        // First run with MongoDB configured before initial save
         return {
           ...Database.getPricing(),
           isPersistedToMongo: false,
@@ -63,10 +104,8 @@ export class PricingRepository {
         };
       } catch (err: any) {
         console.warn('[PricingRepository] MongoDB fetch failed:', err.message);
-        // Requirement: If MongoDB is configured but unavailable, do not silently use stale local JSON as authoritative in production.
-        // In Test mode, we can still fall back for development convenience.
         if (process.env.IS_TEST === 'true') {
-           return Database.getPricing();
+          return Database.getPricing();
         }
         throw new Error(`Authoritative configuration database is unavailable: ${err.message}`);
       }
@@ -74,42 +113,169 @@ export class PricingRepository {
     return Database.getPricing();
   }
 
+  /**
+   * Updates authoritative pricing configuration in MongoDB with deep merge & validation.
+   */
   static async update(updates: any): Promise<any> {
+    if (!updates || typeof updates !== 'object') {
+      throw new Error('Update payload must be a non-null object');
+    }
+
     const current = await this.get();
 
-    if (updates?.jobPosting?.homepagePrioritySlotConfig) {
-      const slotCfg = updates.jobPosting.homepagePrioritySlotConfig;
-      const sanitizeSlot = (tierCfg: any, defaultMax: number) => {
-        let max = tierCfg?.maxSlots;
-        if (typeof max !== 'number' || !Number.isFinite(max) || max < 0) {
-          max = Math.max(0, Math.min(100, Math.floor(Number(max) || defaultMax)));
-        } else {
-          max = Math.min(100, Math.max(0, Math.floor(max)));
+    // 1. Validate numerical inputs when provided
+    if (updates.jobPosting) {
+      const jp = updates.jobPosting;
+      if (jp.standardFeePkr !== undefined) validateNonNegativeNumber(jp.standardFeePkr, 'jobPosting.standardFeePkr');
+      if (jp.urgentFeePkr !== undefined) validateNonNegativeNumber(jp.urgentFeePkr, 'jobPosting.urgentFeePkr');
+      if (jp.featuredTopFeePkr !== undefined) validateNonNegativeNumber(jp.featuredTopFeePkr, 'jobPosting.featuredTopFeePkr');
+      if (jp.futureJobFeePkr !== undefined) validateNonNegativeNumber(jp.futureJobFeePkr, 'jobPosting.futureJobFeePkr');
+      if (jp.vipBundleFeePkr !== undefined) validateNonNegativeNumber(jp.vipBundleFeePkr, 'jobPosting.vipBundleFeePkr');
+      if (jp.standardDurationDays !== undefined) validateNonNegativeNumber(jp.standardDurationDays, 'jobPosting.standardDurationDays', 365);
+      if (jp.urgentDurationDays !== undefined) validateNonNegativeNumber(jp.urgentDurationDays, 'jobPosting.urgentDurationDays', 365);
+      if (jp.featuredTopDurationDays !== undefined) validateNonNegativeNumber(jp.featuredTopDurationDays, 'jobPosting.featuredTopDurationDays', 365);
+      if (jp.futureJobDurationDays !== undefined) validateNonNegativeNumber(jp.futureJobDurationDays, 'jobPosting.futureJobDurationDays', 365);
+      if (jp.vipBundleDurationDays !== undefined) validateNonNegativeNumber(jp.vipBundleDurationDays, 'jobPosting.vipBundleDurationDays', 365);
+      if (jp.globalDiscount !== undefined) validateNonNegativeNumber(jp.globalDiscount, 'jobPosting.globalDiscount', 100);
+      if (jp.extraWeekRate !== undefined) validateNonNegativeNumber(jp.extraWeekRate, 'jobPosting.extraWeekRate');
+
+      if (Array.isArray(jp.categoryPostingFees)) {
+        for (const cat of jp.categoryPostingFees) {
+          if (cat.feePkr !== undefined) validateNonNegativeNumber(cat.feePkr, `categoryPostingFees.${cat.categoryId || 'unknown'}.feePkr`);
+          if (cat.discountPercent !== undefined) validateNonNegativeNumber(cat.discountPercent, `categoryPostingFees.${cat.categoryId || 'unknown'}.discountPercent`, 100);
         }
-        return {
-          enabled: tierCfg?.enabled !== false,
-          maxSlots: max
+      }
+
+      if (jp.homepagePrioritySlotConfig) {
+        const slotCfg = jp.homepagePrioritySlotConfig;
+        jp.homepagePrioritySlotConfig = {
+          enabled: slotCfg.enabled !== false,
+          vip: sanitizeSlotLimit(slotCfg.vip, 2),
+          pinned: sanitizeSlotLimit(slotCfg.pinned, 2),
+          featured: sanitizeSlotLimit(slotCfg.featured, 4),
+          urgent: sanitizeSlotLimit(slotCfg.urgent, 4)
         };
-      };
-      updates.jobPosting.homepagePrioritySlotConfig = {
-        enabled: slotCfg.enabled !== false,
-        vip: sanitizeSlot(slotCfg.vip, 2),
-        pinned: sanitizeSlot(slotCfg.pinned, 2),
-        featured: sanitizeSlot(slotCfg.featured, 4),
-        urgent: sanitizeSlot(slotCfg.urgent, 4)
-      };
+      }
     }
+
+    if (Array.isArray(updates.subscriptionPackages)) {
+      for (const pkg of updates.subscriptionPackages) {
+        if (!pkg.id || typeof pkg.id !== 'string') {
+          throw new Error('Each subscription package must have a valid string "id"');
+        }
+        if (pkg.pricePkr !== undefined) validateNonNegativeNumber(pkg.pricePkr, `subscriptionPackage.${pkg.id}.pricePkr`);
+        if (pkg.durationDays !== undefined) {
+          const days = Number(pkg.durationDays);
+          if (!Number.isInteger(days) || days <= 0) {
+            throw new Error(`Subscription package "${pkg.id}" durationDays must be a positive integer`);
+          }
+        }
+      }
+    }
+
+    if (updates.addons) {
+      if (updates.addons.highlightColor !== undefined) validateNonNegativeNumber(updates.addons.highlightColor, 'addons.highlightColor');
+      if (updates.addons.whatsappBlast !== undefined) validateNonNegativeNumber(updates.addons.whatsappBlast, 'addons.whatsappBlast');
+      if (updates.addons.socialShare !== undefined) validateNonNegativeNumber(updates.addons.socialShare, 'addons.socialShare');
+      if (updates.addons.extraWeekRate !== undefined) validateNonNegativeNumber(updates.addons.extraWeekRate, 'addons.extraWeekRate');
+    }
+
+    if (updates.cvBuilder) {
+      if (updates.cvBuilder.standardPdfExportPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.standardPdfExportPkr, 'cvBuilder.standardPdfExportPkr');
+      if (updates.cvBuilder.premiumAiOptimizerPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.premiumAiOptimizerPkr, 'cvBuilder.premiumAiOptimizerPkr');
+      if (updates.cvBuilder.unlimitedTemplatesPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.unlimitedTemplatesPkr, 'cvBuilder.unlimitedTemplatesPkr');
+    }
+
+    // 2. Safe deep merge that protects all sections from clobbering
+    const mergedCategoryPostingFees = Array.isArray(updates.jobPosting?.categoryPostingFees)
+      ? updates.jobPosting.categoryPostingFees
+      : (Array.isArray(updates.categoryPostingFees)
+        ? updates.categoryPostingFees
+        : (Array.isArray(updates.landingPageConfig?.categoryPostingFees)
+          ? updates.landingPageConfig.categoryPostingFees
+          : (current.jobPosting?.categoryPostingFees || current.landingPageConfig?.categoryPostingFees || [])));
+
+    const mergedExemptUserEmails = Array.isArray(updates.jobPosting?.exemptUserEmails)
+      ? updates.jobPosting.exemptUserEmails
+      : (Array.isArray(updates.exemptUserEmails)
+        ? updates.exemptUserEmails
+        : (Array.isArray(updates.landingPageConfig?.exemptUserEmails)
+          ? updates.landingPageConfig.exemptUserEmails
+          : (current.jobPosting?.exemptUserEmails || current.landingPageConfig?.exemptUserEmails || [])));
 
     const updated = {
       ...current,
       ...updates,
+      currency: updates?.currency || current.currency || 'PKR',
       jobPosting: {
         ...(current.jobPosting || {}),
-        ...(updates?.jobPosting || {})
+        ...(updates?.jobPosting || {}),
+        categoryPostingFees: mergedCategoryPostingFees,
+        exemptUserEmails: mergedExemptUserEmails,
+        homepagePrioritySlotConfig: updates?.jobPosting?.homepagePrioritySlotConfig
+          ? updates.jobPosting.homepagePrioritySlotConfig
+          : (current.jobPosting?.homepagePrioritySlotConfig || {
+              enabled: true,
+              vip: { enabled: true, maxSlots: 2 },
+              pinned: { enabled: true, maxSlots: 2 },
+              featured: { enabled: true, maxSlots: 4 },
+              urgent: { enabled: true, maxSlots: 4 }
+            })
+      },
+      landingPageConfig: {
+        ...(current.landingPageConfig || {}),
+        ...(updates?.landingPageConfig || {}),
+        categoryPostingFees: mergedCategoryPostingFees,
+        exemptUserEmails: mergedExemptUserEmails
+      },
+      subscriptionPackages: Array.isArray(updates?.subscriptionPackages)
+        ? updates.subscriptionPackages
+        : (current.subscriptionPackages || []),
+      adPricingConfig: {
+        ...(current.adPricingConfig || {}),
+        ...(updates?.adPricingConfig || {}),
+        placementMultipliers: {
+          ...(current.adPricingConfig?.placementMultipliers || {}),
+          ...(updates?.adPricingConfig?.placementMultipliers || {})
+        },
+        pageMultipliers: {
+          ...(current.adPricingConfig?.pageMultipliers || {}),
+          ...(updates?.adPricingConfig?.pageMultipliers || {})
+        }
+      },
+      campaignCustomizationConfig: {
+        ...(current.campaignCustomizationConfig || {}),
+        ...(updates?.campaignCustomizationConfig || {}),
+        portalPages: Array.isArray(updates?.campaignCustomizationConfig?.portalPages)
+          ? updates.campaignCustomizationConfig.portalPages
+          : (current.campaignCustomizationConfig?.portalPages || []),
+        durationPresets: Array.isArray(updates?.campaignCustomizationConfig?.durationPresets)
+          ? updates.campaignCustomizationConfig.durationPresets
+          : (current.campaignCustomizationConfig?.durationPresets || []),
+        placementOptions: Array.isArray(updates?.campaignCustomizationConfig?.placementOptions)
+          ? updates.campaignCustomizationConfig.placementOptions
+          : (current.campaignCustomizationConfig?.placementOptions || [])
+      },
+      addons: {
+        ...(current.addons || {}),
+        ...(updates?.addons || {})
+      },
+      cvBuilder: {
+        ...(current.cvBuilder || {}),
+        ...(updates?.cvBuilder || {})
+      },
+      advertisements: {
+        ...(current.advertisements || {}),
+        ...(updates?.advertisements || {})
+      },
+      subscriptions: {
+        ...(current.subscriptions || {}),
+        ...(updates?.subscriptions || {})
       },
       updatedAt: new Date().toISOString()
     };
 
+    // 3. Persist to MongoDB
     if (isMongoConfigured()) {
       try {
         const db = await getMongoDb();
@@ -130,7 +296,7 @@ export class PricingRepository {
           'save authoritative pricing config'
         );
         if (result && result.acknowledged === false) {
-           throw new Error('Write not acknowledged by MongoDB');
+          throw new Error('Write not acknowledged by MongoDB');
         }
       } catch (err: any) {
         console.error('[PricingRepository] Failed to persist pricing to MongoDB:', err.message);
@@ -142,6 +308,10 @@ export class PricingRepository {
     return updated;
   }
 
+  /**
+   * Calculates job posting price server-side using the single authoritative configuration.
+   * Handles tier surcharges vs flat fees, category rules, employer exemptions, and add-ons.
+   */
   static async calculateJobPostingPrice(req: JobPriceCalculationRequest): Promise<{
     basePrice: number;
     addonsTotal: number;
@@ -154,68 +324,222 @@ export class PricingRepository {
     const currency = pricing.currency || 'PKR';
     const breakdown: Array<{ name: string; amount: number }> = [];
 
-    // Base plan price
-    let basePrice = 0;
-    const plan = req.jobPlan || 'Standard';
-    switch (plan) {
-      case 'Standard':
-        basePrice = pricing.jobPosting?.standardFeePkr ?? pricing.jobPosting?.standard ?? 0;
-        break;
-      case 'Urgent':
-        basePrice = pricing.jobPosting?.urgentFeePkr ?? pricing.jobPosting?.urgent ?? 2500;
-        break;
-      case 'Featured':
-        basePrice = pricing.jobPosting?.featuredTopFeePkr ?? pricing.jobPosting?.featured ?? 4500;
-        break;
-      case 'Top':
-        basePrice = pricing.jobPosting?.featuredTopFeePkr ?? pricing.jobPosting?.topOfWeek ?? 7000;
-        break;
-      case 'Future':
-        basePrice = pricing.jobPosting?.futureJobFeePkr ?? pricing.jobPosting?.futureListing ?? 12000;
-        break;
-      case 'VIP Bundle':
-        basePrice = pricing.jobPosting?.vipBundleFeePkr ?? pricing.jobPosting?.vipBundle ?? 15000;
-        break;
-      default:
-        basePrice = pricing.jobPosting?.standardFeePkr ?? pricing.jobPosting?.standard ?? 0;
-    }
-    breakdown.push({ name: `${plan} Listing Base`, amount: basePrice });
+    // 1. VIP Employer Exemption Check (100% Free)
+    const exemptEmails: string[] = [
+      ...(pricing.jobPosting?.exemptUserEmails || []),
+      ...(pricing.landingPageConfig?.exemptUserEmails || [])
+    ].map((e: string) => String(e || '').toLowerCase().trim());
 
-    // Addons
+    const userEmailClean = req.userEmail ? String(req.userEmail).toLowerCase().trim() : '';
+    if (userEmailClean && exemptEmails.includes(userEmailClean)) {
+      return {
+        basePrice: 0,
+        addonsTotal: 0,
+        discountAmount: 0,
+        finalPrice: 0,
+        currency,
+        breakdown: [
+          { name: '👑 VIP Employer 100% Fee Exemption', amount: 0 }
+        ]
+      };
+    }
+
+    // 2. Master Free Mode Check
+    const isMasterFree = Boolean(pricing.jobPosting?.isFreeAllPostings);
+
+    // 3. Category Pricing Resolution
+    const categoryFees: any[] = [
+      ...(pricing.jobPosting?.categoryPostingFees || []),
+      ...(pricing.landingPageConfig?.categoryPostingFees || [])
+    ];
+
+    let baseStandardFee = pricing.jobPosting?.standardFeePkr ?? 1000;
+    let categoryDiscountPercent = 0;
+    let appliedCategoryName: string | null = null;
+
+    const categoryKey = String(req.jobCategory || req.categoryId || '').toLowerCase().trim();
+    if (categoryKey) {
+      const match = categoryFees.find(
+        (c: any) =>
+          String(c.categoryId || '').toLowerCase() === categoryKey ||
+          String(c.categoryName || '').toLowerCase() === categoryKey
+      );
+      if (match) {
+        appliedCategoryName = match.categoryName;
+        if (match.isFree) {
+          baseStandardFee = 0;
+        } else if (typeof match.feePkr === 'number' && match.feePkr >= 0) {
+          baseStandardFee = match.feePkr;
+        }
+        if (typeof match.discountPercent === 'number' && match.discountPercent > 0) {
+          categoryDiscountPercent = Math.min(100, Math.max(0, match.discountPercent));
+        }
+      }
+    } else if (req.government) {
+      const match = categoryFees.find((c: any) => String(c.categoryId || '').includes('govt'));
+      if (match) {
+        appliedCategoryName = match.categoryName;
+        baseStandardFee = match.isFree ? 0 : (match.feePkr ?? 0);
+      }
+    } else if (req.newspaper) {
+      const match = categoryFees.find((c: any) => String(c.categoryId || '').includes('news'));
+      if (match) {
+        appliedCategoryName = match.categoryName;
+        baseStandardFee = match.isFree ? 0 : (match.feePkr ?? 0);
+      }
+    }
+
+    if (isMasterFree || (pricing.jobPosting?.freePostingAllowed && baseStandardFee === 0)) {
+      baseStandardFee = 0;
+    }
+
+    // 4. Plan & Priority Tier Resolution
+    const isVip = Boolean(
+      req.vipBundle ||
+      req.priorityTier === 'vip_bundle' ||
+      req.jobPlan === 'VIP Bundle'
+    );
+    const isFeatured = Boolean(
+      req.featured ||
+      req.pinnedTop ||
+      req.priorityTier === 'featured_top' ||
+      req.jobPlan === 'Featured' ||
+      req.jobPlan === 'Top'
+    );
+    const isUrgent = Boolean(
+      req.urgent ||
+      req.priorityTier === 'urgent' ||
+      req.jobPlan === 'Urgent'
+    );
+    const isFuture = Boolean(
+      req.futureJob ||
+      req.priorityTier === 'future_job' ||
+      req.jobPlan === 'Future'
+    );
+
+    let basePrice = 0;
+
+    if (isVip) {
+      // VIP Bundle is a flat fee (e.g. 2,500 PKR)
+      basePrice = isMasterFree ? 0 : (pricing.jobPosting?.vipBundleFeePkr ?? 2500);
+      breakdown.push({
+        name: `${pricing.jobPosting?.vipBadgeText || '👑 VIP Ultimate Placement'} (Flat Fee)`,
+        amount: basePrice
+      });
+    } else if (isFeatured) {
+      const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.featuredTopFeePkr ?? 1500);
+      basePrice = baseStandardFee + surcharge;
+      if (baseStandardFee > 0) {
+        breakdown.push({
+          name: appliedCategoryName ? `${appliedCategoryName} Base Rate` : 'Standard Listing Base',
+          amount: baseStandardFee
+        });
+      }
+      if (surcharge > 0) {
+        breakdown.push({
+          name: pricing.jobPosting?.featuredBadgeText || '⭐ Pinned Top & Featured Surcharge',
+          amount: surcharge
+        });
+      }
+      if (basePrice === 0) {
+        breakdown.push({ name: 'Pinned Top Placement (Free)', amount: 0 });
+      }
+    } else if (isUrgent) {
+      const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.urgentFeePkr ?? 500);
+      basePrice = baseStandardFee + surcharge;
+      if (baseStandardFee > 0) {
+        breakdown.push({
+          name: appliedCategoryName ? `${appliedCategoryName} Base Rate` : 'Standard Listing Base',
+          amount: baseStandardFee
+        });
+      }
+      if (surcharge > 0) {
+        breakdown.push({
+          name: pricing.jobPosting?.urgentBadgeText || '🔥 Urgent Hiring Surcharge',
+          amount: surcharge
+        });
+      }
+      if (basePrice === 0) {
+        breakdown.push({ name: 'Urgent Placement (Free)', amount: 0 });
+      }
+    } else if (isFuture) {
+      const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.futureJobFeePkr ?? 800);
+      basePrice = baseStandardFee + surcharge;
+      if (baseStandardFee > 0) {
+        breakdown.push({
+          name: appliedCategoryName ? `${appliedCategoryName} Base Rate` : 'Standard Listing Base',
+          amount: baseStandardFee
+        });
+      }
+      if (surcharge > 0) {
+        breakdown.push({
+          name: pricing.jobPosting?.futureBadgeText || '🚀 Advance Intake Surcharge',
+          amount: surcharge
+        });
+      }
+      if (basePrice === 0) {
+        breakdown.push({ name: 'Future Job Intake (Free)', amount: 0 });
+      }
+    } else {
+      basePrice = baseStandardFee;
+      breakdown.push({
+        name: appliedCategoryName ? `${appliedCategoryName} Base Rate` : 'Standard Listing Base',
+        amount: basePrice
+      });
+    }
+
+    // 5. Add-ons (using nullish coalescing ?? so explicit 0 is preserved)
     let addonsTotal = 0;
     if (req.highlightColor) {
-      const addonFee = pricing.addons?.highlightColor || 1000;
+      const addonFee = pricing.addons?.highlightColor ?? 1000;
       addonsTotal += addonFee;
       breakdown.push({ name: 'Highlight Color Accent', amount: addonFee });
     }
     if (req.whatsappBlast) {
-      const addonFee = pricing.addons?.whatsappBlast || 3000;
+      const addonFee = pricing.addons?.whatsappBlast ?? 3000;
       addonsTotal += addonFee;
       breakdown.push({ name: 'WhatsApp Broadcast to Candidates', amount: addonFee });
     }
     if (req.socialShare) {
-      const addonFee = pricing.addons?.socialShare || 2000;
+      const addonFee = pricing.addons?.socialShare ?? 2000;
       addonsTotal += addonFee;
       breakdown.push({ name: 'Social Media Distribution', amount: addonFee });
     }
 
-    // Extended duration calculation (if over 30 days)
-    const duration = Math.max(1, Math.min(180, req.durationDays || 30));
-    if (duration > 30) {
-      const extraWeeks = Math.ceil((duration - 30) / 7);
-      const weeklyRate = pricing.jobPosting?.extraWeekRate || 500;
+    const standardDays = pricing.jobPosting?.standardDurationDays ?? 30;
+    const duration = Math.max(1, Math.min(180, req.durationDays || standardDays));
+    if (duration > standardDays) {
+      const extraWeeks = Math.ceil((duration - standardDays) / 7);
+      const weeklyRate = pricing.addons?.extraWeekRate ?? pricing.jobPosting?.extraWeekRate ?? 500;
       const extraDurationFee = extraWeeks * weeklyRate;
       addonsTotal += extraDurationFee;
       breakdown.push({ name: `Extended Duration (${extraWeeks} extra week(s))`, amount: extraDurationFee });
     }
 
+    // 6. Discounts
     let discountAmount = 0;
-    if (req.discountCode && req.discountCode.toUpperCase() === 'LAUNCH50') {
-      discountAmount = Math.round((basePrice + addonsTotal) * 0.5);
-      breakdown.push({ name: 'Promo Discount (LAUNCH50 - 50% Off)', amount: -discountAmount });
+    const subtotal = basePrice + addonsTotal;
+
+    if (categoryDiscountPercent > 0 && baseStandardFee > 0) {
+      const catDiscount = Math.round(baseStandardFee * (categoryDiscountPercent / 100));
+      discountAmount += catDiscount;
+      breakdown.push({ name: `Category Discount (${categoryDiscountPercent}% Off Base)`, amount: -catDiscount });
     }
 
-    const finalPrice = Math.max(0, basePrice + addonsTotal - discountAmount);
+    const globalDiscount = pricing.jobPosting?.globalDiscount ?? 0;
+    if (globalDiscount > 0 && subtotal > discountAmount) {
+      const globalDiscountAmt = Math.round((subtotal - discountAmount) * (globalDiscount / 100));
+      discountAmount += globalDiscountAmt;
+      breakdown.push({ name: `Site-Wide Promotional Markdown (${globalDiscount}% Off)`, amount: -globalDiscountAmt });
+    }
+
+    if (req.discountCode && String(req.discountCode).trim().toUpperCase() === 'LAUNCH50') {
+      const promoAmt = Math.round((subtotal - discountAmount) * 0.5);
+      discountAmount += promoAmt;
+      breakdown.push({ name: 'Promo Discount (LAUNCH50 - 50% Off)', amount: -promoAmt });
+    }
+
+    const finalPrice = Math.max(0, subtotal - discountAmount);
 
     return {
       basePrice,
@@ -227,6 +551,9 @@ export class PricingRepository {
     };
   }
 
+  /**
+   * Calculates advertisement campaign cost server-side using active adPricingConfig & campaignConfig.
+   */
   static async calculateAdPrice(req: AdPriceCalculationRequest): Promise<{
     basePrice: number;
     baseCost: number;

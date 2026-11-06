@@ -356,12 +356,33 @@ transactionRouter.post('/', async (req, res) => {
       let safeSubscriptionPlan: string | undefined = undefined;
       let authoritativeSubDuration = 0;
       let isAdFreeOverride = false;
+      let isJobFreeOverride = false;
       let resolvedAdPricingSnapshot: Record<string, any> | undefined = undefined;
+      let resolvedJobPricingSnapshot: Record<string, any> | undefined = undefined;
 
       if (effectiveType === 'Job Posting') {
-        const calc = await PricingRepository.calculateJobPostingPrice(jobPricingOptions || {});
+        const calc = await PricingRepository.calculateJobPostingPrice({
+          ...(jobPricingOptions || {}),
+          userEmail: req.body?.userEmail || (req as any).user?.email,
+          userId: req.body?.userId || effectiveUserId,
+          jobCategory: targetJob?.jobCategory || jobPricingOptions?.jobCategory,
+          priorityTier: targetJob?.priorityTier || jobPricingOptions?.priorityTier
+        });
         enforcedAmount = calc.finalPrice;
         pricingBreakdown = calc.breakdown;
+        if (calc.finalPrice === 0) {
+          isJobFreeOverride = true;
+        }
+        resolvedJobPricingSnapshot = {
+          plan: jobPricingOptions?.priorityTier || targetJob?.priorityTier || 'Standard',
+          basePrice: calc.basePrice,
+          addonsTotal: calc.addonsTotal,
+          discountAmount: calc.discountAmount,
+          finalPrice: calc.finalPrice,
+          currency: calc.currency,
+          breakdown: calc.breakdown,
+          timestamp: new Date().toISOString()
+        };
       } else if (effectiveType === 'Advertisement') {
         const adCalcInput =
           adPricingOptions && typeof adPricingOptions === 'object' && Object.keys(adPricingOptions).length > 0
@@ -455,7 +476,7 @@ transactionRouter.post('/', async (req, res) => {
         enforcedAmount = numericAmount;
       }
 
-      if (!Number.isFinite(enforcedAmount) || (enforcedAmount <= 0 && !isAdFreeOverride)) {
+      if (!Number.isFinite(enforcedAmount) || (enforcedAmount <= 0 && !isAdFreeOverride && !isJobFreeOverride)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid transaction amount.'
@@ -762,6 +783,7 @@ transactionRouter.post('/', async (req, res) => {
         ...(safeAdIdRef ? { adIdRef: safeAdIdRef } : {}),
         ...(safeAdTitleRef ? { adTitleRef: safeAdTitleRef } : {}),
         ...(resolvedAdPricingSnapshot ? { adPricingSnapshot: resolvedAdPricingSnapshot } : {}),
+        ...(resolvedJobPricingSnapshot ? { jobPricingSnapshot: resolvedJobPricingSnapshot } : {}),
         pricingBreakdown,
         createdAt: new Date().toISOString()
       });

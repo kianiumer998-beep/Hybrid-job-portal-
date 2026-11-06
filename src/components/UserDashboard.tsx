@@ -358,7 +358,28 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   // Pricing calculation helper
   const computeJobPostingCost = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): number => {
-    const baseStandardFee = jobPostingPricing?.standardFeePkr ?? jobPostingFeePkr ?? 1000;
+    // 1. VIP Employer Exemption Check
+    const exemptEmails: string[] = (jobPostingPricing?.exemptUserEmails || []).map(e => String(e || '').toLowerCase().trim());
+    if (currentUser?.email && exemptEmails.includes(currentUser.email.toLowerCase().trim())) {
+      return 0;
+    }
+    // 2. Master Free Mode Check
+    if (jobPostingPricing?.isFreeAllPostings) {
+      return 0;
+    }
+    // 3. Category Pricing Check
+    let baseStandardFee = jobPostingPricing?.standardFeePkr ?? jobPostingFeePkr ?? 1000;
+    if (jobPostingPricing?.categoryPostingFees && jobCategory) {
+      const matchCat = jobPostingPricing.categoryPostingFees.find(
+        (c: any) =>
+          String(c.categoryId || '').toLowerCase() === jobCategory.toLowerCase() ||
+          String(c.categoryName || '').toLowerCase() === jobCategory.toLowerCase()
+      );
+      if (matchCat) {
+        if (matchCat.isFree) baseStandardFee = 0;
+        else if (typeof matchCat.feePkr === 'number') baseStandardFee = matchCat.feePkr;
+      }
+    }
     if (tier === 'vip_bundle') {
       return jobPostingPricing?.vipBundleFeePkr ?? 2500;
     }
@@ -376,6 +397,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
     return baseStandardFee;
   };
+
+  useEffect(() => {
+    let active = true;
+    api.pricing.calculateJob({
+      priorityTier,
+      jobCategory,
+      userEmail: currentUser?.email,
+      userId: currentUser?.id
+    }).then(res => {
+      if (active && res && res.success && res.calculation) {
+        setCalculatedPostingFee(res.calculation.finalPrice);
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [priorityTier, jobCategory, currentUser?.email, currentUser?.id]);
 
   const currentTotalFee = computeJobPostingCost(priorityTier);
 

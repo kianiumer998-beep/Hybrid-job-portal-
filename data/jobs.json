@@ -1,5 +1,205 @@
 [
   {
+    "id": "job-bulk-2-1793970448755",
+    "title": "Bulk Job 2",
+    "fieldVisibility": {
+      "applicationUrl": "Free",
+      "contactEmail": "Premium"
+    },
+    "slug": "bulk-job-2-70448755",
+    "postedAt": "Just now",
+    "status": "Approved",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:28.767Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": [],
+    "updatedAt": "2026-11-06T13:07:28.800Z"
+  },
+  {
+    "id": "job-bulk-1-1793970448755",
+    "title": "Bulk Job 1",
+    "fieldVisibility": {
+      "applicationUrl": "Free",
+      "contactEmail": "Premium"
+    },
+    "slug": "bulk-job-1-70448755",
+    "postedAt": "Just now",
+    "status": "Approved",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:28.759Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": [],
+    "updatedAt": "2026-11-06T13:07:28.782Z"
+  },
+  {
+    "id": "job-att-privacy-1793970448743",
+    "title": "Attachment Privacy Job",
+    "status": "Approved",
+    "attachments": [
+      {
+        "id": "att-priv-1",
+        "name": "PrivateSpec.pdf",
+        "fileUrl": "/api/jobs/attachments/PrivateSpec.pdf",
+        "isPublic": false
+      }
+    ],
+    "fieldVisibility": {
+      "attachments": "Free"
+    },
+    "slug": "attachment-privacy-job-70448743",
+    "postedAt": "Just now",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:28.747Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": []
+  },
+  {
+    "id": "job-modal-vis-1793970448699",
+    "title": "Modal Visibility Test Job",
+    "company": "Test Corp",
+    "status": "Approved",
+    "fieldVisibility": {
+      "salary": "Free"
+    },
+    "slug": "modal-visibility-test-job-70448699",
+    "postedAt": "Just now",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:28.705Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": [],
+    "updatedAt": "2026-11-06T13:07:28.733Z"
+  },
+  {
+    "id": "job-test-1793970446716-dup-premium",
+    "title": "Duplicate Filename Premium Job",
+    "company": "Premium Corp",
+    "status": "Approved",
+    "attachments": [
+      {
+        "id": "att-dup-2",
+        "name": "SharedSyllabus.pdf",
+        "fileUrl": "/api/jobs/attachments/SharedSyllabus.pdf",
+        "isPublic": true
+      }
+    ],
+    "fieldVisibility": {
+      "attachments": "Premium"
+    },
+    "slug": "duplicate-filename-premium-job-ppremium",
+    "postedAt": "Just now",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:26.744Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": []
+  },
+  {
+    "id": "job-test-1793970446716-dup-free",
+    "title": "Duplicate Filename Free Job",
+    "company": "Free Corp",
+    "status": "Approved",
+    "attachments": [
+      {
+        "id": "att-dup-1",
+        "name": "SharedSyllabus.pdf",
+        "fileUrl": "/api/jobs/attachments/SharedSyllabus.pdf",
+        "isPublic": true
+      }
+    ],
+    "fieldVisibility": {
+      "attachments": "Free"
+    },
+    "slug": "duplicate-filename-free-job-6dupfree",
+    "postedAt": "Just now",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:26.738Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": []
+  },
+  {
+    "id": "job-test-1793970446716-free",
+    "title": "Free Attachment Job",
+    "company": "Acme Corp",
+    "status": "Approved",
+    "attachments": [
+      {
+        "id": "att-4",
+        "name": "FreePublicDoc.pdf",
+        "fileUrl": "/api/jobs/attachments/FreePublicDoc.pdf",
+        "isPublic": true
+      }
+    ],
+    "fieldVisibility": {
+      "attachments": "Free"
+    },
+    "slug": "free-attachment-job-6716free",
+    "postedAt": "Just now",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:26.732Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": []
+  },
+  {
+    "id": "job-test-1793970446716-hidden",
+    "title": "Hidden Attachment Job",
+    "company": "Acme Corp",
+    "status": "Approved",
+    "attachments": [
+      {
+        "id": "att-3",
+        "name": "HiddenDoc.pdf",
+        "fileUrl": "/api/jobs/attachments/HiddenDoc.pdf",
+        "isPublic": true
+      }
+    ],
+    "fieldVisibility": {
+      "attachments": "Hidden"
+    },
+    "slug": "hidden-attachment-job-16hidden",
+    "postedAt": "Just now",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:26.726Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": []
+  },
+  {
+    "id": "job-test-1793970446716",
+    "title": "Test Attachment Job",
+    "company": "Acme Corp",
+    "status": "Approved",
+    "attachments": [
+      {
+        "id": "att-1",
+        "name": "PublicPremiumDoc.pdf",
+        "fileUrl": "/api/jobs/attachments/PublicPremiumDoc.pdf",
+        "isPublic": true
+      },
+      {
+        "id": "att-2",
+        "name": "PrivateDoc.pdf",
+        "fileUrl": "/api/jobs/attachments/PrivateDoc.pdf",
+        "isPublic": false
+      }
+    ],
+    "fieldVisibility": {
+      "attachments": "Premium"
+    },
+    "slug": "test-attachment-job-70446716",
+    "postedAt": "Just now",
+    "applicationsCount": 0,
+    "createdAt": "2026-11-06T13:07:26.720Z",
+    "tags": [],
+    "requirements": [],
+    "benefits": []
+  },
+  {
     "id": "ocr-mu83im27-0-pp95",
     "_companyTokens": {},
     "_titleTokens": {},

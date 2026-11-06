@@ -405,6 +405,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     let active = true;
     setIsCalculatingFee(true);
     setCalculationError(null);
+    setCalculatedPostingFee(null);
 
     api.pricing.calculateJob({
       priorityTier,
@@ -430,7 +431,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     };
   }, [priorityTier, jobCategory, currentUser?.email, currentUser?.id]);
 
-  const currentTotalFee = calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier);
+  const currentTotalFee = calculatedPostingFee;
 
   const myApplications = currentUser.appliedJobs && currentUser.appliedJobs.length > 0
     ? currentUser.appliedJobs
@@ -523,7 +524,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     const isFeatured = priorityTier === 'featured_top' || priorityTier === 'vip_bundle';
     const isFuture = priorityTier === 'future_job' || priorityTier === 'vip_bundle';
 
-    const totalCalculatedFee = calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier);
+    if (isCalculatingFee) {
+      alert('Fee calculation is in progress. Please wait a moment...');
+      return;
+    }
+
+    if (calculationError || calculatedPostingFee === null) {
+      alert(calculationError || 'Pricing calculation is unavailable. Please check your connection or try selecting options again.');
+      return;
+    }
+
+    const totalCalculatedFee = calculatedPostingFee;
 
     const newJob: Job = {
       id: 'job-user-' + Date.now(),
@@ -588,7 +599,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const handleConfirmFeePayment = () => {
     if (!pendingJobData) return;
 
-    const feeToPay = calculatedPostingFee > 0 ? calculatedPostingFee : computeJobPostingCost(priorityTier);
+    if (isCalculatingFee) {
+      alert('Fee calculation is in progress. Please wait a moment...');
+      return;
+    }
+
+    if (calculationError || calculatedPostingFee === null) {
+      alert(calculationError || 'Pricing calculation is unavailable. Please check your connection or try selecting options again.');
+      return;
+    }
+
+    const feeToPay = calculatedPostingFee;
 
     onSubmitJobForApproval(pendingJobData, {
       amount: feeToPay,
@@ -2952,7 +2973,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
                 <span className="font-bold text-slate-300">Total Posting Fee:</span>
                 <span className="font-black text-emerald-400 font-mono text-sm sm:text-base">
-                  PKR {(calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier)).toLocaleString()}
+                  {isCalculatingFee
+                    ? 'Calculating...'
+                    : calculationError
+                    ? 'Error'
+                    : `PKR ${(calculatedPostingFee !== null ? calculatedPostingFee : 0).toLocaleString()}`}
                 </span>
               </div>
             </div>
@@ -2980,10 +3005,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="pt-1.5 sm:pt-2">
               <button
                 type="button"
+                disabled={isCalculatingFee || calculatedPostingFee === null || !!calculationError}
                 onClick={handleConfirmFeePayment}
-                className="w-full py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs shadow-xl shadow-emerald-500/20 cursor-pointer active:scale-95 transition-all"
+                className={`w-full py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl font-black text-xs shadow-xl transition-all ${
+                  isCalculatingFee || calculatedPostingFee === null || !!calculationError
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-emerald-500/20 cursor-pointer active:scale-95'
+                }`}
               >
-                Pay PKR {(calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier)).toLocaleString()} & Submit Job
+                {isCalculatingFee
+                  ? 'Calculating Fee...'
+                  : calculationError
+                  ? 'Calculation Error'
+                  : `Pay PKR ${(calculatedPostingFee !== null ? calculatedPostingFee : 0).toLocaleString()} & Submit Job`}
               </button>
             </div>
 

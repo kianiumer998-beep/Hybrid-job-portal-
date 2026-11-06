@@ -265,7 +265,7 @@ transactionRouter.post('/', async (req, res) => {
       ? (isAdmin ? (userName || authUser?.name) : (authUser?.name || userName))
       : (userName || senderName || 'Subscriber');
     const effectiveUserEmail = authUserId
-      ? (isAdmin ? (userEmail || authUser?.email) : (authUser?.email || userEmail))
+      ? (isAdmin ? (userEmail || authUser?.email) : (authUser?.email || ''))
       : (userEmail || '');
 
     const userLockKey = String(effectiveUserId || effectiveUserEmail || senderPhoneOrAccount || 'anon-tx');

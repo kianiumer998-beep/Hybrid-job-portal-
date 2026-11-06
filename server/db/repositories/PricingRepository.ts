@@ -114,7 +114,7 @@ export class PricingRepository {
   }
 
   /**
-   * Updates authoritative pricing configuration in MongoDB with deep merge & validation.
+   * Updates authoritative pricing configuration in MongoDB with deep merge & numerical validation.
    */
   static async update(updates: any): Promise<any> {
     if (!updates || typeof updates !== 'object') {
@@ -172,19 +172,49 @@ export class PricingRepository {
       }
     }
 
-    // Deterministic category fees resolution without duplication
-    const rawCategoryFees =
-      updates?.jobPosting?.categoryPostingFees ||
-      updates?.landingPageConfig?.categoryPostingFees ||
-      current.jobPosting?.categoryPostingFees ||
-      current.landingPageConfig?.categoryPostingFees ||
-      DEFAULT_CATEGORY_POSTING_FEES;
+    // Restore numerical validation for addons
+    if (updates.addons) {
+      if (updates.addons.highlightColor !== undefined) validateNonNegativeNumber(updates.addons.highlightColor, 'addons.highlightColor');
+      if (updates.addons.whatsappBlast !== undefined) validateNonNegativeNumber(updates.addons.whatsappBlast, 'addons.whatsappBlast');
+      if (updates.addons.socialShare !== undefined) validateNonNegativeNumber(updates.addons.socialShare, 'addons.socialShare');
+      if (updates.addons.extraWeekRate !== undefined) validateNonNegativeNumber(updates.addons.extraWeekRate, 'addons.extraWeekRate');
+    }
+
+    // Restore numerical validation for cvBuilder
+    if (updates.cvBuilder) {
+      if (updates.cvBuilder.standardPdfExportPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.standardPdfExportPkr, 'cvBuilder.standardPdfExportPkr');
+      if (updates.cvBuilder.premiumAiOptimizerPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.premiumAiOptimizerPkr, 'cvBuilder.premiumAiOptimizerPkr');
+      if (updates.cvBuilder.unlimitedTemplatesPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.unlimitedTemplatesPkr, 'cvBuilder.unlimitedTemplatesPkr');
+    }
+
+    // Deterministic category fees resolution & merge with jobPosting precedence over landingPageConfig
+    const landingCats = Array.isArray(updates?.landingPageConfig?.categoryPostingFees)
+      ? updates.landingPageConfig.categoryPostingFees
+      : (Array.isArray(current.landingPageConfig?.categoryPostingFees)
+        ? current.landingPageConfig.categoryPostingFees
+        : DEFAULT_CATEGORY_POSTING_FEES);
+
+    const jobCats = Array.isArray(updates?.jobPosting?.categoryPostingFees)
+      ? updates.jobPosting.categoryPostingFees
+      : (Array.isArray(current.jobPosting?.categoryPostingFees)
+        ? current.jobPosting.categoryPostingFees
+        : landingCats);
 
     const categoryMap = new Map<string, any>();
-    if (Array.isArray(rawCategoryFees)) {
-      for (const c of rawCategoryFees) {
+    if (Array.isArray(landingCats)) {
+      for (const c of landingCats) {
         if (c && c.categoryId) {
           categoryMap.set(c.categoryId, c);
+        }
+      }
+    }
+    if (Array.isArray(jobCats)) {
+      for (const c of jobCats) {
+        if (c && c.categoryId) {
+          categoryMap.set(c.categoryId, {
+            ...(categoryMap.get(c.categoryId) || {}),
+            ...c
+          });
         }
       }
     }
@@ -341,7 +371,7 @@ export class PricingRepository {
     // 2. Master Free Mode Check
     const isMasterFree = Boolean(pricing.jobPosting?.isFreeAllPostings);
 
-    // 3. Category Pricing Resolution (deterministic map merge)
+    // 3. Category Pricing Resolution with consistent precedence
     const rawCategoryFees = [
       ...(pricing.jobPosting?.categoryPostingFees || []),
       ...(pricing.landingPageConfig?.categoryPostingFees || []),
@@ -532,7 +562,7 @@ export class PricingRepository {
       breakdown.push({ name: `Extended Duration (${extraWeeks} extra week(s))`, amount: extraDurationFee });
     }
 
-    // 6. Discounts (Authorized admin-configured category & global discounts only; no unauthorized LAUNCH50 hardcode)
+    // 6. Discounts
     let discountAmount = 0;
     const subtotal = basePrice + addonsTotal;
 

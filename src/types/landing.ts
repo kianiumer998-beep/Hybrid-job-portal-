@@ -175,7 +175,7 @@ export const DEFAULT_LANDING_PAGE_CONFIG: LandingPageConfig = {
   ],
   categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
   exemptUserIds: [],
-  exemptUserEmails: ['vip.employer@devsinc.com', 'admin@careers.com'],
+  exemptUserEmails: [],
   jobCardDesign: {
     layout: 'default',
     theme: {

@@ -65,7 +65,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
     return landingConfig?.categoryPostingFees || DEFAULT_CATEGORY_POSTING_FEES;
   });
   const [exemptEmails, setExemptEmails] = useState<string[]>(() => {
-    return landingConfig?.exemptUserEmails || ['vip.employer@devsinc.com', 'admin@careers.com'];
+    return Array.isArray(landingConfig?.exemptUserEmails) ? landingConfig.exemptUserEmails : [];
   });
   const [newExemptEmailInput, setNewExemptEmailInput] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');

@@ -2158,18 +2158,25 @@ export default function App() {
   const handleSubmitJobForApproval = async (
     newJob: Job,
     feePayment?: FeePaymentData
-  ): Promise<{ success: boolean; transaction?: any; message?: string }> => {
+  ): Promise<{ success: boolean; transaction?: any; job?: Job; message?: string }> => {
     let createdJob: Job | null = null;
-    try {
-      const createRes = await api.jobs.create({ ...newJob, status: 'Pending' });
-      if (createRes && createRes.job) {
-        createdJob = createRes.job;
+    if (newJob.id) {
+      // Reuse already-created pending job for payment submission retry
+      createdJob = newJob;
+    } else {
+      try {
+        const createRes = await api.jobs.create({ ...newJob, status: 'Pending' });
+        if (createRes && createRes.job) {
+          createdJob = createRes.job;
+        } else {
+          return { success: false, message: createRes?.message || 'Error creating job posting.' };
+        }
+        await loadBackendJobs();
+      } catch (err: any) {
+        console.error('Error creating pending job on backend:', err);
+        await loadBackendJobs();
+        return { success: false, message: err?.message || 'Error creating job posting.' };
       }
-      await loadBackendJobs();
-    } catch (err: any) {
-      console.error('Error creating pending job on backend:', err);
-      await loadBackendJobs();
-      return { success: false, message: err?.message || 'Error creating job posting.' };
     }
 
     if (feePayment && currentUser && createdJob?.id) {
@@ -2198,7 +2205,7 @@ export default function App() {
           proofNote: feePayment.proofNote,
           userName: currentUser.name,
           userEmail: currentUser.email,
-          idempotencyKey: `job-fee-${createdJob.id}-${Date.now()}`
+          idempotencyKey: `job-fee-${createdJob.id}`
         });
 
         if (txRes && txRes.success && txRes.transaction) {
@@ -2225,17 +2232,17 @@ export default function App() {
           ]);
           await loadBackendTransactions(currentUser.id);
           await loadBackendJobs();
-          return { success: true, transaction: normalizedTx };
+          return { success: true, transaction: normalizedTx, job: createdJob };
         } else {
           const msg = txRes?.message || 'Job submitted, but payment proof submission could not be completed.';
-          return { success: false, message: msg };
+          return { success: false, message: msg, job: createdJob };
         }
       } catch (err: any) {
         console.error('Error submitting job posting payment transaction:', err);
-        return { success: false, message: err?.message || 'Error submitting job posting payment transaction.' };
+        return { success: false, message: err?.message || 'Error submitting job posting payment transaction.', job: createdJob };
       }
     }
-    return { success: true };
+    return { success: true, job: createdJob || undefined };
   };
 
   // User Manual Subscription Renewal (+30 Days)

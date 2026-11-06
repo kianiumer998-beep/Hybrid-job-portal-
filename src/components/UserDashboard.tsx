@@ -5,6 +5,7 @@ import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
 import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info } from 'lucide-react';
+import { PublicPaymentSettings, PublicPaymentMethodConfig } from '../types/adminPayment';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
@@ -50,7 +51,7 @@ interface UserDashboardProps {
   onSubmitJobForApproval: (
     job: Job,
     feePayment?: FeePaymentData
-  ) => Promise<{ success: boolean; transaction?: any; message?: string } | void> | void;
+  ) => Promise<{ success: boolean; transaction?: any; job?: Job; message?: string } | void> | void;
   onSendMessageToAdmin: (text: string) => void;
   onUpdateProfile?: (updated: Partial<UserAccount> | UserAccount) => Promise<boolean> | boolean | void;
   onChangePassword?: (currentPass: string, newPass: string) => Promise<{ success: boolean; message?: string } | boolean> | { success: boolean; message?: string } | boolean;
@@ -217,6 +218,58 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [jobFeeNote, setJobFeeNote] = useState<string>('');
   const [isSubmittingFeePayment, setIsSubmittingFeePayment] = useState<boolean>(false);
   const [feePaymentError, setFeePaymentError] = useState<string | null>(null);
+
+  // Public Payment Settings State
+  const [publicPaymentSettings, setPublicPaymentSettings] = useState<PublicPaymentSettings | null>(null);
+  const [isLoadingPaymentSettings, setIsLoadingPaymentSettings] = useState<boolean>(false);
+
+  const loadPublicPaymentSettings = React.useCallback(async () => {
+    setIsLoadingPaymentSettings(true);
+    try {
+      const res = await api.paymentSettings.get();
+      if (res && res.success && res.configured && res.settings) {
+        setPublicPaymentSettings(res.settings);
+      } else {
+        setPublicPaymentSettings(null);
+      }
+    } catch (err) {
+      console.error('[UserDashboard] Failed to load payment settings:', err);
+      setPublicPaymentSettings(null);
+    } finally {
+      setIsLoadingPaymentSettings(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPublicPaymentSettings();
+  }, [loadPublicPaymentSettings]);
+
+  useEffect(() => {
+    if (showFeeInvoiceModal) {
+      loadPublicPaymentSettings();
+    }
+  }, [showFeeInvoiceModal, loadPublicPaymentSettings]);
+
+  // Enabled Payment Methods from Administrator Configuration
+  const enabledPaymentMethods = useMemo((): PublicPaymentMethodConfig[] => {
+    if (!publicPaymentSettings || !publicPaymentSettings.isConfigured || !publicPaymentSettings.methods) {
+      return [];
+    }
+    const allMethods: PublicPaymentMethodConfig[] = [
+      ...Object.values(publicPaymentSettings.methods || {}),
+      ...(publicPaymentSettings.customMethods || [])
+    ];
+    return allMethods.filter((m) => m && m.enabled && m.accountTitle && m.accountNumber);
+  }, [publicPaymentSettings]);
+
+  const activePaymentMethodConfig = useMemo((): PublicPaymentMethodConfig | null => {
+    if (!enabledPaymentMethods || enabledPaymentMethods.length === 0) return null;
+    const cleanCurrent = String(paymentMethod || '').trim().toLowerCase();
+    const matched = enabledPaymentMethods.find(
+      (m) => m.id.toLowerCase() === cleanCurrent || m.name.trim().toLowerCase() === cleanCurrent
+    );
+    return matched || enabledPaymentMethods[0] || null;
+  }, [enabledPaymentMethods, paymentMethod]);
 
   // Chat message input state
   const [newMessageText, setNewMessageText] = useState('');
@@ -621,17 +674,28 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const handleJobFeeScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setFeePaymentError('Receipt screenshot file size must be under 5MB.');
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+
+    if (!allowedTypes.includes(file.type.toLowerCase()) || !allowedExts.includes(ext)) {
+      setFeePaymentError('Only image files (JPEG, PNG, WebP) are permitted for receipt screenshots.');
       return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setFeePaymentError(`Receipt screenshot size exceeds 5MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB).`);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
       setJobFeeScreenshotUrl(reader.result as string);
       setFeePaymentError(null);
     };
     reader.onerror = () => {
-      setFeePaymentError('Failed to read image file. Please try another image.');
+      setFeePaymentError('Failed to read image file. Please select a valid receipt screenshot.');
     };
     reader.readAsDataURL(file);
   };
@@ -651,10 +715,50 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
     const feeToPay = calculatedPostingFee;
 
-    // For paid postings, validate payment proof fields
     if (feeToPay > 0) {
+      if (!publicPaymentSettings || !publicPaymentSettings.isConfigured || enabledPaymentMethods.length === 0) {
+        setFeePaymentError('Payment receiving details are currently unconfigured by administration. Manual payment submission is disabled.');
+        return;
+      }
+
+      if (!activePaymentMethodConfig) {
+        setFeePaymentError(`Payment method "${paymentMethod}" is not configured or enabled.`);
+        return;
+      }
+
+      const reqTid = activePaymentMethodConfig.transactionIdRequired;
+      const reqScreenshot = activePaymentMethodConfig.screenshotRequired;
+      const reqSenderName = activePaymentMethodConfig.senderNameRequired;
+      const reqSenderPhone = activePaymentMethodConfig.senderPhoneRequired;
+      const reqNote = activePaymentMethodConfig.proofNoteRequired;
+
+      if (reqTid && !jobFeeTid.trim()) {
+        setFeePaymentError(`Please enter the ${activePaymentMethodConfig.transactionIdLabel || 'Transaction ID (TID)'}.`);
+        return;
+      }
+
+      if (reqScreenshot && !jobFeeScreenshotUrl) {
+        setFeePaymentError(`Please upload a ${activePaymentMethodConfig.screenshotLabel || 'Payment Receipt Screenshot'}.`);
+        return;
+      }
+
       if (!jobFeeTid.trim() && !jobFeeScreenshotUrl) {
         setFeePaymentError('Please enter a Transaction ID (TID) or upload a payment receipt screenshot as proof.');
+        return;
+      }
+
+      if (reqSenderName && !jobFeeSenderName.trim()) {
+        setFeePaymentError(`Please enter the ${activePaymentMethodConfig.senderNameLabel || 'Sender Full Name'}.`);
+        return;
+      }
+
+      if (reqSenderPhone && !jobFeeSenderPhone.trim()) {
+        setFeePaymentError(`Please enter the ${activePaymentMethodConfig.senderPhoneLabel || 'Sender Mobile / Account Number'}.`);
+        return;
+      }
+
+      if (reqNote && !jobFeeNote.trim()) {
+        setFeePaymentError(`Please enter the ${activePaymentMethodConfig.proofNoteLabel || 'Deposit Note'}.`);
         return;
       }
     }
@@ -664,7 +768,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
     const feePaymentData: FeePaymentData = {
       amount: feeToPay,
-      paymentMethod,
+      paymentMethod: activePaymentMethodConfig?.name || paymentMethod,
       transactionId: jobFeeTid.trim() || undefined,
       senderName: jobFeeSenderName.trim() || currentUser.name,
       senderPhoneOrAccount: jobFeeSenderPhone.trim() || undefined,
@@ -678,6 +782,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       if (res && typeof res === 'object' && res.success === false) {
         setFeePaymentError(res.message || 'Payment proof submission could not be completed. Please check details and try again.');
+        if (res.job) {
+          // Store backend-created pending job so retries reuse the existing job ID
+          setPendingJobData(res.job);
+        }
         setIsSubmittingFeePayment(false);
         return;
       }
@@ -685,7 +793,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       alert(
         feeToPay === 0
           ? `Job "${pendingJobData.title}" submitted successfully! Status: Pending Verification.`
-          : `Payment proof of PKR ${feeToPay.toLocaleString()} via ${paymentMethod} submitted! Transaction status: Pending Verification. Job "${pendingJobData.title}" submitted to Admin queue for verification.`
+          : `Payment proof of PKR ${feeToPay.toLocaleString()} via ${feePaymentData.paymentMethod} submitted! Transaction status: Pending Verification. Job "${pendingJobData.title}" submitted to Admin queue for verification.`
       );
 
       setShowFeeInvoiceModal(false);
@@ -3082,55 +3190,98 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1.5 sm:mb-2">Select Payment Method</label>
-              <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs">
-                {(['JazzCash', 'Easypaisa', 'Credit Card', 'Bank Transfer'] as const).map((method) => (
-                  <button
-                    key={method}
-                    type="button"
-                    onClick={() => setPaymentMethod(method)}
-                    className={`py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold border transition-all text-[11px] sm:text-xs ${
-                      paymentMethod === method
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
-                    }`}
-                  >
-                    {method}
-                  </button>
-                ))}
-              </div>
+              <label className="block text-[11px] sm:text-xs font-bold text-slate-300 mb-1.5 sm:mb-2">
+                Select Payment Method
+              </label>
+              {isLoadingPaymentSettings ? (
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-400 text-center animate-pulse">
+                  Loading administrator payment options...
+                </div>
+              ) : enabledPaymentMethods.length === 0 ? (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4" /> Payment Options Unavailable
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Payment receiving options are currently unconfigured by administration. Manual payment submission is unavailable.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs">
+                  {enabledPaymentMethods.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setPaymentMethod(m.name as any)}
+                      className={`py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold border transition-all text-[11px] sm:text-xs ${
+                        activePaymentMethodConfig?.id === m.id || paymentMethod === m.name
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
+                      }`}
+                    >
+                      {m.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {calculatedPostingFee !== null && calculatedPostingFee > 0 && (
+            {calculatedPostingFee !== null && calculatedPostingFee > 0 && activePaymentMethodConfig && (
               <div className="space-y-3 pt-1 border-t border-slate-800/80">
                 <div className="bg-slate-950/80 rounded-xl p-3 border border-slate-800 space-y-1.5 text-xs">
                   <div className="text-amber-400 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5" /> Deposit Instructions ({paymentMethod})
+                    <Info className="w-3.5 h-3.5" /> Deposit Instructions ({activePaymentMethodConfig.name})
                   </div>
-                  <p className="text-slate-300 text-[11px] leading-relaxed">
-                    {paymentMethod === 'JazzCash' && 'Please send payment to JazzCash Account: 0300-1234567 (Title: Hybrid Portal) and submit your transaction proof below.'}
-                    {paymentMethod === 'Easypaisa' && 'Please send payment to Easypaisa Account: 0300-9876543 (Title: Hybrid Portal) and submit your transaction proof below.'}
-                    {paymentMethod === 'Bank Transfer' && 'Please transfer funds to Meezan Bank IBAN: PK12MEEZ000123456789 (Title: Hybrid Portal) and submit your transaction proof below.'}
-                    {paymentMethod === 'Credit Card' && 'Please initiate online transfer/deposit and enter your transaction ID (TID) or receipt screenshot below for manual verification.'}
-                  </p>
+                  <div className="text-slate-300 text-[11px] space-y-1 leading-relaxed">
+                    <div>
+                      <span className="font-bold text-slate-200">Account Title:</span> {activePaymentMethodConfig.accountTitle}
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-200">Account / Mobile No:</span>{' '}
+                      <span className="font-mono text-emerald-400 font-bold">{activePaymentMethodConfig.accountNumber}</span>
+                    </div>
+                    {activePaymentMethodConfig.bankName && (
+                      <div>
+                        <span className="font-bold text-slate-200">Bank Name:</span> {activePaymentMethodConfig.bankName}
+                      </div>
+                    )}
+                    {activePaymentMethodConfig.iban && (
+                      <div>
+                        <span className="font-bold text-slate-200">IBAN:</span>{' '}
+                        <span className="font-mono text-cyan-300">{activePaymentMethodConfig.iban}</span>
+                      </div>
+                    )}
+                    {activePaymentMethodConfig.instructions && (
+                      <div className="pt-1 text-slate-400 italic text-[10.5px]">
+                        {activePaymentMethodConfig.instructions}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                      Transaction ID / TID <span className="text-emerald-400">*</span>
+                      {activePaymentMethodConfig.transactionIdLabel || 'Transaction ID / TID'}{' '}
+                      {activePaymentMethodConfig.transactionIdRequired && <span className="text-emerald-400">*</span>}
                     </label>
                     <input
                       type="text"
                       value={jobFeeTid}
                       onChange={(e) => setJobFeeTid(e.target.value)}
-                      placeholder="e.g. 1029384756"
+                      placeholder={activePaymentMethodConfig.transactionIdPlaceholder || 'e.g. 1029384756'}
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
                     />
+                    {activePaymentMethodConfig.transactionIdHelpText && (
+                      <p className="text-[10px] text-slate-500 mt-0.5">{activePaymentMethodConfig.transactionIdHelpText}</p>
+                    )}
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Sender Name</label>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      {activePaymentMethodConfig.senderNameLabel || 'Sender Full Name'}{' '}
+                      {activePaymentMethodConfig.senderNameRequired && <span className="text-emerald-400">*</span>}
+                    </label>
                     <input
                       type="text"
                       value={jobFeeSenderName}
@@ -3141,12 +3292,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Sender Phone / Account</label>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      {activePaymentMethodConfig.senderPhoneLabel || 'Sender Phone / Account'}{' '}
+                      {activePaymentMethodConfig.senderPhoneRequired && <span className="text-emerald-400">*</span>}
+                    </label>
                     <input
                       type="text"
                       value={jobFeeSenderPhone}
                       onChange={(e) => setJobFeeSenderPhone(e.target.value)}
-                      placeholder="e.g. 03001234567"
+                      placeholder={activePaymentMethodConfig.senderPhonePlaceholder || 'e.g. 03001234567'}
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
                     />
                   </div>
@@ -3157,14 +3311,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       type="text"
                       value={jobFeeBankInfo}
                       onChange={(e) => setJobFeeBankInfo(e.target.value)}
-                      placeholder="e.g. JazzCash App, HBL"
+                      placeholder="e.g. JazzCash App, Meezan Bank"
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Receipt Screenshot (Optional if TID provided)</label>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    {activePaymentMethodConfig.screenshotLabel || 'Receipt Screenshot'}{' '}
+                    {activePaymentMethodConfig.screenshotRequired ? (
+                      <span className="text-emerald-400">*</span>
+                    ) : (
+                      <span className="text-slate-500 text-[10px]">(Optional if TID provided)</span>
+                    )}
+                  </label>
                   {jobFeeScreenshotUrl ? (
                     <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg p-1.5">
                       <img src={jobFeeScreenshotUrl} alt="Receipt preview" className="w-10 h-10 object-cover rounded" />
@@ -3180,19 +3341,25 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   ) : (
                     <label className="flex items-center justify-center gap-2 bg-slate-950 border border-dashed border-slate-700 hover:border-emerald-500 rounded-lg p-2 cursor-pointer transition-colors text-xs text-slate-400 hover:text-slate-200">
                       <Upload className="w-4 h-4 text-emerald-400" />
-                      <span>Upload receipt image (Max 5MB)</span>
-                      <input type="file" accept="image/*" onChange={handleJobFeeScreenshotChange} className="hidden" />
+                      <span>Upload receipt image (JPEG, PNG, WebP - Max 5MB)</span>
+                      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleJobFeeScreenshotChange} className="hidden" />
                     </label>
+                  )}
+                  {activePaymentMethodConfig.screenshotHelpText && (
+                    <p className="text-[10px] text-slate-500 mt-0.5">{activePaymentMethodConfig.screenshotHelpText}</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Payment Note (Optional)</label>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    {activePaymentMethodConfig.proofNoteLabel || 'Payment Note'}{' '}
+                    {activePaymentMethodConfig.proofNoteRequired && <span className="text-emerald-400">*</span>}
+                  </label>
                   <input
                     type="text"
                     value={jobFeeNote}
                     onChange={(e) => setJobFeeNote(e.target.value)}
-                    placeholder="Optional details for verification..."
+                    placeholder={activePaymentMethodConfig.proofNotePlaceholder || 'Optional details for verification...'}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
                   />
                 </div>
@@ -3209,10 +3376,20 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="pt-1.5 sm:pt-2">
               <button
                 type="button"
-                disabled={isCalculatingFee || calculatedPostingFee === null || !!calculationError || isSubmittingFeePayment}
+                disabled={
+                  isCalculatingFee ||
+                  calculatedPostingFee === null ||
+                  !!calculationError ||
+                  isSubmittingFeePayment ||
+                  (calculatedPostingFee > 0 && enabledPaymentMethods.length === 0)
+                }
                 onClick={handleConfirmFeePayment}
                 className={`w-full py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl font-black text-xs shadow-xl transition-all ${
-                  isCalculatingFee || calculatedPostingFee === null || !!calculationError || isSubmittingFeePayment
+                  isCalculatingFee ||
+                  calculatedPostingFee === null ||
+                  !!calculationError ||
+                  isSubmittingFeePayment ||
+                  (calculatedPostingFee > 0 && enabledPaymentMethods.length === 0)
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
                     : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-emerald-500/20 cursor-pointer active:scale-95'
                 }`}
@@ -3225,6 +3402,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   ? 'Calculation Error'
                   : calculatedPostingFee === 0
                   ? 'Confirm Free Job Submission'
+                  : enabledPaymentMethods.length === 0
+                  ? 'Payment Options Unavailable'
                   : calculatedPostingFee !== null && calculatedPostingFee !== undefined
                   ? `Submit Proof & Post Job (PKR ${calculatedPostingFee.toLocaleString()})`
                   : 'Calculating Fee...'}

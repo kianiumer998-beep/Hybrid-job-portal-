@@ -558,7 +558,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
           const eligibleAds = (ads || []).filter(
             (a) => a.placement === 'feed-inline' && a.status === 'active' && (a.approvalStatus === 'Approved' || !a.approvalStatus)
           );
-          const activeAdsList = eligibleAds.length > 0 ? eligibleAds : (ads || []).filter(a => a.status === 'active');
+          const activeAdsList = eligibleAds;
 
           const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
           const isCustomMode = feedInlineSettings?.insertionMode === 'custom_indices';

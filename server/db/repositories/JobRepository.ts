@@ -479,12 +479,7 @@ export class JobRepository {
 
       const andClauses: any[] = [
         { isSuspended: { $ne: true } },
-        {
-          $or: [
-            { status: 'Approved' },
-            { status: { $exists: false } }
-          ]
-        },
+        { status: 'Approved' },
         { isExpired: { $ne: true } },
         {
           $or: [
@@ -580,7 +575,7 @@ export class JobRepository {
 
       candidateJobs = allCandidateJobs.filter((job) => {
         if (job.isSuspended) return false;
-        if (job.status && job.status !== 'Approved') return false;
+        if (job.status !== 'Approved') return false;
         if (checkJobExpired(job)) return false;
         if (!JobRepository.getEffectivePriorityTier(job)) return false;
 
@@ -606,6 +601,20 @@ export class JobRepository {
         if (filter.salaryMin && filter.salaryMin > 0 && (job.salaryNumericMin || 0) < filter.salaryMin) return false;
         if (filter.isGovt && !job.isGovtJob) return false;
 
+        if (filter.sourceType && filter.sourceType !== 'All') {
+          if (filter.sourceType === 'user_posted') {
+            if (job.isScraped || job.isAdminCreated || job.sourceType === 'admin_created') {
+              return false;
+            }
+          } else if (filter.sourceType === 'scraped') {
+            const isScrapedMatch = !!(job.isScraped || job.sourceType === 'scraped' || (job.scraperSourceId && job.scraperSourceId !== ''));
+            if (!isScrapedMatch) return false;
+          } else if (filter.sourceType === 'admin_created') {
+            const isAdminMatch = !!(job.isAdminCreated || job.sourceType === 'admin_created');
+            if (!isAdminMatch) return false;
+          }
+        }
+
         return true;
       });
 
@@ -630,7 +639,7 @@ export class JobRepository {
     for (const job of candidateJobs) {
       if (checkJobExpired(job)) continue;
       if (job.isSuspended) continue;
-      if (job.status && job.status !== 'Approved') continue;
+      if (job.status !== 'Approved') continue;
 
       const effectiveTier = JobRepository.getEffectivePriorityTier(job);
       if (!effectiveTier) continue;

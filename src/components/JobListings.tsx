@@ -85,7 +85,8 @@ export const JobListings: React.FC<JobListingsProps> = ({
     visibility: {
       title: true, company: true, location: true, postedDate: true, description: true,
       tags: true, salary: true, jobType: true, govtBadge: true, featuredBadge: true,
-      urgentBadge: true, newspaperBadge: true, pdfBadge: true, futureBadge: true, saveButton: true,
+      urgentBadge: true, newspaperBadge: true, pdfBadge: true, futureBadge: true,
+      vipBadge: true, pinnedBadge: true, saveButton: true,
       detailsButton: true, applyButton: true
     },
     labels: { saveButton: 'Save', detailsButton: 'Details', applyButton: 'Apply', cardHeading: '' },
@@ -174,20 +175,28 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
     if (activeTier === 'vip' || job.priorityTier === 'vip_bundle') {
       cardBgStyle = 'bg-gradient-to-b from-amber-500/15 via-amber-950/20 to-slate-900 border-2 border-amber-400 shadow-lg shadow-amber-500/10 hover:border-amber-300';
-      tierBadgeText = '👑 VIP ULTIMATE PLACEMENT';
-      tierBadgeStyle = 'from-amber-500/30 via-amber-500/20 to-slate-900 border-amber-400/80 text-amber-300';
+      if (design.visibility.vipBadge !== false) {
+        tierBadgeText = '👑 VIP ULTIMATE PLACEMENT';
+        tierBadgeStyle = 'from-amber-500/30 via-amber-500/20 to-slate-900 border-amber-400/80 text-amber-300';
+      }
     } else if (activeTier === 'pinned' || job.isPinnedTop || job.priorityTier === 'featured_top') {
       cardBgStyle = 'bg-gradient-to-b from-blue-500/15 via-blue-950/20 to-slate-900 border-2 border-blue-400 shadow-lg shadow-blue-500/10 hover:border-blue-300';
-      tierBadgeText = '📌 PINNED TOP PLACEMENT';
-      tierBadgeStyle = 'from-blue-500/30 via-blue-500/20 to-slate-900 border-blue-400/80 text-blue-300';
+      if (design.visibility.pinnedBadge !== false) {
+        tierBadgeText = '📌 PINNED TOP PLACEMENT';
+        tierBadgeStyle = 'from-blue-500/30 via-blue-500/20 to-slate-900 border-blue-400/80 text-blue-300';
+      }
     } else if (activeTier === 'featured' || job.featured) {
       cardBgStyle = 'bg-gradient-to-b from-purple-500/15 via-purple-950/20 to-slate-900 border-2 border-purple-400 shadow-lg shadow-purple-500/10 hover:border-purple-300';
-      tierBadgeText = '⭐ FEATURED PLACEMENT';
-      tierBadgeStyle = 'from-purple-500/30 via-purple-500/20 to-slate-900 border-purple-400/80 text-purple-300';
+      if (design.visibility.featuredBadge !== false) {
+        tierBadgeText = '⭐ FEATURED PLACEMENT';
+        tierBadgeStyle = 'from-purple-500/30 via-purple-500/20 to-slate-900 border-purple-400/80 text-purple-300';
+      }
     } else if (activeTier === 'urgent' || job.urgent) {
       cardBgStyle = 'bg-gradient-to-b from-rose-500/15 via-rose-950/20 to-slate-900 border-2 border-rose-400 shadow-lg shadow-rose-500/10 hover:border-rose-300';
-      tierBadgeText = '🔥 URGENT HIRING PLACEMENT';
-      tierBadgeStyle = 'from-rose-500/30 via-rose-500/20 to-slate-900 border-rose-400/80 text-rose-300';
+      if (design.visibility.urgentBadge !== false) {
+        tierBadgeText = '🔥 URGENT HIRING PLACEMENT';
+        tierBadgeStyle = 'from-rose-500/30 via-rose-500/20 to-slate-900 border-rose-400/80 text-rose-300';
+      }
     }
 
     // Apply design theme overrides
@@ -261,6 +270,12 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
                     {/* Status Badges in Compact */}
                     <div className="flex flex-wrap gap-1">
+                        {(design.visibility.vipBadge !== false) && (activeTier === 'vip' || job.priorityTier === 'vip_bundle') && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">VIP</span>
+                        )}
+                        {(design.visibility.pinnedBadge !== false) && (activeTier === 'pinned' || job.isPinnedTop || job.priorityTier === 'featured_top') && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">Pinned</span>
+                        )}
                         {design.visibility.govtBadge && job.isGovtJob && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">Govt</span>
                         )}
@@ -539,24 +554,57 @@ export const JobListings: React.FC<JobListingsProps> = ({
 
       {/* 3. STANDARD JOBS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6">
-        {currentStandardJobs.map((job, index) => {
-          const elements = [renderJobCard(job, index, false)];
-          // Insert ad every 3 jobs if available
-          if ((index + 1) % 3 === 0 && ads[Math.floor(index / 3)]) {
-             elements.push(
-               <InlineFeedAd 
-                 key={`ad-${index}`} 
-                 ad={ads[Math.floor(index / 3)]} 
-                 onAdClick={onAdClick}
-                 onNavigateTab={onNavigateTab}
-                 bannerDimensions={bannerDimensions}
-                 feedCardAppearance={feedCardAppearance}
-                 feedInlineSettings={feedInlineSettings}
-               />
-             );
-          }
-          return elements;
-        })}
+        {(() => {
+          const eligibleAds = (ads || []).filter(
+            (a) => a.placement === 'feed-inline' && a.status === 'active' && (a.approvalStatus === 'Approved' || !a.approvalStatus)
+          );
+          const activeAdsList = eligibleAds.length > 0 ? eligibleAds : (ads || []).filter(a => a.status === 'active');
+
+          const maxAds = feedInlineSettings?.maxAdsPerPage ?? 3;
+          const isCustomMode = feedInlineSettings?.insertionMode === 'custom_indices';
+          const targetIndices = (safePage === 1 && feedInlineSettings?.page1SpecificIndices && feedInlineSettings.page1SpecificIndices.length > 0)
+            ? feedInlineSettings.page1SpecificIndices
+            : (feedInlineSettings?.customIndices || [2, 5, 8]);
+          const repeatCadence = feedInlineSettings?.repeatEveryNJobs || 3;
+
+          let adInsertedCount = 0;
+
+          return currentStandardJobs.map((job, index) => {
+            const elements = [renderJobCard(job, index, false)];
+
+            let shouldInsert = false;
+            if (feedInlineSettings) {
+              if (isCustomMode) {
+                shouldInsert = targetIndices.includes(index + 1);
+              } else {
+                shouldInsert = (index + 1) % repeatCadence === 0;
+              }
+            } else {
+              shouldInsert = (index + 1) % 3 === 0;
+            }
+
+            if (shouldInsert && adInsertedCount < maxAds && activeAdsList.length > 0) {
+              const selectedAd = (feedInlineSettings?.rotateMultipleAds !== false)
+                ? activeAdsList[adInsertedCount % activeAdsList.length]
+                : activeAdsList[0];
+
+              elements.push(
+                <InlineFeedAd 
+                  key={`ad-${index}`} 
+                  ad={selectedAd} 
+                  onAdClick={onAdClick}
+                  onNavigateTab={onNavigateTab}
+                  bannerDimensions={bannerDimensions}
+                  feedCardAppearance={feedCardAppearance}
+                  feedInlineSettings={feedInlineSettings}
+                />
+              );
+              adInsertedCount++;
+            }
+
+            return elements;
+          });
+        })()}
       </div>
 
       {/* BOTTOM PAGINATION CONTROLS BAR */}

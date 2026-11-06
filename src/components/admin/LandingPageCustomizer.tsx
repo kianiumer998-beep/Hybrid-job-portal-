@@ -31,9 +31,9 @@ import {
 
 interface LandingPageCustomizerProps {
   config: LandingPageConfig;
-  onUpdateConfig: (newConfig: LandingPageConfig) => void;
+  onUpdateConfig: (newConfig: LandingPageConfig) => Promise<any> | void;
   campaignConfig: CampaignCustomizationConfig;
-  onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => void;
+  onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => Promise<any> | void;
 }
 
 export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
@@ -172,16 +172,42 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
     }
   };
 
-  const handleResetDefaults = () => {
-    if (window.confirm('Reset all landing page text, buttons and sequence to factory defaults?')) {
-      setHeroForm(DEFAULT_LANDING_PAGE_CONFIG.hero);
-      setSections(DEFAULT_LANDING_PAGE_CONFIG.sections);
-      setCustomCards(DEFAULT_LANDING_PAGE_CONFIG.customCards);
-      setJobCardDesignForm(DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
-      const newCfg = { ...DEFAULT_LANDING_PAGE_CONFIG };
-      onUpdateConfig(newCfg);
-      setSaveToast('Restored default landing page configuration.');
-      setTimeout(() => setSaveToast(null), 3000);
+  const handleResetDefaults = async () => {
+    if (!window.confirm('Reset all landing page text, buttons and sequence to factory defaults?')) {
+      return;
+    }
+
+    const previousHero = heroForm;
+    const previousSections = sections;
+    const previousCustomCards = customCards;
+    const previousJobCardDesign = jobCardDesignForm;
+
+    const newLandingConfig: LandingPageConfig = {
+      ...DEFAULT_LANDING_PAGE_CONFIG,
+      categoryPostingFees: config.categoryPostingFees || DEFAULT_LANDING_PAGE_CONFIG.categoryPostingFees,
+      exemptUserIds: config.exemptUserIds || DEFAULT_LANDING_PAGE_CONFIG.exemptUserIds,
+      exemptUserEmails: config.exemptUserEmails || DEFAULT_LANDING_PAGE_CONFIG.exemptUserEmails
+    };
+
+    setHeroForm(newLandingConfig.hero);
+    setSections(newLandingConfig.sections);
+    setCustomCards(newLandingConfig.customCards);
+    setJobCardDesignForm(newLandingConfig.jobCardDesign);
+
+    try {
+      setSaveToast('⏳ Resetting and saving default configuration to database...');
+      await onUpdateConfig(newLandingConfig);
+      setSaveToast('✅ Restored and saved default landing page configuration.');
+      setTimeout(() => setSaveToast(null), 3500);
+    } catch (err: any) {
+      console.error('Failed to reset landing page config to defaults:', err);
+      // Rollback local form states on failure
+      setHeroForm(previousHero);
+      setSections(previousSections);
+      setCustomCards(previousCustomCards);
+      setJobCardDesignForm(previousJobCardDesign);
+      setSaveToast(null);
+      alert('❌ Failed to reset landing page configuration. The database could not be updated. Changes have been rolled back.');
     }
   };
 

@@ -19,6 +19,7 @@ export interface JobFilterOptions {
   region?: string;
   province?: string;
   city?: string;
+  district?: string;
   experienceLevel?: string;
   salaryMin?: number;
   sortBy?: string;
@@ -418,6 +419,34 @@ export class JobRepository {
    * Enforces single-assignment rule for the returned jobs list.
    * Calculates true occupancy counts across all matching priority jobs.
    */
+  /**
+   * Helper to determine a job's single authoritative priority tier based on strict precedence:
+   * VIP (vip_bundle) -> Pinned (isPinnedTop) -> Featured (featured) -> Urgent (urgent).
+   * A job can belong to at most one effective priority tier.
+   */
+  static getEffectivePriorityTier(job: any): 'vip' | 'pinned' | 'featured' | 'urgent' | null {
+    if (!job || typeof job !== 'object') return null;
+    if (job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent)) {
+      return 'vip';
+    }
+    if (job.isPinnedTop || job.priorityTier === 'featured_top') {
+      return 'pinned';
+    }
+    if (job.featured) {
+      return 'featured';
+    }
+    if (job.urgent || job.priorityTier === 'urgent') {
+      return 'urgent';
+    }
+    return null;
+  }
+
+  /**
+   * Retrieves priority placement jobs according to configured slot limits and precedence:
+   * VIP (vip_bundle) -> Pinned (isPinnedTop) -> Featured (featured) -> Urgent (urgent).
+   * Enforces strict single-tier assignment: jobs never downgrade if their effective tier is full.
+   * Calculates true occupancy counts across all matching priority jobs.
+   */
   static async getPriorityPlacementJobs(filter: JobFilterOptions = {}): Promise<{
     jobs: any[];
     tierCounts: { vip: number; pinned: number; featured: number; urgent: number };
@@ -441,132 +470,200 @@ export class JobRepository {
       };
     }
 
+    let candidateJobs: any[] = [];
+
     // PRODUCTION: Direct MongoDB Query for Priority Candidates
     if (process.env.IS_TEST !== 'true' && isMongoConfigured()) {
       assertMongoAvailable();
       const jobsColl = await getJobsCollection();
 
-      // Combined Priority Candidate Query
-      const query: any = {
-        isSuspended: { $ne: true },
-        status: 'Approved',
-        isExpired: { $ne: true },
-        $or: [
-          { priorityTier: { $in: ['vip_bundle', 'featured_top', 'urgent'] } },
-          { isPinnedTop: true },
-          { featured: true },
-          { urgent: true }
-        ]
-      };
+      const andClauses: any[] = [
+        { isSuspended: { $ne: true } },
+        {
+          $or: [
+            { status: 'Approved' },
+            { status: { $exists: false } }
+          ]
+        },
+        { isExpired: { $ne: true } },
+        {
+          $or: [
+            { priorityTier: { $in: ['vip_bundle', 'featured_top', 'urgent'] } },
+            { isPinnedTop: true },
+            { featured: true },
+            { urgent: true }
+          ]
+        }
+      ];
 
-      // Apply basic location filters if provided
-      if (filter.region && filter.region !== 'All') query.region = filter.region;
-      if (filter.province && filter.province !== 'All') query.province = filter.province;
-      if (filter.city && filter.city !== 'All') query.city = filter.city;
+      // Consistent filter application matching normal job listing query
+      if (filter.search && filter.search.trim()) {
+        const q = filter.search.trim();
+        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+        andClauses.push({
+          $or: [
+            { title: regex },
+            { company: regex },
+            { department: regex },
+            { description: regex },
+            { tags: regex },
+            { city: regex }
+          ]
+        });
+      }
 
-      // Fetch ALL potential candidates (no limit for occupancy calculation)
-      const cursor = jobsColl.find(query).sort({ createdAt: -1 });
-      const docs = await cursor.toArray();
+      if (filter.jobType && filter.jobType !== 'All') {
+        andClauses.push({ jobType: filter.jobType });
+      }
 
-      const vipJobs: any[] = [];
-      const pinnedJobs: any[] = [];
-      const featuredJobs: any[] = [];
-      const urgentJobs: any[] = [];
-      
-      let vipOccupancy = 0;
-      let pinnedOccupancy = 0;
-      let featuredOccupancy = 0;
-      let urgentOccupancy = 0;
+      if (filter.region && filter.region !== 'All') {
+        andClauses.push({ region: filter.region });
+      }
 
-      const assignedIds = new Set<string>();
+      if (filter.province && filter.province !== 'All') {
+        andClauses.push({ province: filter.province });
+      }
 
-      for (const doc of docs) {
-        const job = normalizeMongoJob(doc);
-        // Secondary expiry check for safety
-        if (checkJobExpired(job)) continue;
+      if (filter.city && filter.city !== 'All') {
+        andClauses.push({ city: filter.city });
+      }
 
-        const isVip = (slotConfig.vip?.enabled !== false) && (job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent));
-        const isPinned = (slotConfig.pinned?.enabled !== false) && (job.isPinnedTop || job.priorityTier === 'featured_top');
-        const isFeatured = (slotConfig.featured?.enabled !== false) && (job.featured);
-        const isUrgent = (slotConfig.urgent?.enabled !== false) && (job.urgent || job.priorityTier === 'urgent');
+      if (filter.district && filter.district !== 'All') {
+        andClauses.push({ district: filter.district });
+      }
 
-        if (isVip) vipOccupancy++;
-        else if (isPinned) pinnedOccupancy++;
-        else if (isFeatured) featuredOccupancy++;
-        else if (isUrgent) urgentOccupancy++;
+      if (filter.experienceLevel && filter.experienceLevel !== 'All') {
+        andClauses.push({ experienceLevel: filter.experienceLevel });
+      }
 
-        if (assignedIds.has(job.id)) continue;
+      if (filter.salaryMin && filter.salaryMin > 0) {
+        andClauses.push({ salaryNumericMin: { $gte: filter.salaryMin } });
+      }
 
-        if (isVip && vipJobs.length < limits.vip) {
-          vipJobs.push({ ...job, activePriorityTier: 'vip' });
-          assignedIds.add(job.id);
-        } else if (isPinned && pinnedJobs.length < limits.pinned) {
-          pinnedJobs.push({ ...job, activePriorityTier: 'pinned' });
-          assignedIds.add(job.id);
-        } else if (isFeatured && featuredJobs.length < limits.featured) {
-          featuredJobs.push({ ...job, activePriorityTier: 'featured' });
-          assignedIds.add(job.id);
-        } else if (isUrgent && urgentJobs.length < limits.urgent) {
-          urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
-          assignedIds.add(job.id);
+      if (filter.isGovt) {
+        andClauses.push({ isGovtJob: true });
+      }
+
+      if (filter.sourceType && filter.sourceType !== 'All') {
+        if (filter.sourceType === 'user_posted') {
+          andClauses.push({
+            isScraped: { $ne: true },
+            isAdminCreated: { $ne: true },
+            sourceType: { $ne: 'admin_created' }
+          });
+        } else if (filter.sourceType === 'scraped') {
+          andClauses.push({
+            $or: [
+              { isScraped: true },
+              { sourceType: 'scraped' },
+              { scraperSourceId: { $exists: true, $ne: '' } }
+            ]
+          });
+        } else if (filter.sourceType === 'admin_created') {
+          andClauses.push({
+            $or: [
+              { isAdminCreated: true },
+              { sourceType: 'admin_created' }
+            ]
+          });
         }
       }
 
-      return {
-        jobs: [...vipJobs, ...pinnedJobs, ...featuredJobs, ...urgentJobs],
-        tierCounts: { vip: vipOccupancy, pinned: pinnedOccupancy, featured: featuredOccupancy, urgent: urgentOccupancy },
-        slotLimits: limits
-      };
-    }
+      const query = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
+      const cursor = jobsColl.find(query).sort({ createdAt: -1, _id: 1 });
+      const docs = await cursor.toArray();
+      candidateJobs = docs.map(normalizeMongoJob);
+    } else {
+      // In-memory test and local dev fallback (evaluates all records without 1,000-record cap)
+      const allCandidateJobs = Database.getJobs().map(normalizeMongoJob);
 
-    // FALLBACK: Generic getAll logic for tests or local dev without Mongo
-    const { jobs: allPriorityCandidates } = await this.getAll({
-      ...filter,
-      status: 'Approved',
-      includeExpired: false,
-      limit: 1000
-    });
+      candidateJobs = allCandidateJobs.filter((job) => {
+        if (job.isSuspended) return false;
+        if (job.status && job.status !== 'Approved') return false;
+        if (checkJobExpired(job)) return false;
+        if (!JobRepository.getEffectivePriorityTier(job)) return false;
+
+        if (filter.search && filter.search.trim()) {
+          const q = filter.search.trim().toLowerCase();
+          const matchesTitle = (job.title || '').toLowerCase().includes(q);
+          const matchesCompany = (job.company || '').toLowerCase().includes(q);
+          const matchesDept = (job.department || '').toLowerCase().includes(q);
+          const matchesDesc = (job.description || '').toLowerCase().includes(q);
+          const matchesTags = Array.isArray(job.tags) && job.tags.some((t: string) => (t || '').toLowerCase().includes(q));
+          const matchesCity = (job.city || '').toLowerCase().includes(q);
+          if (!matchesTitle && !matchesCompany && !matchesDept && !matchesDesc && !matchesTags && !matchesCity) {
+            return false;
+          }
+        }
+
+        if (filter.jobType && filter.jobType !== 'All' && job.jobType !== filter.jobType) return false;
+        if (filter.region && filter.region !== 'All' && job.region !== filter.region) return false;
+        if (filter.province && filter.province !== 'All' && job.province !== filter.province) return false;
+        if (filter.city && filter.city !== 'All' && job.city !== filter.city) return false;
+        if (filter.district && filter.district !== 'All' && job.district !== filter.district) return false;
+        if (filter.experienceLevel && filter.experienceLevel !== 'All' && job.experienceLevel !== filter.experienceLevel) return false;
+        if (filter.salaryMin && filter.salaryMin > 0 && (job.salaryNumericMin || 0) < filter.salaryMin) return false;
+        if (filter.isGovt && !job.isGovtJob) return false;
+
+        return true;
+      });
+
+      candidateJobs.sort((a, b) => {
+        const tA = new Date(a.createdAt || 0).getTime();
+        const tB = new Date(b.createdAt || 0).getTime();
+        if (tA !== tB) return tB - tA;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    }
 
     const vipJobs: any[] = [];
     const pinnedJobs: any[] = [];
     const featuredJobs: any[] = [];
     const urgentJobs: any[] = [];
-    
+
     let vipOccupancy = 0;
     let pinnedOccupancy = 0;
     let featuredOccupancy = 0;
     let urgentOccupancy = 0;
 
-    const assignedIds = new Set<string>();
+    for (const job of candidateJobs) {
+      if (checkJobExpired(job)) continue;
+      if (job.isSuspended) continue;
+      if (job.status && job.status !== 'Approved') continue;
 
-    for (const job of allPriorityCandidates) {
-      const isPriority = job.priorityTier === 'vip_bundle' || (job as any).activePriorityTier || job.isPinnedTop || job.featured || job.urgent;
-      if (!isPriority) continue;
+      const effectiveTier = JobRepository.getEffectivePriorityTier(job);
+      if (!effectiveTier) continue;
 
-      const isVip = (slotConfig.vip?.enabled !== false) && (job.priorityTier === 'vip_bundle' || (job.isPinnedTop && job.featured && job.urgent));
-      const isPinned = (slotConfig.pinned?.enabled !== false) && (job.isPinnedTop || job.priorityTier === 'featured_top');
-      const isFeatured = (slotConfig.featured?.enabled !== false) && (job.featured);
-      const isUrgent = (slotConfig.urgent?.enabled !== false) && (job.urgent || job.priorityTier === 'urgent');
+      // Tier must be enabled in slotConfig
+      const isTierEnabled = slotConfig[effectiveTier]?.enabled !== false;
+      if (!isTierEnabled) {
+        // Individual tier is disabled by admin:
+        // A job in a disabled tier cannot occupy slots and MUST NEVER be downgraded to another tier.
+        continue;
+      }
 
-      if (isVip) vipOccupancy++;
-      else if (isPinned) pinnedOccupancy++;
-      else if (isFeatured) featuredOccupancy++;
-      else if (isUrgent) urgentOccupancy++;
-
-      if (assignedIds.has(job.id)) continue;
-
-      if (isVip && vipJobs.length < limits.vip) {
-        vipJobs.push({ ...job, activePriorityTier: 'vip' });
-        assignedIds.add(job.id);
-      } else if (isPinned && pinnedJobs.length < limits.pinned) {
-        pinnedJobs.push({ ...job, activePriorityTier: 'pinned' });
-        assignedIds.add(job.id);
-      } else if (isFeatured && featuredJobs.length < limits.featured) {
-        featuredJobs.push({ ...job, activePriorityTier: 'featured' });
-        assignedIds.add(job.id);
-      } else if (isUrgent && urgentJobs.length < limits.urgent) {
-        urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
-        assignedIds.add(job.id);
+      // Assign strictly to its effective tier; never downgrade when slots are full
+      if (effectiveTier === 'vip') {
+        vipOccupancy++;
+        if (vipJobs.length < limits.vip) {
+          vipJobs.push({ ...job, activePriorityTier: 'vip' });
+        }
+      } else if (effectiveTier === 'pinned') {
+        pinnedOccupancy++;
+        if (pinnedJobs.length < limits.pinned) {
+          pinnedJobs.push({ ...job, activePriorityTier: 'pinned' });
+        }
+      } else if (effectiveTier === 'featured') {
+        featuredOccupancy++;
+        if (featuredJobs.length < limits.featured) {
+          featuredJobs.push({ ...job, activePriorityTier: 'featured' });
+        }
+      } else if (effectiveTier === 'urgent') {
+        urgentOccupancy++;
+        if (urgentJobs.length < limits.urgent) {
+          urgentJobs.push({ ...job, activePriorityTier: 'urgent' });
+        }
       }
     }
 

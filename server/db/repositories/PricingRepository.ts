@@ -12,6 +12,7 @@ import {
   resolveCampaignDuration,
   getPlacementDisplayName
 } from '../../../src/types/ad';
+import { DEFAULT_CATEGORY_POSTING_FEES } from '../../../src/types/landing';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
 
 export interface JobPriceCalculationRequest {
@@ -96,7 +97,6 @@ export class PricingRepository {
             isPersistedToMongo: true
           };
         }
-        // First run with MongoDB configured before initial save
         return {
           ...Database.getPricing(),
           isPersistedToMongo: false,
@@ -123,7 +123,6 @@ export class PricingRepository {
 
     const current = await this.get();
 
-    // 1. Validate numerical inputs when provided
     if (updates.jobPosting) {
       const jp = updates.jobPosting;
       if (jp.standardFeePkr !== undefined) validateNonNegativeNumber(jp.standardFeePkr, 'jobPosting.standardFeePkr');
@@ -173,33 +172,29 @@ export class PricingRepository {
       }
     }
 
-    if (updates.addons) {
-      if (updates.addons.highlightColor !== undefined) validateNonNegativeNumber(updates.addons.highlightColor, 'addons.highlightColor');
-      if (updates.addons.whatsappBlast !== undefined) validateNonNegativeNumber(updates.addons.whatsappBlast, 'addons.whatsappBlast');
-      if (updates.addons.socialShare !== undefined) validateNonNegativeNumber(updates.addons.socialShare, 'addons.socialShare');
-      if (updates.addons.extraWeekRate !== undefined) validateNonNegativeNumber(updates.addons.extraWeekRate, 'addons.extraWeekRate');
+    // Deterministic category fees resolution without duplication
+    const rawCategoryFees =
+      updates?.jobPosting?.categoryPostingFees ||
+      updates?.landingPageConfig?.categoryPostingFees ||
+      current.jobPosting?.categoryPostingFees ||
+      current.landingPageConfig?.categoryPostingFees ||
+      DEFAULT_CATEGORY_POSTING_FEES;
+
+    const categoryMap = new Map<string, any>();
+    if (Array.isArray(rawCategoryFees)) {
+      for (const c of rawCategoryFees) {
+        if (c && c.categoryId) {
+          categoryMap.set(c.categoryId, c);
+        }
+      }
     }
+    const mergedCategoryPostingFees = Array.from(categoryMap.values());
 
-    if (updates.cvBuilder) {
-      if (updates.cvBuilder.standardPdfExportPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.standardPdfExportPkr, 'cvBuilder.standardPdfExportPkr');
-      if (updates.cvBuilder.premiumAiOptimizerPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.premiumAiOptimizerPkr, 'cvBuilder.premiumAiOptimizerPkr');
-      if (updates.cvBuilder.unlimitedTemplatesPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.unlimitedTemplatesPkr, 'cvBuilder.unlimitedTemplatesPkr');
-    }
-
-    // 2. Safe deep merge that protects all sections from clobbering
-    const mergedCategoryPostingFees = Array.isArray(updates.jobPosting?.categoryPostingFees)
-      ? updates.jobPosting.categoryPostingFees
-      : (Array.isArray(updates.categoryPostingFees)
-        ? updates.categoryPostingFees
-        : (Array.isArray(updates.landingPageConfig?.categoryPostingFees)
-          ? updates.landingPageConfig.categoryPostingFees
-          : (current.jobPosting?.categoryPostingFees || current.landingPageConfig?.categoryPostingFees || [])));
-
-    const mergedExemptUserEmails = Array.isArray(updates.jobPosting?.exemptUserEmails)
+    const mergedExemptUserEmails = Array.isArray(updates?.jobPosting?.exemptUserEmails)
       ? updates.jobPosting.exemptUserEmails
-      : (Array.isArray(updates.exemptUserEmails)
+      : (Array.isArray(updates?.exemptUserEmails)
         ? updates.exemptUserEmails
-        : (Array.isArray(updates.landingPageConfig?.exemptUserEmails)
+        : (Array.isArray(updates?.landingPageConfig?.exemptUserEmails)
           ? updates.landingPageConfig.exemptUserEmails
           : (current.jobPosting?.exemptUserEmails || current.landingPageConfig?.exemptUserEmails || [])));
 
@@ -275,7 +270,6 @@ export class PricingRepository {
       updatedAt: new Date().toISOString()
     };
 
-    // 3. Persist to MongoDB
     if (isMongoConfigured()) {
       try {
         const db = await getMongoDb();
@@ -309,8 +303,8 @@ export class PricingRepository {
   }
 
   /**
-   * Calculates job posting price server-side using the single authoritative configuration.
-   * Handles tier surcharges vs flat fees, category rules, employer exemptions, and add-ons.
+   * Calculates job posting price server-side using authoritative configuration.
+   * Enforces plan enable/disable flags, category resolution, exemptions, add-ons, and discount safety.
    */
   static async calculateJobPostingPrice(req: JobPriceCalculationRequest): Promise<{
     basePrice: number;
@@ -347,11 +341,19 @@ export class PricingRepository {
     // 2. Master Free Mode Check
     const isMasterFree = Boolean(pricing.jobPosting?.isFreeAllPostings);
 
-    // 3. Category Pricing Resolution
-    const categoryFees: any[] = [
+    // 3. Category Pricing Resolution (deterministic map merge)
+    const rawCategoryFees = [
       ...(pricing.jobPosting?.categoryPostingFees || []),
-      ...(pricing.landingPageConfig?.categoryPostingFees || [])
+      ...(pricing.landingPageConfig?.categoryPostingFees || []),
+      ...DEFAULT_CATEGORY_POSTING_FEES
     ];
+    const categoryMap = new Map<string, any>();
+    for (const c of rawCategoryFees) {
+      if (c && c.categoryId && !categoryMap.has(c.categoryId)) {
+        categoryMap.set(c.categoryId, c);
+      }
+    }
+    const categoryFees = Array.from(categoryMap.values());
 
     let baseStandardFee = pricing.jobPosting?.standardFeePkr ?? 1000;
     let categoryDiscountPercent = 0;
@@ -393,7 +395,7 @@ export class PricingRepository {
       baseStandardFee = 0;
     }
 
-    // 4. Plan & Priority Tier Resolution
+    // 4. Plan & Priority Tier Resolution with Enable/Disable Enforcement
     const isVip = Boolean(
       req.vipBundle ||
       req.priorityTier === 'vip_bundle' ||
@@ -420,13 +422,18 @@ export class PricingRepository {
     let basePrice = 0;
 
     if (isVip) {
-      // VIP Bundle is a flat fee (e.g. 2,500 PKR)
+      if (pricing.jobPosting?.enableVipBundle === false) {
+        throw new Error('VIP Bundle job placement plan is currently disabled by administrator.');
+      }
       basePrice = isMasterFree ? 0 : (pricing.jobPosting?.vipBundleFeePkr ?? 2500);
       breakdown.push({
         name: `${pricing.jobPosting?.vipBadgeText || '👑 VIP Ultimate Placement'} (Flat Fee)`,
         amount: basePrice
       });
     } else if (isFeatured) {
+      if (pricing.jobPosting?.enableFeaturedTop === false) {
+        throw new Error('Featured / Pinned Top job placement plan is currently disabled by administrator.');
+      }
       const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.featuredTopFeePkr ?? 1500);
       basePrice = baseStandardFee + surcharge;
       if (baseStandardFee > 0) {
@@ -445,6 +452,9 @@ export class PricingRepository {
         breakdown.push({ name: 'Pinned Top Placement (Free)', amount: 0 });
       }
     } else if (isUrgent) {
+      if (pricing.jobPosting?.enableUrgent === false) {
+        throw new Error('Urgent Hiring job placement plan is currently disabled by administrator.');
+      }
       const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.urgentFeePkr ?? 500);
       basePrice = baseStandardFee + surcharge;
       if (baseStandardFee > 0) {
@@ -463,6 +473,9 @@ export class PricingRepository {
         breakdown.push({ name: 'Urgent Placement (Free)', amount: 0 });
       }
     } else if (isFuture) {
+      if (pricing.jobPosting?.enableFutureJob === false) {
+        throw new Error('Future Job Intake job placement plan is currently disabled by administrator.');
+      }
       const surcharge = isMasterFree ? 0 : (pricing.jobPosting?.futureJobFeePkr ?? 800);
       basePrice = baseStandardFee + surcharge;
       if (baseStandardFee > 0) {
@@ -481,6 +494,9 @@ export class PricingRepository {
         breakdown.push({ name: 'Future Job Intake (Free)', amount: 0 });
       }
     } else {
+      if (pricing.jobPosting?.enableStandard === false) {
+        throw new Error('Standard job posting plan is currently disabled by administrator.');
+      }
       basePrice = baseStandardFee;
       breakdown.push({
         name: appliedCategoryName ? `${appliedCategoryName} Base Rate` : 'Standard Listing Base',
@@ -516,7 +532,7 @@ export class PricingRepository {
       breakdown.push({ name: `Extended Duration (${extraWeeks} extra week(s))`, amount: extraDurationFee });
     }
 
-    // 6. Discounts
+    // 6. Discounts (Authorized admin-configured category & global discounts only; no unauthorized LAUNCH50 hardcode)
     let discountAmount = 0;
     const subtotal = basePrice + addonsTotal;
 
@@ -526,17 +542,11 @@ export class PricingRepository {
       breakdown.push({ name: `Category Discount (${categoryDiscountPercent}% Off Base)`, amount: -catDiscount });
     }
 
-    const globalDiscount = pricing.jobPosting?.globalDiscount ?? 0;
+    const globalDiscount = Math.min(100, Math.max(0, pricing.jobPosting?.globalDiscount ?? 0));
     if (globalDiscount > 0 && subtotal > discountAmount) {
       const globalDiscountAmt = Math.round((subtotal - discountAmount) * (globalDiscount / 100));
       discountAmount += globalDiscountAmt;
       breakdown.push({ name: `Site-Wide Promotional Markdown (${globalDiscount}% Off)`, amount: -globalDiscountAmt });
-    }
-
-    if (req.discountCode && String(req.discountCode).trim().toUpperCase() === 'LAUNCH50') {
-      const promoAmt = Math.round((subtotal - discountAmount) * 0.5);
-      discountAmount += promoAmt;
-      breakdown.push({ name: 'Promo Discount (LAUNCH50 - 50% Off)', amount: -promoAmt });
     }
 
     const finalPrice = Math.max(0, subtotal - discountAmount);

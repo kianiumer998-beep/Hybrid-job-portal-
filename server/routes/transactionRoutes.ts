@@ -363,7 +363,7 @@ transactionRouter.post('/', async (req, res) => {
       if (effectiveType === 'Job Posting') {
         const calc = await PricingRepository.calculateJobPostingPrice({
           ...(jobPricingOptions || {}),
-          userEmail: req.body?.userEmail || (req as any).user?.email,
+          userEmail: effectiveUserEmail,
           userId: req.body?.userId || effectiveUserId,
           jobCategory: targetJob?.jobCategory || jobPricingOptions?.jobCategory,
           priorityTier: targetJob?.priorityTier || jobPricingOptions?.priorityTier

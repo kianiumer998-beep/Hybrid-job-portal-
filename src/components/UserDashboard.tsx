@@ -202,7 +202,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   // Per-Job Fee Payment Modal State
   const [showFeeInvoiceModal, setShowFeeInvoiceModal] = useState(false);
   const [pendingJobData, setPendingJobData] = useState<Job | null>(null);
-  const [calculatedPostingFee, setCalculatedPostingFee] = useState<number>(0);
+  const [calculatedPostingFee, setCalculatedPostingFee] = useState<number | null>(null);
+  const [isCalculatingFee, setIsCalculatingFee] = useState<boolean>(false);
+  const [calculationError, setCalculationError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer'>('JazzCash');
 
   // Chat message input state
@@ -358,19 +360,20 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   // Pricing calculation helper
   const computeJobPostingCost = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): number => {
+    const jpAny = jobPostingPricing as any;
     // 1. VIP Employer Exemption Check
-    const exemptEmails: string[] = (jobPostingPricing?.exemptUserEmails || []).map(e => String(e || '').toLowerCase().trim());
+    const exemptEmails: string[] = (jpAny?.exemptUserEmails || []).map((e: any) => String(e || '').toLowerCase().trim());
     if (currentUser?.email && exemptEmails.includes(currentUser.email.toLowerCase().trim())) {
       return 0;
     }
     // 2. Master Free Mode Check
-    if (jobPostingPricing?.isFreeAllPostings) {
+    if (jpAny?.isFreeAllPostings) {
       return 0;
     }
     // 3. Category Pricing Check
     let baseStandardFee = jobPostingPricing?.standardFeePkr ?? jobPostingFeePkr ?? 1000;
-    if (jobPostingPricing?.categoryPostingFees && jobCategory) {
-      const matchCat = jobPostingPricing.categoryPostingFees.find(
+    if (jpAny?.categoryPostingFees && jobCategory) {
+      const matchCat = jpAny.categoryPostingFees.find(
         (c: any) =>
           String(c.categoryId || '').toLowerCase() === jobCategory.toLowerCase() ||
           String(c.categoryName || '').toLowerCase() === jobCategory.toLowerCase()
@@ -400,20 +403,34 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   useEffect(() => {
     let active = true;
+    setIsCalculatingFee(true);
+    setCalculationError(null);
+
     api.pricing.calculateJob({
       priorityTier,
       jobCategory,
       userEmail: currentUser?.email,
       userId: currentUser?.id
     }).then(res => {
-      if (active && res && res.success && res.calculation) {
+      if (!active) return;
+      setIsCalculatingFee(false);
+      if (res && res.success && res.calculation && typeof res.calculation.finalPrice === 'number') {
         setCalculatedPostingFee(res.calculation.finalPrice);
+      } else {
+        setCalculationError('Calculation unavailable');
       }
-    }).catch(() => {});
-    return () => { active = false; };
+    }).catch(err => {
+      if (!active) return;
+      setIsCalculatingFee(false);
+      setCalculationError(err?.message || 'Error');
+    });
+
+    return () => {
+      active = false;
+    };
   }, [priorityTier, jobCategory, currentUser?.email, currentUser?.id]);
 
-  const currentTotalFee = computeJobPostingCost(priorityTier);
+  const currentTotalFee = calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier);
 
   const myApplications = currentUser.appliedJobs && currentUser.appliedJobs.length > 0
     ? currentUser.appliedJobs
@@ -506,8 +523,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     const isFeatured = priorityTier === 'featured_top' || priorityTier === 'vip_bundle';
     const isFuture = priorityTier === 'future_job' || priorityTier === 'vip_bundle';
 
-    const totalCalculatedFee = computeJobPostingCost(priorityTier);
-    setCalculatedPostingFee(totalCalculatedFee);
+    const totalCalculatedFee = calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier);
 
     const newJob: Job = {
       id: 'job-user-' + Date.now(),
@@ -2936,7 +2952,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
                 <span className="font-bold text-slate-300">Total Posting Fee:</span>
                 <span className="font-black text-emerald-400 font-mono text-sm sm:text-base">
-                  PKR {(calculatedPostingFee || computeJobPostingCost(priorityTier)).toLocaleString()}
+                  PKR {(calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier)).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -2967,7 +2983,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 onClick={handleConfirmFeePayment}
                 className="w-full py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs shadow-xl shadow-emerald-500/20 cursor-pointer active:scale-95 transition-all"
               >
-                Pay PKR {(calculatedPostingFee || computeJobPostingCost(priorityTier)).toLocaleString()} & Submit Job
+                Pay PKR {(calculatedPostingFee !== null ? calculatedPostingFee : computeJobPostingCost(priorityTier)).toLocaleString()} & Submit Job
               </button>
             </div>
 

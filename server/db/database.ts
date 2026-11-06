@@ -141,7 +141,7 @@ const DEFAULT_COMPREHENSIVE_PRICING = {
     vipBundleDurationDays: 45,
     homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
     categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
-    exemptUserEmails: ['vip.employer@devsinc.com', 'admin@careers.com'],
+    exemptUserEmails: [],
     isFreeAllPostings: false,
     globalDiscount: 0,
     extraWeekRate: 500
@@ -595,7 +595,7 @@ export class Database {
           ? stored.jobPosting.exemptUserEmails
           : (Array.isArray(stored?.landingPageConfig?.exemptUserEmails)
             ? stored.landingPageConfig.exemptUserEmails
-            : ['vip.employer@devsinc.com', 'admin@careers.com']),
+            : []),
         isFreeAllPostings: Boolean(stored?.jobPosting?.isFreeAllPostings),
         globalDiscount: Number(stored?.jobPosting?.globalDiscount || 0),
         extraWeekRate: Number(stored?.jobPosting?.extraWeekRate ?? 500)

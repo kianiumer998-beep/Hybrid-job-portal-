@@ -72,6 +72,27 @@ interface UserDashboardProps {
   onOpenSubscriptionModal: () => void;
 }
 
+export function resolveDefaultPaymentMethod(
+  methods: PublicPaymentMethodConfig[],
+  defaultSetting?: string
+): PublicPaymentMethodConfig | null {
+  if (!methods || methods.length === 0) return null;
+  if (defaultSetting && typeof defaultSetting === 'string') {
+    const cleanDefault = defaultSetting.trim().toLowerCase();
+    if (cleanDefault) {
+      // 1. Method ID first
+      const byId = methods.find((m) => m.id.toLowerCase() === cleanDefault);
+      if (byId) return byId;
+
+      // 2. Method Name for compatibility
+      const byName = methods.find((m) => m.name.trim().toLowerCase() === cleanDefault);
+      if (byName) return byName;
+    }
+  }
+  // Safely fallback to first valid enabled method
+  return methods[0] || null;
+}
+
 export const UserDashboard: React.FC<UserDashboardProps> = ({
   currentUser,
   userJobs,
@@ -209,7 +230,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [calculatedPostingFee, setCalculatedPostingFee] = useState<number | null>(null);
   const [isCalculatingFee, setIsCalculatingFee] = useState<boolean>(false);
   const [calculationError, setCalculationError] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer'>('JazzCash');
+  const [paymentMethod, setPaymentMethod] = useState<string>('');
   const [jobFeeTid, setJobFeeTid] = useState<string>('');
   const [jobFeeSenderName, setJobFeeSenderName] = useState<string>('');
   const [jobFeeSenderPhone, setJobFeeSenderPhone] = useState<string>('');
@@ -251,26 +272,133 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   }, [showFeeInvoiceModal, loadPublicPaymentSettings]);
 
-  // Enabled Payment Methods from Administrator Configuration
+  // Enabled Payment Methods from Administrator Configuration (canonical methods map first, fallback to customMethods)
   const enabledPaymentMethods = useMemo((): PublicPaymentMethodConfig[] => {
     if (!publicPaymentSettings || !publicPaymentSettings.isConfigured || !publicPaymentSettings.methods) {
       return [];
     }
-    const allMethods: PublicPaymentMethodConfig[] = [
-      ...Object.values(publicPaymentSettings.methods || {}),
-      ...(publicPaymentSettings.customMethods || [])
-    ];
-    return allMethods.filter((m) => m && m.enabled && m.accountTitle && m.accountNumber);
+
+    const result: PublicPaymentMethodConfig[] = [];
+    const seenIds = new Set<string>();
+
+    const isValidConfig = (m: any): boolean => {
+      return Boolean(
+        m &&
+        m.enabled &&
+        typeof m.accountTitle === 'string' &&
+        m.accountTitle.trim().length > 0 &&
+        typeof m.accountNumber === 'string' &&
+        m.accountNumber.trim().length > 0
+      );
+    };
+
+    // 1. Canonical source: methods map
+    const methodsMap = publicPaymentSettings.methods || {};
+    const methodsList = Object.values(methodsMap) as PublicPaymentMethodConfig[];
+    for (const m of methodsList) {
+      if (!m || !m.id) continue;
+      const normId = String(m.id).trim().toLowerCase();
+      if (!normId) continue;
+      if (!seenIds.has(normId)) {
+        seenIds.add(normId);
+        if (isValidConfig(m)) {
+          result.push(m);
+        }
+      }
+    }
+
+    // 2. Backward-compatibility fallback: customMethods (only when ID is missing from canonical methods)
+    if (Array.isArray(publicPaymentSettings.customMethods)) {
+      for (const cm of publicPaymentSettings.customMethods) {
+        if (!cm || !cm.id) continue;
+        const normId = String(cm.id).trim().toLowerCase();
+        if (!normId) continue;
+        if (!seenIds.has(normId)) {
+          seenIds.add(normId);
+          if (isValidConfig(cm)) {
+            result.push(cm);
+          }
+        }
+      }
+    }
+
+    return result;
   }, [publicPaymentSettings]);
 
   const activePaymentMethodConfig = useMemo((): PublicPaymentMethodConfig | null => {
     if (!enabledPaymentMethods || enabledPaymentMethods.length === 0) return null;
     const cleanCurrent = String(paymentMethod || '').trim().toLowerCase();
-    const matched = enabledPaymentMethods.find(
-      (m) => m.id.toLowerCase() === cleanCurrent || m.name.trim().toLowerCase() === cleanCurrent
+    if (cleanCurrent) {
+      // 1. Method ID first
+      const byId = enabledPaymentMethods.find(
+        (m) => m.id.toLowerCase() === cleanCurrent
+      );
+      if (byId) return byId;
+
+      // 2. Method Name for compatibility
+      const byName = enabledPaymentMethods.find(
+        (m) => m.name.trim().toLowerCase() === cleanCurrent
+      );
+      if (byName) return byName;
+    }
+    const defaultFallback = resolveDefaultPaymentMethod(
+      enabledPaymentMethods,
+      publicPaymentSettings?.defaultMethod
     );
-    return matched || enabledPaymentMethods[0] || null;
-  }, [enabledPaymentMethods, paymentMethod]);
+    return defaultFallback || enabledPaymentMethods[0] || null;
+  }, [enabledPaymentMethods, paymentMethod, publicPaymentSettings?.defaultMethod]);
+
+  // Track invoice modal sessions and manual user selection
+  const prevShowFeeInvoiceModalRef = useRef<boolean>(false);
+  const hasUserManuallySelectedMethodRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const isOpening = showFeeInvoiceModal && !prevShowFeeInvoiceModalRef.current;
+    prevShowFeeInvoiceModalRef.current = showFeeInvoiceModal;
+
+    if (isOpening) {
+      hasUserManuallySelectedMethodRef.current = false;
+    }
+
+    if (!showFeeInvoiceModal) return;
+    if (enabledPaymentMethods.length === 0) return;
+
+    if (isOpening || !hasUserManuallySelectedMethodRef.current) {
+      const defaultMethodConfig = resolveDefaultPaymentMethod(
+        enabledPaymentMethods,
+        publicPaymentSettings?.defaultMethod
+      );
+      if (defaultMethodConfig) {
+        setPaymentMethod((prev) => {
+          const normPrev = String(prev || '').trim().toLowerCase();
+          if (
+            normPrev === defaultMethodConfig.id.toLowerCase() ||
+            normPrev === defaultMethodConfig.name.trim().toLowerCase()
+          ) {
+            return prev;
+          }
+          return defaultMethodConfig.id;
+        });
+      }
+    } else {
+      // User manually selected a method in this session; preserve it unless disabled
+      const isCurrentStillValid = enabledPaymentMethods.some(
+        (m) =>
+          m.id.toLowerCase() === String(paymentMethod || '').trim().toLowerCase() ||
+          m.name.trim().toLowerCase() === String(paymentMethod || '').trim().toLowerCase()
+      );
+      if (!isCurrentStillValid) {
+        const fallback = resolveDefaultPaymentMethod(
+          enabledPaymentMethods,
+          publicPaymentSettings?.defaultMethod
+        );
+        if (fallback) {
+          setPaymentMethod(fallback.id);
+          hasUserManuallySelectedMethodRef.current = false;
+        }
+      }
+    }
+  }, [showFeeInvoiceModal, enabledPaymentMethods, publicPaymentSettings?.defaultMethod]);
 
   // Clear stale custom answers when active payment method changes
   const prevMethodIdRef = useRef<string | undefined>(activePaymentMethodConfig?.id);
@@ -845,7 +973,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
     const feePaymentData: FeePaymentData = {
       amount: feeToPay,
-      paymentMethod: activePaymentMethodConfig?.name || paymentMethod,
+      paymentMethod: activePaymentMethodConfig?.id || activePaymentMethodConfig?.name || paymentMethod,
       transactionId: jobFeeTid.trim() || undefined,
       senderName: jobFeeSenderName.trim() || currentUser.name,
       senderPhoneOrAccount: jobFeeSenderPhone.trim() || undefined,
@@ -871,7 +999,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       alert(
         feeToPay === 0
           ? `Job "${pendingJobData.title}" submitted successfully! Status: Pending Verification.`
-          : `Payment proof of PKR ${feeToPay.toLocaleString()} via ${feePaymentData.paymentMethod} submitted! Transaction status: Pending Verification. Job "${pendingJobData.title}" submitted to Admin queue for verification.`
+          : `Payment proof of PKR ${feeToPay.toLocaleString()} via ${activePaymentMethodConfig?.name || feePaymentData.paymentMethod} submitted! Transaction status: Pending Verification. Job "${pendingJobData.title}" submitted to Admin queue for verification.`
       );
 
       setShowFeeInvoiceModal(false);
@@ -3286,23 +3414,31 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs">
-                  {enabledPaymentMethods.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => {
-                        setPaymentMethod(m.name as any);
-                        setCustomFieldAnswers({});
-                      }}
-                      className={`py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold border transition-all text-[11px] sm:text-xs ${
-                        activePaymentMethodConfig?.id === m.id || paymentMethod === m.name
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
-                      }`}
-                    >
-                      {m.name}
-                    </button>
-                  ))}
+                  {enabledPaymentMethods.map((m) => {
+                    const isSelected =
+                      activePaymentMethodConfig?.id === m.id ||
+                      String(paymentMethod).trim().toLowerCase() === m.id.toLowerCase() ||
+                      String(paymentMethod).trim().toLowerCase() === m.name.trim().toLowerCase();
+
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          hasUserManuallySelectedMethodRef.current = true;
+                          setPaymentMethod(m.id);
+                          setCustomFieldAnswers({});
+                        }}
+                        className={`py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold border transition-all text-[11px] sm:text-xs ${
+                          isSelected
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
+                        }`}
+                      >
+                        {m.name}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

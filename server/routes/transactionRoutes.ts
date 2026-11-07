@@ -1220,8 +1220,9 @@ transactionRouter.post('/', async (req, res) => {
         metadata: {
           transactionId: tid,
           amount: enforcedAmount,
-          paymentMethod: resolvedPaymentMethodName,
+          paymentMethod,
           paymentMethodId: paymentMethod,
+          paymentMethodName: resolvedPaymentMethodName,
           type: effectiveType
         }
       });

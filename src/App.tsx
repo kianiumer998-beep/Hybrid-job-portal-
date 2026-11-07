@@ -2221,7 +2221,7 @@ export default function App() {
             userEmail: currentUser.email,
             amount: Number(normalizedTx.amount) || feePayment.amount,
             currency: 'PKR',
-            paymentMethod: feePayment.paymentMethod,
+            paymentMethod: normalizedTx.paymentMethod || feePayment.paymentMethod,
             dateTime: nowStr,
             status: normalizedTx.status === 'Success' ? 'Paid' : 'Pending'
           };

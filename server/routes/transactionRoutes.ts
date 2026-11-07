@@ -1215,9 +1215,15 @@ transactionRouter.post('/', async (req, res) => {
         user: effectiveUserName || 'User',
         role: 'Member',
         action: finalStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
-        target: `${enforcedAmount} ${currency || 'PKR'} via ${paymentMethod} (Ref: ${tid})`,
+        target: `${enforcedAmount} ${currency || 'PKR'} via ${resolvedPaymentMethodName} (Ref: ${tid})`,
         status: 'Success',
-        metadata: { transactionId: tid, amount: enforcedAmount, paymentMethod, type: effectiveType }
+        metadata: {
+          transactionId: tid,
+          amount: enforcedAmount,
+          paymentMethod: resolvedPaymentMethodName,
+          paymentMethodId: paymentMethod,
+          type: effectiveType
+        }
       });
 
       return res.status(201).json({

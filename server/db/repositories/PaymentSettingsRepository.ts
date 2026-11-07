@@ -75,6 +75,13 @@ export class PaymentSettingsRepository {
         .sort((a, b) => a.order - b.order);
     };
 
+    const parseStrictBoolean = (val: any, fallback: boolean): boolean => {
+      if (typeof val === 'boolean') return val;
+      if (val === 'true') return true;
+      if (val === 'false') return false;
+      return fallback;
+    };
+
     const sanitizeMethod = (
       id: string,
       defaultName: string,
@@ -85,7 +92,7 @@ export class PaymentSettingsRepository {
       return {
         id,
         name: String(m.name || defaultName).trim().slice(0, 100),
-        enabled: Boolean(m.enabled),
+        enabled: parseStrictBoolean(m.enabled, false),
         heading: m.heading ? String(m.heading).trim().slice(0, 100) : undefined,
         accountTitle: String(m.accountTitle || '').trim().slice(0, 100),
         accountNumber: String(m.accountNumber || '').trim().slice(0, 60),
@@ -94,20 +101,20 @@ export class PaymentSettingsRepository {
         instructions: String(m.instructions || '').trim().slice(0, 1000),
         formTitle: m.formTitle ? String(m.formTitle).trim().slice(0, 100) : undefined,
         formSubtitle: m.formSubtitle ? String(m.formSubtitle).trim().slice(0, 200) : undefined,
-        isCustom: m.isCustom !== undefined ? Boolean(m.isCustom) : isCustomDefault,
-        transactionIdRequired: m.transactionIdRequired !== undefined ? Boolean(m.transactionIdRequired) : true,
+        isCustom: m.isCustom !== undefined ? parseStrictBoolean(m.isCustom, isCustomDefault) : isCustomDefault,
+        transactionIdRequired: parseStrictBoolean(m.transactionIdRequired, true),
         transactionIdLabel: m.transactionIdLabel ? String(m.transactionIdLabel).trim().slice(0, 100) : undefined,
         transactionIdPlaceholder: m.transactionIdPlaceholder ? String(m.transactionIdPlaceholder).trim().slice(0, 100) : undefined,
         transactionIdHelpText: m.transactionIdHelpText ? String(m.transactionIdHelpText).trim().slice(0, 200) : undefined,
-        screenshotRequired: m.screenshotRequired !== undefined ? Boolean(m.screenshotRequired) : true,
+        screenshotRequired: parseStrictBoolean(m.screenshotRequired, true),
         screenshotLabel: m.screenshotLabel ? String(m.screenshotLabel).trim().slice(0, 100) : undefined,
         screenshotHelpText: m.screenshotHelpText ? String(m.screenshotHelpText).trim().slice(0, 200) : undefined,
-        senderNameRequired: m.senderNameRequired !== undefined ? Boolean(m.senderNameRequired) : false,
+        senderNameRequired: parseStrictBoolean(m.senderNameRequired, false),
         senderNameLabel: m.senderNameLabel ? String(m.senderNameLabel).trim().slice(0, 100) : undefined,
-        senderPhoneRequired: m.senderPhoneRequired !== undefined ? Boolean(m.senderPhoneRequired) : false,
+        senderPhoneRequired: parseStrictBoolean(m.senderPhoneRequired, false),
         senderPhoneLabel: m.senderPhoneLabel ? String(m.senderPhoneLabel).trim().slice(0, 100) : undefined,
         senderPhonePlaceholder: m.senderPhonePlaceholder ? String(m.senderPhonePlaceholder).trim().slice(0, 100) : undefined,
-        proofNoteRequired: Boolean(m.proofNoteRequired),
+        proofNoteRequired: parseStrictBoolean(m.proofNoteRequired, false),
         proofNoteLabel: m.proofNoteLabel ? String(m.proofNoteLabel).trim().slice(0, 100) : undefined,
         proofNotePlaceholder: m.proofNotePlaceholder ? String(m.proofNotePlaceholder).trim().slice(0, 100) : undefined,
         customFields: sanitizeCustomFields(m.customFields)

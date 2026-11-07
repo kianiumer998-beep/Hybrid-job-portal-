@@ -69,7 +69,7 @@ export class PaymentSettingsRepository {
           type: f.type === 'number' ? 'number' : 'text',
           placeholder: f.placeholder ? String(f.placeholder).trim().slice(0, 100) : undefined,
           helpText: f.helpText ? String(f.helpText).trim().slice(0, 200) : undefined,
-          required: Boolean(f.required),
+          required: PaymentSettingsRepository.parseStrictBoolean(f.required, false),
           order: typeof f.order === 'number' && Number.isFinite(f.order) ? f.order : idx
         }))
         .sort((a, b) => a.order - b.order);
@@ -355,7 +355,7 @@ export class PaymentSettingsRepository {
             type: fieldType,
             placeholder: f.placeholder ? String(f.placeholder).trim().slice(0, 100) : undefined,
             helpText: f.helpText ? String(f.helpText).trim().slice(0, 200) : undefined,
-            required: Boolean(f.required),
+            required: PaymentSettingsRepository.parseStrictBoolean(f.required, false),
             order: typeof f.order === 'number' && Number.isFinite(f.order) ? f.order : idx
           };
         }).sort((a: any, b: any) => a.order - b.order);

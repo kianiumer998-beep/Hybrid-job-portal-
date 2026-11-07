@@ -211,6 +211,174 @@ function extractCustomFieldAnswers(
   return answers;
 }
 
+interface ReceiptValidationResult {
+  isValid: boolean;
+  status: number;
+  message: string;
+  sanitizedUrl?: string;
+}
+
+function validateJobPostingReceiptScreenshot(rawInput: unknown): ReceiptValidationResult {
+  if (typeof rawInput !== 'string') {
+    return {
+      isValid: false,
+      status: 400,
+      message: 'Receipt screenshot must be a valid image data URL string.'
+    };
+  }
+
+  const trimmed = rawInput.trim();
+  if (trimmed.length === 0) {
+    return {
+      isValid: false,
+      status: 400,
+      message: 'Receipt screenshot cannot be an empty string.'
+    };
+  }
+
+  // Reject external HTTP/HTTPS URLs
+  if (/^https?:\/\//i.test(trimmed)) {
+    return {
+      isValid: false,
+      status: 400,
+      message: 'External image URLs are not permitted. Please upload a receipt image directly.'
+    };
+  }
+
+  // Reject dangerous schemes
+  if (/^(javascript|vbscript):/i.test(trimmed)) {
+    return {
+      isValid: false,
+      status: 400,
+      message: 'Unsupported image format or dangerous URI scheme.'
+    };
+  }
+
+  // Strict data URL format: accept ONLY JPEG, PNG, and WebP Base64
+  const match = trimmed.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) {
+    if (/^data:(text\/html|application\/)/i.test(trimmed) || /^data:image\/(svg\+xml|gif|bmp)/i.test(trimmed)) {
+      return {
+        isValid: false,
+        status: 400,
+        message: 'Unsupported image format. Allowed formats: JPEG, PNG, WebP.'
+      };
+    }
+    return {
+      isValid: false,
+      status: 400,
+      message: 'Invalid receipt screenshot format. Only JPEG, PNG, and WebP data URLs are accepted.'
+    };
+  }
+
+  const declaredMime = match[1].toLowerCase();
+  const base64Data = match[2];
+
+  // Maximum decoded size: 5 MiB = 5,242,880 bytes
+  const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
+  // Maximum possible encoded Base64 length for 5 MiB (4 base64 chars = 3 bytes)
+  const MAX_BASE64_LENGTH = Math.ceil((MAX_RECEIPT_BYTES * 4) / 3) + 4;
+
+  if (base64Data.length > MAX_BASE64_LENGTH) {
+    return {
+      isValid: false,
+      status: 413,
+      message: 'Payment receipt exceeds the maximum allowed size of 5 MB.'
+    };
+  }
+
+  // Validate Base64 canonical format and padding
+  if (base64Data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64Data)) {
+    return {
+      isValid: false,
+      status: 400,
+      message: 'Invalid receipt image: malformed Base64 data.'
+    };
+  }
+
+  const buffer = Buffer.from(base64Data, 'base64');
+
+  if (buffer.length === 0) {
+    return {
+      isValid: false,
+      status: 400,
+      message: 'Invalid receipt image: empty file data.'
+    };
+  }
+
+  if (buffer.length > MAX_RECEIPT_BYTES) {
+    return {
+      isValid: false,
+      status: 413,
+      message: 'Payment receipt exceeds the maximum allowed size of 5 MB.'
+    };
+  }
+
+  // Canonical Base64 check
+  if (buffer.toString('base64') !== base64Data) {
+    return {
+      isValid: false,
+      status: 400,
+      message: 'Invalid receipt image: non-canonical Base64 encoding.'
+    };
+  }
+
+  // Actual file signature validation (magic bytes)
+  if (declaredMime === 'jpeg') {
+    const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    if (!isJpeg) {
+      return {
+        isValid: false,
+        status: 400,
+        message: 'File signature does not match declared JPEG image format.'
+      };
+    }
+  } else if (declaredMime === 'png') {
+    const isPng =
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a;
+    if (!isPng) {
+      return {
+        isValid: false,
+        status: 400,
+        message: 'File signature does not match declared PNG image format.'
+      };
+    }
+  } else if (declaredMime === 'webp') {
+    const isWebp =
+      buffer.length >= 12 &&
+      buffer[0] === 0x52 &&
+      buffer[1] === 0x49 &&
+      buffer[2] === 0x46 &&
+      buffer[3] === 0x46 && // 'RIFF'
+      buffer[8] === 0x57 &&
+      buffer[9] === 0x45 &&
+      buffer[10] === 0x42 &&
+      buffer[11] === 0x50; // 'WEBP'
+    if (!isWebp) {
+      return {
+        isValid: false,
+        status: 400,
+        message: 'File signature does not match declared WebP image format.'
+      };
+    }
+  }
+
+  return {
+    isValid: true,
+    status: 200,
+    message: 'Valid receipt image',
+    sanitizedUrl: trimmed
+  };
+}
+
 // 2. Submit payment proof with Idempotency Protection & Authoritative Pricing Authority
 transactionRouter.post('/', async (req, res) => {
   try {
@@ -575,9 +743,37 @@ transactionRouter.post('/', async (req, res) => {
 
       let resolvedPaymentMethodName = paymentMethod;
       const cleanTid = typeof transactionId === 'string' && transactionId.trim().length > 0 ? transactionId.trim() : undefined;
-      const cleanScreenshot = typeof proofScreenshotUrl === 'string' && proofScreenshotUrl.trim().length > 0 ? proofScreenshotUrl.trim() : undefined;
+      let cleanScreenshot: string | undefined = typeof proofScreenshotUrl === 'string' && proofScreenshotUrl.trim().length > 0 ? proofScreenshotUrl.trim() : undefined;
       const cleanSenderName = typeof senderName === 'string' && senderName.trim().length > 0 ? senderName.trim() : undefined;
       const cleanSenderPhone = typeof senderPhoneOrAccount === 'string' && senderPhoneOrAccount.trim().length > 0 ? senderPhoneOrAccount.trim() : undefined;
+
+      // Strict server-side receipt screenshot validation for manual Job Posting payments
+      if (effectiveType === 'Job Posting' && paymentMethod !== 'Wallet Balance') {
+        if (proofScreenshotUrl !== undefined && proofScreenshotUrl !== null) {
+          if (typeof proofScreenshotUrl !== 'string') {
+            return res.status(400).json({
+              success: false,
+              message: 'Receipt screenshot must be a valid image data URL string.'
+            });
+          }
+          if (proofScreenshotUrl.length > 0 && proofScreenshotUrl.trim().length === 0) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid receipt screenshot format. Only JPEG, PNG, and WebP data URLs are accepted.'
+            });
+          }
+          if (cleanScreenshot) {
+            const validation = validateJobPostingReceiptScreenshot(cleanScreenshot);
+            if (!validation.isValid) {
+              return res.status(validation.status).json({
+                success: false,
+                message: validation.message
+              });
+            }
+            cleanScreenshot = validation.sanitizedUrl;
+          }
+        }
+      }
 
       // Authoritative manual payment proof validation
       if (paymentMethod !== 'Wallet Balance') {
@@ -773,7 +969,7 @@ transactionRouter.post('/', async (req, res) => {
         senderName: cleanSenderName || senderName || effectiveUserName || 'Customer',
         senderPhoneOrAccount: cleanSenderPhone || senderPhoneOrAccount,
         depositBankOrWalletName,
-        proofScreenshotUrl: cleanScreenshot || proofScreenshotUrl,
+        proofScreenshotUrl: effectiveType === 'Job Posting' ? cleanScreenshot : (cleanScreenshot || proofScreenshotUrl),
         proofNote,
         userId: effectiveUserId,
         userName: effectiveUserName,

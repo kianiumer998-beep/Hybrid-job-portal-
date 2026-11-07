@@ -75,6 +75,7 @@ export interface FeePaymentData {
   depositBankOrWalletName?: string;
   proofScreenshotUrl?: string;
   proofNote?: string;
+  customFieldValues?: Record<string, string>;
 }
 
 export interface JobApplication {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS, JobPostingPricingConfig, DEFAULT_JOB_POSTING_PRICING_CONFIG, FeePaymentData } from '../types/job';
 import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
 import { UserCampaignHub } from './ads/UserCampaignHub';
@@ -218,6 +218,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [jobFeeNote, setJobFeeNote] = useState<string>('');
   const [isSubmittingFeePayment, setIsSubmittingFeePayment] = useState<boolean>(false);
   const [feePaymentError, setFeePaymentError] = useState<string | null>(null);
+  const [customFieldAnswers, setCustomFieldAnswers] = useState<Record<string, string>>({});
 
   // Public Payment Settings State
   const [publicPaymentSettings, setPublicPaymentSettings] = useState<PublicPaymentSettings | null>(null);
@@ -270,6 +271,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     );
     return matched || enabledPaymentMethods[0] || null;
   }, [enabledPaymentMethods, paymentMethod]);
+
+  // Clear stale custom answers when active payment method changes
+  const prevMethodIdRef = useRef<string | undefined>(activePaymentMethodConfig?.id);
+  useEffect(() => {
+    if (activePaymentMethodConfig?.id !== prevMethodIdRef.current) {
+      setCustomFieldAnswers({});
+      prevMethodIdRef.current = activePaymentMethodConfig?.id;
+    }
+  }, [activePaymentMethodConfig?.id]);
 
   // Chat message input state
   const [newMessageText, setNewMessageText] = useState('');
@@ -667,6 +677,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     setJobFeeBankInfo('');
     setJobFeeScreenshotUrl('');
     setJobFeeNote('');
+    setCustomFieldAnswers({});
     setIsSubmittingFeePayment(false);
     setFeePaymentError(null);
   };
@@ -761,10 +772,71 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         setFeePaymentError(`Please enter the ${activePaymentMethodConfig.proofNoteLabel || 'Deposit Note'}.`);
         return;
       }
+
+      // Validate Custom Proof Fields configured by administration
+      if (Array.isArray(activePaymentMethodConfig.customFields) && activePaymentMethodConfig.customFields.length > 0) {
+        const sortedFields = [...activePaymentMethodConfig.customFields].sort(
+          (a, b) => (a.order ?? 0) - (b.order ?? 0)
+        );
+
+        for (const cf of sortedFields) {
+          const rawVal = customFieldAnswers[cf.id];
+          const trimmedVal = typeof rawVal === 'string' ? rawVal.trim() : String(rawVal || '').trim();
+
+          if (cf.required && !trimmedVal) {
+            setFeePaymentError(`Please enter the required field "${cf.label}".`);
+            return;
+          }
+
+          if (trimmedVal) {
+            if (trimmedVal.length > 500) {
+              setFeePaymentError(`Field "${cf.label}" exceeds maximum allowed length of 500 characters.`);
+              return;
+            }
+
+            if (cf.type === 'number') {
+              const numericClean = trimmedVal.replace(/[\s,]+/g, '');
+              if (!/^-?\d+(\.\d+)?$/.test(numericClean)) {
+                setFeePaymentError(`Field "${cf.label}" must be a valid number.`);
+                return;
+              }
+            }
+          }
+        }
+      }
     }
 
     setIsSubmittingFeePayment(true);
     setFeePaymentError(null);
+
+    // Build structured customFieldValues and serialize into proofNote with Admin-compatible format
+    const collectedCustomValues: Record<string, string> = {};
+    const customLines: string[] = [];
+
+    if (activePaymentMethodConfig && Array.isArray(activePaymentMethodConfig.customFields)) {
+      const sortedFields = [...activePaymentMethodConfig.customFields].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0)
+      );
+
+      for (const cf of sortedFields) {
+        const rawVal = customFieldAnswers[cf.id];
+        const trimmedVal = typeof rawVal === 'string' ? rawVal.trim() : String(rawVal || '').trim();
+        if (trimmedVal) {
+          collectedCustomValues[cf.id] = trimmedVal;
+          const safeLabel = cf.label.replace(/[\r\n:]+/g, ' ').trim();
+          const safeVal = trimmedVal.replace(/[\r\n]+/g, ' ').trim();
+          if (safeLabel && safeVal) {
+            customLines.push(`${safeLabel}: ${safeVal}`);
+          }
+        }
+      }
+    }
+
+    let finalProofNote = jobFeeNote.trim();
+    if (customLines.length > 0) {
+      const header = finalProofNote ? `User Note: ${finalProofNote}` : 'User Note:';
+      finalProofNote = `${header}\n\n--- Custom Proof Details ---\n${customLines.join('\n')}`;
+    }
 
     const feePaymentData: FeePaymentData = {
       amount: feeToPay,
@@ -774,7 +846,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       senderPhoneOrAccount: jobFeeSenderPhone.trim() || undefined,
       depositBankOrWalletName: jobFeeBankInfo.trim() || undefined,
       proofScreenshotUrl: jobFeeScreenshotUrl || undefined,
-      proofNote: jobFeeNote.trim() || undefined
+      proofNote: finalProofNote || undefined,
+      customFieldValues: Object.keys(collectedCustomValues).length > 0 ? collectedCustomValues : undefined
     };
 
     try {
@@ -3212,7 +3285,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => setPaymentMethod(m.name as any)}
+                      onClick={() => {
+                        setPaymentMethod(m.name as any);
+                        setCustomFieldAnswers({});
+                      }}
                       className={`py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold border transition-all text-[11px] sm:text-xs ${
                         activePaymentMethodConfig?.id === m.id || paymentMethod === m.name
                           ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
@@ -3316,6 +3392,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Dynamic Administrator-Configured Custom Proof Fields */}
+                {Array.isArray(activePaymentMethodConfig.customFields) && activePaymentMethodConfig.customFields.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {[...activePaymentMethodConfig.customFields]
+                      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                      .map((cf) => (
+                        <div key={cf.id}>
+                          <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                            {cf.label}{' '}
+                            {cf.required ? (
+                              <span className="text-emerald-400">*</span>
+                            ) : (
+                              <span className="text-slate-500 text-[10px]">(Optional)</span>
+                            )}
+                          </label>
+                          <input
+                            type={cf.type === 'number' ? 'number' : 'text'}
+                            value={customFieldAnswers[cf.id] ?? ''}
+                            onChange={(e) =>
+                              setCustomFieldAnswers((prev) => ({
+                                ...prev,
+                                [cf.id]: e.target.value
+                              }))
+                            }
+                            maxLength={500}
+                            placeholder={cf.placeholder || `Enter ${cf.label.toLowerCase()}`}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 text-xs"
+                          />
+                          {cf.helpText && (
+                            <p className="text-[10px] text-slate-500 mt-0.5">{cf.helpText}</p>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">

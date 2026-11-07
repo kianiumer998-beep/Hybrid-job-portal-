@@ -2203,6 +2203,7 @@ export default function App() {
           depositBankOrWalletName: feePayment.depositBankOrWalletName,
           proofScreenshotUrl: feePayment.proofScreenshotUrl,
           proofNote: feePayment.proofNote,
+          customFieldValues: feePayment.customFieldValues,
           userName: currentUser.name,
           userEmail: currentUser.email,
           idempotencyKey: `job-fee-${createdJob.id}`

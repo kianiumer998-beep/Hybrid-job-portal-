@@ -276,8 +276,8 @@ function validateJobPostingReceiptScreenshot(rawInput: unknown): ReceiptValidati
 
   // Maximum decoded size: 5 MiB = 5,242,880 bytes
   const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
-  // Maximum possible encoded Base64 length for 5 MiB (4 base64 chars = 3 bytes)
-  const MAX_BASE64_LENGTH = Math.ceil((MAX_RECEIPT_BYTES * 4) / 3) + 4;
+  // Maximum possible encoded Base64 length for 5 MiB accurately calculated (4 * Math.ceil(MAX_RECEIPT_BYTES / 3) = 6,990,508)
+  const MAX_BASE64_LENGTH = 4 * Math.ceil(MAX_RECEIPT_BYTES / 3);
 
   if (base64Data.length > MAX_BASE64_LENGTH) {
     return {

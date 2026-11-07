@@ -832,7 +832,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       }
     }
 
-    let finalProofNote = jobFeeNote.trim();
+    // Sanitize user note so it cannot contain the reserved separator token
+    const sanitizedUserNote = jobFeeNote
+      .trim()
+      .replace(/--+[\s\t]*Custom Proof Details[\s\t]*--+/gi, '[Custom Proof Details]');
+
+    let finalProofNote = sanitizedUserNote;
     if (customLines.length > 0) {
       const header = finalProofNote ? `User Note: ${finalProofNote}` : 'User Note:';
       finalProofNote = `${header}\n\n--- Custom Proof Details ---\n${customLines.join('\n')}`;

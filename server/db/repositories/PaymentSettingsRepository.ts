@@ -75,12 +75,7 @@ export class PaymentSettingsRepository {
         .sort((a, b) => a.order - b.order);
     };
 
-    const parseStrictBoolean = (val: any, fallback: boolean): boolean => {
-      if (typeof val === 'boolean') return val;
-      if (val === 'true') return true;
-      if (val === 'false') return false;
-      return fallback;
-    };
+    const parseStrictBoolean = PaymentSettingsRepository.parseStrictBoolean;
 
     const sanitizeMethod = (
       id: string,
@@ -228,6 +223,13 @@ export class PaymentSettingsRepository {
     return { isConfigured: true, settings: sanitized };
   }
 
+  static parseStrictBoolean(val: any, fallback: boolean): boolean {
+    if (typeof val === 'boolean') return val;
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return fallback;
+  }
+
   /**
    * Validates and updates payment settings in MongoDB.
    * Enforces complete server-side payload validation, string lengths, and proof requirement constraints.
@@ -273,7 +275,7 @@ export class PaymentSettingsRepository {
         throw new Error(`Validation Error: Invalid payment method ID "${key}". Only alphanumeric, dashes and underscores allowed.`);
       }
 
-      const enabled = Boolean(m.enabled);
+      const enabled = PaymentSettingsRepository.parseStrictBoolean(m.enabled, false);
       const name = String(m.name || key).trim();
       if (!name || name.length > 100) {
         throw new Error(`Validation Error for ${key}: Display name must be between 1 and 100 characters.`);
@@ -283,9 +285,11 @@ export class PaymentSettingsRepository {
       const accountNumber = String(m.accountNumber || '').trim();
       const instructions = String(m.instructions || '').trim();
 
-      const transactionIdRequired = m.transactionIdRequired !== undefined ? Boolean(m.transactionIdRequired) : true;
-      const screenshotRequired = m.screenshotRequired !== undefined ? Boolean(m.screenshotRequired) : true;
-      const proofNoteRequired = Boolean(m.proofNoteRequired);
+      const transactionIdRequired = m.transactionIdRequired !== undefined ? PaymentSettingsRepository.parseStrictBoolean(m.transactionIdRequired, true) : true;
+      const screenshotRequired = m.screenshotRequired !== undefined ? PaymentSettingsRepository.parseStrictBoolean(m.screenshotRequired, true) : true;
+      const proofNoteRequired = PaymentSettingsRepository.parseStrictBoolean(m.proofNoteRequired, false);
+      const senderNameRequired = PaymentSettingsRepository.parseStrictBoolean(m.senderNameRequired, false);
+      const senderPhoneRequired = PaymentSettingsRepository.parseStrictBoolean(m.senderPhoneRequired, false);
 
       if (enabled) {
         if (!accountTitle) {
@@ -377,9 +381,9 @@ export class PaymentSettingsRepository {
         screenshotRequired,
         screenshotLabel: m.screenshotLabel ? String(m.screenshotLabel).trim().slice(0, 100) : undefined,
         screenshotHelpText: m.screenshotHelpText ? String(m.screenshotHelpText).trim().slice(0, 200) : undefined,
-        senderNameRequired: m.senderNameRequired !== undefined ? Boolean(m.senderNameRequired) : false,
+        senderNameRequired,
         senderNameLabel: m.senderNameLabel ? String(m.senderNameLabel).trim().slice(0, 100) : undefined,
-        senderPhoneRequired: m.senderPhoneRequired !== undefined ? Boolean(m.senderPhoneRequired) : false,
+        senderPhoneRequired,
         senderPhoneLabel: m.senderPhoneLabel ? String(m.senderPhoneLabel).trim().slice(0, 100) : undefined,
         senderPhonePlaceholder: m.senderPhonePlaceholder ? String(m.senderPhonePlaceholder).trim().slice(0, 100) : undefined,
         proofNoteRequired,

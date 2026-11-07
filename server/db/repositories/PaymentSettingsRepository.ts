@@ -152,15 +152,41 @@ export class PaymentSettingsRepository {
       (m) => m.isCustom || (m.id !== 'easypaisa' && m.id !== 'jazzcash' && m.id !== 'bank')
     );
 
-    const hasAnyEnabled = Object.values(methodsMap).some(
-      (m) => m.enabled && m.accountTitle && m.accountNumber
-    );
+    // Rigorous check: a method is fully valid if enabled, has non-empty accountTitle, accountNumber, instructions, and at least one proof mechanism
+    const isMethodValidAndEnabled = (m: any): boolean => {
+      if (!m || !m.enabled) return false;
+      const title = String(m.accountTitle || '').trim();
+      const num = String(m.accountNumber || '').trim();
+      const inst = String(m.instructions || '').trim();
+      const hasProof = Boolean(m.transactionIdRequired || m.screenshotRequired);
+      return Boolean(title && num && inst && hasProof);
+    };
+
+    const validEnabledMethods = Object.values(methodsMap).filter(isMethodValidAndEnabled);
+    const hasAnyEnabled = validEnabledMethods.length > 0;
+
+    // Validate and normalize defaultMethod: must reference an existing, valid, enabled method
+    let resolvedDefault: string | undefined = undefined;
+    const rawDefault = raw.defaultMethod ? String(raw.defaultMethod).trim().toLowerCase() : '';
+
+    if (rawDefault) {
+      const match = validEnabledMethods.find(
+        (m) => m.id.toLowerCase() === rawDefault || m.name.trim().toLowerCase() === rawDefault
+      );
+      if (match) {
+        resolvedDefault = match.id;
+      }
+    }
+
+    if (!resolvedDefault && hasAnyEnabled) {
+      resolvedDefault = validEnabledMethods[0].id;
+    }
 
     return {
       isConfigured: Boolean(raw.isConfigured && hasAnyEnabled),
       methods: methodsMap as any,
       customMethods: customMethodsList,
-      defaultMethod: raw.defaultMethod ? String(raw.defaultMethod).trim().slice(0, 50) : undefined,
+      defaultMethod: resolvedDefault,
       updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
       updatedBy: raw.updatedBy ? String(raw.updatedBy).trim().slice(0, 100) : undefined
     };
@@ -361,10 +387,35 @@ export class PaymentSettingsRepository {
       throw new Error('Validation Error: Default methods (easypaisa, jazzcash, bank) must be present in settings.');
     }
 
-    const defaultMethod = payload.defaultMethod ? String(payload.defaultMethod).trim() : 'easypaisa';
-    const hasAnyEnabled = Object.values(validatedMethods).some(
-      (m) => m.enabled && m.accountTitle && m.accountNumber
-    );
+    const isMethodValidAndEnabled = (m: any): boolean => {
+      if (!m || !m.enabled) return false;
+      const title = String(m.accountTitle || '').trim();
+      const num = String(m.accountNumber || '').trim();
+      const inst = String(m.instructions || '').trim();
+      const hasProof = Boolean(m.transactionIdRequired || m.screenshotRequired);
+      return Boolean(title && num && inst && hasProof);
+    };
+
+    const validEnabledMethods = Object.values(validatedMethods).filter(isMethodValidAndEnabled);
+    const hasAnyEnabled = validEnabledMethods.length > 0;
+
+    let resolvedDefault: string | undefined = undefined;
+    const rawDefault = payload.defaultMethod ? String(payload.defaultMethod).trim().toLowerCase() : '';
+
+    if (rawDefault) {
+      const match = validEnabledMethods.find(
+        (m) => m.id.toLowerCase() === rawDefault || m.name.trim().toLowerCase() === rawDefault
+      );
+      if (match) {
+        resolvedDefault = match.id;
+      }
+    }
+
+    if (!resolvedDefault && hasAnyEnabled) {
+      resolvedDefault = validEnabledMethods[0].id;
+    }
+
+    const defaultMethod = resolvedDefault || (payload.defaultMethod ? String(payload.defaultMethod).trim() : 'easypaisa');
 
     const customMethodsList = Object.values(validatedMethods).filter(
       (m) => m.isCustom || (m.id !== 'easypaisa' && m.id !== 'jazzcash' && m.id !== 'bank')

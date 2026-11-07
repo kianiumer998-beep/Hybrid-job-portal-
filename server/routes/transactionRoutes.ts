@@ -393,6 +393,7 @@ transactionRouter.post('/', async (req, res) => {
       depositBankOrWalletName,
       proofScreenshotUrl,
       proofNote,
+      userNote,
       userId,
       userName,
       userEmail,
@@ -776,6 +777,8 @@ transactionRouter.post('/', async (req, res) => {
       }
 
       // Authoritative manual payment proof validation
+      let authoritativeJobProofNote: string | undefined = undefined;
+
       if (paymentMethod !== 'Wallet Balance') {
         let savedSettings: PublicPaymentSettings | null = null;
         let isConfigured = false;
@@ -850,23 +853,31 @@ transactionRouter.post('/', async (req, res) => {
           });
         }
 
-        // 5. Depositor Note requirement
-        if (methodConfig.proofNoteRequired) {
-          let userNoteContent = '';
-          if (typeof proofNote === 'string') {
-            const sepIdx = proofNote.indexOf('--- Custom Proof Details ---');
-            const notePart = sepIdx !== -1 ? proofNote.substring(0, sepIdx) : proofNote;
-            userNoteContent = notePart.replace(/^User Note:\s*/i, '').trim();
-          }
-          if (!userNoteContent) {
-            return res.status(400).json({
-              success: false,
-              message: `Please provide ${methodConfig.proofNoteLabel || 'a deposit note'}.`
-            });
-          }
+        // 5. Depositor Note requirement & extraction
+        let userNoteContent = '';
+        if (typeof userNote === 'string') {
+          userNoteContent = userNote.trim();
+        } else if (typeof proofNote === 'string') {
+          const sepIdx = proofNote.indexOf('--- Custom Proof Details ---');
+          const notePart = sepIdx !== -1 ? proofNote.substring(0, sepIdx) : proofNote;
+          userNoteContent = notePart.replace(/^User Note:\s*/i, '').trim();
+        }
+
+        // Defang user note so it cannot contain the reserved separator token
+        userNoteContent = userNoteContent
+          .replace(/--+[\s\t]*Custom Proof Details[\s\t]*--+/gi, '[Custom Proof Details]')
+          .trim();
+
+        if (methodConfig.proofNoteRequired && !userNoteContent) {
+          return res.status(400).json({
+            success: false,
+            message: `Please provide ${methodConfig.proofNoteLabel || 'a deposit note'}.`
+          });
         }
 
         // 6. Custom Proof Fields requirements (validated strictly against authoritative saved definitions)
+        const authoritativeCustomLines: string[] = [];
+
         if (Array.isArray(methodConfig.customFields) && methodConfig.customFields.length > 0) {
           const submittedCustomAnswers = extractCustomFieldAnswers(
             proofNote,
@@ -874,7 +885,11 @@ transactionRouter.post('/', async (req, res) => {
             req.body?.customFields
           );
 
-          for (const cf of methodConfig.customFields) {
+          const sortedFields = [...methodConfig.customFields].sort(
+            (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)
+          );
+
+          for (const cf of sortedFields) {
             const cleanId = String(cf.id || '').trim().toLowerCase();
             const cleanLabel = String(cf.label || '').trim().toLowerCase();
             const strippedLabel = String(cf.label || '').replace(/[:\r\n]+/g, ' ').trim().toLowerCase();
@@ -911,8 +926,27 @@ transactionRouter.post('/', async (req, res) => {
                   message: `Field "${cf.label}" exceeds maximum allowed length.`
                 });
               }
+
+              // Use authoritative label from saved configuration, sanitized of line breaks and colons
+              const safeLabel = String(cf.label || '').replace(/[\r\n:]+/g, ' ').trim();
+              const safeVal = trimmedVal.replace(/[\r\n]+/g, ' ').trim();
+              if (safeLabel && safeVal) {
+                authoritativeCustomLines.push(`${safeLabel}: ${safeVal}`);
+              }
             }
           }
+        }
+
+        let authoritativeProofNote = '';
+        if (authoritativeCustomLines.length > 0) {
+          const header = userNoteContent ? `User Note: ${userNoteContent}` : 'User Note:';
+          authoritativeProofNote = `${header}\n\n--- Custom Proof Details ---\n${authoritativeCustomLines.join('\n')}`;
+        } else {
+          authoritativeProofNote = userNoteContent;
+        }
+
+        if (effectiveType === 'Job Posting') {
+          authoritativeJobProofNote = authoritativeProofNote;
         }
       }
 
@@ -970,7 +1004,9 @@ transactionRouter.post('/', async (req, res) => {
         senderPhoneOrAccount: cleanSenderPhone || senderPhoneOrAccount,
         depositBankOrWalletName,
         proofScreenshotUrl: effectiveType === 'Job Posting' ? cleanScreenshot : (cleanScreenshot || proofScreenshotUrl),
-        proofNote,
+        proofNote: effectiveType === 'Job Posting' && paymentMethod !== 'Wallet Balance'
+          ? (authoritativeJobProofNote || undefined)
+          : proofNote,
         userId: effectiveUserId,
         userName: effectiveUserName,
         userEmail: effectiveUserEmail,

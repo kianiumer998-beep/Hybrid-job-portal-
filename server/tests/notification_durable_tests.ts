@@ -181,7 +181,9 @@ async function runTests() {
 
       activeTestUser = { userId: adminUserId, role: 'Super Admin', name: 'Administrator', email: 'admin-int@example.com' };
       await fetch(`${baseUrl}/api/transactions/${createdTx1Id}/verify`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', note: 'Verified' }) });
-      assert.strictEqual((await NotificationRepository.getAllAsync({ userId: testUserAId })).filter(n => n.eventId === `payment-approved-${createdTx1Id}`).length, 1);
+      const appNotifs = (await NotificationRepository.getAllAsync({ userId: testUserAId })).filter(n => n.eventId === `payment-approved-${createdTx1Id}`);
+      assert.strictEqual(appNotifs.length, 1, 'Exactly one approval notification should be created');
+      cleanupNotifIds.push(appNotifs[0].id);
       console.log('✓ [PASS] Category C2: Payment approval HTTP route created exactly ONE notification.');
 
       activeTestUser = { userId: testUserAId, role: 'Member', name: 'User A', email: 'usera-int@example.com' };
@@ -189,6 +191,11 @@ async function runTests() {
       const subRes2 = await fetch(`${baseUrl}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 2500, currency: 'PKR', type: 'Wallet Deposit', paymentMethod: 'EasyPaisa', transactionId: txRef2, senderName: 'User A', senderPhoneOrAccount: '03001234567' }) });
       const createdTx2Id = (await subRes2.json()).transaction.id;
       cleanupTxIds.push(createdTx2Id);
+      
+      const subNotifs2 = (await NotificationRepository.getAllAsync({ userId: testUserAId })).filter(n => n.eventId === `payment-submitted-${createdTx2Id}`);
+      assert.strictEqual(subNotifs2.length, 1);
+      cleanupNotifIds.push(subNotifs2[0].id);
+
       activeTestUser = { userId: adminUserId, role: 'Super Admin', name: 'Administrator', email: 'admin-int@example.com' };
       const exactRejectionReason = 'Receipt transaction reference ID does not match bank deposit records.';
       await fetch(`${baseUrl}/api/transactions/${createdTx2Id}/verify`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reject', reason: exactRejectionReason }) });
@@ -207,6 +214,10 @@ async function runTests() {
       const subRes3 = await fetch(`${baseUrl}/api/transactions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 3000, currency: 'PKR', type: 'Wallet Deposit', paymentMethod: 'EasyPaisa', transactionId: txRef3, senderName: 'User A', senderPhoneOrAccount: '03001234567' }) });
       const createdTx3Id = (await subRes3.json()).transaction.id;
       cleanupTxIds.push(createdTx3Id);
+
+      const subNotifs3 = (await NotificationRepository.getAllAsync({ userId: testUserAId })).filter(n => n.eventId === `payment-submitted-${createdTx3Id}`);
+      assert.strictEqual(subNotifs3.length, 1);
+      cleanupNotifIds.push(subNotifs3[0].id);
       
       try {
         NotificationRepository.createAsync = async () => { throw new Error('Simulated transient notification database failure'); };

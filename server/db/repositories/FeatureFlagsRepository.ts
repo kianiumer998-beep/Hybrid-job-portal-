@@ -17,14 +17,17 @@ export const DEFAULT_FEATURE_FLAGS: AdminFeatureFlags = {
 };
 
 export class FeatureFlagsRepository {
-  static sanitizeFlags(raw: any): AdminFeatureFlags {
-    const result: AdminFeatureFlags = { ...DEFAULT_FEATURE_FLAGS };
+  static sanitizeFlags(raw: any, current: AdminFeatureFlags = DEFAULT_FEATURE_FLAGS): AdminFeatureFlags {
+    const result: AdminFeatureFlags = { ...current };
     if (!raw || typeof raw !== 'object') {
       return result;
     }
     for (const key of Object.keys(DEFAULT_FEATURE_FLAGS) as (keyof AdminFeatureFlags)[]) {
-      if (raw[key] !== undefined && typeof raw[key] === 'boolean') {
-        result[key] = raw[key];
+      if (raw[key] !== undefined) {
+        if (typeof raw[key] === 'boolean') {
+          result[key] = raw[key];
+        }
+        // If raw[key] is not a boolean (invalid value), preserve existing valid value (current[key])
       }
     }
     return result;
@@ -44,23 +47,36 @@ export class FeatureFlagsRepository {
     if (!doc || !doc.flags) {
       return { ...DEFAULT_FEATURE_FLAGS };
     }
-    return this.sanitizeFlags(doc.flags);
+    return this.sanitizeFlags(doc.flags, DEFAULT_FEATURE_FLAGS);
   }
 
-  static async saveFlags(updates: Partial<AdminFeatureFlags>, currentFlags: AdminFeatureFlags): Promise<AdminFeatureFlags> {
+  static async saveFlags(updates: Partial<AdminFeatureFlags>, currentFlags?: AdminFeatureFlags): Promise<AdminFeatureFlags> {
     if (!isMongoConfigured()) {
-      return FeatureFlagsRepository.sanitizeFlags({ ...currentFlags, ...updates });
+      const baseline = currentFlags || DEFAULT_FEATURE_FLAGS;
+      return FeatureFlagsRepository.sanitizeFlags(updates, baseline);
     }
 
-    const merged = FeatureFlagsRepository.sanitizeFlags({ ...currentFlags, ...updates });
+    // Use latest persisted document as baseline when MongoDB is configured
+    const latest = await this.getFlags();
+    const merged = this.sanitizeFlags(updates, latest);
 
     const db = await getMongoDb();
     const coll = db.collection(COLLECTION_NAME);
 
+    const setFields: Record<string, any> = {
+      updatedAt: new Date().toISOString()
+    };
+    for (const key of Object.keys(DEFAULT_FEATURE_FLAGS) as (keyof AdminFeatureFlags)[]) {
+      setFields[`flags.${key}`] = merged[key];
+    }
+
     await withMongoTimeout(
       coll.updateOne(
         { key: DOC_KEY },
-        { $set: { key: DOC_KEY, flags: merged, updatedAt: new Date().toISOString() } },
+        { 
+          $set: setFields,
+          $setOnInsert: { key: DOC_KEY }
+        },
         { upsert: true }
       ),
       8000,

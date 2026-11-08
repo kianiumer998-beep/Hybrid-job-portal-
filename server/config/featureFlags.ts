@@ -4,10 +4,10 @@ import { FeatureFlagsRepository, DEFAULT_FEATURE_FLAGS } from '../db/repositorie
 export let featureFlags: AdminFeatureFlags = { ...DEFAULT_FEATURE_FLAGS };
 
 export function setFeatureFlags(flags: AdminFeatureFlags): void {
-  featureFlags = FeatureFlagsRepository.sanitizeFlags(flags);
+  featureFlags = FeatureFlagsRepository.sanitizeFlags(flags, DEFAULT_FEATURE_FLAGS);
 }
 
 export function updateFeatureFlags(updates: Partial<AdminFeatureFlags>): AdminFeatureFlags {
-  featureFlags = FeatureFlagsRepository.sanitizeFlags({ ...featureFlags, ...updates });
+  featureFlags = FeatureFlagsRepository.sanitizeFlags(updates, featureFlags);
   return featureFlags;
 }

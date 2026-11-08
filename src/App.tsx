@@ -3374,6 +3374,7 @@ export default function App() {
                   setActiveTab('jobs');
                 }}
                 onOpenSubscriptionModal={() => setSubscriptionModalOpen(true)}
+                onNavigateGlobalTab={setActiveTab}
               />
             )}
 

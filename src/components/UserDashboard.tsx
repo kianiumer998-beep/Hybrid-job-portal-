@@ -4,9 +4,11 @@ import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCust
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info, Bell } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info, Bell, LayoutDashboard, Menu } from 'lucide-react';
 import { PublicPaymentSettings, PublicPaymentMethodConfig } from '../types/adminPayment';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
+
+import { UserDashboardNavigation } from './UserDashboardNavigation';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
   'Pending',
@@ -70,6 +72,7 @@ interface UserDashboardProps {
   ) => Promise<{ success: boolean; application?: JobApplication; message?: string }>;
   onLogout: () => void;
   onOpenSubscriptionModal: () => void;
+  onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
 
 export function resolveDefaultPaymentMethod(
@@ -130,7 +133,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onLoadJobApplications,
   onUpdateApplicationStatus,
   onLogout,
-  onOpenSubscriptionModal
+  onOpenSubscriptionModal,
+  onNavigateGlobalTab
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'applications' | 'post-job' | 'my-jobs' | 'chat' | 'campaigns'>(initialTab);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -138,6 +142,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>('classic');
+  const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
 
   // In-App Notifications State
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -1150,6 +1156,26 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     setActiveTab('my-jobs');
   };
 
+  const handleProNavigate = (params: {
+    tab?: any;
+    subView?: any;
+    subTab?: any;
+    isGlobal?: boolean;
+    globalTab?: any;
+  }) => {
+    if (params.isGlobal && params.globalTab && onNavigateGlobalTab) {
+      onNavigateGlobalTab(params.globalTab);
+      return;
+    }
+
+    if (params.tab) setActiveTab(params.tab);
+    if (params.subView) setOverviewSubView(params.subView);
+    if (params.subTab) {
+      if (params.tab === 'applications') setAppSubTab(params.subTab);
+      if (params.tab === 'campaigns') setCampaignSubTab(params.subTab);
+    }
+  };
+
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessageText.trim()) return;
@@ -1264,40 +1290,82 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [currentUser.expiryDate]);
 
   return (
-    <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
+    <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64' : ''}`}>
       
-      {/* Header Profile Card - UNIFIED ACCOUNT */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-2.5 sm:gap-6">
-        <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto">
-          <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center font-black text-base sm:text-2xl text-emerald-400">
-              {currentUser.name.charAt(0).toUpperCase()}
+      {navigationMode === 'professional' && (
+        <UserDashboardNavigation
+          activeTab={activeTab}
+          overviewSubView={overviewSubView}
+          appSubTab={appSubTab}
+          campaignSubTab={campaignSubTab}
+          onNavigate={handleProNavigate}
+          isOpen={isProMenuOpen}
+          onClose={() => setIsProMenuOpen(false)}
+        />
+      )}
+
+      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-8 space-y-3 sm:space-y-6">
+        
+        {/* Header Profile Card - UNIFIED ACCOUNT */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-xl sm:rounded-3xl p-2.5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-2.5 sm:gap-6">
+          <div className="flex items-center space-x-2.5 sm:space-x-4 w-full md:w-auto">
+            {navigationMode === 'professional' && (
+              <button 
+                onClick={() => setIsProMenuOpen(true)}
+                className="lg:hidden p-2 bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 hover:text-white"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+            )}
+            <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+              <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center font-black text-base sm:text-2xl text-emerald-400">
+                {currentUser.name.charAt(0).toUpperCase()}
+              </div>
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center space-x-1.5 sm:space-x-2">
+                <h2 className="text-sm sm:text-2xl font-black truncate">{currentUser.name}</h2>
+                <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
+                  Unified Portal Member
+                </span>
+              </div>
+              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">
+                <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email}
+              </p>
             </div>
           </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center space-x-1.5 sm:space-x-2">
-              <h2 className="text-sm sm:text-2xl font-black truncate">{currentUser.name}</h2>
-              <span className="hidden sm:inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
-                Unified Portal Member
-              </span>
+          <div className="flex items-center space-x-1.5 sm:space-x-3 w-full md:w-auto justify-end">
+            {/* MODE SWITCHER */}
+            <div className="bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex items-center shadow-lg mr-1 sm:mr-2">
+              <button
+                onClick={() => setNavigationMode('classic')}
+                className={`px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${
+                  navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                CLASSIC
+              </button>
+              <button
+                onClick={() => setNavigationMode('professional')}
+                className={`px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${
+                  navigationMode === 'professional' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                PRO MENU
+              </button>
             </div>
-            <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">
-              <strong className="text-white font-mono">{currentUser.username || currentUser.email.split('@')[0]}</strong> • {currentUser.email}
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center space-x-1.5 sm:space-x-3 w-full md:w-auto justify-end">
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-expanded={isMobileMenuOpen}
-            aria-label="Toggle Navigation Menu"
-            className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
-          >
-            {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-            <span>Menu</span>
-          </button>
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-expanded={isMobileMenuOpen}
+              aria-label="Toggle Navigation Menu"
+              className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+            >
+              {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+              <span>Menu</span>
+            </button>
           <button
             onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
             aria-label="Notifications"
@@ -1371,42 +1439,44 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </div>
       </div>
 
-      {/* Navigation Tabs - 4-column compact grid on mobile */}
-      <div className={`border-b border-slate-800 pb-2 sm:pb-3 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
-        <div className="flex flex-col md:flex-row gap-1.5 sm:gap-2">
-          <div className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-2">
-            {[
-              { id: 'overview', label: 'Dashboard', icon: Receipt },
-              { id: 'applications', label: 'Job Center', icon: FileText },
-              { id: 'post-job', label: 'Post Job', icon: Plus },
-              { id: 'my-jobs', label: 'My Listings', icon: Briefcase },
-              { id: 'campaigns', label: 'Ads & Wallet', icon: Megaphone },
-              { id: 'profile', label: 'Profile', icon: User },
-              { id: 'chat', label: 'Inbox', icon: MessageSquare }
-            ].map((t) => {
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.id}
-                  aria-label={`Switch to ${t.label} tab`}
-                  onClick={() => {
-                    setActiveTab(t.id as any);
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`flex flex-col sm:flex-row items-center justify-center space-y-0.5 sm:space-y-0 sm:space-x-1.5 px-1 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-bold transition-all text-center cursor-pointer ${
-                    activeTab === t.id
-                      ? 'bg-emerald-500 text-slate-950 shadow-md sm:shadow-lg shadow-emerald-500/20 scale-[1.02]'
-                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  <span className="truncate max-w-full">{t.label}</span>
-                </button>
-              );
-            })}
+      {/* Navigation Tabs - 4-column compact grid on mobile (Classic Mode Only) */}
+      {navigationMode === 'classic' && (isMobileMenuOpen || window.innerWidth >= 768) && (
+        <div className={`border-b border-slate-800 pb-2 sm:pb-3 transition-all duration-300 ${isMobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+          <div className="flex flex-col md:flex-row gap-1.5 sm:gap-2">
+            <div className="grid grid-cols-4 md:flex md:flex-wrap gap-1 sm:gap-2">
+              {[
+                { id: 'overview', label: 'Dashboard', icon: Receipt },
+                { id: 'applications', label: 'Job Center', icon: FileText },
+                { id: 'post-job', label: 'Post Job', icon: Plus },
+                { id: 'my-jobs', label: 'My Listings', icon: Briefcase },
+                { id: 'campaigns', label: 'Ads & Wallet', icon: Megaphone },
+                { id: 'profile', label: 'Profile', icon: User },
+                { id: 'chat', label: 'Inbox', icon: MessageSquare }
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    aria-label={`Switch to ${t.label} tab`}
+                    onClick={() => {
+                      setActiveTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`flex flex-col sm:flex-row items-center justify-center space-y-0.5 sm:space-y-0 sm:space-x-1.5 px-1 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-bold transition-all text-center cursor-pointer ${
+                      activeTab === t.id
+                        ? 'bg-emerald-500 text-slate-950 shadow-md sm:shadow-lg shadow-emerald-500/20 scale-[1.02]'
+                        : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span className="truncate max-w-full">{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* TAB 1: ADVANCED SUBSCRIPTION METRICS & PAYMENT HISTORY TABLE */}
       {activeTab === 'overview' && (
@@ -3910,6 +3980,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         />
       )}
 
+      </div>
     </div>
   );
 };

@@ -15,6 +15,9 @@ async function runTests() {
   console.log('=== DURABLE NOTIFICATION & ROUTE INTEGRATION TEST SUITE ===');
   console.log('===============================================================\n');
 
+  const originalIsTestEnv = process.env.IS_TEST;
+  const originalGetPublicSettings = PaymentSettingsRepository.getPublicSettings;
+
   const realMongoRequested = process.env.USE_REAL_MONGO_TEST === 'true';
   const mongoConfigured = isMongoConfigured();
 
@@ -24,20 +27,26 @@ async function runTests() {
     if (!mongoConfigured) {
       throw new Error('[Fatal Error] USE_REAL_MONGO_TEST=true requested, but MONGODB_URI is not configured in environment!');
     }
+    const mongoUri = process.env.MONGODB_URI || '';
+    const dbName = process.env.MONGODB_DB_NAME || '';
+    const isExplicitTestDb = process.env.IS_TEST_DB === 'true' || mongoUri.toLowerCase().includes('test') || dbName.toLowerCase().includes('test');
+    if (!isExplicitTestDb) {
+      throw new Error('[Fatal Error] Real MongoDB test mode requested (USE_REAL_MONGO_TEST=true), but the database URI/name does not specify a dedicated test database (must contain "test" or set IS_TEST_DB=true). Aborting to protect production database.');
+    }
     try {
       await getMongoDb();
       storageMode = 'REAL_MONGODB';
-      console.log('➜ STORAGE MODE: REAL MONGODB PERSISTENCE MODE (Connected)');
+      console.log('➜ STORAGE MODE: REAL MONGODB PERSISTENCE MODE (Connected to Dedicated Test DB)');
     } catch (err: any) {
       throw new Error(`[Fatal Error] Real MongoDB mode requested (USE_REAL_MONGO_TEST=true), but connection failed: ${err?.message || err}`);
     }
   } else {
     storageMode = 'IN_MEMORY';
     process.env.IS_TEST = 'true';
-    console.log('➜ STORAGE MODE: IN-MEMORY FALLBACK UNIT-TEST MODE (Strict JSON Isolation)');
+    console.log('➜ STORAGE MODE: IN-MEMORY FALLBACK UNIT-TEST MODE (Strict Isolation)');
   }
 
-  // Intercept Database persistence methods in IN_MEMORY mode to prevent JSON file pollution
+  // Intercept Database persistence methods to prevent JSON file pollution in data/*.json
   const originalGetTransactions = Database.getTransactions;
   const originalSaveTransactions = Database.saveTransactions;
   const originalAddTransaction = Database.addTransaction;
@@ -52,6 +61,19 @@ async function runTests() {
   let inMemAuditLogs: any[] = [];
   let inMemUsers: any[] = [];
 
+  // Always intercept AuditLog writes to protect data/audit_logs.json in both test modes
+  Database.getAuditLogs = () => [...inMemAuditLogs];
+  Database.addAuditLog = (entry: any) => {
+    const newLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      status: 'Success',
+      ...entry
+    };
+    inMemAuditLogs.unshift(newLog);
+    return newLog;
+  };
+
   if (storageMode === 'IN_MEMORY') {
     Database.getTransactions = () => [...inMemTransactions];
     Database.saveTransactions = (txs: any[]) => { inMemTransactions = [...txs]; };
@@ -63,18 +85,6 @@ async function runTests() {
       };
       inMemTransactions.unshift(newTx);
       return newTx;
-    };
-
-    Database.getAuditLogs = () => [...inMemAuditLogs];
-    Database.addAuditLog = (entry: any) => {
-      const newLog = {
-        id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        timestamp: new Date().toISOString(),
-        status: 'Success',
-        ...entry
-      };
-      inMemAuditLogs.unshift(newLog);
-      return newLog;
     };
 
     Database.getUsers = () => [...inMemUsers];
@@ -96,7 +106,8 @@ async function runTests() {
   app.use('/api/transactions', transactionRouter);
   app.use('/api/notifications', notificationRouter);
 
-  const httpServer: Server = await new Promise((resolve) => {
+  let httpServer: Server | null = null;
+  httpServer = await new Promise((resolve) => {
     const s = createServer(app);
     s.listen(0, '127.0.0.1', () => resolve(s));
   });
@@ -138,7 +149,7 @@ async function runTests() {
     });
     cleanupUserIds.push(testUserBId);
 
-    // Payment settings configuration setup for route testing
+    // Mock PaymentSettingsRepository.getPublicSettings safely in memory without updating persistent settings
     const sampleSettings = {
       isConfigured: true,
       defaultMethod: 'easypaisa',
@@ -155,16 +166,10 @@ async function runTests() {
       }
     };
 
-    if (storageMode === 'REAL_MONGODB') {
-      try {
-        await PaymentSettingsRepository.updateSettings(sampleSettings);
-      } catch {}
-    } else {
-      PaymentSettingsRepository.getPublicSettings = async () => ({
-        isConfigured: true,
-        settings: sampleSettings as any
-      });
-    }
+    PaymentSettingsRepository.getPublicSettings = async () => ({
+      isConfigured: true,
+      settings: sampleSettings as any
+    });
 
     // -------------------------------------------------------------------
     // CATEGORY A: ACCOUNT-SWITCH RACE GUARD UNIT TESTS
@@ -417,47 +422,60 @@ async function runTests() {
     }
 
   } finally {
-    // Restore original Database persistence methods
-    if (storageMode === 'IN_MEMORY') {
-      Database.getTransactions = originalGetTransactions;
-      Database.saveTransactions = originalSaveTransactions;
-      Database.addTransaction = originalAddTransaction;
-
-      Database.getAuditLogs = originalGetAuditLogs;
-      Database.addAuditLog = originalAddAuditLog;
-
-      Database.getUsers = originalGetUsers;
-      Database.saveUsers = originalSaveUsers;
+    // Restore all environment variables and overridden persistence/repository methods
+    if (originalIsTestEnv !== undefined) {
+      process.env.IS_TEST = originalIsTestEnv;
+    } else {
+      delete process.env.IS_TEST;
     }
+    PaymentSettingsRepository.getPublicSettings = originalGetPublicSettings;
+
+    Database.getTransactions = originalGetTransactions;
+    Database.saveTransactions = originalSaveTransactions;
+    Database.addTransaction = originalAddTransaction;
+
+    Database.getAuditLogs = originalGetAuditLogs;
+    Database.addAuditLog = originalAddAuditLog;
+
+    Database.getUsers = originalGetUsers;
+    Database.saveUsers = originalSaveUsers;
 
     // Clean up test generated records in MongoDB if REAL_MONGODB mode
     console.log('\n--- Cleaning up test-generated records ---');
     for (const notifId of cleanupNotifIds) {
       if (notifId) {
-        await NotificationRepository.deleteAsync(notifId).catch(() => {});
+        await NotificationRepository.deleteAsync(notifId).catch((err) => {
+          console.warn(`[Cleanup Notice] Non-fatal notification cleanup warning for ${notifId}:`, err?.message || err);
+        });
       }
     }
     for (const txId of cleanupTxIds) {
       if (txId) {
         try {
-          if (isMongoConfigured()) {
+          if (isMongoConfigured() && storageMode === 'REAL_MONGODB') {
             const db = await getMongoDb();
-            await db.collection('transactions').deleteOne({ id: txId }).catch(() => {});
+            await db.collection('transactions').deleteOne({ id: txId });
           }
-        } catch {}
+        } catch (err: any) {
+          console.warn(`[Cleanup Notice] Non-fatal transaction cleanup warning for ${txId}:`, err?.message || err);
+        }
       }
     }
     for (const userId of cleanupUserIds) {
       if (userId) {
         try {
-          if (isMongoConfigured()) {
+          if (isMongoConfigured() && storageMode === 'REAL_MONGODB') {
             const db = await getMongoDb();
-            await db.collection('users').deleteOne({ id: userId }).catch(() => {});
+            await db.collection('users').deleteOne({ id: userId });
           }
-        } catch {}
+        } catch (err: any) {
+          console.warn(`[Cleanup Notice] Non-fatal user cleanup warning for ${userId}:`, err?.message || err);
+        }
       }
     }
-    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    if (httpServer) {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
   }
 
   console.log('\n===============================================================');

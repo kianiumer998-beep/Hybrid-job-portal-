@@ -162,7 +162,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   };
 
   const isActive = (item: NavSubItem) => {
-    if (item.isGlobal || item.isLogout) return false;
+    if (item.isLogout) return false;
     
     // If we have an explicit active nav ID (set via clicking in Pro menu), use it.
     if (activeNavId) {

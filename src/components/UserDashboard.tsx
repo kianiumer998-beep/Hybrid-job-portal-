@@ -9,6 +9,7 @@ import { PublicPaymentSettings, PublicPaymentMethodConfig } from '../types/admin
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
 import { UserDashboardNavigation } from './UserDashboardNavigation';
+import { safeLocalStorageGet, safeLocalStorageSet } from '../utils/safeStorage';
 
 const EMPLOYER_ALLOWED_APP_STATUSES = [
   'Pending',
@@ -142,9 +143,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
-  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>('classic');
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => safeLocalStorageGet<'classic' | 'professional'>('dashboard_nav_mode', 'classic'));
   const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
-  const [activeNavId, setActiveNavId] = useState<string | null>(null);
+  const [activeNavId, setActiveNavId] = useState<string | null>(() => safeLocalStorageGet<string | null>('dashboard_active_nav_id', null));
+
+  useEffect(() => {
+    safeLocalStorageSet('dashboard_nav_mode', navigationMode);
+  }, [navigationMode]);
+
+  useEffect(() => {
+    safeLocalStorageSet('dashboard_active_nav_id', activeNavId);
+  }, [activeNavId]);
 
   // In-App Notifications State
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -1165,12 +1174,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     isGlobal?: boolean;
     globalTab?: any;
   }) => {
+    setActiveNavId(params.id);
+
     if (params.isGlobal && params.globalTab && onNavigateGlobalTab) {
       onNavigateGlobalTab(params.globalTab);
       return;
     }
-
-    setActiveNavId(params.id);
 
     if (params.tab) setActiveTab(params.tab);
     if (params.subView) setOverviewSubView(params.subView);
@@ -1178,6 +1187,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       if (params.tab === 'applications') setAppSubTab(params.subTab);
       if (params.tab === 'campaigns') setCampaignSubTab(params.subTab);
     }
+  };
+
+  const handleLogout = () => {
+    safeLocalStorageSet('dashboard_nav_mode', 'classic');
+    safeLocalStorageSet('dashboard_active_nav_id', null);
+    onLogout();
   };
 
   const handleSendChat = (e: React.FormEvent) => {
@@ -1304,7 +1319,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           campaignSubTab={campaignSubTab}
           activeNavId={activeNavId}
           onNavigate={handleProNavigate}
-          onLogout={onLogout}
+          onLogout={handleLogout}
           isOpen={isProMenuOpen}
           onClose={() => setIsProMenuOpen(false)}
         />
@@ -1390,7 +1405,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             )}
           </button>
           <button
-            onClick={onLogout}
+            onClick={handleLogout}
             className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
           >
             Log Out

@@ -152,6 +152,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     activeUserIdRef.current = currentUserId;
   }, [currentUserId]);
 
+  const inFlightNotifIds = useRef<Set<string>>(new Set());
+  const isMarkAllInFlight = useRef<boolean>(false);
+
   const loadNotifications = React.useCallback(async () => {
     const requestUserId = currentUserId;
     if (!requestUserId) return;
@@ -203,28 +206,60 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [currentUserId, loadNotifications]);
 
   const handleMarkNotificationRead = async (id: string) => {
+    if (inFlightNotifIds.current.has(id)) return;
+
+    const currentNotif = notifications.find((n) => n.id === id);
+    if (!currentNotif || currentNotif.read) return;
+
+    const requestUserId = currentUserId;
+    if (!requestUserId) return;
+
+    inFlightNotifIds.current.add(id);
     try {
       const res = await api.notifications.markAsRead(id);
+      
+      if (activeUserIdRef.current !== requestUserId) return;
+
       if (res && res.success) {
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-        );
-        setUnreadNotifCount((prev) => Math.max(0, prev - 1));
+        setNotifications((prev) => {
+          const target = prev.find((n) => n.id === id);
+          if (!target || target.read) return prev;
+          
+          setUnreadNotifCount((count) => Math.max(0, count - 1));
+          return prev.map((n) => (n.id === id ? { ...n, read: true } : n));
+        });
       }
     } catch (err) {
-      console.error('[UserDashboard] Failed to mark notification read:', err);
+      if (activeUserIdRef.current === requestUserId) {
+        console.error('[UserDashboard] Failed to mark notification read:', err);
+      }
+    } finally {
+      inFlightNotifIds.current.delete(id);
     }
   };
 
   const handleMarkAllNotificationsRead = async () => {
+    if (isMarkAllInFlight.current) return;
+
+    const requestUserId = currentUserId;
+    if (!requestUserId) return;
+
+    isMarkAllInFlight.current = true;
     try {
       const res = await api.notifications.markAllAsRead();
+      
+      if (activeUserIdRef.current !== requestUserId) return;
+
       if (res && res.success) {
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
         setUnreadNotifCount(0);
       }
     } catch (err) {
-      console.error('[UserDashboard] Failed to mark all notifications read:', err);
+      if (activeUserIdRef.current === requestUserId) {
+        console.error('[UserDashboard] Failed to mark all notifications read:', err);
+      }
+    } finally {
+      isMarkAllInFlight.current = false;
     }
   };
 

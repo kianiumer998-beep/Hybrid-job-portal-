@@ -146,15 +146,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [showNotificationDrawer, setShowNotificationDrawer] = useState<boolean>(false);
 
   const currentUserId = currentUser?.id;
+  const activeUserIdRef = useRef<string | undefined>(currentUserId);
+
+  useEffect(() => {
+    activeUserIdRef.current = currentUserId;
+  }, [currentUserId]);
 
   const loadNotifications = React.useCallback(async () => {
-    if (!currentUserId) return;
+    const requestUserId = currentUserId;
+    if (!requestUserId) return;
     setIsLoadingNotifications(true);
     try {
       const [listRes, countRes] = await Promise.all([
         api.notifications.getAll(),
         api.notifications.getUnreadCount()
       ]);
+
+      // Guard against account switches while request was in-flight
+      if (activeUserIdRef.current !== requestUserId) {
+        return;
+      }
+
       if (listRes && listRes.success && Array.isArray(listRes.notifications)) {
         setNotifications(listRes.notifications);
       }
@@ -162,9 +174,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         setUnreadNotifCount(countRes.unreadCount);
       }
     } catch (err) {
-      console.error('[UserDashboard] Failed to load notifications:', err);
+      if (activeUserIdRef.current === requestUserId) {
+        console.error('[UserDashboard] Failed to load notifications:', err);
+      }
     } finally {
-      setIsLoadingNotifications(false);
+      if (activeUserIdRef.current === requestUserId) {
+        setIsLoadingNotifications(false);
+      }
     }
   }, [currentUserId]);
 
@@ -173,6 +189,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     setNotifications([]);
     setUnreadNotifCount(0);
     setShowNotificationDrawer(false);
+    setIsLoadingNotifications(false);
 
     if (currentUserId) {
       loadNotifications();

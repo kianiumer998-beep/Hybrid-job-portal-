@@ -8,13 +8,13 @@ import { isMongoConfigured, getMongoDb } from '../db/mongodb';
 import { transactionRouter } from '../routes/transactionRoutes';
 import { notificationRouter } from '../routes/notificationRoutes';
 import { PaymentSettingsRepository } from '../db/repositories/PaymentSettingsRepository';
+import { Database } from '../db/database';
 
 async function runTests() {
   console.log('===============================================================');
   console.log('=== DURABLE NOTIFICATION & ROUTE INTEGRATION TEST SUITE ===');
   console.log('===============================================================\n');
 
-  const isTestEnv = process.env.IS_TEST === 'true';
   const realMongoRequested = process.env.USE_REAL_MONGO_TEST === 'true';
   const mongoConfigured = isMongoConfigured();
 
@@ -31,18 +31,54 @@ async function runTests() {
     } catch (err: any) {
       throw new Error(`[Fatal Error] Real MongoDB mode requested (USE_REAL_MONGO_TEST=true), but connection failed: ${err?.message || err}`);
     }
-  } else if (mongoConfigured && !isTestEnv) {
-    try {
-      await getMongoDb();
-      storageMode = 'REAL_MONGODB';
-      console.log('➜ STORAGE MODE: REAL MONGODB PERSISTENCE MODE (Server Default)');
-    } catch (err: any) {
-      storageMode = 'IN_MEMORY';
-      console.log('➜ STORAGE MODE: IN-MEMORY FALLBACK UNIT-TEST MODE');
-    }
   } else {
     storageMode = 'IN_MEMORY';
-    console.log('➜ STORAGE MODE: IN-MEMORY FALLBACK UNIT-TEST MODE (Unit Test Isolation)');
+    process.env.IS_TEST = 'true';
+    console.log('➜ STORAGE MODE: IN-MEMORY FALLBACK UNIT-TEST MODE (Strict JSON Isolation)');
+  }
+
+  // Intercept Database persistence methods in IN_MEMORY mode to prevent JSON file pollution
+  const originalGetTransactions = Database.getTransactions;
+  const originalSaveTransactions = Database.saveTransactions;
+  const originalAddTransaction = Database.addTransaction;
+
+  const originalGetAuditLogs = Database.getAuditLogs;
+  const originalAddAuditLog = Database.addAuditLog;
+
+  const originalGetUsers = Database.getUsers;
+  const originalSaveUsers = Database.saveUsers;
+
+  let inMemTransactions: any[] = [];
+  let inMemAuditLogs: any[] = [];
+  let inMemUsers: any[] = [];
+
+  if (storageMode === 'IN_MEMORY') {
+    Database.getTransactions = () => [...inMemTransactions];
+    Database.saveTransactions = (txs: any[]) => { inMemTransactions = [...txs]; };
+    Database.addTransaction = (tx: any) => {
+      const newTx = {
+        ...tx,
+        id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        dateTime: tx.dateTime || new Date().toISOString().replace('T', ' ').substring(0, 16)
+      };
+      inMemTransactions.unshift(newTx);
+      return newTx;
+    };
+
+    Database.getAuditLogs = () => [...inMemAuditLogs];
+    Database.addAuditLog = (entry: any) => {
+      const newLog = {
+        id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        status: 'Success',
+        ...entry
+      };
+      inMemAuditLogs.unshift(newLog);
+      return newLog;
+    };
+
+    Database.getUsers = () => [...inMemUsers];
+    Database.saveUsers = (users: any[]) => { inMemUsers = [...users]; };
   }
 
   // Set up Express test server for genuine HTTP API integration testing
@@ -154,9 +190,11 @@ async function runTests() {
     console.log('✓ [PASS] Category A: Account-switch race guard verified.');
 
     // -------------------------------------------------------------------
-    // CATEGORY B: REAL MONGODB PERSISTENCE TESTS
+    // CATEGORY B: DOCUMENT STORAGE PERSISTENCE TESTS
     // -------------------------------------------------------------------
-    console.log(`\n--- [CATEGORY B: Real MongoDB Persistence Tests (${storageMode})] ---`);
+    console.log(`\n--- [CATEGORY B: Document Storage Persistence Tests (${storageMode})] ---`);
+    console.log('[Test Note: Persistence Disclaimer] Category B verifies in-memory / MongoDB document persistence depending on storage mode. Process-restart lifecycle persistence is not claimed as this test suite operates within a single process lifecycle.');
+    
     const dbNotifId = `notif-db-${Date.now()}`;
     const dbNotif = await NotificationRepository.createAsync({
       id: dbNotifId,
@@ -204,9 +242,10 @@ async function runTests() {
     console.log('✓ [PASS] Category B: Concurrent duplicate insertion protection verified.');
 
     // -------------------------------------------------------------------
-    // CATEGORY C: ACTUAL HTTP API & ROUTE INTEGRATION TESTS
+    // CATEGORY C: ROUTE-HANDLER INTEGRATION TESTS
     // -------------------------------------------------------------------
-    console.log('\n--- [CATEGORY C: Actual HTTP API & Route Integration Tests] ---');
+    console.log('\n--- [CATEGORY C: Express Route-Handler Integration Tests (With Injected Test Identity)] ---');
+    console.log('[Test Note: Authentication Disclaimer] These tests invoke route handlers via express app with injected test identity (req.user = activeTestUser). They verify route handler authorization logic, idempotency, ownership isolation, and notification durability. They do NOT verify raw JWT token signature decoding/header parsing.');
 
     // C1. Payment Proof Submission Route Integration
     console.log('Executing HTTP POST /api/transactions for payment proof submission...');
@@ -378,7 +417,20 @@ async function runTests() {
     }
 
   } finally {
-    // Clean up test generated records only
+    // Restore original Database persistence methods
+    if (storageMode === 'IN_MEMORY') {
+      Database.getTransactions = originalGetTransactions;
+      Database.saveTransactions = originalSaveTransactions;
+      Database.addTransaction = originalAddTransaction;
+
+      Database.getAuditLogs = originalGetAuditLogs;
+      Database.addAuditLog = originalAddAuditLog;
+
+      Database.getUsers = originalGetUsers;
+      Database.saveUsers = originalSaveUsers;
+    }
+
+    // Clean up test generated records in MongoDB if REAL_MONGODB mode
     console.log('\n--- Cleaning up test-generated records ---');
     for (const notifId of cleanupNotifIds) {
       if (notifId) {
@@ -398,7 +450,10 @@ async function runTests() {
     for (const userId of cleanupUserIds) {
       if (userId) {
         try {
-          await UserRepository.deleteAsync(userId).catch(() => {});
+          if (isMongoConfigured()) {
+            const db = await getMongoDb();
+            await db.collection('users').deleteOne({ id: userId }).catch(() => {});
+          }
         } catch {}
       }
     }

@@ -221,13 +221,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       if (activeUserIdRef.current !== requestUserId) return;
 
       if (res && res.success) {
+        // Capture whether the notification was unread in the state from the current render closure.
+        // This allows moving setUnreadNotifCount outside the pure setNotifications updater.
+        const wasUnread = notifications.some((n) => n.id === id && !n.read);
+
         setNotifications((prev) => {
           const target = prev.find((n) => n.id === id);
           if (!target || target.read) return prev;
-          
-          setUnreadNotifCount((count) => Math.max(0, count - 1));
           return prev.map((n) => (n.id === id ? { ...n, read: true } : n));
         });
+
+        if (wasUnread) {
+          setUnreadNotifCount((count) => Math.max(0, count - 1));
+        }
       }
     } catch (err) {
       if (activeUserIdRef.current === requestUserId) {

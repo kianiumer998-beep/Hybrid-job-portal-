@@ -3319,6 +3319,7 @@ export default function App() {
             {/* REGISTERED USER DASHBOARD TAB */}
             {activeTab === 'dashboard' && currentUser && (
               <UserDashboard
+                key={currentUser.id}
                 currentUser={currentUser}
                 userJobs={userJobs}
                 chatMessages={chatMessages}

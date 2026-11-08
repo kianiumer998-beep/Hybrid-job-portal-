@@ -143,17 +143,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
-  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => safeLocalStorageGet<'classic' | 'professional'>('dashboard_nav_mode', 'classic'));
+  const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
+    safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
+  );
   const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
-  const [activeNavId, setActiveNavId] = useState<string | null>(() => safeLocalStorageGet<string | null>('dashboard_active_nav_id', null));
+  const [activeNavId, setActiveNavId] = useState<string | null>(() => 
+    safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
+  );
 
   useEffect(() => {
-    safeLocalStorageSet('dashboard_nav_mode', navigationMode);
-  }, [navigationMode]);
+    safeLocalStorageSet(`dashboard_nav_mode_${currentUser.id}`, navigationMode);
+  }, [navigationMode, currentUser.id]);
 
   useEffect(() => {
-    safeLocalStorageSet('dashboard_active_nav_id', activeNavId);
-  }, [activeNavId]);
+    safeLocalStorageSet(`dashboard_active_nav_id_${currentUser.id}`, activeNavId);
+  }, [activeNavId, currentUser.id]);
 
   // In-App Notifications State
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -1190,8 +1194,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   };
 
   const handleLogout = () => {
-    safeLocalStorageSet('dashboard_nav_mode', 'classic');
-    safeLocalStorageSet('dashboard_active_nav_id', null);
+    // Explicitly do not reset user-scoped preferences here to ensure they persist 
+    // for the same account upon next login, as required by the safety check.
     onLogout();
   };
 

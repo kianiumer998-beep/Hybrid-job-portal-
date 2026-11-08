@@ -48,6 +48,7 @@ async function runTests() {
       const uriDbName = parsedUrl.pathname.replace(/^\//, '').split('?')[0]; 
       if (!uriDbName) throw new Error('[Fatal Error] No database name found in connection URI.');
       
+      // Strict naming requirement: must start with "test_" or end with "_test"
       if (!/^(test_|.*_test$)/i.test(uriDbName)) {
           throw new Error(`[Fatal Error] Real MongoDB test mode rejected: Database "${uriDbName}" naming does not conform to test isolation standards (must start with "test_" or end with "_test"). Aborting to protect production.`);
       }
@@ -221,12 +222,12 @@ async function runTests() {
       for (const notifId of cleanupNotifIds) { await NotificationRepository.deleteAsync(notifId).catch(e => console.warn(`[Cleanup Warning] ${e.message}`)); }
       for (const txId of cleanupTxIds) { 
           if (isMongoConfigured() && storageMode === 'REAL_MONGODB') {
-              await (await getMongoDb()).collection('transactions').deleteOne({ id: txId }).catch(e => console.warn(`[Cleanup Warning] ${e.message}`));
+              try { await (await getMongoDb()).collection('transactions').deleteOne({ id: txId }); } catch(e) { console.warn(`[Cleanup Warning] ${e.message}`); }
           }
       }
       for (const userId of cleanupUserIds) { 
           if (isMongoConfigured() && storageMode === 'REAL_MONGODB') {
-              await (await getMongoDb()).collection('users').deleteOne({ id: userId }).catch(e => console.warn(`[Cleanup Warning] ${e.message}`));
+              try { await (await getMongoDb()).collection('users').deleteOne({ id: userId }); } catch(e) { console.warn(`[Cleanup Warning] ${e.message}`); }
           }
       }
       if (httpServer) await new Promise<void>(resolve => httpServer!.close(() => resolve()));

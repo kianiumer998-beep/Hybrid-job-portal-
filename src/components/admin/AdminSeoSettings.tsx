@@ -14,15 +14,24 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { SiteSeoConfig } from '../../types/adminSuite';
+import { API_BASE } from '../../services/api';
 
 interface AdminSeoSettingsProps {
   seoConfig: SiteSeoConfig;
   onUpdateSeoConfig: (updated: SiteSeoConfig) => Promise<any> | void;
+  isLoading?: boolean;
+  loadError?: string | null;
+  isReady?: boolean;
+  onReload?: () => Promise<void> | void;
 }
 
 export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
   seoConfig,
-  onUpdateSeoConfig
+  onUpdateSeoConfig,
+  isLoading = false,
+  loadError = null,
+  isReady = true,
+  onReload
 }) => {
   const [config, setConfig] = useState<SiteSeoConfig>(seoConfig);
   const [keywordInput, setKeywordInput] = useState('');
@@ -39,6 +48,10 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading || !isReady || loadError) {
+      alert('Cannot save: Authoritative backend configuration has not finished loading or encountered an error.');
+      return;
+    }
     setIsSaving(true);
     setSaveSuccess(false);
     setSaveError(null);
@@ -78,22 +91,41 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
   const handleGenerateSitemap = async () => {
     setSitemapGenerated(true);
     try {
-      const res = await fetch('/api/seo/sitemap.xml');
+      const sitemapEndpoint = `${API_BASE}/seo/sitemap.xml`;
+      const res = await fetch(sitemapEndpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/xml, text/xml, */*'
+        }
+      });
+
       if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
+        throw new Error(`Endpoint returned HTTP ${res.status} (${res.statusText || 'Error'})`);
       }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('xml')) {
+        throw new Error(`Expected XML content type but received "${contentType}". Endpoint may not be reachable or returned HTML.`);
+      }
+
       const text = await res.text();
-      if (!text || !text.includes('<urlset')) {
-        throw new Error('Invalid sitemap XML response from server');
+      if (!text.includes('<urlset') || !text.includes('</urlset>')) {
+        throw new Error('Response did not contain a valid XML <urlset> sitemap structure.');
       }
-      const baseOrigin = (
-        config.canonicalUrl?.trim() ||
-        (typeof window !== 'undefined' ? window.location.origin : '')
-      ).replace(/\/+$/, '');
-      alert(`✅ Sitemap successfully generated and verified with live jobs, category URLs, and gazette slugs!\nLocation: ${baseOrigin}/sitemap.xml`);
+
+      const urlCount = (text.match(/<url>/g) || []).length;
+
+      alert(
+        `✅ Dynamic XML sitemap endpoint verified successfully!\n\n` +
+        `• Endpoint: ${sitemapEndpoint}\n` +
+        `• Status: HTTP ${res.status} (OK)\n` +
+        `• Content-Type: ${contentType}\n` +
+        `• Active Entries: ${urlCount} dynamic routes (including static portal pages, city landing pages, and approved active jobs)\n\n` +
+        `Note: This is an on-demand dynamic backend route, not a static file.`
+      );
     } catch (err: any) {
-      console.error('[AdminSeoSettings] Failed to generate sitemap:', err);
-      alert(`❌ Failed to generate sitemap: ${err?.message || 'Server error'}`);
+      console.error('[AdminSeoSettings] Failed to verify sitemap endpoint:', err);
+      alert(`❌ Sitemap endpoint verification failed:\n\n${err?.message || 'Server error'}`);
     } finally {
       setSitemapGenerated(false);
     }
@@ -121,21 +153,62 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
             className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center space-x-2 cursor-pointer transition-all"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${sitemapGenerated ? 'animate-spin' : ''}`} />
-            <span>Re-Generate Sitemap.xml</span>
+            <span>Verify Sitemap.xml</span>
           </button>
 
           <button
             type="submit"
-            disabled={isSaving}
+            disabled={isSaving || isLoading || !isReady || Boolean(loadError)}
             className={`px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-2 cursor-pointer transition-all active:scale-95 ${
-              isSaving ? 'opacity-70 cursor-not-allowed' : ''
+              isSaving || isLoading || !isReady || Boolean(loadError) ? 'opacity-60 cursor-not-allowed' : ''
             }`}
+            title={
+              isLoading
+                ? 'Loading authoritative backend configuration...'
+                : loadError
+                ? 'Saving is disabled due to backend loading failure'
+                : !isReady
+                ? 'Authoritative configuration is not ready'
+                : 'Save SEO Settings'
+            }
           >
-            {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>{isSaving ? 'Saving...' : 'Save SEO Settings'}</span>
+            {isSaving || isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            <span>{isLoading ? 'Loading Server Config...' : isSaving ? 'Saving...' : 'Save SEO Settings'}</span>
           </button>
         </div>
       </div>
+
+      {isLoading && (
+        <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-indigo-300 font-bold text-xs flex items-center space-x-2 animate-fade-in">
+          <RefreshCw className="w-4 h-4 animate-spin text-indigo-400 shrink-0" />
+          <span>Loading authoritative SEO configuration from server...</span>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="p-4 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 font-bold text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+            <div>
+              <span className="font-bold">Authoritative backend SEO configuration failed to load:</span>{' '}
+              <span>{loadError}</span>
+              <p className="text-[11px] text-rose-400/90 font-normal mt-0.5">
+                Save is disabled to prevent overwriting server configuration with unverified or stale cached data.
+              </p>
+            </div>
+          </div>
+          {onReload && (
+            <button
+              type="button"
+              onClick={onReload}
+              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-bold text-xs shrink-0 cursor-pointer flex items-center space-x-1"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Retry Load</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {saveSuccess && (
         <div className="p-4 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs flex items-center space-x-2 animate-fade-in">

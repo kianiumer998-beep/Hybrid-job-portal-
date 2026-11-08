@@ -213,6 +213,10 @@ interface AdminDashboardProps {
   onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => void;
   siteSeoConfig?: SiteSeoConfig;
   onUpdateSeoConfig?: (config: SiteSeoConfig) => Promise<any> | void;
+  isSeoConfigLoading?: boolean;
+  seoConfigLoadError?: string | null;
+  isSeoConfigReady?: boolean;
+  onReloadSeoConfig?: () => Promise<void> | void;
   paymentTransactions?: PaymentTransaction[];
   onApprovePaymentTransaction?: (transactionId: string, note?: string) => Promise<PaymentVerificationResult>;
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => Promise<PaymentVerificationResult>;
@@ -289,6 +293,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateWhatsAppConfig,
   siteSeoConfig: propSiteSeoConfig,
   onUpdateSeoConfig,
+  isSeoConfigLoading = false,
+  seoConfigLoadError = null,
+  isSeoConfigReady = true,
+  onReloadSeoConfig,
   paymentTransactions,
   onApprovePaymentTransaction,
   onRejectPaymentTransaction
@@ -2904,6 +2912,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminSeoSettings
           seoConfig={effectiveSeoConfig}
           onUpdateSeoConfig={handleUpdateSeoConfig}
+          isLoading={isSeoConfigLoading}
+          loadError={seoConfigLoadError}
+          isReady={isSeoConfigReady}
+          onReload={onReloadSeoConfig}
         />
       )}
       {adminTab === 'job-visibility' && (

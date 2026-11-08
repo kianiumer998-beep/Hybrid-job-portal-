@@ -174,18 +174,33 @@ export default function App() {
     } catch (e) {}
     return INITIAL_SITE_SEO_CONFIG;
   });
+  const [isSeoConfigLoading, setIsSeoConfigLoading] = useState<boolean>(true);
+  const [seoConfigLoadError, setSeoConfigLoadError] = useState<string | null>(null);
+  const [isSeoConfigReady, setIsSeoConfigReady] = useState<boolean>(false);
 
   const loadBackendSeoConfig = useCallback(async () => {
+    setIsSeoConfigLoading(true);
+    setSeoConfigLoadError(null);
     try {
       const res = await api.seo.getConfig();
       if (res && res.success && res.config) {
         setSiteSeoConfig(res.config);
+        setIsSeoConfigReady(true);
         try {
           localStorage.setItem('career_pak_seo_config', JSON.stringify(res.config));
         } catch {}
+      } else {
+        const errorMsg = res?.message || 'Failed to load SEO configuration from server.';
+        setSeoConfigLoadError(errorMsg);
+        setIsSeoConfigReady(false);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[App] Failed to load SEO configuration from backend /api/seo/config:', err);
+      const errorMsg = err?.message || 'Network error communicating with SEO configuration server.';
+      setSeoConfigLoadError(errorMsg);
+      setIsSeoConfigReady(false);
+    } finally {
+      setIsSeoConfigLoading(false);
     }
   }, []);
 
@@ -451,6 +466,9 @@ export default function App() {
   }, [landingConfig]);
 
   const handleUpdateSeoConfig = useCallback(async (newCfg: SiteSeoConfig) => {
+    if (!isSeoConfigReady) {
+      throw new Error('Cannot save SEO settings: Authoritative backend configuration has not finished loading.');
+    }
     try {
       const res = await api.seo.updateConfig(newCfg);
       if (res && res.success && res.config) {
@@ -465,7 +483,7 @@ export default function App() {
       console.error('[App] Failed to update SEO config:', err);
       throw err;
     }
-  }, []);
+  }, [isSeoConfigReady]);
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
@@ -3162,6 +3180,10 @@ export default function App() {
             onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
             siteSeoConfig={siteSeoConfig}
             onUpdateSeoConfig={handleUpdateSeoConfig}
+            isSeoConfigLoading={isSeoConfigLoading}
+            seoConfigLoadError={seoConfigLoadError}
+            isSeoConfigReady={isSeoConfigReady}
+            onReloadSeoConfig={loadBackendSeoConfig}
             paymentTransactions={paymentTransactions}
             onApprovePaymentTransaction={handleApprovePaymentTransaction}
             onRejectPaymentTransaction={handleRejectPaymentTransaction}

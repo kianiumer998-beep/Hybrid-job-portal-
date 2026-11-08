@@ -1,7 +1,9 @@
 import express from 'express';
 import path from 'path';
 import { initScraperScheduler } from './server/services/scraperScheduler';
-import { featureFlags, updateFeatureFlags } from './server/config/featureFlags';
+import { featureFlags, updateFeatureFlags, setFeatureFlags } from './server/config/featureFlags';
+import { FeatureFlagsRepository } from './server/db/repositories/FeatureFlagsRepository';
+import { isMongoConfigured } from './server/db/mongodb';
 import { createServer as createViteServer } from 'vite';
 
 import { Database } from './server/db/database';
@@ -91,20 +93,40 @@ async function startServer() {
   });
 
   // API Route: Feature Flags (Backward Compatible)
-  app.get('/api/admin/feature-flags', (req, res) => {
+  app.get('/api/admin/feature-flags', async (req, res) => {
+    try {
+      if (isMongoConfigured()) {
+        const flags = await FeatureFlagsRepository.getFlags();
+        setFeatureFlags(flags);
+      }
+    } catch (err) {
+      console.warn('[API] Could not fetch feature flags from MongoDB, serving cached flags:', err);
+    }
     res.json(featureFlags);
   });
 
-  app.post('/api/admin/feature-flags', requireAdminPermission('settings.manage'), (req, res) => {
-    const updated = updateFeatureFlags(req.body);
-    Database.addAuditLog({
-      user: 'Administrator',
-      role: 'Admin',
-      action: 'Feature Flags Updated',
-      target: 'System Configuration',
-      status: 'Success'
-    });
-    res.json({ success: true, featureFlags });
+  app.post('/api/admin/feature-flags', requireAdminPermission('settings.manage'), async (req, res) => {
+    try {
+      let updated: AdminFeatureFlags;
+      if (isMongoConfigured()) {
+        updated = await FeatureFlagsRepository.saveFlags(req.body, featureFlags);
+        setFeatureFlags(updated);
+      } else {
+        updated = updateFeatureFlags(req.body);
+      }
+
+      Database.addAuditLog({
+        user: 'Administrator',
+        role: 'Admin',
+        action: 'Feature Flags Updated',
+        target: 'System Configuration',
+        status: 'Success'
+      });
+      res.json({ success: true, featureFlags });
+    } catch (err: any) {
+      console.error('[API Error] Failed to update feature flags:', err);
+      res.status(500).json({ success: false, message: err?.message || 'Failed to persist feature flags.' });
+    }
   });
 
   // Dynamic Sitemap & Robots.txt at Root & /api/

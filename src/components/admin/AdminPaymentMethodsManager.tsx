@@ -68,8 +68,20 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
   // Campaign duration preset configuration (kept separate from payment accounts)
   const [durationConfig, setDurationConfig] = useState<AdminReceivingPaymentConfig>(() => {
     try {
-      const saved = localStorage.getItem('admin_receiving_payment_config');
-      if (saved) return JSON.parse(saved);
+      const savedNew = localStorage.getItem('hybrid_campaign_duration_presets');
+      if (savedNew) {
+        const parsed = JSON.parse(savedNew);
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.durationOptions)) {
+          return parsed;
+        }
+      }
+      const savedLegacy = localStorage.getItem('admin_receiving_payment_config');
+      if (savedLegacy) {
+        const parsedLegacy = JSON.parse(savedLegacy);
+        if (parsedLegacy && typeof parsedLegacy === 'object' && Array.isArray(parsedLegacy.durationOptions)) {
+          return parsedLegacy;
+        }
+      }
     } catch (e) {
       console.error(e);
     }
@@ -398,7 +410,7 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
   // Save campaign duration presets locally
   const handleSaveDurations = () => {
     try {
-      localStorage.setItem('admin_receiving_payment_config', JSON.stringify(durationConfig));
+      localStorage.setItem('hybrid_campaign_duration_presets', JSON.stringify(durationConfig));
       if (onSaveConfig) {
         onSaveConfig(durationConfig);
       }

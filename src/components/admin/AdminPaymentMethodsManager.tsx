@@ -71,14 +71,14 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
       const savedNew = localStorage.getItem('hybrid_campaign_duration_presets');
       if (savedNew) {
         const parsed = JSON.parse(savedNew);
-        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.durationOptions)) {
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.activeDurationOptions)) {
           return parsed;
         }
       }
       const savedLegacy = localStorage.getItem('admin_receiving_payment_config');
       if (savedLegacy) {
         const parsedLegacy = JSON.parse(savedLegacy);
-        if (parsedLegacy && typeof parsedLegacy === 'object' && Array.isArray(parsedLegacy.durationOptions)) {
+        if (parsedLegacy && typeof parsedLegacy === 'object' && Array.isArray(parsedLegacy.activeDurationOptions)) {
           return parsedLegacy;
         }
       }

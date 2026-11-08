@@ -27,7 +27,7 @@ export class FeatureFlagsRepository {
         if (typeof raw[key] === 'boolean') {
           result[key] = raw[key];
         }
-        // If raw[key] is not a boolean (invalid value), preserve existing valid value (current[key])
+        // Invalid, missing, or unknown keys preserve existing valid value from current.
       }
     }
     return result;
@@ -56,33 +56,56 @@ export class FeatureFlagsRepository {
       return FeatureFlagsRepository.sanitizeFlags(updates, baseline);
     }
 
-    // Use latest persisted document as baseline when MongoDB is configured
-    const latest = await this.getFlags();
-    const merged = this.sanitizeFlags(updates, latest);
+    const setFields: Record<string, any> = {
+      updatedAt: new Date().toISOString()
+    };
+
+    let hasValidUpdates = false;
+    if (updates && typeof updates === 'object') {
+      for (const key of Object.keys(DEFAULT_FEATURE_FLAGS) as (keyof AdminFeatureFlags)[]) {
+        if (updates[key] !== undefined && typeof updates[key] === 'boolean') {
+          setFields[`flags.${key}`] = updates[key];
+          hasValidUpdates = true;
+        }
+      }
+    }
+
+    const setOnInsertFields: Record<string, any> = {
+      key: DOC_KEY,
+      updatedAt: new Date().toISOString()
+    };
+    for (const key of Object.keys(DEFAULT_FEATURE_FLAGS) as (keyof AdminFeatureFlags)[]) {
+      setOnInsertFields[`flags.${key}`] = DEFAULT_FEATURE_FLAGS[key];
+    }
 
     const db = await getMongoDb();
     const coll = db.collection(COLLECTION_NAME);
 
-    const setFields: Record<string, any> = {
-      updatedAt: new Date().toISOString()
-    };
-    for (const key of Object.keys(DEFAULT_FEATURE_FLAGS) as (keyof AdminFeatureFlags)[]) {
-      setFields[`flags.${key}`] = merged[key];
+    if (hasValidUpdates) {
+      await withMongoTimeout(
+        coll.updateOne(
+          { key: DOC_KEY },
+          { 
+            $set: setFields,
+            $setOnInsert: setOnInsertFields
+          },
+          { upsert: true }
+        ),
+        8000,
+        'save feature flags'
+      );
+    } else {
+      await withMongoTimeout(
+        coll.updateOne(
+          { key: DOC_KEY },
+          { $setOnInsert: setOnInsertFields },
+          { upsert: true }
+        ),
+        8000,
+        'ensure feature flags document'
+      );
     }
 
-    await withMongoTimeout(
-      coll.updateOne(
-        { key: DOC_KEY },
-        { 
-          $set: setFields,
-          $setOnInsert: { key: DOC_KEY }
-        },
-        { upsert: true }
-      ),
-      8000,
-      'save feature flags'
-    );
-
-    return merged;
+    return await this.getFlags();
   }
 }

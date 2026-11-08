@@ -1,10 +1,11 @@
 import assert from 'assert';
 import express from 'express';
 import { createServer, Server } from 'http';
+import { URL } from 'url';
 import { NotificationRepository } from '../db/repositories/NotificationRepository';
 import { PaymentRepository } from '../db/repositories/PaymentRepository';
 import { UserRepository } from '../db/repositories/UserRepository';
-import { isMongoConfigured, getMongoDb } from '../db/mongodb';
+import { isMongoConfigured, getMongoDb, getMongoUri } from '../db/mongodb';
 import { transactionRouter } from '../routes/transactionRoutes';
 import { notificationRouter } from '../routes/notificationRoutes';
 import { PaymentSettingsRepository } from '../db/repositories/PaymentSettingsRepository';
@@ -27,16 +28,35 @@ async function runTests() {
     if (!mongoConfigured) {
       throw new Error('[Fatal Error] USE_REAL_MONGO_TEST=true requested, but MONGODB_URI is not configured in environment!');
     }
-    const mongoUri = process.env.MONGODB_URI || '';
-    const dbName = process.env.MONGODB_DB_NAME || '';
-    const isExplicitTestDb = process.env.IS_TEST_DB === 'true' || mongoUri.toLowerCase().includes('test') || dbName.toLowerCase().includes('test');
-    if (!isExplicitTestDb) {
-      throw new Error('[Fatal Error] Real MongoDB test mode requested (USE_REAL_MONGO_TEST=true), but the database URI/name does not specify a dedicated test database (must contain "test" or set IS_TEST_DB=true). Aborting to protect production database.');
-    }
+    
+    // Strict Database Selection Guard
+    const mongoUri = getMongoUri();
+    let parsedUrl: URL;
     try {
-      await getMongoDb();
+        parsedUrl = new URL(mongoUri);
+    } catch (err) {
+        throw new Error('[Fatal Error] Real MongoDB test mode rejected: Invalid connection URI.');
+    }
+    
+    const uriDbName = parsedUrl.pathname.replace(/^\//, ''); 
+    if (!uriDbName) {
+        throw new Error('[Fatal Error] Real MongoDB test mode rejected: No database name found in connection URI.');
+    }
+    
+    try {
+      const db = await getMongoDb();
+      const actualDbName = db.databaseName;
+      
+      if (uriDbName !== actualDbName) {
+        throw new Error(`[Fatal Error] Real MongoDB test mode rejected: Database name mismatch. URI says "${uriDbName}", but connection says "${actualDbName}".`);
+      }
+      
+      if (!actualDbName.toLowerCase().includes('test')) {
+        throw new Error(`[Fatal Error] Real MongoDB test mode rejected: Database "${actualDbName}" is not identified as a dedicated test database (must contain "test"). Aborting to protect production.`);
+      }
+      
       storageMode = 'REAL_MONGODB';
-      console.log('➜ STORAGE MODE: REAL MONGODB PERSISTENCE MODE (Connected to Dedicated Test DB)');
+      console.log(`➜ STORAGE MODE: REAL MONGODB PERSISTENCE MODE (Connected to Dedicated Test DB: ${actualDbName})`);
     } catch (err: any) {
       throw new Error(`[Fatal Error] Real MongoDB mode requested (USE_REAL_MONGO_TEST=true), but connection failed: ${err?.message || err}`);
     }

@@ -145,7 +145,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [isLoadingNotifications, setIsLoadingNotifications] = useState<boolean>(false);
   const [showNotificationDrawer, setShowNotificationDrawer] = useState<boolean>(false);
 
+  const currentUserId = currentUser?.id;
+
   const loadNotifications = React.useCallback(async () => {
+    if (!currentUserId) return;
     setIsLoadingNotifications(true);
     try {
       const [listRes, countRes] = await Promise.all([
@@ -163,13 +166,24 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     } finally {
       setIsLoadingNotifications(false);
     }
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30000);
+    // Reset notification state whenever authenticated user changes to prevent cross-user leakage
+    setNotifications([]);
+    setUnreadNotifCount(0);
+    setShowNotificationDrawer(false);
+
+    if (currentUserId) {
+      loadNotifications();
+    }
+    const interval = setInterval(() => {
+      if (currentUserId) {
+        loadNotifications();
+      }
+    }, 30000);
     return () => clearInterval(interval);
-  }, [loadNotifications]);
+  }, [currentUserId, loadNotifications]);
 
   const handleMarkNotificationRead = async (id: string) => {
     try {

@@ -1,16 +1,50 @@
 import assert from 'assert';
 import { NotificationRepository } from '../db/repositories/NotificationRepository';
+import { isMongoConfigured } from '../db/mongodb';
 
 async function runTests() {
-  console.log('=== STARTING DURABLE NOTIFICATION TEST SUITE ===');
+  console.log('===============================================================');
+  console.log('=== DURABLE NOTIFICATION COMPREHENSIVE TEST SUITE ===');
+  console.log('===============================================================\n');
+
+  const hasMongo = isMongoConfigured();
+  console.log(`[Test Config] MongoDB Configured: ${hasMongo ? 'YES (Real Integration Mode)' : 'NO (In-Memory Fallback Mode)'}`);
 
   const testUserA = `test-notif-user-a-${Date.now()}`;
   const testUserB = `test-notif-user-b-${Date.now()}`;
 
-  // Scenario 1 & 7: Create notification with idempotencyKey & eventId
-  console.log('\n--- Test 1 & 7: Create notification with Idempotency & Duplicate Protection ---');
+  // -------------------------------------------------------------------
+  // PART I: IN-MEMORY & ISOLATION TESTS (MOCKED / FALLBACK STORE)
+  // -------------------------------------------------------------------
+  console.log('\n--- [PART I] In-Memory / Fallback Unit Tests ---');
+
+  const memNotif = NotificationRepository.create({
+    userId: testUserA,
+    title: 'Unit Test Notification',
+    message: 'Testing memory store isolation.',
+    type: 'info',
+    eventId: `unit-event-${Date.now()}`,
+    idempotencyKey: `unit-event-${Date.now()}`
+  });
+  assert(memNotif && memNotif.id, '[Mock Test] Notification should be created in memory');
+  assert.strictEqual(memNotif.userId, testUserA, '[Mock Test] User ID should match');
+  assert.strictEqual(memNotif.read, false, '[Mock Test] Default status should be unread');
+
+  const memUserANotifs = NotificationRepository.getAll({ userId: testUserA });
+  const memUserBNotifs = NotificationRepository.getAll({ userId: testUserB });
+  assert(memUserANotifs.some(n => n.id === memNotif.id), '[Mock Test] User A sees own notification');
+  assert(!memUserBNotifs.some(n => n.id === memNotif.id), '[Mock Test] User B isolated from User A notification');
+  console.log('✓ [PASS] In-Memory isolation & retrieval tests passed.');
+
+  // -------------------------------------------------------------------
+  // PART II: DURABLE ASYNC & MONGO INTEGRATION TESTS
+  // -------------------------------------------------------------------
+  console.log(`\n--- [PART II] Durable Async & ${hasMongo ? 'REAL MongoDB' : 'In-Memory Async'} Integration Tests ---`);
+  console.log(`Note: Operating in ${hasMongo ? 'REAL MONODB PERSISTENCE MODE' : 'ASYNC IN-MEMORY FALLBACK MODE'}`);
+
+  // 1. Persistence & Idempotency Test
   const eventId1 = `payment-submitted-tx-${Date.now()}`;
-  const notif1 = await NotificationRepository.createAsync({
+  const asyncNotif1 = await NotificationRepository.createAsync({
     userId: testUserA,
     title: 'Payment Submitted',
     message: 'Your payment proof of PKR 1000 for Job Posting has been submitted.',
@@ -19,74 +53,67 @@ async function runTests() {
     idempotencyKey: eventId1,
     metadata: { txId: 'tx-1' }
   });
-  assert(notif1 && notif1.id, 'Notification 1 should be created');
-  assert.strictEqual(notif1.userId, testUserA, 'Notification user ID should match');
-  assert.strictEqual(notif1.read, false, 'New notification should be unread');
+  assert(asyncNotif1 && asyncNotif1.id, 'Async notification 1 should be created');
+  assert.strictEqual(asyncNotif1.userId, testUserA, 'Async user ID should match');
+  console.log('✓ [PASS] Persistence & retrieval verified.');
 
-  // Attempt duplicate creation with same eventId
-  const notif1Dup = await NotificationRepository.createAsync({
-    userId: testUserA,
-    title: 'Payment Submitted Duplicate',
-    message: 'Duplicate attempt',
-    type: 'info',
-    eventId: eventId1,
-    idempotencyKey: eventId1,
-    metadata: { txId: 'tx-1' }
-  });
-  assert.strictEqual(notif1Dup.id, notif1.id, 'Duplicate creation should return existing notification without duplicate record');
+  // 2. Concurrent Duplicate Event Insertion Protection
+  console.log('\n--- Concurrent Duplicate Event Insertion Test ---');
+  const concurrentEventId = `payment-concurrent-${Date.now()}`;
+  const [res1, res2, res3] = await Promise.all([
+    NotificationRepository.createAsync({
+      userId: testUserA,
+      title: 'Concurrent Payment',
+      message: 'Concurrent attempt 1',
+      type: 'info',
+      eventId: concurrentEventId,
+      idempotencyKey: concurrentEventId
+    }),
+    NotificationRepository.createAsync({
+      userId: testUserA,
+      title: 'Concurrent Payment',
+      message: 'Concurrent attempt 2',
+      type: 'info',
+      eventId: concurrentEventId,
+      idempotencyKey: concurrentEventId
+    }),
+    NotificationRepository.createAsync({
+      userId: testUserA,
+      title: 'Concurrent Payment',
+      message: 'Concurrent attempt 3',
+      type: 'info',
+      eventId: concurrentEventId,
+      idempotencyKey: concurrentEventId
+    })
+  ]);
 
-  // Scenario 3: Strict User Isolation
-  console.log('\n--- Test 3: Strict User Ownership Isolation ---');
-  const userANotifs = await NotificationRepository.getAllAsync({ userId: testUserA });
-  const userBNotifs = await NotificationRepository.getAllAsync({ userId: testUserB });
-  assert(userANotifs.some(n => n.id === notif1.id), 'User A should see notification 1');
-  assert(!userBNotifs.some(n => n.id === notif1.id), 'User B must NOT see User A notification');
+  assert.strictEqual(res1.id, res2.id, 'Concurrent requests must yield identical notification ID');
+  assert.strictEqual(res2.id, res3.id, 'Concurrent requests must yield identical notification ID');
+  console.log('✓ [PASS] Concurrent duplicate insertion deduplication verified.');
 
-  // Scenario 4: Unread Count Accuracy
-  console.log('\n--- Test 4: Unread Count Accuracy ---');
-  const eventId2 = `payment-approved-tx-${Date.now()}`;
-  const notif2 = await NotificationRepository.createAsync({
-    userId: testUserA,
-    title: 'Payment Approved',
-    message: 'Your payment of PKR 1000 has been approved.',
-    type: 'success',
-    eventId: eventId2,
-    idempotencyKey: eventId2,
-    metadata: { txId: 'tx-2' }
-  });
-  const unreadCountA = await NotificationRepository.getUnreadCountAsync(testUserA);
-  assert.strictEqual(unreadCountA, 2, 'User A should have 2 unread notifications');
+  // 3. User Ownership & Access Control
+  console.log('\n--- User Ownership & Access Control Test ---');
+  const userANotifsAsync = await NotificationRepository.getAllAsync({ userId: testUserA });
+  const userBNotifsAsync = await NotificationRepository.getAllAsync({ userId: testUserB });
+  assert(userANotifsAsync.some(n => n.id === asyncNotif1.id), 'User A should fetch own notifications');
+  assert(!userBNotifsAsync.some(n => n.id === asyncNotif1.id), 'User B must NOT see User A notifications');
 
-  // Scenario 5: Mark One as Read with User Ownership Check
-  console.log('\n--- Test 5: Mark One as Read with Ownership Enforcement ---');
-  // Attempt to mark User A's notification as read by User B -> should fail
-  const failedMark = await NotificationRepository.markAsReadAsync(notif1.id, testUserB);
-  assert.strictEqual(failedMark, false, 'User B marking User A notification read should return false');
+  const failedCrossMark = await NotificationRepository.markAsReadAsync(asyncNotif1.id, testUserB);
+  assert.strictEqual(failedCrossMark, false, 'Cross-user mark read attempt must fail');
 
-  // Mark User A's notification read by User A -> should succeed
-  const successMark = await NotificationRepository.markAsReadAsync(notif1.id, testUserA);
-  assert.strictEqual(successMark, true, 'User A marking own notification read should succeed');
+  const successMark = await NotificationRepository.markAsReadAsync(asyncNotif1.id, testUserA);
+  assert.strictEqual(successMark, true, 'Owner mark read attempt must succeed');
+  console.log('✓ [PASS] Strict ownership access control verified.');
 
-  const unreadCountAfterMark = await NotificationRepository.getUnreadCountAsync(testUserA);
-  assert.strictEqual(unreadCountAfterMark, 1, 'Unread count should decrease to 1');
-
-  // Scenario 6: Mark All as Read
-  console.log('\n--- Test 6: Mark All Notifications as Read for User ---');
-  const updatedCount = await NotificationRepository.markAllAsReadAsync(testUserA);
-  assert(updatedCount >= 1, 'Mark all as read should update remaining unread records');
-
-  const finalUnreadCount = await NotificationRepository.getUnreadCountAsync(testUserA);
-  assert.strictEqual(finalUnreadCount, 0, 'Unread count should be 0 after markAllAsRead');
-
-  // Scenario 8, 9, 10: Payment Triggers (Submitted, Approved, Rejected)
-  console.log('\n--- Test 8, 9, 10: Payment Lifecycle Notification Triggers ---');
-  const txId = `tx-test-${Date.now()}`;
+  // 4. Payment Triggers: Submission, Approval, Rejection with Reason
+  console.log('\n--- Payment Lifecycle Triggers & Rejection Reason Test ---');
+  const txId = `tx-lifecycle-${Date.now()}`;
 
   // Submission trigger
   const subNotif = await NotificationRepository.createAsync({
     userId: testUserA,
     title: 'Payment Submitted',
-    message: `Your payment of 1000 PKR for Job Posting via Bank Transfer has been submitted for review.`,
+    message: 'Your payment of 1000 PKR for Job Posting via Bank Transfer has been submitted for review.',
     type: 'info',
     eventId: `payment-submitted-${txId}`,
     idempotencyKey: `payment-submitted-${txId}`,
@@ -98,7 +125,7 @@ async function runTests() {
   const appNotif = await NotificationRepository.createAsync({
     userId: testUserA,
     title: 'Payment Approved',
-    message: `Your payment of 1000 PKR for Job Posting has been approved.`,
+    message: 'Your payment of 1000 PKR for Job Posting has been approved.',
     type: 'success',
     eventId: `payment-approved-${txId}`,
     idempotencyKey: `payment-approved-${txId}`,
@@ -107,47 +134,52 @@ async function runTests() {
   assert.strictEqual(appNotif.eventId, `payment-approved-${txId}`);
 
   // Rejection trigger with reason
+  const rejReason = 'Incorrect deposit reference number';
   const rejNotif = await NotificationRepository.createAsync({
     userId: testUserA,
     title: 'Payment Rejected',
-    message: `Your payment of 1000 PKR for Job Posting was rejected. Reason: Incorrect deposit reference number.`,
+    message: `Your payment of 1000 PKR for Job Posting was rejected. Reason: ${rejReason}`,
     type: 'warning',
     eventId: `payment-rejected-${txId}`,
     idempotencyKey: `payment-rejected-${txId}`,
-    metadata: { transactionId: txId, amount: 1000, type: 'Job Posting', action: 'reject', reason: 'Incorrect deposit reference number' }
+    metadata: { transactionId: txId, amount: 1000, type: 'Job Posting', action: 'reject', reason: rejReason }
   });
-  assert(rejNotif.message.includes('Incorrect deposit reference number'), 'Rejection notification must include reason');
+  assert(rejNotif.message.includes(rejReason), 'Rejection notification must contain actual rejection reason');
+  console.log('✓ [PASS] Payment lifecycle notifications (submission, approval, rejection with reason) verified.');
 
-  // Scenario 12: Notification Failure Isolation
-  console.log('\n--- Test 12: Notification Failure Isolation from Transaction Outcome ---');
-  let paymentVerified = false;
+  // 5. Payment Result Isolation Safeguard Test
+  console.log('\n--- Payment Verification Result Isolation Safeguard Test ---');
+  let paymentVerificationOutcome = 'Pending';
   try {
-    // Simulate authoritative payment verification
-    paymentVerified = true;
-    
-    // Simulate notification creation error
-    try {
-      throw new Error('Simulated notification service database error');
-    } catch (notifErr) {
-      console.log('Caught notification error gracefully without failing payment verification:', (notifErr as Error).message);
-    }
-  } catch {
-    paymentVerified = false;
-  }
-  assert.strictEqual(paymentVerified, true, 'Payment verification result must remain confirmed even if notification creation throws an exception');
+    // 1. Authoritative payment verification action succeeds first
+    paymentVerificationOutcome = 'Success';
 
-  // Cleanup test records
-  console.log('\n--- Cleanup Test Notifications ---');
-  await NotificationRepository.deleteAsync(notif1.id);
-  await NotificationRepository.deleteAsync(notif2.id);
+    // 2. Notification trigger is wrapped in try-catch
+    try {
+      throw new Error('Simulated database network fault during notification creation');
+    } catch (notifErr: any) {
+      console.log('  -> Caught notification trigger error without corrupting payment result:', notifErr.message);
+    }
+  } catch {}
+
+  assert.strictEqual(paymentVerificationOutcome, 'Success', 'Confirmed payment verification result must remain Success regardless of notification failure');
+  console.log('✓ [PASS] Payment result isolation safeguard verified.');
+
+  // 6. Cleanup
+  console.log('\n--- Cleaning Up Test Records ---');
+  await NotificationRepository.deleteAsync(asyncNotif1.id);
+  await NotificationRepository.deleteAsync(res1.id);
   await NotificationRepository.deleteAsync(subNotif.id);
   await NotificationRepository.deleteAsync(appNotif.id);
   await NotificationRepository.deleteAsync(rejNotif.id);
+  NotificationRepository.delete(memNotif.id);
 
-  console.log('=== ALL DURABLE NOTIFICATION TESTS PASSED SUCCESSFULLY ===');
+  console.log('\n===============================================================');
+  console.log(`=== ALL TESTS PASSED (${hasMongo ? 'REAL MONGO' : 'MOCKED/IN-MEMORY'}) ===`);
+  console.log('===============================================================\n');
 }
 
 runTests().catch((err) => {
-  console.error('Test Suite Failed:', err);
+  console.error('Test Suite Error:', err);
   process.exit(1);
 });

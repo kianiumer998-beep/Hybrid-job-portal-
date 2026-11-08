@@ -18,28 +18,41 @@ export interface NotificationRecord {
 
 let inMemoryNotifications: NotificationRecord[] = [];
 
+let indexInitPromise: Promise<void> | null = null;
+
 const isTest = () => process.env.IS_TEST === 'true';
-const isMongoActive = () => isMongoConfigured() && !isTest();
+const isMongoActive = () => isMongoConfigured() && (!isTest() || process.env.USE_REAL_MONGO_TEST === 'true');
 
 async function getNotificationsCollection() {
   const db = await getMongoDb();
   return db.collection('notifications');
 }
 
-async function ensureNotificationIndexes() {
+export async function ensureNotificationIndexes(): Promise<void> {
   if (!isMongoActive()) return;
-  try {
-    const coll = await getNotificationsCollection();
-    await coll.createIndex({ eventId: 1 }, { unique: true, sparse: true });
-    await coll.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true });
-    await coll.createIndex({ userId: 1, createdAt: -1 });
-    console.log('[NotificationRepository] MongoDB unique indexes verified on notifications collection.');
-  } catch (err: any) {
-    console.warn('[NotificationRepository] Notice: Unique index creation warning on notifications collection:', err?.message || err);
+  if (!indexInitPromise) {
+    indexInitPromise = (async () => {
+      try {
+        const coll = await getNotificationsCollection();
+        await coll.createIndex({ eventId: 1 }, { unique: true, sparse: true });
+        await coll.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true });
+        await coll.createIndex({ userId: 1, createdAt: -1 });
+        console.log('[NotificationRepository] MongoDB unique indexes verified on notifications collection.');
+      } catch (err: any) {
+        indexInitPromise = null;
+        console.error('[NotificationRepository] MongoDB index initialization error on notifications collection:', err?.message || err);
+        throw new Error(`MongoDB notifications index initialization failed: ${err?.message || err}`);
+      }
+    })();
   }
+  return indexInitPromise;
 }
 
-ensureNotificationIndexes().catch(() => {});
+ensureNotificationIndexes().catch((err) => {
+  if (isMongoActive()) {
+    console.error('[NotificationRepository] Background index setup failed:', err?.message || err);
+  }
+});
 
 function normalizeNotificationRecord(doc: any): NotificationRecord {
   if (!doc) return doc;
@@ -69,6 +82,7 @@ export class NotificationRepository {
 
   static async getAllAsync(filters?: { userId?: string; type?: string; unreadOnly?: boolean }): Promise<NotificationRecord[]> {
     if (isMongoActive()) {
+      await ensureNotificationIndexes();
       try {
         const coll = await getNotificationsCollection();
         const query: Record<string, any> = {};
@@ -94,6 +108,7 @@ export class NotificationRepository {
   static async getUnreadCountAsync(userId: string): Promise<number> {
     if (!userId) return 0;
     if (isMongoActive()) {
+      await ensureNotificationIndexes();
       try {
         const coll = await getNotificationsCollection();
         return await coll.countDocuments({ userId: String(userId), isRead: { $ne: true }, read: { $ne: true } });
@@ -157,6 +172,7 @@ export class NotificationRepository {
     };
 
     if (isMongoActive()) {
+      await ensureNotificationIndexes();
       try {
         const coll = await getNotificationsCollection();
         if (eventKey) {
@@ -204,6 +220,7 @@ export class NotificationRepository {
   static async markAsReadAsync(id: string, userId: string): Promise<boolean> {
     if (!id || !userId) return false;
     if (isMongoActive()) {
+      await ensureNotificationIndexes();
       try {
         const coll = await getNotificationsCollection();
         const res = await coll.updateOne(
@@ -239,6 +256,7 @@ export class NotificationRepository {
   static async markAllAsReadAsync(userId: string): Promise<number> {
     if (!userId) return 0;
     if (isMongoActive()) {
+      await ensureNotificationIndexes();
       try {
         const coll = await getNotificationsCollection();
         const res = await coll.updateMany(
@@ -262,6 +280,7 @@ export class NotificationRepository {
   static async deleteAsync(id: string, userId?: string): Promise<boolean> {
     if (!id) return false;
     if (isMongoActive()) {
+      await ensureNotificationIndexes();
       try {
         const coll = await getNotificationsCollection();
         const query: Record<string, any> = { id: String(id) };

@@ -1,3 +1,5 @@
+import { getMongoDb, isMongoConfigured } from '../mongodb';
+
 export interface NotificationRecord {
   id: string;
   userId?: string;
@@ -7,44 +9,183 @@ export interface NotificationRecord {
   channel?: 'in-app' | 'email' | 'whatsapp' | 'sms' | 'push';
   recipient?: string;
   isRead?: boolean;
+  read?: boolean;
+  eventId?: string;
+  idempotencyKey?: string;
   metadata?: Record<string, any>;
   createdAt: string;
 }
 
-// In-memory / persistent notification storage
 let inMemoryNotifications: NotificationRecord[] = [];
+
+const isTest = () => process.env.IS_TEST === 'true';
+const isMongoActive = () => isMongoConfigured() && !isTest();
+
+async function getNotificationsCollection() {
+  const db = await getMongoDb();
+  return db.collection('notifications');
+}
+
+async function ensureNotificationIndexes() {
+  if (!isMongoActive()) return;
+  try {
+    const coll = await getNotificationsCollection();
+    await coll.createIndex({ eventId: 1 }, { unique: true, sparse: true });
+    await coll.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true });
+    await coll.createIndex({ userId: 1, createdAt: -1 });
+    console.log('[NotificationRepository] MongoDB unique indexes verified on notifications collection.');
+  } catch (err: any) {
+    console.warn('[NotificationRepository] Notice: Unique index creation warning on notifications collection:', err?.message || err);
+  }
+}
+
+ensureNotificationIndexes().catch(() => {});
+
+function normalizeNotificationRecord(doc: any): NotificationRecord {
+  if (!doc) return doc;
+  const { _id, ...safe } = doc;
+  const isRead = Boolean(safe.isRead ?? safe.read ?? false);
+  return {
+    ...safe,
+    isRead,
+    read: isRead
+  } as NotificationRecord;
+}
 
 export class NotificationRepository {
   static getAll(filters?: { userId?: string; type?: string; unreadOnly?: boolean }): NotificationRecord[] {
     let list = [...inMemoryNotifications];
     if (filters?.userId) {
-      list = list.filter(n => n.userId === filters.userId);
+      list = list.filter(n => String(n.userId) === String(filters.userId));
     }
     if (filters?.type) {
       list = list.filter(n => n.type === filters.type);
     }
     if (filters?.unreadOnly) {
-      list = list.filter(n => !n.isRead);
+      list = list.filter(n => !n.isRead && !n.read);
     }
-    return list;
+    return list.map(normalizeNotificationRecord);
+  }
+
+  static async getAllAsync(filters?: { userId?: string; type?: string; unreadOnly?: boolean }): Promise<NotificationRecord[]> {
+    if (isMongoActive()) {
+      try {
+        const coll = await getNotificationsCollection();
+        const query: Record<string, any> = {};
+        if (filters?.userId) {
+          query.userId = String(filters.userId);
+        }
+        if (filters?.type) {
+          query.type = filters.type;
+        }
+        if (filters?.unreadOnly) {
+          query.$and = [{ isRead: { $ne: true } }, { read: { $ne: true } }];
+        }
+
+        const docs = await coll.find(query).sort({ createdAt: -1 }).toArray();
+        return (docs || []).map(normalizeNotificationRecord);
+      } catch (err: any) {
+        throw new Error(`MongoDB notifications operation failed: ${err.message || err}`);
+      }
+    }
+    return this.getAll(filters);
+  }
+
+  static async getUnreadCountAsync(userId: string): Promise<number> {
+    if (!userId) return 0;
+    if (isMongoActive()) {
+      try {
+        const coll = await getNotificationsCollection();
+        return await coll.countDocuments({ userId: String(userId), isRead: { $ne: true }, read: { $ne: true } });
+      } catch (err: any) {
+        throw new Error(`MongoDB notifications operation failed: ${err.message || err}`);
+      }
+    }
+    return this.getAll({ userId, unreadOnly: true }).length;
   }
 
   static create(data: Partial<NotificationRecord> | any, _author?: string): NotificationRecord {
+    const eventKey = data.eventId || data.idempotencyKey || undefined;
+    if (eventKey) {
+      const existing = inMemoryNotifications.find(n => n.eventId === eventKey || n.idempotencyKey === eventKey);
+      if (existing) return normalizeNotificationRecord(existing);
+    }
+
+    const isRead = Boolean(data.isRead ?? data.read ?? false);
+
     const record: NotificationRecord = {
       id: data.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      userId: data.userId ? String(data.userId) : undefined,
       title: data.title || 'System Notification',
       message: data.message || data.body || data.plainText || '',
       type: data.type || 'info',
       channel: data.channel || 'in-app',
-      isRead: data.isRead ?? false,
-      createdAt: new Date().toISOString(),
-      ...data
+      recipient: data.recipient || undefined,
+      isRead,
+      read: isRead,
+      eventId: eventKey,
+      idempotencyKey: eventKey,
+      metadata: data.metadata || undefined,
+      createdAt: data.createdAt || new Date().toISOString()
     };
+
     inMemoryNotifications.unshift(record);
     if (inMemoryNotifications.length > 500) {
       inMemoryNotifications = inMemoryNotifications.slice(0, 500);
     }
     return record;
+  }
+
+  static async createAsync(data: Partial<NotificationRecord> | any, author?: string): Promise<NotificationRecord> {
+    const eventKey = data.eventId || data.idempotencyKey || undefined;
+    const isRead = Boolean(data.isRead ?? data.read ?? false);
+
+    const record: NotificationRecord = {
+      id: data.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      userId: data.userId ? String(data.userId) : undefined,
+      title: data.title || 'System Notification',
+      message: data.message || data.body || data.plainText || '',
+      type: data.type || 'info',
+      channel: data.channel || 'in-app',
+      recipient: data.recipient || undefined,
+      isRead,
+      read: isRead,
+      eventId: eventKey,
+      idempotencyKey: eventKey,
+      metadata: data.metadata || undefined,
+      createdAt: data.createdAt || new Date().toISOString()
+    };
+
+    if (isMongoActive()) {
+      try {
+        const coll = await getNotificationsCollection();
+        if (eventKey) {
+          const existing = await coll.findOne({
+            $or: [{ eventId: eventKey }, { idempotencyKey: eventKey }]
+          });
+          if (existing) {
+            return normalizeNotificationRecord(existing);
+          }
+        }
+        await coll.insertOne({ ...record });
+        return record;
+      } catch (err: any) {
+        if (err?.code === 11000 && eventKey) {
+          try {
+            const coll = await getNotificationsCollection();
+            const existing = await coll.findOne({
+              $or: [{ eventId: eventKey }, { idempotencyKey: eventKey }]
+            });
+            if (existing) {
+              return normalizeNotificationRecord(existing);
+            }
+          } catch {}
+        }
+        throw new Error(`MongoDB notifications operation failed: ${err.message || err}`);
+      }
+    }
+
+    return this.create(data, author);
   }
 
   static checkUserRestricted(_userId: string, _target?: string): { restricted: boolean; reason?: string; notification?: any } {
@@ -60,10 +201,32 @@ export class NotificationRepository {
     return false;
   }
 
+  static async markAsReadAsync(id: string, userId: string): Promise<boolean> {
+    if (!id || !userId) return false;
+    if (isMongoActive()) {
+      try {
+        const coll = await getNotificationsCollection();
+        const res = await coll.updateOne(
+          { id: String(id), userId: String(userId) },
+          { $set: { isRead: true } }
+        );
+        return res.modifiedCount > 0 || res.matchedCount > 0;
+      } catch (err: any) {
+        throw new Error(`MongoDB notifications operation failed: ${err.message || err}`);
+      }
+    }
+    const item = inMemoryNotifications.find(n => n.id === String(id) && String(n.userId) === String(userId));
+    if (item) {
+      item.isRead = true;
+      return true;
+    }
+    return false;
+  }
+
   static markAllAsRead(userId?: string): number {
     let count = 0;
     for (const item of inMemoryNotifications) {
-      if (!userId || item.userId === userId) {
+      if (!userId || String(item.userId) === String(userId)) {
         if (!item.isRead) {
           item.isRead = true;
           count++;
@@ -73,13 +236,54 @@ export class NotificationRepository {
     return count;
   }
 
+  static async markAllAsReadAsync(userId: string): Promise<number> {
+    if (!userId) return 0;
+    if (isMongoActive()) {
+      try {
+        const coll = await getNotificationsCollection();
+        const res = await coll.updateMany(
+          { userId: String(userId), isRead: { $ne: true } },
+          { $set: { isRead: true } }
+        );
+        return res.modifiedCount;
+      } catch (err: any) {
+        throw new Error(`MongoDB notifications operation failed: ${err.message || err}`);
+      }
+    }
+    return this.markAllAsRead(userId);
+  }
+
   static delete(id: string): boolean {
     const prevLen = inMemoryNotifications.length;
     inMemoryNotifications = inMemoryNotifications.filter(n => n.id !== id);
     return inMemoryNotifications.length < prevLen;
   }
 
+  static async deleteAsync(id: string, userId?: string): Promise<boolean> {
+    if (!id) return false;
+    if (isMongoActive()) {
+      try {
+        const coll = await getNotificationsCollection();
+        const query: Record<string, any> = { id: String(id) };
+        if (userId) query.userId = String(userId);
+        const res = await coll.deleteOne(query);
+        return res.deletedCount > 0;
+      } catch (err: any) {
+        throw new Error(`MongoDB notifications operation failed: ${err.message || err}`);
+      }
+    }
+    return this.delete(id);
+  }
+
   static send(data: Partial<NotificationRecord>): NotificationRecord {
     return this.create(data);
+  }
+
+  static async sendAsync(data: Partial<NotificationRecord>): Promise<NotificationRecord> {
+    return this.createAsync(data);
+  }
+
+  static clearInMemoryStore(): void {
+    inMemoryNotifications = [];
   }
 }

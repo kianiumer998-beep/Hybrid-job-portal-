@@ -4,7 +4,7 @@ import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCust
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
-import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info } from 'lucide-react';
+import { User, Building2, Briefcase, Plus, MessageSquare, Send, CheckCircle2, AlertCircle, Clock, ShieldCheck, Sparkles, RefreshCw, X, CreditCard, DollarSign, Calendar, History, Receipt, Lock, Key, FileText, Edit3, Megaphone, Pin, Flame, Zap, Crown, ArrowRight, Bookmark, ThumbsUp, Globe, Wallet, Check, Upload, Info, Bell } from 'lucide-react';
 import { PublicPaymentSettings, PublicPaymentMethodConfig } from '../types/adminPayment';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 
@@ -138,6 +138,64 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
+
+  // In-App Notifications State
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState<boolean>(false);
+  const [showNotificationDrawer, setShowNotificationDrawer] = useState<boolean>(false);
+
+  const loadNotifications = React.useCallback(async () => {
+    setIsLoadingNotifications(true);
+    try {
+      const [listRes, countRes] = await Promise.all([
+        api.notifications.getAll(),
+        api.notifications.getUnreadCount()
+      ]);
+      if (listRes && listRes.success && Array.isArray(listRes.notifications)) {
+        setNotifications(listRes.notifications);
+      }
+      if (countRes && countRes.success && typeof countRes.unreadCount === 'number') {
+        setUnreadNotifCount(countRes.unreadCount);
+      }
+    } catch (err) {
+      console.error('[UserDashboard] Failed to load notifications:', err);
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
+
+  const handleMarkNotificationRead = async (id: string) => {
+    try {
+      const res = await api.notifications.markAsRead(id);
+      if (res && res.success) {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+        );
+        setUnreadNotifCount((prev) => Math.max(0, prev - 1));
+      }
+    } catch (err) {
+      console.error('[UserDashboard] Failed to mark notification read:', err);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      const res = await api.notifications.markAllAsRead();
+      if (res && res.success) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        setUnreadNotifCount(0);
+      }
+    } catch (err) {
+      console.error('[UserDashboard] Failed to mark all notifications read:', err);
+    }
+  };
 
   // Job Alert & Document Form State
   const [alertKeyword, setAlertKeyword] = useState('');
@@ -1167,6 +1225,20 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           >
             {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
             <span>Menu</span>
+          </button>
+          <button
+            onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
+            aria-label="Notifications"
+            className="relative p-2 sm:px-3 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer flex items-center space-x-1.5"
+            title="In-App Notifications"
+          >
+            <Bell className="w-4 h-4 text-emerald-400" />
+            <span className="hidden sm:inline">Notifications</span>
+            {unreadNotifCount > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse">
+                {unreadNotifCount}
+              </span>
+            )}
           </button>
           <button
             onClick={onLogout}
@@ -3663,6 +3735,96 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* IN-APP NOTIFICATIONS MODAL / DRAWER */}
+      {showNotificationDrawer && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center space-x-2">
+                <Bell className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-black text-white">Notifications</h3>
+                {unreadNotifCount > 0 && (
+                  <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {unreadNotifCount} unread
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center space-x-2">
+                {unreadNotifCount > 0 && (
+                  <button
+                    onClick={handleMarkAllNotificationsRead}
+                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowNotificationDrawer(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-3 flex-1">
+              {isLoadingNotifications && notifications.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs flex items-center justify-center space-x-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                  <span>Loading notifications...</span>
+                </div>
+              ) : notifications.length === 0 ? (
+                <div className="py-10 text-center space-y-2">
+                  <Bell className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p className="text-sm font-semibold text-slate-400">No notifications yet</p>
+                  <p className="text-xs text-slate-500">You will receive updates here when payment proofs are reviewed or submitted.</p>
+                </div>
+              ) : (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`p-3.5 rounded-xl border transition-all space-y-1.5 ${
+                      n.read
+                        ? 'bg-slate-950/40 border-slate-800/80 text-slate-400'
+                        : n.type === 'success'
+                        ? 'bg-emerald-950/20 border-emerald-500/40 text-slate-200'
+                        : n.type === 'warning'
+                        ? 'bg-amber-950/20 border-amber-500/40 text-slate-200'
+                        : 'bg-slate-950 border-slate-700 text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center space-x-2">
+                        {!n.read && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                        )}
+                        <h4 className="text-xs sm:text-sm font-bold text-white">{n.title}</h4>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                        {n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-300 leading-relaxed">{n.message}</p>
+
+                    {!n.read && (
+                      <div className="pt-1 flex justify-end">
+                        <button
+                          onClick={() => handleMarkNotificationRead(n.id)}
+                          className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                        >
+                          Mark as read
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

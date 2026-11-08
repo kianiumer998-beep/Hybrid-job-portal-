@@ -5,7 +5,8 @@ import {
   UserRepository,
   PricingRepository,
   JobRepository,
-  PaymentSettingsRepository
+  PaymentSettingsRepository,
+  NotificationRepository
 } from '../db/repositories';
 import type { PublicPaymentSettings, PublicPaymentMethodConfig, CustomProofField } from '../../src/types/adminPayment';
 import { Database } from '../db/database';
@@ -1227,6 +1228,24 @@ transactionRouter.post('/', async (req, res) => {
         }
       });
 
+      if (effectiveUserId) {
+        try {
+          await NotificationRepository.createAsync({
+            userId: effectiveUserId,
+            title: finalStatus === 'Success' ? 'Payment Approved' : 'Payment Submitted',
+            message: finalStatus === 'Success'
+              ? `Your payment of ${enforcedAmount} ${currency || 'PKR'} for ${effectiveType} via ${resolvedPaymentMethodName} has been processed.`
+              : `Your payment of ${enforcedAmount} ${currency || 'PKR'} for ${effectiveType} via ${resolvedPaymentMethodName} has been submitted for review.`,
+            type: finalStatus === 'Success' ? 'success' : 'info',
+            eventId: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
+            idempotencyKey: finalStatus === 'Success' ? `payment-approved-${newTx.id}` : `payment-submitted-${newTx.id}`,
+            metadata: { transactionId: newTx.id, amount: enforcedAmount, type: effectiveType }
+          });
+        } catch (notifErr) {
+          console.error('[Notification Submission Trigger Error]:', notifErr);
+        }
+      }
+
       return res.status(201).json({
         success: true,
         transaction: newTx,
@@ -1282,6 +1301,26 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
         status: action === 'approve' ? 'Success' : 'Warning',
         metadata: { action, note, reason }
       });
+
+      if (tx.userId) {
+        try {
+          const isApprove = action === 'approve';
+          const rejReason = reason || note || tx.rejectionReason || 'No reason specified';
+          await NotificationRepository.createAsync({
+            userId: tx.userId,
+            title: isApprove ? 'Payment Approved' : 'Payment Rejected',
+            message: isApprove
+              ? `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} has been approved.`
+              : `Your payment of ${tx.amount} ${tx.currency || 'PKR'} for ${tx.type} was rejected. Reason: ${rejReason}`,
+            type: isApprove ? 'success' : 'warning',
+            eventId: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
+            idempotencyKey: isApprove ? `payment-approved-${tx.id}` : `payment-rejected-${tx.id}`,
+            metadata: { transactionId: tx.id, amount: tx.amount, type: tx.type, action, reason: rejReason }
+          });
+        } catch (notifErr) {
+          console.error('[Notification Verification Trigger Error]:', notifErr);
+        }
+      }
 
       return res.json({
         success: true,

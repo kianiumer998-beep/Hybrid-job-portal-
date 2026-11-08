@@ -902,6 +902,36 @@ export const api = {
         body: JSON.stringify(payload)
       });
     }
+  },
+
+  // --- NOTIFICATIONS ---
+  notifications: {
+    async getAll(params?: { type?: string; unreadOnly?: boolean }) {
+      const queryObj: Record<string, string> = {};
+      if (params?.type) queryObj.type = params.type;
+      if (params?.unreadOnly !== undefined) queryObj.unreadOnly = String(params.unreadOnly);
+      const qs = new URLSearchParams(queryObj).toString();
+      return safeFetchJson(`${API_BASE}/notifications${qs ? `?${qs}` : ''}`, {
+        headers: getAuthHeader()
+      });
+    },
+    async getUnreadCount() {
+      return safeFetchJson(`${API_BASE}/notifications/unread-count`, {
+        headers: getAuthHeader()
+      });
+    },
+    async markAsRead(id: string) {
+      return safeFetchJson(`${API_BASE}/notifications/${encodeURIComponent(id)}/read`, {
+        method: 'PATCH',
+        headers: getAuthHeader()
+      });
+    },
+    async markAllAsRead() {
+      return safeFetchJson(`${API_BASE}/notifications/read-all`, {
+        method: 'PATCH',
+        headers: getAuthHeader()
+      });
+    }
   }
 };
 

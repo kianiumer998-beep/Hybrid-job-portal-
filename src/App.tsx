@@ -166,7 +166,7 @@ export default function App() {
     } catch (e) {}
   }, [landingConfig]);
 
-  // Global SEO & Announcement State (Synchronized with Admin Suite)
+  // Global SEO & Announcement State (Synchronized with Backend & Admin Suite)
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
     try {
       const saved = localStorage.getItem('career_pak_seo_config');
@@ -175,10 +175,27 @@ export default function App() {
     return INITIAL_SITE_SEO_CONFIG;
   });
 
+  const loadBackendSeoConfig = useCallback(async () => {
+    try {
+      const res = await api.seo.getConfig();
+      if (res && res.success && res.config) {
+        setSiteSeoConfig(res.config);
+        try {
+          localStorage.setItem('career_pak_seo_config', JSON.stringify(res.config));
+        } catch {}
+      }
+    } catch (err) {
+      console.error('[App] Failed to load SEO configuration from backend /api/seo/config:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBackendSeoConfig();
+  }, [loadBackendSeoConfig]);
+
   useEffect(() => {
     try {
-      localStorage.setItem('career_pak_seo_config', JSON.stringify(siteSeoConfig));
-      if (siteSeoConfig.siteTitle) {
+      if (siteSeoConfig?.siteTitle) {
         document.title = siteSeoConfig.siteTitle;
       }
     } catch (e) {}
@@ -432,6 +449,23 @@ export default function App() {
       throw err;
     }
   }, [landingConfig]);
+
+  const handleUpdateSeoConfig = useCallback(async (newCfg: SiteSeoConfig) => {
+    try {
+      const res = await api.seo.updateConfig(newCfg);
+      if (res && res.success && res.config) {
+        setSiteSeoConfig(res.config);
+        try {
+          localStorage.setItem('career_pak_seo_config', JSON.stringify(res.config));
+        } catch {}
+        return res;
+      }
+      throw new Error(res?.message || 'Failed to update SEO configuration');
+    } catch (err) {
+      console.error('[App] Failed to update SEO config:', err);
+      throw err;
+    }
+  }, []);
 
   const [isAdDrawerOpen, setIsAdDrawerOpen] = useState<boolean>(false);
 
@@ -3126,6 +3160,8 @@ export default function App() {
             onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
             onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
+            siteSeoConfig={siteSeoConfig}
+            onUpdateSeoConfig={handleUpdateSeoConfig}
             paymentTransactions={paymentTransactions}
             onApprovePaymentTransaction={handleApprovePaymentTransaction}
             onRejectPaymentTransaction={handleRejectPaymentTransaction}

@@ -212,7 +212,7 @@ interface AdminDashboardProps {
   whatsAppSupportConfig?: WhatsAppSupportConfig;
   onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => void;
   siteSeoConfig?: SiteSeoConfig;
-  onUpdateSeoConfig?: (config: SiteSeoConfig) => void;
+  onUpdateSeoConfig?: (config: SiteSeoConfig) => Promise<any> | void;
   paymentTransactions?: PaymentTransaction[];
   onApprovePaymentTransaction?: (transactionId: string, note?: string) => Promise<PaymentVerificationResult>;
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => Promise<PaymentVerificationResult>;
@@ -627,12 +627,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const effectiveSeoConfig = propSiteSeoConfig || siteSeoConfig;
 
-  const handleUpdateSeoConfig = (newCfg: SiteSeoConfig) => {
+  const handleUpdateSeoConfig = async (newCfg: SiteSeoConfig) => {
     setSiteSeoConfig(newCfg);
     if (onUpdateSeoConfig) {
-      onUpdateSeoConfig(newCfg);
+      return await onUpdateSeoConfig(newCfg);
     } else {
-      (api as any).settings?.updateSeo?.(newCfg)?.catch((err: any) => console.error('[AdminDashboard] Failed to save SEO config:', err));
+      const res = await api.seo.updateConfig(newCfg);
+      if (!res || !res.success) {
+        throw new Error(res?.message || 'Failed to save SEO config');
+      }
+      return res;
     }
   };
 

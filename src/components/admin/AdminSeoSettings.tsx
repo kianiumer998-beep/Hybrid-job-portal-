@@ -17,7 +17,7 @@ import { SiteSeoConfig } from '../../types/adminSuite';
 
 interface AdminSeoSettingsProps {
   seoConfig: SiteSeoConfig;
-  onUpdateSeoConfig: (updated: SiteSeoConfig) => void;
+  onUpdateSeoConfig: (updated: SiteSeoConfig) => Promise<any> | void;
 }
 
 export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
@@ -27,13 +27,34 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
   const [config, setConfig] = useState<SiteSeoConfig>(seoConfig);
   const [keywordInput, setKeywordInput] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [sitemapGenerated, setSitemapGenerated] = useState(false);
 
-  const handleSave = (e: React.FormEvent) => {
+  React.useEffect(() => {
+    if (seoConfig) {
+      setConfig(seoConfig);
+    }
+  }, [seoConfig]);
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateSeoConfig(config);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+    setIsSaving(true);
+    setSaveSuccess(false);
+    setSaveError(null);
+    try {
+      const res = await onUpdateSeoConfig(config);
+      if (res && typeof res === 'object' && res.success === false) {
+        throw new Error(res.message || 'Failed to update SEO configuration.');
+      }
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('[AdminSeoSettings] Failed to save SEO config:', err);
+      setSaveError(err?.message || 'Failed to update SEO configuration. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleAddKeyword = () => {
@@ -54,16 +75,28 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
     });
   };
 
-  const handleGenerateSitemap = () => {
+  const handleGenerateSitemap = async () => {
     setSitemapGenerated(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/seo/sitemap.xml');
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
+      const text = await res.text();
+      if (!text || !text.includes('<urlset')) {
+        throw new Error('Invalid sitemap XML response from server');
+      }
       const baseOrigin = (
         config.canonicalUrl?.trim() ||
         (typeof window !== 'undefined' ? window.location.origin : '')
       ).replace(/\/+$/, '');
-      alert(`✅ Sitemap successfully generated with all 2,400+ live jobs, category URLs, and gazette slugs!\nLocation: ${baseOrigin}/sitemap.xml`);
+      alert(`✅ Sitemap successfully generated and verified with live jobs, category URLs, and gazette slugs!\nLocation: ${baseOrigin}/sitemap.xml`);
+    } catch (err: any) {
+      console.error('[AdminSeoSettings] Failed to generate sitemap:', err);
+      alert(`❌ Failed to generate sitemap: ${err?.message || 'Server error'}`);
+    } finally {
       setSitemapGenerated(false);
-    }, 800);
+    }
   };
 
   return (
@@ -93,18 +126,28 @@ export const AdminSeoSettings: React.FC<AdminSeoSettingsProps> = ({
 
           <button
             type="submit"
-            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-2 cursor-pointer transition-all active:scale-95"
+            disabled={isSaving}
+            className={`px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-2 cursor-pointer transition-all active:scale-95 ${
+              isSaving ? 'opacity-70 cursor-not-allowed' : ''
+            }`}
           >
-            <Save className="w-4 h-4" />
-            <span>Save SEO Settings</span>
+            {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            <span>{isSaving ? 'Saving...' : 'Save SEO Settings'}</span>
           </button>
         </div>
       </div>
 
       {saveSuccess && (
         <div className="p-4 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs flex items-center space-x-2 animate-fade-in">
-          <CheckCircle2 className="w-4 h-4" />
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>SEO and Site Configuration updated successfully! Global metadata tags have been synchronized.</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-4 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 font-bold text-xs flex items-center space-x-2 animate-fade-in">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{saveError}</span>
         </div>
       )}
 

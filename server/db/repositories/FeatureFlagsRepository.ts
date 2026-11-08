@@ -94,7 +94,7 @@ export class FeatureFlagsRepository {
     }
 
     if (hasValidUpdates) {
-      await withMongoTimeout(
+      const updateResult = await withMongoTimeout(
         coll.updateOne(
           { key: DOC_KEY },
           { $set: setFields },
@@ -103,6 +103,25 @@ export class FeatureFlagsRepository {
         8000,
         'update feature flags'
       );
+
+      // Bounded recovery strategy: if document disappeared between step 1 and 2 (matchedCount === 0), retry once with upsert
+      if (updateResult.matchedCount === 0) {
+        const recoveryResult = await withMongoTimeout(
+          coll.updateOne(
+            { key: DOC_KEY },
+            { 
+              $set: setFields,
+              $setOnInsert: setOnInsertFields
+            },
+            { upsert: true }
+          ),
+          8000,
+          'recover update feature flags'
+        );
+        if (recoveryResult.matchedCount === 0 && recoveryResult.upsertedCount === 0) {
+          throw new Error('Persistence Error: Failed to update or recover feature flags document in MongoDB.');
+        }
+      }
     }
 
     return await this.getFlags();

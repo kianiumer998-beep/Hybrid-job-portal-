@@ -56,6 +56,29 @@ export class FeatureFlagsRepository {
       return FeatureFlagsRepository.sanitizeFlags(updates, baseline);
     }
 
+    const db = await getMongoDb();
+    const coll = db.collection(COLLECTION_NAME);
+
+    // 1. Ensure document exists first using atomic upsert with $setOnInsert for defaults
+    const setOnInsertFields: Record<string, any> = {
+      key: DOC_KEY,
+      updatedAt: new Date().toISOString()
+    };
+    for (const key of Object.keys(DEFAULT_FEATURE_FLAGS) as (keyof AdminFeatureFlags)[]) {
+      setOnInsertFields[`flags.${key}`] = DEFAULT_FEATURE_FLAGS[key];
+    }
+
+    await withMongoTimeout(
+      coll.updateOne(
+        { key: DOC_KEY },
+        { $setOnInsert: setOnInsertFields },
+        { upsert: true }
+      ),
+      8000,
+      'ensure feature flags document'
+    );
+
+    // 2. Perform separate atomic $set operation containing only explicitly supplied valid boolean flag fields and updatedAt
     const setFields: Record<string, any> = {
       updatedAt: new Date().toISOString()
     };
@@ -70,39 +93,15 @@ export class FeatureFlagsRepository {
       }
     }
 
-    const setOnInsertFields: Record<string, any> = {
-      key: DOC_KEY,
-      updatedAt: new Date().toISOString()
-    };
-    for (const key of Object.keys(DEFAULT_FEATURE_FLAGS) as (keyof AdminFeatureFlags)[]) {
-      setOnInsertFields[`flags.${key}`] = DEFAULT_FEATURE_FLAGS[key];
-    }
-
-    const db = await getMongoDb();
-    const coll = db.collection(COLLECTION_NAME);
-
     if (hasValidUpdates) {
       await withMongoTimeout(
         coll.updateOne(
           { key: DOC_KEY },
-          { 
-            $set: setFields,
-            $setOnInsert: setOnInsertFields
-          },
+          { $set: setFields },
           { upsert: true }
         ),
         8000,
-        'save feature flags'
-      );
-    } else {
-      await withMongoTimeout(
-        coll.updateOne(
-          { key: DOC_KEY },
-          { $setOnInsert: setOnInsertFields },
-          { upsert: true }
-        ),
-        8000,
-        'ensure feature flags document'
+        'update feature flags'
       );
     }
 

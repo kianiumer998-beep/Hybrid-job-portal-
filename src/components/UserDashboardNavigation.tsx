@@ -32,6 +32,7 @@ type CampaignSubTab = 'my-campaigns' | 'create' | 'wallet';
 type GlobalTab = 'jobs' | 'cv' | 'alerts' | 'dashboard';
 
 interface NavSubItem {
+  id: string;
   label: string;
   icon?: any;
   tab?: DashboardTab;
@@ -39,6 +40,7 @@ interface NavSubItem {
   subTab?: AppSubTab | CampaignSubTab;
   isGlobal?: boolean;
   globalTab?: GlobalTab;
+  isLogout?: boolean;
 }
 
 interface NavItem {
@@ -53,13 +55,17 @@ interface UserDashboardNavigationProps {
   overviewSubView: OverviewSubView;
   appSubTab: AppSubTab;
   campaignSubTab: CampaignSubTab;
+  activeNavId: string | null;
   onNavigate: (params: {
+    id: string;
     tab?: DashboardTab;
     subView?: OverviewSubView;
     subTab?: AppSubTab | CampaignSubTab;
     isGlobal?: boolean;
     globalTab?: GlobalTab;
+    isLogout?: boolean;
   }) => void;
+  onLogout: () => void;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -69,7 +75,9 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   overviewSubView,
   appSubTab,
   campaignSubTab,
+  activeNavId,
   onNavigate,
+  onLogout,
   isOpen,
   onClose
 }) => {
@@ -81,9 +89,9 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       label: 'DASHBOARD',
       icon: LayoutDashboard,
       subItems: [
-        { label: 'Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
-        { label: 'Recommendations', tab: 'overview', subView: 'recommendations', icon: Sparkles },
-        { label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
+        { id: 'dash-overview', label: 'Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
+        { id: 'dash-recs', label: 'Recommendations', tab: 'overview', subView: 'recommendations', icon: Sparkles },
+        { id: 'dash-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
       ]
     },
     {
@@ -91,7 +99,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       label: 'FIND JOBS',
       icon: Search,
       subItems: [
-        { label: 'Explore All Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
+        { id: 'find-explore', label: 'Explore All Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
       ]
     },
     {
@@ -99,11 +107,11 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       label: 'CAREER CENTER',
       icon: Briefcase,
       subItems: [
-        { label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText },
-        { label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark },
-        { label: 'My Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell },
-        { label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText },
-        { label: 'ATS CV Builder', isGlobal: true, globalTab: 'cv', icon: Zap },
+        { id: 'career-apps', label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText },
+        { id: 'career-saved', label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark },
+        { id: 'career-alerts', label: 'My Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell },
+        { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText },
+        { id: 'career-cv', label: 'ATS CV Builder', isGlobal: true, globalTab: 'cv', icon: Zap },
       ]
     },
     {
@@ -111,8 +119,8 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       label: 'EMPLOYER CENTER',
       icon: Building2,
       subItems: [
-        { label: 'Post New Job', tab: 'post-job', icon: Plus },
-        { label: 'My Job Listings', tab: 'my-jobs', icon: Building2 },
+        { id: 'emp-post', label: 'Post New Job', tab: 'post-job', icon: Plus },
+        { id: 'emp-listings', label: 'My Job Listings', tab: 'my-jobs', icon: Building2 },
       ]
     },
     {
@@ -120,10 +128,10 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       label: 'MEMBERSHIP & PAYMENTS',
       icon: CreditCard,
       subItems: [
-        { label: 'Membership Status', tab: 'overview', subView: 'metrics', icon: ShieldCheck },
-        { label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
-        { label: 'Wallet & Deposit', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
-        { label: 'Paid WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
+        { id: 'mem-status', label: 'Membership Status', tab: 'overview', subView: 'metrics', icon: ShieldCheck },
+        { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
+        { id: 'mem-wallet', label: 'Wallet & Deposit', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+        { id: 'mem-whatsapp', label: 'Paid WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
       ]
     },
     {
@@ -131,9 +139,9 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       label: 'ADVERTISEMENTS',
       icon: Megaphone,
       subItems: [
-        { label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone },
-        { label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
-        { label: 'Campaign Wallet', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+        { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone },
+        { id: 'ads-create', label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
+        { id: 'ads-wallet', label: 'Campaign Wallet', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
       ]
     },
     {
@@ -141,9 +149,10 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       label: 'MY ACCOUNT',
       icon: User,
       subItems: [
-        { label: 'Profile Settings', tab: 'profile', icon: User },
-        { label: 'Security', tab: 'profile', icon: Lock },
-        { label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
+        { id: 'acc-profile', label: 'Profile Settings', tab: 'profile', icon: User },
+        { id: 'acc-security', label: 'Security', tab: 'profile', icon: Lock },
+        { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
+        { id: 'acc-logout', label: 'Log Out', isLogout: true, icon: X },
       ]
     }
   ];
@@ -153,13 +162,25 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   };
 
   const isActive = (item: NavSubItem) => {
-    if (item.isGlobal) return false; // App-level active state handled elsewhere
+    if (item.isGlobal || item.isLogout) return false;
+    
+    // If we have an explicit active nav ID (set via clicking in Pro menu), use it.
+    if (activeNavId) {
+        return activeNavId === item.id;
+    }
+
+    // Fallback: Check if the current dashboard state matches this item.
+    // This handles the initial state when switching from Classic to Pro.
     if (activeTab !== item.tab) return false;
     if (item.subView && overviewSubView !== item.subView) return false;
     if (item.subTab) {
         if (activeTab === 'applications' && appSubTab !== item.subTab) return false;
         if (activeTab === 'campaigns' && campaignSubTab !== item.subTab) return false;
     }
+    
+    // For duplicates (like Payment History), without an activeNavId, 
+    // the first one encountered in the tree that matches state will be active.
+    // This is resolved once the user clicks an item.
     return true;
   };
 
@@ -201,22 +222,29 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                       <button
                         key={idx}
                         onClick={() => {
-                          onNavigate({
-                            tab: subItem.tab,
-                            subView: subItem.subView,
-                            subTab: subItem.subTab,
-                            isGlobal: subItem.isGlobal,
-                            globalTab: subItem.globalTab
-                          });
+                          if (subItem.isLogout) {
+                            onLogout();
+                          } else {
+                            onNavigate({
+                              id: subItem.id,
+                              tab: subItem.tab,
+                              subView: subItem.subView,
+                              subTab: subItem.subTab,
+                              isGlobal: subItem.isGlobal,
+                              globalTab: subItem.globalTab
+                            });
+                          }
                           if (window.innerWidth < 1024) onClose();
                         }}
                         className={`w-full flex items-center space-x-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
                           active 
                             ? 'text-emerald-400 bg-emerald-500/10' 
+                            : subItem.isLogout
+                            ? 'text-rose-400 hover:bg-rose-500/10'
                             : 'text-slate-500 hover:text-slate-300 hover:bg-slate-900'
                         }`}
                       >
-                        {subItem.icon && <subItem.icon className="w-3 h-3 shrink-0" />}
+                        {subItem.icon && <subItem.icon className={`w-3 h-3 shrink-0 ${subItem.isLogout ? 'text-rose-400' : ''}`} />}
                         <span className="truncate">{subItem.label}</span>
                         {active && <div className="w-1 h-1 rounded-full bg-emerald-400 ml-auto" />}
                       </button>

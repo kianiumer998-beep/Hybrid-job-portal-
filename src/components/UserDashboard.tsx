@@ -144,6 +144,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>('classic');
   const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
+  const [activeNavId, setActiveNavId] = useState<string | null>(null);
 
   // In-App Notifications State
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -1157,6 +1158,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   };
 
   const handleProNavigate = (params: {
+    id: string;
     tab?: any;
     subView?: any;
     subTab?: any;
@@ -1167,6 +1169,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       onNavigateGlobalTab(params.globalTab);
       return;
     }
+
+    setActiveNavId(params.id);
 
     if (params.tab) setActiveTab(params.tab);
     if (params.subView) setOverviewSubView(params.subView);
@@ -1298,7 +1302,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
           campaignSubTab={campaignSubTab}
+          activeNavId={activeNavId}
           onNavigate={handleProNavigate}
+          onLogout={onLogout}
           isOpen={isProMenuOpen}
           onClose={() => setIsProMenuOpen(false)}
         />
@@ -1340,7 +1346,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             {/* MODE SWITCHER */}
             <div className="bg-slate-800/80 border border-slate-700 p-1 rounded-xl flex items-center shadow-lg mr-1 sm:mr-2">
               <button
-                onClick={() => setNavigationMode('classic')}
+                onClick={() => {
+                  setNavigationMode('classic');
+                  setActiveNavId(null);
+                }}
                 className={`px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${
                   navigationMode === 'classic' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-slate-300'
                 }`}

@@ -78,7 +78,7 @@ export class FeatureFlagsRepository {
       'ensure feature flags document'
     );
 
-    // 2. Perform separate atomic $set operation containing only explicitly supplied valid boolean flag fields and updatedAt
+    // 2. Perform separate atomic $set update (upsert: false since document is guaranteed to exist by step 1)
     const setFields: Record<string, any> = {
       updatedAt: new Date().toISOString()
     };
@@ -98,7 +98,7 @@ export class FeatureFlagsRepository {
         coll.updateOne(
           { key: DOC_KEY },
           { $set: setFields },
-          { upsert: true }
+          { upsert: false }
         ),
         8000,
         'update feature flags'

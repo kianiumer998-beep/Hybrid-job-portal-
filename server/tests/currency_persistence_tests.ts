@@ -71,8 +71,12 @@ export async function runCurrencyPersistenceTests() {
   const parsed = JSON.parse(retrieved!);
   const val = validateCurrencyConfig(parsed);
   assert(val.valid === true, '1.5b: Validates genuine legacy LocalStorage payload structure', 'unit');
-  assert(val.sanitized?.baseCurrency === fixture.baseCurrency, '1.5c: baseCurrency survives serialization', 'unit');
-  assert(Object.keys(val.sanitized?.rates || {}).length > 0, '1.5d: rates survive serialization', 'unit');
+  assert(val.sanitized?.baseCurrency === fixture.baseCurrency, '1.5c: baseCurrency survives', 'unit');
+  assert(JSON.stringify(val.sanitized?.rates) === JSON.stringify(fixture.rates), '1.5d: rates survive', 'unit');
+  assert(val.sanitized?.lastSyncedAt === fixture.lastSyncedAt, '1.5e: lastSyncedAt survives', 'unit');
+  assert(val.sanitized?.autoSyncEnabled === fixture.autoSyncEnabled, '1.5f: autoSyncEnabled survives', 'unit');
+  assert(JSON.stringify(val.sanitized?.supportedCurrencies) === JSON.stringify(fixture.supportedCurrencies), '1.5g: supportedCurrencies survive', 'unit');
+  assert(JSON.stringify(val.sanitized?.internationalPricingTiers) === JSON.stringify(fixture.internationalPricingTiers), '1.5h: internationalPricingTiers survive', 'unit');
   
   assert(validateCurrencyConfig({ baseCurrency: 'PKR', rates: { USD: -5 } }).valid === false, '1.6: Invalid doc structure rejection', 'unit');
 
@@ -144,9 +148,8 @@ export async function runCurrencyPersistenceTests() {
         try {
           await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invRateKey);
           assert(false, '3.4: saveConfig() rejects invalid rate in DB', 'integration');
-        } catch (err: any) { 
-          createdKeys.push({ key: invRateKey, id: '3.4' });
-          assert(err.message.includes('Validation Error'), '3.4: saveConfig() rejects invalid rate in DB', 'integration'); 
+        } catch (err: any) {
+          assert(err.message.includes('Validation Error'), '3.4: saveConfig() rejects invalid rate in DB', 'integration');
         }
         
       } catch (err: any) { assert(false, '3.0: Database integration test execution error', 'integration', err?.message); }

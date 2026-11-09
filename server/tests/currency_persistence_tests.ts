@@ -37,7 +37,7 @@ export async function runCurrencyPersistenceTests() {
   console.log('   CURRENCY PERSISTENCE ISOLATED TEST SUITE        ');
   console.log('====================================================\n');
 
-  let unitPassed = 0, configPassed = 0, integrationPassed = 0, failed = 0, notRun = 0;
+  let unitPassed = 0, configPassed = 0, integrationPassed = 0, failed = 0, notRun = 0, cleanupFailures = 0;
   
   function assert(condition: boolean, testName: string, type: 'unit' | 'config' | 'integration', detail?: string) {
     if (condition) {
@@ -62,7 +62,7 @@ export async function runCurrencyPersistenceTests() {
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: -0.005 } }).valid === false, '1.2: Rejects negative exchange rate', 'unit');
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: 'invalid' as any } }).valid === false, '1.3: Rejects non-numeric rate', 'unit');
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, internationalPricingTiers: { ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers, featuredJobFee: { USD: -100 } } }).valid === false, '1.4: Rejects negative fee tier', 'unit');
-  assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: 0.00362 } }).valid === true, '1.5: Validates legacy payload', 'unit');
+  assert(validateCurrencyConfig(INITIAL_CURRENCY_CONFIG).valid === true, '1.5: Validates genuine legacy payload structure', 'unit');
   assert(validateCurrencyConfig({ baseCurrency: 'PKR', rates: { USD: -5 } }).valid === false, '1.6: Invalid doc structure rejection', 'unit');
 
   // 2. URI Safety Unit Tests
@@ -83,9 +83,8 @@ export async function runCurrencyPersistenceTests() {
     try {
       await CurrencyRepository.saveConfig(INITIAL_CURRENCY_CONFIG);
       assert(false, '3.2: Unconfigured Mongo saveConfig must throw', 'config');
-    } catch (err: any) {
-      assert(err.message.includes('MONGODB_URI is not configured'), '3.2: Unconfigured Mongo saveConfig throws clear error', 'config');
-    }
+    } catch (err: any) { assert(err.message.includes('MONGODB_URI is not configured'), '3.2: Unconfigured Mongo saveConfig throws clear error', 'config'); }
+    
     reportNotRun('Integration 3.1: Actual saveConfig/getConfig reload', 'Unconfigured environment');
     reportNotRun('Integration 3.2: Missing doc isConfigured=false', 'Unconfigured environment');
     reportNotRun('Integration 3.3: Invalid existing document error', 'Unconfigured environment');
@@ -108,7 +107,7 @@ export async function runCurrencyPersistenceTests() {
         await client.connect();
         const coll = client.db().collection('test_system_settings_isolated');
         
-        // 3.1: Actual Save/Reload
+        // 3.1: Save/Reload
         const key = `key_${testRunId}_${Math.random()}`;
         const payload = { ...INITIAL_CURRENCY_CONFIG, rates: { USD: 0.00359 } };
         await CurrencyRepository.saveConfig(payload, coll, key);
@@ -116,10 +115,10 @@ export async function runCurrencyPersistenceTests() {
         const res = await CurrencyRepository.getConfig(coll, key);
         assert(res.isConfigured === true && res.config.rates.USD === 0.00359, '3.1: saveConfig/getConfig() integration', 'integration');
 
-        // 3.2: Missing doc isConfigured=false
+        // 3.2: Missing doc
         assert((await CurrencyRepository.getConfig(coll, `missing_${testRunId}`)).isConfigured === false, '3.2: Missing doc → isConfigured=false', 'integration');
 
-        // 3.3: Invalid existing document error
+        // 3.3: Invalid existing doc
         const invDocKey = `inv_${testRunId}_${Math.random()}`;
         await coll.insertOne({ key: invDocKey, config: { rates: { USD: -99 } } });
         createdKeys.push(invDocKey);
@@ -138,22 +137,21 @@ export async function runCurrencyPersistenceTests() {
           assert(err.message.includes('Validation Error'), '3.4: saveConfig() rejects invalid rate in DB', 'integration'); 
         }
         
-      } catch (err: any) {
-        assert(false, '3.0: Database integration test execution error', 'integration', err?.message);
-      } finally {
+      } catch (err: any) { assert(false, '3.0: Database integration test execution error', 'integration', err?.message); }
+      finally {
         if (client) {
           try {
             const coll = client.db().collection('test_system_settings_isolated');
             for (const key of createdKeys) { await coll.deleteOne({ key }); }
-          } catch (cleanupErr: any) { console.error('[CLEANUP WARNING]', cleanupErr); }
+          } catch (cleanupErr: any) { console.error('[CLEANUP FAILED]', cleanupErr); cleanupFailures++; }
           await client.close().catch(() => {});
         }
       }
     }
   }
 
-  console.log(`\nRESULTS: ${unitPassed} Unit PASS, ${configPassed} Config PASS, ${integrationPassed} Integration PASS, ${failed} FAIL, ${notRun} NOT RUN`);
-  if (failed > 0) throw new Error('Tests failed.');
+  console.log(`\nRESULTS: ${unitPassed} Unit PASS, ${configPassed} Config PASS, ${integrationPassed} Integration PASS, ${failed} FAIL, ${notRun} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
+  if (failed > 0 || cleanupFailures > 0) throw new Error('Tests failed or cleanup error.');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

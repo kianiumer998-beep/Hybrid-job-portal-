@@ -95,9 +95,12 @@ export const KycRepository = {
         // Validate verifiedAt and verifiedBy whenever supplied (regardless of status)
         const auditFields: (keyof EmployerKycRequest)[] = ['verifiedAt', 'verifiedBy'];
         for (const field of auditFields) {
-          const val = req[field];
-          if (val !== undefined && val !== null) {
-            if (typeof val !== 'string' || val.trim() === '') { isRecordInvalid = true; break; }
+          if (req[field] !== undefined) {
+            const val = req[field];
+            if (typeof val !== 'string' || val.trim() === '') {
+              isRecordInvalid = true;
+              break;
+            }
             sanitized[field] = val.trim();
           }
         }
@@ -106,8 +109,8 @@ export const KycRepository = {
         // Additional allowlisted optional fields
         const optionalFields: (keyof EmployerKycRequest)[] = ['secpRegistrationNumber', 'officialDocUrl'];
         for (const field of optionalFields) {
-          const val = req[field];
-          if (val !== undefined && val !== null) {
+          if (req[field] !== undefined) {
+            const val = req[field];
             if (typeof val !== 'string' || val.trim() === '') {
               isRecordInvalid = true;
               break;

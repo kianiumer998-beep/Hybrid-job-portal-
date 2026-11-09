@@ -49,7 +49,7 @@ export const KycRepository = {
         }
 
         // 2. Required string fields validation & sanitization (non-empty trimmed)
-        const requiredFields: (keyof EmployerKycRequest)[] = ['id', 'companyName', 'contactPerson', 'email', 'phone', 'ntnOrTaxNumber', 'companyWebsite', 'submittedAt'];
+        const requiredFields: (keyof EmployerKycRequest)[] = ['id', 'userId', 'companyName', 'contactPerson', 'email', 'phone', 'ntnOrTaxNumber', 'companyWebsite', 'submittedAt'];
         const sanitized: any = {};
         let isRecordInvalid = false;
 
@@ -74,7 +74,7 @@ export const KycRepository = {
         }
         sanitized.status = req.status;
 
-        // 4. Conditional validations (BadgeLevel and RejectionReason)
+        // 4. Conditional validations & Robust Optional Field Validation
         if (req.status === 'Verified') {
           const validBadges = ['Standard Verified', 'Top Employer', 'Government Agency'];
           if (!req.badgeLevel || !validBadges.includes(req.badgeLevel)) {
@@ -82,15 +82,6 @@ export const KycRepository = {
             continue;
           }
           sanitized.badgeLevel = req.badgeLevel;
-          
-          if (req.verifiedAt !== undefined && req.verifiedAt !== null) {
-            if (typeof req.verifiedAt !== 'string' || req.verifiedAt.trim() === '') { invalid++; continue; }
-            sanitized.verifiedAt = req.verifiedAt.trim();
-          }
-          if (req.verifiedBy !== undefined && req.verifiedBy !== null) {
-            if (typeof req.verifiedBy !== 'string' || req.verifiedBy.trim() === '') { invalid++; continue; }
-            sanitized.verifiedBy = req.verifiedBy.trim();
-          }
         }
 
         if (req.status === 'Rejected') {
@@ -101,21 +92,31 @@ export const KycRepository = {
           sanitized.rejectionReason = req.rejectionReason.trim();
         }
 
+        // Validate verifiedAt and verifiedBy whenever supplied (regardless of status)
+        const auditFields: (keyof EmployerKycRequest)[] = ['verifiedAt', 'verifiedBy'];
+        for (const field of auditFields) {
+          const val = req[field];
+          if (val !== undefined && val !== null) {
+            if (typeof val !== 'string' || val.trim() === '') { isRecordInvalid = true; break; }
+            sanitized[field] = val.trim();
+          }
+        }
+        if (isRecordInvalid) { invalid++; continue; }
+
         // Additional allowlisted optional fields
-        const optionalFields: (keyof EmployerKycRequest)[] = ['userId', 'secpRegistrationNumber', 'officialDocUrl'];
-        let hasInvalidOptional = false;
+        const optionalFields: (keyof EmployerKycRequest)[] = ['secpRegistrationNumber', 'officialDocUrl'];
         for (const field of optionalFields) {
           const val = req[field];
           if (val !== undefined && val !== null) {
             if (typeof val !== 'string' || val.trim() === '') {
-              hasInvalidOptional = true;
+              isRecordInvalid = true;
               break;
             }
             sanitized[field] = val.trim();
           }
         }
 
-        if (hasInvalidOptional) {
+        if (isRecordInvalid) {
           invalid++;
           continue;
         }

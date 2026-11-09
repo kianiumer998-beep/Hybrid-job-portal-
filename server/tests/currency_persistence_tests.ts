@@ -37,23 +37,21 @@ export async function runCurrencyPersistenceTests() {
   console.log('   CURRENCY PERSISTENCE ISOLATED TEST SUITE        ');
   console.log('====================================================\n');
 
-  let unitPassed = 0, configPassed = 0, integrationPassed = 0, failed = 0, notRun = 0, cleanupFailures = 0;
+  let unit = { p: 0, f: 0 }, config = { p: 0, f: 0 }, integration = { p: 0, f: 0, nr: 0 }, failed = 0, notRun = 0, cleanupFailures = 0;
   
   function assert(condition: boolean, testName: string, type: 'unit' | 'config' | 'integration', detail?: string) {
     if (condition) {
       console.log(`  [PASS] ${testName}`);
-      if (type === 'unit') unitPassed++;
-      else if (type === 'config') configPassed++;
-      else integrationPassed++;
+      if (type === 'unit') unit.p++; else if (type === 'config') config.p++; else integration.p++;
     } else {
       console.error(`  [FAIL] ${testName}${detail ? ` - ${detail}` : ''}`);
-      failed++;
+      if (type === 'unit') unit.f++; else if (type === 'config') config.f++; else integration.f++;
     }
   }
 
   function reportNotRun(testName: string, reason: string) {
     console.log(`  [NOT RUN] ${testName} - ${reason}`);
-    notRun++;
+    integration.nr++;
   }
 
   // 1. Validation & Unit Tests
@@ -62,7 +60,11 @@ export async function runCurrencyPersistenceTests() {
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: -0.005 } }).valid === false, '1.2: Rejects negative exchange rate', 'unit');
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: 'invalid' as any } }).valid === false, '1.3: Rejects non-numeric rate', 'unit');
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, internationalPricingTiers: { ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers, featuredJobFee: { USD: -100 } } }).valid === false, '1.4: Rejects negative fee tier', 'unit');
-  assert(validateCurrencyConfig(INITIAL_CURRENCY_CONFIG).valid === true, '1.5: Validates genuine legacy payload structure', 'unit');
+  
+  // Genuine LocalStorage structure test
+  const legacyPayload = JSON.stringify(INITIAL_CURRENCY_CONFIG);
+  assert(validateCurrencyConfig(JSON.parse(legacyPayload)).valid === true, '1.5: Validates genuine legacy LocalStorage payload', 'unit');
+  
   assert(validateCurrencyConfig({ baseCurrency: 'PKR', rates: { USD: -5 } }).valid === false, '1.6: Invalid doc structure rejection', 'unit');
 
   // 2. URI Safety Unit Tests
@@ -99,8 +101,8 @@ export async function runCurrencyPersistenceTests() {
     } else {
       console.log('  [INFO] Safe distinct TEST_MONGODB_URI confirmed. Running integration tests...');
       let client: MongoClient | null = null;
-      const createdKeys: string[] = [];
-      const testRunId = `test_run_${Date.now()}`;
+      const createdKeys: { key: string, id: string }[] = [];
+      const runTimestamp = Date.now();
 
       try {
         client = new MongoClient(testDbUri);
@@ -108,32 +110,33 @@ export async function runCurrencyPersistenceTests() {
         const coll = client.db().collection('test_system_settings_isolated');
         
         // 3.1: Save/Reload
-        const key = `key_${testRunId}_${Math.random()}`;
+        const key = `key_${runTimestamp}_${Math.random()}`;
         const payload = { ...INITIAL_CURRENCY_CONFIG, rates: { USD: 0.00359 } };
         await CurrencyRepository.saveConfig(payload, coll, key);
-        createdKeys.push(key);
+        createdKeys.push({ key, id: '3.1' });
+        
         const res = await CurrencyRepository.getConfig(coll, key);
         assert(res.isConfigured === true && res.config.rates.USD === 0.00359, '3.1: saveConfig/getConfig() integration', 'integration');
 
         // 3.2: Missing doc
-        assert((await CurrencyRepository.getConfig(coll, `missing_${testRunId}`)).isConfigured === false, '3.2: Missing doc → isConfigured=false', 'integration');
+        assert((await CurrencyRepository.getConfig(coll, `missing_${runTimestamp}`)).isConfigured === false, '3.2: Missing doc → isConfigured=false', 'integration');
 
         // 3.3: Invalid existing doc
-        const invDocKey = `inv_${testRunId}_${Math.random()}`;
+        const invDocKey = `inv_${runTimestamp}_${Math.random()}`;
         await coll.insertOne({ key: invDocKey, config: { rates: { USD: -99 } } });
-        createdKeys.push(invDocKey);
+        createdKeys.push({ key: invDocKey, id: '3.3' });
         try {
           await CurrencyRepository.getConfig(coll, invDocKey);
           assert(false, '3.3: Invalid doc → Error', 'integration');
         } catch (err: any) { assert(err.message.includes('Data Integrity Error'), '3.3: Invalid doc → Data Integrity Error', 'integration'); }
 
         // 3.4: Invalid rate rejection in DB
-        const invRateKey = `invRate_${testRunId}_${Math.random()}`;
+        const invRateKey = `invRate_${runTimestamp}_${Math.random()}`;
         try {
           await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invRateKey);
           assert(false, '3.4: saveConfig() rejects invalid rate in DB', 'integration');
         } catch (err: any) { 
-          createdKeys.push(invRateKey);
+          createdKeys.push({ key: invRateKey, id: '3.4' });
           assert(err.message.includes('Validation Error'), '3.4: saveConfig() rejects invalid rate in DB', 'integration'); 
         }
         
@@ -142,7 +145,10 @@ export async function runCurrencyPersistenceTests() {
         if (client) {
           try {
             const coll = client.db().collection('test_system_settings_isolated');
-            for (const key of createdKeys) { await coll.deleteOne({ key }); }
+            for (const item of createdKeys) { 
+              const deleted = await coll.deleteOne({ key: item.key });
+              if (deleted.deletedCount !== 1) { console.error(`[CLEANUP FAILED] Key: ${item.key}`); cleanupFailures++; }
+            }
           } catch (cleanupErr: any) { console.error('[CLEANUP FAILED]', cleanupErr); cleanupFailures++; }
           await client.close().catch(() => {});
         }
@@ -150,7 +156,7 @@ export async function runCurrencyPersistenceTests() {
     }
   }
 
-  console.log(`\nRESULTS: ${unitPassed} Unit PASS, ${configPassed} Config PASS, ${integrationPassed} Integration PASS, ${failed} FAIL, ${notRun} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
+  console.log(`\nRESULTS: ${unit.p + config.p + integration.p} PASS (${unit.p} unit, ${config.p} config, ${integration.p} integration), ${failed} FAIL, ${notRun + integration.nr} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
   if (failed > 0 || cleanupFailures > 0) throw new Error('Tests failed or cleanup error.');
 }
 

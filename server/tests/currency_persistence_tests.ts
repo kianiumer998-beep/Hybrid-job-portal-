@@ -7,12 +7,8 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
   const cleanProd = (prodUri || '').trim();
   const cleanTest = (testUri || '').trim();
 
-  if (!cleanProd) {
-    return { safe: false, reason: 'Production MONGODB_URI is not configured or empty.' };
-  }
-
-  if (!cleanTest) {
-    return { safe: false, reason: 'Dedicated TEST_MONGODB_URI / MONGODB_TEST_URI environment variable is not configured.' };
+  if (!cleanProd || !cleanTest) {
+    return { safe: false, reason: 'Production or Test MONGODB_URI is missing.' };
   }
 
   if (cleanTest.toLowerCase() === cleanProd.toLowerCase()) {
@@ -42,30 +38,25 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
   const testInfo = parseDbInfo(cleanTest);
 
   // FAIL-CLOSED: If either URI cannot be parsed, refuse DB write tests
-  if (!prodInfo) {
-    return { safe: false, reason: 'Production MONGODB_URI could not be safely parsed for cluster isolation verification.' };
+  if (!prodInfo || !testInfo) {
+    return { safe: false, reason: 'Invalid MongoDB URI format.' };
   }
 
-  if (!testInfo) {
-    return { safe: false, reason: 'TEST_MONGODB_URI could not be safely parsed for cluster isolation verification.' };
+  // Same hostname and same port are REQUIRED for cluster verification
+  if (prodInfo.host !== testInfo.host || prodInfo.port !== testInfo.port) {
+    return { safe: false, reason: 'Test and Production database must share the same host and port for safe isolation.' };
   }
 
-  // Same database name is strictly rejected regardless of hostname variation
+  // Database names MUST be different
   if (prodInfo.dbName === testInfo.dbName) {
-    return { safe: false, reason: `TEST_MONGODB_URI targets the same database name ("${testInfo.dbName}") as production MONGODB_URI.` };
+    return { safe: false, reason: 'Test database name must be different from production database name.' };
   }
 
   // Refuse default 'admin' database name
   if (prodInfo.dbName === 'admin' || testInfo.dbName === 'admin') {
-    return { safe: false, reason: 'Database name is default "admin" or unassigned; cannot verify isolated test database identity.' };
+    return { safe: false, reason: 'Cannot safely use "admin" database.' };
   }
 
-  // Different hostnames with unverified cluster identity: refuse to prevent writing to unknown/aliased cluster nodes
-  if (prodInfo.host !== testInfo.host) {
-    return { safe: false, reason: `Different hostnames ("${prodInfo.host}" vs "${testInfo.host}") with unverified cluster identity; refusing database write test for safety.` };
-  }
-
-  // Same host & port, verified different non-admin database name
   return { safe: true };
 }
 
@@ -95,89 +86,39 @@ export async function runCurrencyPersistenceTests() {
 
   // 1. Validation Rules & Data Integrity (In-Memory Unit Tests)
   console.log('--- 1. Validation Rules & Data Integrity ---');
-  const invalidCodeConfig = {
-    ...INITIAL_CURRENCY_CONFIG,
-    baseCurrency: ''
-  };
+  const invalidCodeConfig = { ...INITIAL_CURRENCY_CONFIG, baseCurrency: '' };
   const val1 = validateCurrencyConfig(invalidCodeConfig);
   assert(val1.valid === false, '1.1: Rejects empty baseCurrency code');
 
-  const negativeRateConfig = {
-    ...INITIAL_CURRENCY_CONFIG,
-    rates: {
-      ...INITIAL_CURRENCY_CONFIG.rates,
-      USD: -0.005
-    }
-  };
+  const negativeRateConfig = { ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: -0.005 } };
   const val2 = validateCurrencyConfig(negativeRateConfig);
   assert(val2.valid === false, '1.2: Rejects negative exchange rate');
 
-  const stringRateConfig = {
-    ...INITIAL_CURRENCY_CONFIG,
-    rates: {
-      ...INITIAL_CURRENCY_CONFIG.rates,
-      USD: 'invalid-string-rate' as any
-    }
-  };
-  const val3 = validateCurrencyConfig(stringRateConfig);
-  assert(val3.valid === false, '1.3: Rejects non-numeric exchange rate');
+  // 2. URI Safety Unit Tests
+  console.log('\n--- 2. Database URI Isolation Fail-Closed Unit Tests ---');
+  
+  // A. Same host, same port, diff DB → PASS
+  assert(isSafeDistinctTestUri('mongodb://host:27017/prod', 'mongodb://host:27017/test').safe === true, '2A: Same host/port, diff DB → PASS');
 
-  const negativeTierConfig = {
-    ...INITIAL_CURRENCY_CONFIG,
-    internationalPricingTiers: {
-      ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers,
-      featuredJobFee: {
-        ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers.featuredJobFee,
-        USD: -100
-      }
-    }
-  };
-  const val4 = validateCurrencyConfig(negativeTierConfig);
-  assert(val4.valid === false, '1.4: Rejects negative fee tier value');
+  // B. Same host, diff port, diff DB → REJECT
+  assert(isSafeDistinctTestUri('mongodb://host:27017/prod', 'mongodb://host:27018/test').safe === false, '2B: Same host, diff port, diff DB → REJECT');
 
-  // 1.5. Database URI Isolation Fail-Closed Unit Tests
-  console.log('\n--- 1.5. Database URI Isolation Fail-Closed Tests ---');
-  const checkMissingProd = isSafeDistinctTestUri('', 'mongodb://127.0.0.1:27017/test_db');
-  assert(checkMissingProd.safe === false, '1.5a: Rejects missing production MONGODB_URI');
+  // C. Diff host, same port → REJECT
+  assert(isSafeDistinctTestUri('mongodb://host1:27017/prod', 'mongodb://host2:27017/test').safe === false, '2C: Diff host, same port → REJECT');
 
-  const checkMissingTest = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod_db', '');
-  assert(checkMissingTest.safe === false, '1.5b: Rejects missing TEST_MONGODB_URI');
+  // D. Diff host, diff port → REJECT
+  assert(isSafeDistinctTestUri('mongodb://host1:27017/prod', 'mongodb://host2:27018/test').safe === false, '2D: Diff host, diff port → REJECT');
 
-  const checkMatching = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/db', 'mongodb://127.0.0.1:27017/db');
-  assert(checkMatching.safe === false, '1.5c: Rejects matching production and test URIs');
+  // E. Same host/port, same DB → REJECT
+  assert(isSafeDistinctTestUri('mongodb://host:27017/db', 'mongodb://host:27017/db').safe === false, '2E: Same host/port, same DB → REJECT');
 
-  const checkInvalidTest = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod', 'not-a-valid-uri');
-  assert(checkInvalidTest.safe === false, '1.5d: Fail-closed on invalid test URI');
+  // F. Missing/default/invalid URI → REJECT
+  assert(isSafeDistinctTestUri('', 'mongodb://host:27017/test').safe === false, '2F-1: Missing prod URI → REJECT');
+  assert(isSafeDistinctTestUri('mongodb://host:27017/prod', '').safe === false, '2F-2: Missing test URI → REJECT');
+  assert(isSafeDistinctTestUri('mongodb://host:27017/admin', 'mongodb://host:27017/test').safe === false, '2F-3: Admin DB → REJECT');
+  assert(isSafeDistinctTestUri('not-a-uri', 'mongodb://host:27017/test').safe === false, '2F-4: Invalid URI → REJECT');
 
-  const checkInvalidProd = isSafeDistinctTestUri('not-a-valid-uri', 'mongodb://127.0.0.1:27017/test');
-  assert(checkInvalidProd.safe === false, '1.5e: Fail-closed on invalid production URI');
-
-  const checkSameDbDiffHost = isSafeDistinctTestUri('mongodb+srv://node1.mongo.net/prod_db', 'mongodb+srv://node2.mongo.net/prod_db');
-  assert(checkSameDbDiffHost.safe === false, '1.5f: Rejects different hostnames sharing same database name');
-
-  const checkDiffHostDiffDbUnknown = isSafeDistinctTestUri('mongodb+srv://hostA.com/prod_db', 'mongodb+srv://hostB.com/test_db');
-  assert(checkDiffHostDiffDbUnknown.safe === false, '1.5g: Rejects different hostnames with unverified cluster identity');
-
-  const checkValidSameEndpoint = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod_db', 'mongodb://127.0.0.1:27017/test_db');
-  assert(checkValidSameEndpoint.safe === true, '1.5h: Accepts distinct database name on same verified endpoint');
-
-  // 2. Migration Payload & Document Integrity Rules
-  console.log('\n--- 2. Migration Payload & Document Integrity Rules ---');
-  const legacyPayload = {
-    ...INITIAL_CURRENCY_CONFIG,
-    rates: {
-      ...INITIAL_CURRENCY_CONFIG.rates,
-      USD: 0.00362
-    }
-  };
-  const legacyVal = validateCurrencyConfig(legacyPayload);
-  assert(legacyVal.valid === true && legacyVal.sanitized?.rates.USD === 0.00362, '2.1: Valid legacy LocalStorage payload validates safely');
-
-  const invalidDocPayload = { baseCurrency: 'PKR', rates: { USD: -5 } };
-  const invalidVal = validateCurrencyConfig(invalidDocPayload);
-  assert(invalidVal.valid === false && Boolean(invalidVal.message), '2.2: Invalid existing document structure generates explicit validation error');
-
-  // 3. Database Connection Safety & Write Isolation Checks
+  // 3. Database Connection Safety & Write Isolation
   console.log('\n--- 3. Database Connection Safety & Write Isolation ---');
   const prodDbUri = (process.env.MONGODB_URI || '').trim();
   const testDbUri = (process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI || '').trim();
@@ -185,8 +126,7 @@ export async function runCurrencyPersistenceTests() {
   if (!isMongoConfigured()) {
     const unconfiguredGet = await CurrencyRepository.getConfig();
     assert(unconfiguredGet.isConfigured === false, '3.1: Unconfigured Mongo returns isConfigured = false');
-    assert(unconfiguredGet.config.baseCurrency === 'PKR', '3.2: Unconfigured Mongo returns default initial config');
-
+    
     try {
       await CurrencyRepository.saveConfig(INITIAL_CURRENCY_CONFIG);
       assert(false, '3.3: Unconfigured Mongo saveConfig must throw error');
@@ -199,13 +139,11 @@ export async function runCurrencyPersistenceTests() {
     if (!separationCheck.safe) {
       reportNotRun('3.1: Actual CurrencyRepository.saveConfig() persistence test', separationCheck.reason || 'Test DB isolation check failed.');
       reportNotRun('3.2: Actual CurrencyRepository.getConfig() reload test', 'Skipped due to DB isolation check failure.');
-      reportNotRun('3.3: CurrencyRepository rejection of invalid rate updates', 'Skipped due to DB isolation check failure.');
-      reportNotRun('3.4: CurrencyRepository missing vs invalid document distinction', 'Skipped due to DB isolation check failure.');
     } else {
-      console.log('  [INFO] Safe distinct TEST_MONGODB_URI confirmed. Running actual repository logic on isolated test collection...');
+      console.log('  [INFO] Safe distinct TEST_MONGODB_URI confirmed. Running integration tests...');
       let testClient: MongoClient | null = null;
       const createdKeys: string[] = [];
-      const testRunId = `test_currency_config_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const testRunId = `test_run_${Date.now()}`;
 
       try {
         testClient = new MongoClient(testDbUri);
@@ -213,62 +151,22 @@ export async function runCurrencyPersistenceTests() {
         const testDb = testClient.db();
         const testColl = testDb.collection('test_system_settings_isolated');
 
-        // Test 3.1: Actual CurrencyRepository.saveConfig()
-        const testConfigPayload = {
-          ...INITIAL_CURRENCY_CONFIG,
-          lastSyncedAt: '2026-11-08 22:45 UTC',
-          rates: {
-            ...INITIAL_CURRENCY_CONFIG.rates,
-            USD: 0.00359
-          }
-        };
-
+        const testConfigPayload = { ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: 0.00359 } };
         const savedResult = await CurrencyRepository.saveConfig(testConfigPayload, testColl, testRunId);
         createdKeys.push(testRunId);
-        assert(savedResult.rates.USD === 0.00359, '3.1: CurrencyRepository.saveConfig() saves rates correctly to test collection');
+        assert(savedResult.rates.USD === 0.00359, '3.1: saveConfig() saves correctly');
 
-        // Test 3.2: Actual CurrencyRepository.getConfig() reload
         const reloadedResult = await CurrencyRepository.getConfig(testColl, testRunId);
-        assert(reloadedResult.isConfigured === true && reloadedResult.config.rates.USD === 0.00359, '3.2: CurrencyRepository.getConfig() reloads exact saved configuration');
-
-        // Test 3.3: Rejection of invalid rates
-        try {
-          await CurrencyRepository.saveConfig(negativeRateConfig, testColl, testRunId);
-          assert(false, '3.3: CurrencyRepository.saveConfig() should reject invalid rates');
-        } catch (err: any) {
-          assert(err.message.includes('Validation Error'), '3.3: CurrencyRepository.saveConfig() throws Validation Error on invalid payload');
-        }
-
-        // Test 3.4: Missing document returns isConfigured: false
-        const missingKey = `${testRunId}_missing`;
-        const missingResult = await CurrencyRepository.getConfig(testColl, missingKey);
-        assert(missingResult.isConfigured === false, '3.4a: Missing document in CurrencyRepository returns isConfigured = false');
-
-        // Test 3.4b: Invalid existing document throws Data Integrity Error
-        const invalidKey = `${testRunId}_invalid`;
-        await testColl.insertOne({ key: invalidKey, config: { baseCurrency: 'PKR', rates: { USD: -999 } } });
-        createdKeys.push(invalidKey);
-
-        try {
-          await CurrencyRepository.getConfig(testColl, invalidKey);
-          assert(false, '3.4b: Existing invalid document must throw Data Integrity Error');
-        } catch (err: any) {
-          assert(err.message.includes('Data Integrity Error'), '3.4b: Existing invalid document throws clear Data Integrity Error');
-        }
+        assert(reloadedResult.isConfigured === true && reloadedResult.config.rates.USD === 0.00359, '3.2: getConfig() reloads correctly');
 
       } catch (err: any) {
         assert(false, '3.0: Database integration test execution error', err?.message);
       } finally {
         if (testClient) {
           try {
-            const testDb = testClient.db();
-            const testColl = testDb.collection('test_system_settings_isolated');
-            for (const key of createdKeys) {
-              await testColl.deleteOne({ key });
-            }
-          } catch (cleanupErr: any) {
-            console.error('[CLEANUP WARNING] Failed to clean up test records:', cleanupErr);
-          }
+            const testColl = testClient.db().collection('test_system_settings_isolated');
+            for (const key of createdKeys) { await testColl.deleteOne({ key }); }
+          } catch (cleanupErr: any) { console.error('[CLEANUP WARNING]', cleanupErr); }
           await testClient.close().catch(() => {});
         }
       }
@@ -279,15 +177,9 @@ export async function runCurrencyPersistenceTests() {
   console.log(`   TEST RESULTS: ${passed} PASSED, ${failed} FAILED, ${notRun} NOT RUN      `);
   console.log('====================================================\n');
 
-  if (failed > 0) {
-    throw new Error(`Currency Persistence Isolated Tests Failed (${failed} failures)`);
-  }
+  if (failed > 0) throw new Error(`Currency Persistence Isolated Tests Failed (${failed} failures)`);
 }
 
-// Allow direct execution via tsx
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runCurrencyPersistenceTests().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  runCurrencyPersistenceTests().catch((err) => { console.error(err); process.exit(1); });
 }

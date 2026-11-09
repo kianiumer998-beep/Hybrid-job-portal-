@@ -37,10 +37,45 @@ export const KycRepository = {
     let invalid = 0;
 
     for (const req of requests) {
-      if (!req.id || !req.companyName || !['Pending', 'Verified', 'Rejected'].includes(req.status)) {
+      // 1. Basic type and null check
+      if (!req || typeof req !== 'object' || Array.isArray(req)) {
         invalid++;
         continue;
       }
+
+      // 2. Required string fields validation (non-empty trimmed)
+      const requiredFields: (keyof EmployerKycRequest)[] = ['id', 'companyName', 'contactPerson', 'email', 'phone', 'ntnOrTaxNumber', 'companyWebsite', 'submittedAt'];
+      const hasMissingFields = requiredFields.some(f => {
+        const val = req[f];
+        return typeof val !== 'string' || val.trim() === '';
+      });
+
+      if (hasMissingFields) {
+        invalid++;
+        continue;
+      }
+
+      // 3. Status validation
+      if (!['Pending', 'Verified', 'Rejected'].includes(req.status)) {
+        invalid++;
+        continue;
+      }
+
+      // 4. Conditional validations (BadgeLevel and RejectionReason)
+      if (req.status === 'Verified') {
+        const validBadges = ['Standard Verified', 'Top Employer', 'Government Agency'];
+        if (req.badgeLevel && !validBadges.includes(req.badgeLevel)) {
+          invalid++;
+          continue;
+        }
+      }
+
+      if (req.status === 'Rejected' && (!req.rejectionReason || typeof req.rejectionReason !== 'string' || req.rejectionReason.trim() === '')) {
+        invalid++;
+        continue;
+      }
+
+      // 5. Sample exclusions
       if (['kyc-01', 'kyc-02', 'kyc-03', 'kyc-04'].includes(req.id)) {
         skipped++;
         continue;

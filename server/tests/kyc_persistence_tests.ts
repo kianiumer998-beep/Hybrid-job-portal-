@@ -73,10 +73,12 @@ export async function runKycPersistenceTests() {
     // 4. Legacy import (non-destructive)
     const legacy: EmployerKycRequest[] = [
       { ...req, id: 'kyc-01', status: 'Pending' }, // Should be skipped (Rule 3)
-      { ...req, id: 'kyc-05', companyName: 'Legacy Corp', status: 'Pending' } // Should be imported
+      { ...req, id: 'kyc-05', companyName: 'Legacy Corp', status: 'Pending', contactPerson: 'L', email: 'l@l.com', phone: '1', ntnOrTaxNumber: '1', companyWebsite: 'h://l.com', submittedAt: '2' } // Should be imported
     ];
-    await KycRepository.importLegacyRequests(legacy, coll);
-    createdIds.push('kyc-05');
+    const importRes = await KycRepository.importLegacyRequests(legacy, coll);
+    if (importRes.imported === 1) {
+      createdIds.push('kyc-05');
+    }
     const imported = await KycRepository.getAll(coll);
     if (imported.find(r => r.id === 'kyc-01')) throw new Error('Sample record kyc-01 imported');
     if (!imported.find(r => r.id === 'kyc-05')) throw new Error('Legacy record kyc-05 not imported');

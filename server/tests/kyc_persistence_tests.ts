@@ -68,22 +68,69 @@ export async function runKycPersistenceTests() {
     const retrievedByUser = await KycRepository.getByUserId(uniqueUserId1, coll);
     if (!retrievedByUser || retrievedByUser.id !== createdReq.id) throw new Error('getByUserId failed');
 
-    // 2. Duplicate active request check
-    let duplicateErrorCaught = false;
-    try {
-      await KycRepository.createRequest({
-        ...newReqInput,
-        id: `kyc_test_${Date.now()}_dup`,
-        companyName: 'Duplicate Corp Attempt'
-      }, coll);
-    } catch (err: any) {
-      if (err?.message?.includes('Duplicate')) {
-        duplicateErrorCaught = true;
-      }
-    }
-    if (!duplicateErrorCaught) throw new Error('Duplicate active request check failed to throw error');
+    // 2. Concurrent duplicate submission race-condition test
+    const concurrentUserId = `user_concurrent_${testRunId}`;
+    const concurrentReq1: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_conc_1_${Date.now()}`,
+      userId: concurrentUserId,
+      email: `${concurrentUserId}@corp.com`
+    };
+    const concurrentReq2: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_conc_2_${Date.now()}`,
+      userId: concurrentUserId,
+      email: `${concurrentUserId}@corp.com`
+    };
 
-    // 3. Approval persistence & fresh DB read
+    const concurrentResults = await Promise.allSettled([
+      KycRepository.createRequest(concurrentReq1, coll),
+      KycRepository.createRequest(concurrentReq2, coll)
+    ]);
+
+    const fulfilled = concurrentResults.filter(r => r.status === 'fulfilled');
+    const rejectedPromises = concurrentResults.filter(r => r.status === 'rejected');
+
+    if (fulfilled.length !== 1 || rejectedPromises.length !== 1) {
+      throw new Error(`Concurrent duplicate submission test failed: expected 1 fulfilled and 1 rejected, got ${fulfilled.length} fulfilled and ${rejectedPromises.length} rejected`);
+    }
+
+    if (fulfilled[0].status === 'fulfilled') {
+      createdIds.push(fulfilled[0].value.id);
+    }
+
+    const rejectionReason = (rejectedPromises[0] as PromiseRejectedResult).reason;
+    if (!rejectionReason?.message?.includes('Duplicate')) {
+      throw new Error(`Concurrent duplicate submission rejected with unexpected error: ${rejectionReason}`);
+    }
+
+    // 3. Multiple historical Rejected records test for the same user
+    const multiRejectUserId = `user_multi_reject_${testRunId}`;
+    const rejectedReq1: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_rej_1_${Date.now()}`,
+      userId: multiRejectUserId,
+      status: 'Rejected',
+      rejectionReason: 'Invalid NTN'
+    };
+    const rejectedReq2: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_rej_2_${Date.now()}`,
+      userId: multiRejectUserId,
+      status: 'Rejected',
+      rejectionReason: 'Incomplete doc'
+    };
+
+    await coll.insertOne(rejectedReq1);
+    await coll.insertOne(rejectedReq2);
+    createdIds.push(rejectedReq1.id, rejectedReq2.id);
+
+    const userRejections = await coll.find({ userId: multiRejectUserId, status: 'Rejected' }).toArray();
+    if (userRejections.length !== 2) {
+      throw new Error(`Multiple historical Rejected records test failed: expected 2 records, got ${userRejections.length}`);
+    }
+
+    // 4. Approval persistence & fresh DB read
     const approved = await KycRepository.updateRequest(createdReq.id, {
       status: 'Verified',
       verifiedAt: new Date().toISOString(),
@@ -98,7 +145,7 @@ export async function runKycPersistenceTests() {
       throw new Error('Fresh DB read after approval failed');
     }
 
-    // 4. Transition on finalized (Verified) request should be rejected
+    // 5. Transition on finalized (Verified) request should be rejected
     const invalidTransition = await KycRepository.updateRequest(createdReq.id, {
       status: 'Rejected',
       rejectionReason: 'Invalid transition attempt'
@@ -107,7 +154,7 @@ export async function runKycPersistenceTests() {
       throw new Error('Update on finalized request must return null and be rejected');
     }
 
-    // 5. Rejection persistence for a second user
+    // 6. Rejection persistence for a second user
     const uniqueUserId2 = `user_${testRunId}_2`;
     const createdReq2 = await KycRepository.createRequest({
       ...newReqInput,
@@ -118,15 +165,15 @@ export async function runKycPersistenceTests() {
     }, coll);
     createdIds.push(createdReq2.id);
 
-    const rejected = await KycRepository.updateRequest(createdReq2.id, {
+    const rejectedUpdate = await KycRepository.updateRequest(createdReq2.id, {
       status: 'Rejected',
       rejectionReason: 'Tax ID mismatch'
     }, coll);
-    if (!rejected || rejected.status !== 'Rejected' || rejected.rejectionReason !== 'Tax ID mismatch') {
+    if (!rejectedUpdate || rejectedUpdate.status !== 'Rejected' || rejectedUpdate.rejectionReason !== 'Tax ID mismatch') {
       throw new Error('Rejection update failed');
     }
 
-    // 6. Legacy import with optional fields containing null
+    // 7. Legacy import with optional fields containing null
     const legacyNullId = `${testRunId}_legacy_null`;
     const legacyInput: any[] = [
       {
@@ -154,7 +201,7 @@ export async function runKycPersistenceTests() {
     }
     createdIds.push(legacyNullId);
 
-    // 7. Legacy import preserving existing records ($setOnInsert)
+    // 8. Legacy import preserving existing records ($setOnInsert)
     const existingDbRecordId = `${testRunId}_existing_db`;
     await coll.insertOne({
       id: existingDbRecordId,

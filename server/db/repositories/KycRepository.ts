@@ -22,10 +22,35 @@ export const KycRepository = {
     return records[0] || null;
   },
 
+  async ensureIndexes(coll?: Collection<EmployerKycRequest>): Promise<void> {
+    try {
+      const dbColl = await this.getCollection(coll);
+      await dbColl.createIndex(
+        { userId: 1 },
+        {
+          unique: true,
+          partialFilterExpression: { status: 'Pending' },
+          name: 'unique_active_pending_kyc_user'
+        }
+      );
+      await dbColl.createIndex(
+        { userId: 1 },
+        {
+          unique: true,
+          partialFilterExpression: { status: 'Verified' },
+          name: 'unique_active_verified_kyc_user'
+        }
+      );
+    } catch (e) {
+      // Ignore index creation errors if background process or duplicate index definition
+    }
+  },
+
   async createRequest(newReq: EmployerKycRequest, coll?: Collection<EmployerKycRequest>): Promise<EmployerKycRequest> {
     const dbColl = await this.getCollection(coll);
-    
-    // Duplicate check: prevent duplicate submission if an active ('Pending') or 'Verified' request exists for this user
+    await this.ensureIndexes(dbColl);
+
+    // 1. Pre-check for existing active ('Pending' or 'Verified') request for this user
     const existing = await dbColl.findOne({
       userId: newReq.userId,
       status: { $in: ['Pending', 'Verified'] }
@@ -35,8 +60,16 @@ export const KycRepository = {
       throw new Error('Duplicate Request Error: An active or verified KYC request already exists for this employer.');
     }
 
-    await dbColl.insertOne(newReq);
-    return newReq;
+    // 2. Database-level atomic insertion with partial unique index protection against race conditions
+    try {
+      await dbColl.insertOne(newReq);
+      return newReq;
+    } catch (err: any) {
+      if (err && (err.code === 11000 || (err.message && err.message.includes('E11000')))) {
+        throw new Error('Duplicate Request Error: An active or verified KYC request already exists for this employer.');
+      }
+      throw err;
+    }
   },
 
   async updateRequest(id: string, updateData: Partial<EmployerKycRequest>, coll?: Collection<EmployerKycRequest>): Promise<EmployerKycRequest | null> {

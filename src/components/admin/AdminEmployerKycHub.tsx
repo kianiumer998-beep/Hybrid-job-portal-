@@ -23,11 +23,12 @@ interface AdminEmployerKycHubProps {
 const isSafeUrl = (url?: string): boolean => {
   if (!url || typeof url !== 'string') return false;
   const trimmed = url.trim().toLowerCase();
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+    return false;
+  }
   return (
-    trimmed.startsWith('http://') ||
     trimmed.startsWith('https://') ||
-    trimmed.startsWith('blob:') ||
-    trimmed.startsWith('data:')
+    trimmed.startsWith('/')
   );
 };
 

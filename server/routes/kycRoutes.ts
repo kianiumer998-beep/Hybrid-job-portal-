@@ -1,10 +1,23 @@
 import express from 'express';
 import { KycRepository } from '../db/repositories/KycRepository';
+import { UserRepository } from '../db/repositories/UserRepository';
 import { requireAdminPermission, requireAuth } from '../auth/authManager';
 import { isMongoConfigured } from '../db/mongodb';
 import { EmployerKycRequest } from '../../src/types/adminSuite';
 
 export const kycRouter = express.Router();
+
+const isSafeDocumentUrl = (url?: string): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim().toLowerCase();
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+    return false;
+  }
+  return (
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('/')
+  );
+};
 
 // GET /api/kyc/my-request — Employer fetches their active/latest KYC request
 kycRouter.get('/my-request', requireAuth, async (req: any, res: any) => {
@@ -27,15 +40,27 @@ kycRouter.post('/requests', requireAuth, async (req: any, res: any) => {
     const user = req.user;
     if (!user) return res.status(401).json({ success: false, message: 'Authentication required' });
 
-    if (user.role !== 'Employer/Job Poster') {
+    const userId = user.userId || user.id;
+    if (!userId || typeof userId !== 'string' || !userId.trim()) {
+      return res.status(401).json({ success: false, message: 'Invalid authenticated user identity' });
+    }
+
+    // Fresh employer-role verification from DB
+    const dbUser = await UserRepository.getByIdAsync(userId) || (user.email ? await UserRepository.getByEmailAsync(user.email) : null);
+    const freshRole = dbUser?.role || user.role;
+    if (freshRole !== 'Employer/Job Poster') {
       return res.status(403).json({
         success: false,
         message: 'Access denied: Only employers can submit KYC verification requests.'
       });
     }
 
-    const userId = user.userId || user.id;
-    if (!userId) return res.status(401).json({ success: false, message: 'Invalid authenticated user identity' });
+    // Email identity must come strictly from authenticated server identity, never req.body.email
+    const authEmail = (user.email && typeof user.email === 'string') ? user.email.trim() : (dbUser?.email && typeof dbUser.email === 'string' ? dbUser.email.trim() : '');
+
+    if (!authEmail || !authEmail.includes('@')) {
+      return res.status(401).json({ success: false, message: 'Invalid or missing authenticated user email identity' });
+    }
 
     const { companyName, contactPerson, phone, ntnOrTaxNumber, companyWebsite, secpRegistrationNumber, officialDocUrl } = req.body;
 
@@ -56,20 +81,22 @@ kycRouter.post('/requests', requireAuth, async (req: any, res: any) => {
       return res.status(400).json({ success: false, message: 'Validation Error: "companyWebsite" is required.' });
     }
 
-    const email = (user.email && typeof user.email === 'string' && user.email.trim())
-      ? user.email.trim()
-      : (typeof req.body.email === 'string' && req.body.email.trim() ? req.body.email.trim() : '');
-
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Validation Error: User email is required.' });
+    if (officialDocUrl && typeof officialDocUrl === 'string' && officialDocUrl.trim()) {
+      if (!isSafeDocumentUrl(officialDocUrl.trim())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Validation Error: "officialDocUrl" must be a secure HTTPS URL or valid same-origin document path. Data and Blob URLs are prohibited.'
+        });
+      }
     }
 
+    // Construct server-authoritative EmployerKycRequest, ignoring client-supplied userId, email, status, etc.
     const newReq: EmployerKycRequest = {
       id: `kyc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       userId,
       companyName: companyName.trim(),
       contactPerson: contactPerson.trim(),
-      email,
+      email: authEmail,
       phone: phone.trim(),
       ntnOrTaxNumber: ntnOrTaxNumber.trim(),
       companyWebsite: companyWebsite.trim(),
@@ -81,7 +108,7 @@ kycRouter.post('/requests', requireAuth, async (req: any, res: any) => {
     if (secpRegistrationNumber && typeof secpRegistrationNumber === 'string' && secpRegistrationNumber.trim()) {
       newReq.secpRegistrationNumber = secpRegistrationNumber.trim();
     }
-    if (officialDocUrl && typeof officialDocUrl === 'string' && officialDocUrl.trim()) {
+    if (officialDocUrl && typeof officialDocUrl === 'string' && officialDocUrl.trim() && isSafeDocumentUrl(officialDocUrl.trim())) {
       newReq.officialDocUrl = officialDocUrl.trim();
     }
 

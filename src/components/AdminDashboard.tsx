@@ -629,13 +629,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const [kycRequests, setKycRequests] = useState<EmployerKycRequest[]>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_kyc_requests');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_KYC_REQUESTS;
-  });
+  const [kycRequests, setKycRequests] = useState<EmployerKycRequest[]>([]);
+  const [kycLoading, setKycLoading] = useState<boolean>(true);
+  const [kycError, setKycError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchKycRequests = async () => {
+      setKycLoading(true);
+      setKycError(null);
+      try {
+        const res = await api.kyc.getAll();
+        if (!isMounted) return;
+        if (res && res.success && Array.isArray(res.requests)) {
+          setKycRequests(res.requests);
+          setKycLoading(false);
+        } else {
+          setKycError(res?.message || 'Failed to load live KYC requests from backend.');
+          setKycLoading(false);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setKycError(err?.message || 'Network error loading KYC requests.');
+          setKycLoading(false);
+        }
+      }
+    };
+    fetchKycRequests();
+    return () => { isMounted = false; };
+  }, []);
 
   const effectiveSeoConfig = propSiteSeoConfig || siteSeoConfig;
 
@@ -737,20 +759,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       localStorage.setItem('career_pak_kyc_requests', JSON.stringify(kycRequests));
     } catch (e) {}
   }, [kycRequests]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchKycRequests = async () => {
-      try {
-        const res = await api.kyc.getAll();
-        if (isMounted && res && res.success && Array.isArray(res.requests)) {
-          setKycRequests(res.requests);
-        }
-      } catch (e) {}
-    };
-    fetchKycRequests();
-    return () => { isMounted = false; };
-  }, []);
 
   // WhatsApp Support Configuration State
   const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
@@ -2409,7 +2417,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               { id: 'scraper' as AdminCategory, label: '🤖 Scraper Center', urdu: 'سکریپر سنٹر', count: undefined, countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
               { id: 'ads' as AdminCategory, label: '📢 Ads & Campaigns', urdu: 'اشتہارات', count: `${ads.filter(a => a.status === 'active').length} Live`, countColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
               { id: 'payments' as AdminCategory, label: '💳 Payments & Accounts', urdu: 'ادائیگیاں', count: currentTransactions.filter(t => t.status === 'Pending').length > 0 ? `${currentTransactions.filter(t => t.status === 'Pending').length} Proofs` : undefined, countColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
-              { id: 'users' as AdminCategory, label: '👥 Users & KYC', urdu: 'صارفین', count: kycRequests.filter(r => r.status === 'Pending').length > 0 ? `${kycRequests.filter(r => r.status === 'Pending').length} KYC` : undefined, countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+              { id: 'users' as AdminCategory, label: '👥 Users & KYC', urdu: 'صارفین', count: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : (kycRequests.filter(r => r.status === 'Pending').length > 0 ? `${kycRequests.filter(r => r.status === 'Pending').length} KYC` : undefined), countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
               { id: 'alerts' as AdminCategory, label: '📣 Alerts & WhatsApp', urdu: 'الرٹس', count: undefined },
               { id: 'settings' as AdminCategory, label: '⚙️ Settings & SEO', urdu: 'ترتیبات', count: undefined }
             ].filter(cat => canAccessAdminCategory(cat.id)).map((cat) => (
@@ -2597,7 +2605,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <>
               {[
                 { id: 'user-audit', label: `User Directory (${users.length})`, urdu: 'صارفین کی فہرست', icon: Users },
-                { id: 'employer-kyc', label: `Employer KYC Verification (${kycRequests.filter(r => r.status === 'Pending').length})`, urdu: 'شناختی تصدیق', icon: BadgeCheck },
+                { id: 'employer-kyc', label: `Employer KYC Verification ${kycLoading ? '(Loading...)' : kycError ? '(Error loading)' : `(${kycRequests.filter(r => r.status === 'Pending').length})`}`, urdu: 'شناختی تصدیق', icon: BadgeCheck },
                 { id: 'subscribers', label: `Paid Subscribers (${subscribers.length})`, urdu: 'سبسکرائبرز', icon: DollarSign },
                 { id: 'chat-hub', label: `User Support Chat Hub (${chatMessages.length})`, urdu: 'چیٹ ان باکس', icon: MessageSquare }
               ].map((t) => {
@@ -2778,7 +2786,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   catTitle: '👥 Users, KYC & Support (صارفین اور تصدیق)',
                   items: [
                     { id: 'user-audit', label: 'User Directory & Profiles', urdu: 'تمام صارفین کی فہرست', icon: Users, badge: `${users.length} Users` },
-                    { id: 'employer-kyc', label: 'Employer KYC Verification', urdu: 'کمپنی شناختی تصدیق', icon: BadgeCheck, badge: `${kycRequests.filter(r => r.status === 'Pending').length} KYC` },
+                    { id: 'employer-kyc', label: 'Employer KYC Verification', urdu: 'کمپنی شناختی تصدیق', icon: BadgeCheck, badge: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : `${kycRequests.filter(r => r.status === 'Pending').length} KYC` },
                     { id: 'subscribers', label: 'Paid Subscribers', urdu: 'سبسکرائبرز', icon: DollarSign, badge: `${subscribers.length} Members` },
                     { id: 'chat-hub', label: 'User Support Chat Hub', urdu: 'چیٹ سپورٹ ان باکس', icon: MessageSquare, badge: `${chatMessages.length} Chats` }
                   ]

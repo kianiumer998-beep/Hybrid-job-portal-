@@ -11,4 +11,6 @@ export * from './PaymentSettingsRepository';
 export * from './LocationRepository';
 export * from './CurrencyRepository';
 export * from './KycRepository';
+export * from './SystemSettingsRepository';
+export * from './FeatureFlagsRepository';
 

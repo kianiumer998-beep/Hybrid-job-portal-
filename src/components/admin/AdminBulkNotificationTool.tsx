@@ -144,12 +144,14 @@ const TEMPLATE_PRESETS = [
 interface AdminBulkNotificationToolProps {
   users?: UserAccount[];
   subscribers?: Subscriber[];
+  featureFlags?: AdminFeatureFlags;
   onBroadcastSent?: (broadcast: BulkNotificationBroadcast) => void;
 }
 
 export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps> = ({
   users = [],
   subscribers = [],
+  featureFlags,
   onBroadcastSent
 }) => {
   const [history, setHistory] = useState<BulkNotificationBroadcast[]>(() => {
@@ -229,6 +231,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
       const now = new Date();
       const nowStr = now.toISOString().replace('T', ' ').substring(0, 16);
 
+      // Foundational Phase: We do NOT implement actual dispatch yet.
       const newBroadcast: BulkNotificationBroadcast = {
         id: `notif-${Date.now()}`,
         timestamp: nowStr,
@@ -241,9 +244,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
         ctaText: ctaText.trim() || undefined,
         ctaUrl: ctaUrl.trim() || undefined,
         recipientsCount: audienceEstimate,
-        openRatePercent: Math.round(55 + Math.random() * 20),
-        clickRatePercent: Math.round(15 + Math.random() * 12),
-        status: 'Delivered'
+        openRatePercent: 0,
+        clickRatePercent: 0,
+        status: 'Scheduled'
       };
 
       setHistory((prev) => [newBroadcast, ...prev]);
@@ -252,9 +255,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
       }
 
       setIsSending(false);
-      setSendSuccessMsg(`Broadcast dispatched successfully to ${audienceEstimate.toLocaleString()} recipients across ${channel}!`);
+      setSendSuccessMsg(`✅ Broadcast queued and saved. Multi-channel delivery via ${channel} is currently under development or disabled for this foundational phase.`);
       setTimeout(() => setSendSuccessMsg(null), 5000);
-    }, 1200);
+    }, 1000);
   };
 
   const getAudienceLabel = (key: string) => {
@@ -480,18 +483,27 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
             <div className="pt-2">
               <button
                 type="submit"
-                disabled={isSending}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/25 flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                disabled={isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)}
+                className={`w-full py-3 rounded-xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 ${
+                  isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                    : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 shadow-emerald-500/25'
+                }`}
               >
                 {isSending ? (
                   <>
                     <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Dispatching Broadcast Stream...</span>
+                    <span>Processing Broadcast...</span>
+                  </>
+                ) : (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts) ? (
+                  <>
+                    <AlertCircle className="w-4 h-4" />
+                    <span>Channel Currently Disabled</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>Dispatch Broadcast to {audienceEstimate.toLocaleString()} Users</span>
+                    <span>Schedule Broadcast to {audienceEstimate.toLocaleString()} Users</span>
                   </>
                 )}
               </button>

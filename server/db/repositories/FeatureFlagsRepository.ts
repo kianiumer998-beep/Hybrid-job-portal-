@@ -14,6 +14,8 @@ export const DEFAULT_FEATURE_FLAGS: AdminFeatureFlags = {
   enableCvBuilderPaywall: true,
   enableLiveSupportChat: true,
   deduplicationEnabled: true,
+  enableEmailAlerts: false,
+  enableWhatsAppAlerts: false,
 };
 
 export class FeatureFlagsRepository {

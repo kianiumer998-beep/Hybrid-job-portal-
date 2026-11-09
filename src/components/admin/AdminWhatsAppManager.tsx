@@ -62,10 +62,6 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   const handleSave = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     onUpdateConfig(formData);
-    try {
-      localStorage.setItem('hybrid_whatsapp_group_link', groupLink);
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(formData));
-    } catch (err) {}
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
   };
@@ -73,9 +69,6 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   const handleRestoreDefaults = () => {
     setFormData(DEFAULT_WHATSAPP_CONFIG);
     onUpdateConfig(DEFAULT_WHATSAPP_CONFIG);
-    try {
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(DEFAULT_WHATSAPP_CONFIG));
-    } catch (err) {}
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
   };

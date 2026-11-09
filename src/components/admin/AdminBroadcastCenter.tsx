@@ -24,6 +24,7 @@ interface AdminBroadcastCenterProps {
   users?: UserAccount[];
   subscribers?: Subscriber[];
   commConfig?: CommunicationProviderConfig;
+  featureFlags?: AdminFeatureFlags;
   onSendCampaign?: (newCampaign: BroadcastCampaign) => void;
   onUpdateCommConfig?: (updated: CommunicationProviderConfig) => void;
 }
@@ -33,6 +34,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   users = [],
   subscribers = [],
   commConfig,
+  featureFlags,
   onSendCampaign,
   onUpdateCommConfig
 }) => {
@@ -115,6 +117,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setIsSending(true);
     setTimeout(() => {
       const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+      
+      // Foundational Phase: We do NOT implement actual dispatch yet.
+      // We save the campaign as 'Scheduled' or 'Draft' instead of claiming it was 'Sent'.
       const newCamp: BroadcastCampaign = {
         id: `camp-${Date.now().toString(36)}`,
         title: title.trim(),
@@ -122,22 +127,26 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         targetAudience,
         subject: subject.trim() || title.trim(),
         messageBody: messageBody.trim(),
-        sentAt: nowStr,
-        status: 'Sent',
+        sentAt: undefined, // Not sent yet
+        status: 'Scheduled',
         recipientsCount: audienceCount,
-        openRate: channel === 'WhatsApp' ? 92.4 : 45.8,
-        clickRate: channel === 'WhatsApp' ? 64.2 : 22.1
+        openRate: 0,
+        clickRate: 0
       };
 
-      onSendCampaign(newCamp);
+      if (onSendCampaign) {
+        onSendCampaign(newCamp);
+      }
       setCampaignList([newCamp, ...campaignList]);
       setIsSending(false);
-      alert(`🚀 Broadcast Campaign "${newCamp.title}" dispatched to ${newCamp.recipientsCount} recipients via ${newCamp.channel}!`);
+      
+      alert(`✅ Broadcast Campaign "${newCamp.title}" has been saved and scheduled. Actual delivery via ${newCamp.channel} is currently under development or disabled for this foundational phase.`);
+      
       setTitle('');
       setSubject('');
       setMessageBody('');
       setActiveTab('history');
-    }, 1200);
+    }, 1000);
   };
 
   const handleSaveProviders = (e: React.FormEvent) => {
@@ -291,11 +300,21 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
               <button
                 type="submit"
-                disabled={isSending}
-                className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-2 cursor-pointer transition-all active:scale-95 text-xs disabled:opacity-50"
+                disabled={isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)}
+                className={`px-6 py-3 font-black rounded-xl shadow-lg flex items-center space-x-2 cursor-pointer transition-all active:scale-95 text-xs ${
+                  isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                }`}
               >
                 <Send className={`w-4 h-4 ${isSending ? 'animate-spin' : ''}`} />
-                <span>{isSending ? 'Dispatching Broadcast...' : 'Launch Broadcast Now'}</span>
+                <span>
+                  {isSending 
+                    ? 'Processing...' 
+                    : (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)
+                      ? 'Channel Disabled'
+                      : 'Schedule Broadcast Now'}
+                </span>
               </button>
             </div>
           </form>

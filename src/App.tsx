@@ -726,6 +726,15 @@ export default function App() {
     } catch (e) {}
   }, [whatsAppSupportConfig]);
 
+  // Sync WhatsApp config from backend on mount
+  useEffect(() => {
+    api.settings.getCommunication().then(res => {
+      if (res?.success && res.whatsAppSupportConfig) {
+        setWhatsAppSupportConfig(prev => ({ ...prev, ...res.whatsAppSupportConfig }));
+      }
+    }).catch(err => console.error('[App] Failed to load WhatsApp config from backend:', err));
+  }, []);
+
   // Payment Verification Transactions State (Loaded from /api/transactions for authenticated users)
   const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransaction[]>([]);
 
@@ -3177,7 +3186,12 @@ export default function App() {
             landingConfig={landingConfig}
             onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
-            onUpdateWhatsAppConfig={setWhatsAppSupportConfig}
+            onUpdateWhatsAppConfig={(newCfg) => {
+              setWhatsAppSupportConfig(newCfg);
+              api.settings.updateCommunication({ whatsAppSupportConfig: newCfg }).catch(err => {
+                console.error('[App] Failed to save WhatsApp config to backend:', err);
+              });
+            }}
             siteSeoConfig={siteSeoConfig}
             onUpdateSeoConfig={handleUpdateSeoConfig}
             isSeoConfigLoading={isSeoConfigLoading}

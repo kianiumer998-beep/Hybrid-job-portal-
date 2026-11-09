@@ -12,6 +12,8 @@ export interface AdminFeatureFlags {
   enableCvBuilderPaywall: boolean;
   enableLiveSupportChat: boolean;
   deduplicationEnabled: boolean;
+  enableEmailAlerts: boolean;
+  enableWhatsAppAlerts: boolean;
 }
 
 export interface PakistanLocation {

@@ -977,6 +977,20 @@ export const api = {
         headers: getAuthHeader()
       });
     }
+  },
+
+  // --- SETTINGS ---
+  settings: {
+    async getCommunication() {
+      return safeFetchJson(`${API_BASE}/settings/communication`, { headers: getAuthHeader() });
+    },
+    async updateCommunication(data: any) {
+      return safeFetchJson(`${API_BASE}/settings/communication`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    }
   }
 };
 

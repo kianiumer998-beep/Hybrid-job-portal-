@@ -2987,6 +2987,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           users={users}
           subscribers={subscribers}
           commConfig={commConfig}
+          featureFlags={featureFlags}
           onSendCampaign={(newCamp) => setBroadcastCampaigns(prev => [newCamp, ...prev])}
           onUpdateCommConfig={handleUpdateCommConfig}
         />
@@ -2997,6 +2998,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminBulkNotificationTool
           users={users}
           subscribers={subscribers}
+          featureFlags={featureFlags}
         />
       )}
 
@@ -6555,6 +6557,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }`}
                 >
                   {featureFlags.deduplicationEnabled ? 'ENABLED' : 'DISABLED'}
+                </button>
+              </div>
+
+              {/* Feature 7: Email Job Alerts */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-white">Email Job Alerts</div>
+                  <div className="text-[11px] text-slate-400">Enable automated email alerts</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleFeature('enableEmailAlerts')}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                    featureFlags.enableEmailAlerts
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {featureFlags.enableEmailAlerts ? 'ENABLED' : 'DISABLED'}
+                </button>
+              </div>
+
+              {/* Feature 8: WhatsApp Job Alerts */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-white">WhatsApp Job Alerts</div>
+                  <div className="text-[11px] text-slate-400">Enable WhatsApp broadcast alerts</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleFeature('enableWhatsAppAlerts')}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                    featureFlags.enableWhatsAppAlerts
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {featureFlags.enableWhatsAppAlerts ? 'ENABLED' : 'DISABLED'}
                 </button>
               </div>
 

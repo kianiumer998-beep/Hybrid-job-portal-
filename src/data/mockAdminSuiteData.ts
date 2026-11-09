@@ -45,8 +45,8 @@ export const INITIAL_CURRENCY_CONFIG: CurrencyExchangeConfig = {
     CAD: 0.0049,
     AUD: 0.0055
   },
-  lastSyncedAt: '2026-08-26 09:30 UTC',
-  autoSyncEnabled: true,
+  lastSyncedAt: 'Not Synced (Manual Configuration)',
+  autoSyncEnabled: false,
   supportedCurrencies: ['PKR', 'USD', 'AED', 'SAR', 'GBP', 'EUR', 'CAD', 'AUD'],
   internationalPricingTiers: {
     featuredJobFee: {

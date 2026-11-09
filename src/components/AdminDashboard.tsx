@@ -558,6 +558,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return INITIAL_CURRENCY_CONFIG;
   });
 
+  const [isCurrencyLoading, setIsCurrencyLoading] = useState<boolean>(true);
+  const [currencyLoadError, setCurrencyLoadError] = useState<string | null>(null);
+  const [currencyMigrationError, setCurrencyMigrationError] = useState<string | null>(null);
+
   const [broadcastCampaigns, setBroadcastCampaigns] = useState<BroadcastCampaign[]>(() => {
     try {
       const saved = localStorage.getItem('career_pak_broadcast_campaigns');
@@ -671,12 +675,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   useEffect(() => {
     let isMounted = true;
     const fetchCurrencyConfig = async () => {
+      setIsCurrencyLoading(true);
+      setCurrencyLoadError(null);
       try {
         const res = await api.currency.getConfig();
         if (!isMounted) return;
         if (res && res.success === true && res.config) {
           if (res.isConfigured === true) {
             setCurrencyConfig(res.config);
+            try {
+              localStorage.setItem('career_pak_currency_config', JSON.stringify(res.config));
+            } catch (e) {}
           } else if (res.isConfigured === false && !hasMigratedCurrencyRef.current) {
             hasMigratedCurrencyRef.current = true;
             // Check legacy LocalStorage for non-destructive migration to backend
@@ -688,25 +697,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const saveRes = await api.currency.updateConfig(parsed);
                   if (saveRes && saveRes.success && saveRes.config) {
                     setCurrencyConfig(saveRes.config);
+                    try {
+                      localStorage.setItem('career_pak_currency_config', JSON.stringify(saveRes.config));
+                    } catch (e) {}
+                  } else {
+                    setCurrencyMigrationError(saveRes?.message || 'Failed to migrate legacy currency settings to MongoDB.');
                   }
                 }
-              } catch (e) {}
+              } catch (migErr: any) {
+                setCurrencyMigrationError(migErr?.message || 'Error processing legacy currency configuration during migration.');
+              }
             }
           }
+        } else {
+          setCurrencyLoadError(res?.message || 'Failed to retrieve currency configuration from backend.');
         }
-      } catch (err) {
-        console.error('[AdminDashboard] Error fetching backend currency configuration:', err);
+      } catch (err: any) {
+        if (isMounted) {
+          setCurrencyLoadError(err?.message || 'Network error occurred while fetching currency configuration.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsCurrencyLoading(false);
+        }
       }
     };
     fetchCurrencyConfig();
     return () => { isMounted = false; };
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_currency_config', JSON.stringify(currencyConfig));
-    } catch (e) {}
-  }, [currencyConfig]);
 
   useEffect(() => {
     try {
@@ -2970,6 +2988,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminCurrencyManager
           currencyConfig={currencyConfig}
           onUpdateCurrencyConfig={handleUpdateCurrencyConfig}
+          isLoading={isCurrencyLoading}
+          loadError={currencyLoadError}
+          migrationError={currencyMigrationError}
         />
       )}
 

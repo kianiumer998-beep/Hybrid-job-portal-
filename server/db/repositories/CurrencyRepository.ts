@@ -1,9 +1,19 @@
 import { CurrencyExchangeConfig } from '../../../src/types/adminSuite';
+import { Currency } from '../../../src/types/job';
 import { INITIAL_CURRENCY_CONFIG } from '../../../src/data/mockAdminSuiteData';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
 
 const COLLECTION_NAME = 'system_settings';
 const DOC_KEY = 'currency_exchange_config';
+
+export const ALLOWED_CURRENCIES: readonly Currency[] = ['PKR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'CAD', 'AUD'] as const;
+export const ALLOWED_TIER_KEYS = [
+  'featuredJobFee',
+  'urgentBadgeFee',
+  'verifiedCompanyBadgeFee',
+  'unlimitedMonthlySlotFee',
+  'candidateDatabaseAccessFee'
+] as const;
 
 export function validateCurrencyConfig(raw: any): { valid: boolean; message?: string; sanitized?: CurrencyExchangeConfig } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -11,41 +21,60 @@ export function validateCurrencyConfig(raw: any): { valid: boolean; message?: st
   }
 
   const baseCurrency = String(raw.baseCurrency || '').trim().toUpperCase();
-  if (!baseCurrency || baseCurrency.length > 10) {
-    return { valid: false, message: 'Validation Error: Invalid baseCurrency specified.' };
+  if (baseCurrency !== 'PKR') {
+    return { valid: false, message: 'Validation Error: baseCurrency must be "PKR".' };
   }
 
   if (!raw.rates || typeof raw.rates !== 'object' || Array.isArray(raw.rates)) {
     return { valid: false, message: 'Validation Error: "rates" mapping object is required.' };
   }
 
-  const cleanRates: Record<string, number> = {};
-  for (const [code, val] of Object.entries(raw.rates)) {
-    const cleanCode = String(code).trim().toUpperCase();
-    const numVal = Number(val);
-    if (!cleanCode || cleanCode.length > 10 || typeof val !== 'number' || !Number.isFinite(numVal) || numVal <= 0) {
-      return { valid: false, message: `Validation Error: Rate for currency "${code}" must be a finite positive number.` };
-    }
-    cleanRates[cleanCode] = numVal;
-  }
-
   if (!Array.isArray(raw.supportedCurrencies) || raw.supportedCurrencies.length === 0) {
     return { valid: false, message: 'Validation Error: "supportedCurrencies" must be a non-empty array of currency codes.' };
   }
 
-  const cleanSupported: string[] = [];
+  const cleanSupported: Currency[] = [];
   for (const item of raw.supportedCurrencies) {
-    const cleanCode = String(item || '').trim().toUpperCase();
-    if (!cleanCode || cleanCode.length > 10) {
-      return { valid: false, message: 'Validation Error: Invalid currency code in supportedCurrencies.' };
+    const cleanCode = String(item || '').trim().toUpperCase() as Currency;
+    if (!ALLOWED_CURRENCIES.includes(cleanCode)) {
+      return { valid: false, message: `Validation Error: Unsupported currency code "${item}" in supportedCurrencies.` };
     }
     if (!cleanSupported.includes(cleanCode)) {
       cleanSupported.push(cleanCode);
     }
   }
 
-  const autoSyncEnabled = Boolean(raw.autoSyncEnabled);
-  const lastSyncedAt = String(raw.lastSyncedAt || new Date().toISOString().replace('T', ' ').substring(0, 16) + ' UTC').trim().slice(0, 50);
+  if (!cleanSupported.includes('PKR')) {
+    return { valid: false, message: 'Validation Error: "PKR" must be included in supportedCurrencies.' };
+  }
+
+  const cleanRates: Record<Currency, number> = {} as any;
+  for (const [code, val] of Object.entries(raw.rates)) {
+    const cleanCode = String(code).trim().toUpperCase() as Currency;
+    if (!ALLOWED_CURRENCIES.includes(cleanCode)) {
+      return { valid: false, message: `Validation Error: Unsupported currency code "${code}" in rates.` };
+    }
+    const numVal = Number(val);
+    if (typeof val !== 'number' || !Number.isFinite(numVal) || numVal <= 0) {
+      return { valid: false, message: `Validation Error: Rate for currency "${code}" must be a finite positive number.` };
+    }
+    cleanRates[cleanCode] = numVal;
+  }
+
+  if (cleanRates.PKR !== 1) {
+    return { valid: false, message: 'Validation Error: Base currency "PKR" rate must be exactly 1.0.' };
+  }
+
+  for (const curr of cleanSupported) {
+    if (cleanRates[curr] === undefined || !Number.isFinite(cleanRates[curr]) || cleanRates[curr] <= 0) {
+      return { valid: false, message: `Validation Error: Missing or invalid rate for supported currency "${curr}".` };
+    }
+  }
+
+  const autoSyncEnabled = typeof raw.autoSyncEnabled === 'boolean' ? raw.autoSyncEnabled : false;
+  const lastSyncedAt = (typeof raw.lastSyncedAt === 'string' && raw.lastSyncedAt.trim())
+    ? raw.lastSyncedAt.trim().slice(0, 50)
+    : INITIAL_CURRENCY_CONFIG.lastSyncedAt;
 
   const cleanTiers: any = {
     featuredJobFee: {},
@@ -57,22 +86,33 @@ export function validateCurrencyConfig(raw: any): { valid: boolean; message?: st
 
   const rawTiers = raw.internationalPricingTiers && typeof raw.internationalPricingTiers === 'object' ? raw.internationalPricingTiers : {};
 
-  for (const tierKey of ['featuredJobFee', 'urgentBadgeFee', 'verifiedCompanyBadgeFee', 'unlimitedMonthlySlotFee', 'candidateDatabaseAccessFee']) {
+  for (const tierKey of ALLOWED_TIER_KEYS) {
     const rawTierMap = rawTiers[tierKey] && typeof rawTiers[tierKey] === 'object' ? rawTiers[tierKey] : {};
     for (const [code, val] of Object.entries(rawTierMap)) {
-      const cleanCode = String(code).trim().toUpperCase();
+      const cleanCode = String(code).trim().toUpperCase() as Currency;
+      if (!ALLOWED_CURRENCIES.includes(cleanCode)) {
+        return { valid: false, message: `Validation Error: Unsupported currency code "${code}" in fee tier "${tierKey}".` };
+      }
       const numVal = Number(val);
-      if (!cleanCode || cleanCode.length > 10 || typeof val !== 'number' || !Number.isFinite(numVal) || numVal < 0) {
+      if (typeof val !== 'number' || !Number.isFinite(numVal) || numVal < 0) {
         return { valid: false, message: `Validation Error: Fee tier "${tierKey}" for currency "${code}" must be a non-negative finite number.` };
       }
       cleanTiers[tierKey][cleanCode] = numVal;
     }
+
+    // Safely populate any missing currencies for this tier from INITIAL_CURRENCY_CONFIG without overwriting existing
+    for (const curr of ALLOWED_CURRENCIES) {
+      if (cleanTiers[tierKey][curr] === undefined) {
+        const defaultVal = INITIAL_CURRENCY_CONFIG.internationalPricingTiers[tierKey]?.[curr];
+        cleanTiers[tierKey][curr] = typeof defaultVal === 'number' ? defaultVal : 0;
+      }
+    }
   }
 
   const sanitized: CurrencyExchangeConfig = {
-    baseCurrency: baseCurrency as any,
-    rates: cleanRates as any,
-    supportedCurrencies: cleanSupported as any,
+    baseCurrency: 'PKR',
+    rates: cleanRates,
+    supportedCurrencies: cleanSupported,
     autoSyncEnabled,
     lastSyncedAt,
     internationalPricingTiers: cleanTiers
@@ -132,7 +172,7 @@ export class CurrencyRepository {
     const docKey = overrideDocKey || DOC_KEY;
 
     if (overrideCollection) {
-      await overrideCollection.updateOne(
+      const result = await overrideCollection.updateOne(
         { key: docKey },
         {
           $set: {
@@ -143,11 +183,14 @@ export class CurrencyRepository {
         },
         { upsert: true }
       );
+      if (result && result.acknowledged === false) {
+        throw new Error('Database Write Error: MongoDB write operation was not acknowledged.');
+      }
     } else {
       const db = await getMongoDb();
       const coll = db.collection(COLLECTION_NAME);
 
-      await withMongoTimeout(
+      const result = await withMongoTimeout(
         coll.updateOne(
           { key: docKey },
           {
@@ -162,6 +205,9 @@ export class CurrencyRepository {
         8000,
         'save currency config'
       );
+      if (result && result.acknowledged === false) {
+        throw new Error('Database Write Error: MongoDB write operation was not acknowledged.');
+      }
     }
 
     return cleanConfig;

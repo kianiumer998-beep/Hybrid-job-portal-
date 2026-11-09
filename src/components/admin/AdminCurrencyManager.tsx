@@ -5,11 +5,11 @@ import {
   RefreshCw,
   Save,
   CheckCircle2,
-  TrendingUp,
-  Percent,
   Layers,
   ArrowRightLeft,
-  AlertTriangle
+  AlertTriangle,
+  Info,
+  Loader2
 } from 'lucide-react';
 import { Currency } from '../../types/job';
 import { CurrencyExchangeConfig } from '../../types/adminSuite';
@@ -17,14 +17,32 @@ import { CurrencyExchangeConfig } from '../../types/adminSuite';
 interface AdminCurrencyManagerProps {
   currencyConfig: CurrencyExchangeConfig;
   onUpdateCurrencyConfig: (updated: CurrencyExchangeConfig) => Promise<any> | void;
+  isLoading?: boolean;
+  loadError?: string | null;
+  migrationError?: string | null;
 }
+
+const TIER_DEFINITIONS: {
+  key: keyof CurrencyExchangeConfig['internationalPricingTiers'];
+  label: string;
+  icon: string;
+  color: string;
+}[] = [
+  { key: 'featuredJobFee', label: 'Featured Job Badge (30 Days)', icon: '⭐', color: 'text-amber-400' },
+  { key: 'urgentBadgeFee', label: 'Urgent Hiring Badge (15 Days)', icon: '⚡', color: 'text-rose-400' },
+  { key: 'verifiedCompanyBadgeFee', label: 'Verified Employer KYC Checkmark', icon: '🛡️', color: 'text-cyan-400' },
+  { key: 'unlimitedMonthlySlotFee', label: 'Unlimited Monthly Employer Plan', icon: '👑', color: 'text-emerald-400' },
+  { key: 'candidateDatabaseAccessFee', label: 'Candidate Database Access Fee', icon: '📂', color: 'text-purple-400' },
+];
 
 export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
   currencyConfig,
-  onUpdateCurrencyConfig
+  onUpdateCurrencyConfig,
+  isLoading = false,
+  loadError = null,
+  migrationError = null
 }) => {
   const [config, setConfig] = useState<CurrencyExchangeConfig>(currencyConfig);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -41,36 +59,26 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
   const [calcFrom, setCalcFrom] = useState<Currency>('PKR');
   const [calcTo, setCalcTo] = useState<Currency>('USD');
 
-  const handleSyncLiveRates = () => {
-    setIsSyncing(true);
-    setTimeout(() => {
-      // Simulate live interbank Forex sync
-      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16) + ' UTC';
-      setConfig({
-        ...config,
-        lastSyncedAt: nowStr,
-        rates: {
-          PKR: 1.0,
-          USD: 0.00359,
-          EUR: 0.00331,
-          GBP: 0.00282,
-          AED: 0.01318,
-          SAR: 0.01347,
-          CAD: 0.00488,
-          AUD: 0.00547
-        }
-      });
-      setIsSyncing(false);
-      alert('Notice: Exchange rates updated with baseline interbank reference rates. Click "Save Currency Config" to save updates to the database.');
-    }, 1000);
+  const handleManualNotice = () => {
+    alert('Notice: Live Forex provider integration is not connected in this phase. Exchange rates are maintained manually by system administrators below.');
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading || isSaving) return;
     setIsSaving(true);
     setSaveError(null);
     try {
-      await onUpdateCurrencyConfig(config);
+      // Ensure PKR rate is always 1.0 on save
+      const payload: CurrencyExchangeConfig = {
+        ...config,
+        baseCurrency: 'PKR',
+        rates: {
+          ...config.rates,
+          PKR: 1.0
+        }
+      };
+      await onUpdateCurrencyConfig(payload);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
@@ -80,18 +88,22 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
     }
   };
 
-  const calculateConverted = () => {
-    if (calcFrom === calcTo) return calcAmount;
-    // convert from calcFrom to PKR first, then to calcTo
-    let inPkr = calcAmount;
-    if (calcFrom !== 'PKR') {
-      const fromRate = config.rates[calcFrom] || 1;
-      inPkr = calcAmount / fromRate;
+  const calculateConverted = (): { value: number | null; error?: string } => {
+    if (calcFrom === calcTo) return { value: calcAmount };
+    const fromRate = config.rates?.[calcFrom];
+    const toRate = config.rates?.[calcTo];
+    if (typeof fromRate !== 'number' || !Number.isFinite(fromRate) || fromRate <= 0) {
+      return { value: null, error: `Rate for ${calcFrom} is not available or invalid.` };
     }
-    const toRate = config.rates[calcTo] || 1;
-    if (calcTo === 'PKR') return inPkr;
-    return inPkr * toRate;
+    if (typeof toRate !== 'number' || !Number.isFinite(toRate) || toRate <= 0) {
+      return { value: null, error: `Rate for ${calcTo} is not available or invalid.` };
+    }
+    const inPkr = calcFrom === 'PKR' ? calcAmount : calcAmount / fromRate;
+    const result = calcTo === 'PKR' ? inPkr : inPkr * toRate;
+    return { value: result };
   };
+
+  const conversionResult = calculateConverted();
 
   return (
     <form onSubmit={handleSave} className="space-y-6 text-white">
@@ -104,31 +116,64 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
           </div>
           <h2 className="text-xl font-black text-white">Global Pricing Matrix & Exchange Rates</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Configure currency auto-conversion, manual interbank rate overrides, and regional employer package tiers.
+            Configure currency conversion rates, manual rate overrides, and regional employer package tiers.
           </p>
         </div>
 
         <div className="flex items-center space-x-3">
           <button
             type="button"
-            onClick={handleSyncLiveRates}
-            disabled={isSyncing || isSaving}
-            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center space-x-2 cursor-pointer transition-all disabled:opacity-50"
+            onClick={handleManualNotice}
+            disabled={isLoading || isSaving}
+            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center space-x-2 cursor-pointer transition-all disabled:opacity-50"
+            title="Live Forex integration not connected in this phase"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Syncing Rates...' : 'Sync Forex Rates'}</span>
+            <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+            <span>Forex Live Sync (Manual Mode)</span>
           </button>
 
           <button
             type="submit"
-            disabled={isSaving}
+            disabled={isLoading || isSaving}
             className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
           >
-            {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             <span>{isSaving ? 'Saving...' : 'Save Currency Config'}</span>
           </button>
         </div>
       </div>
+
+      {/* Honest Forex Notice Banner */}
+      <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl text-slate-300 text-xs flex items-center space-x-3">
+        <Info className="w-5 h-5 text-amber-400 flex-shrink-0" />
+        <span>
+          Notice: Live Forex provider integration is not connected in this phase. Exchange rates are maintained manually by system administrators below.
+        </span>
+      </div>
+
+      {/* Loading state indicator */}
+      {isLoading && (
+        <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-300 font-semibold text-xs flex items-center space-x-2">
+          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+          <span>Loading currency configuration from database... Editing is disabled while loading.</span>
+        </div>
+      )}
+
+      {/* Backend Load Error Banner */}
+      {loadError && (
+        <div className="p-4 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 font-bold text-xs flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>Database Load Warning: {loadError}</span>
+        </div>
+      )}
+
+      {/* Legacy Migration Notice/Error */}
+      {migrationError && (
+        <div className="p-4 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-300 font-bold text-xs flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>Migration Notice: {migrationError}</span>
+        </div>
+      )}
 
       {saveSuccess && (
         <div className="p-4 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs flex items-center space-x-2">
@@ -154,26 +199,33 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
               <DollarSign className="w-4 h-4 text-emerald-400" />
               <span>Interbank Conversion Rates (Base: PKR)</span>
             </h3>
-            <span className="text-[10px] font-mono text-slate-400">Last Synced: {config.lastSyncedAt}</span>
+            <span className="text-[10px] font-mono text-slate-400">Status: {config.lastSyncedAt || 'Manual Configuration'}</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             {config.supportedCurrencies.map((curr) => {
-              const rate = config.rates[curr] || 1;
-              const inverse = curr === 'PKR' ? 1 : Math.round(1 / rate);
+              const isBase = curr === 'PKR';
+              const rate = isBase ? 1.0 : (config.rates[curr] ?? 0);
+              const inverse = isBase ? 1 : (rate > 0 ? Math.round(1 / rate) : 'N/A');
               return (
                 <div key={curr} className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-white">{curr}</span>
-                    <span className="text-[10px] text-slate-500">{curr === 'PKR' ? 'Base' : `1 ${curr} = Rs ${inverse}`}</span>
+                    <span className="text-[10px] text-slate-500">
+                      {isBase ? 'Base (1.0)' : `1 ${curr} = Rs ${inverse}`}
+                    </span>
                   </div>
                   <div>
-                    <label className="text-[10px] text-slate-400 uppercase font-bold block mb-0.5">Rate Multiplier</label>
+                    <label className="text-[10px] text-slate-400 uppercase font-bold block mb-0.5">
+                      {isBase ? 'Fixed Base Multiplier' : 'Rate Multiplier'}
+                    </label>
                     <input
                       type="number"
                       step="0.0001"
+                      disabled={isBase || isLoading || isSaving}
                       value={rate}
                       onChange={(e) => {
+                        if (isBase) return;
                         const val = parseFloat(e.target.value) || 0;
                         setConfig({
                           ...config,
@@ -183,7 +235,9 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
                           }
                         });
                       }}
-                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white font-mono text-xs font-bold"
+                      className={`w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white font-mono text-xs font-bold ${
+                        isBase ? 'opacity-60 cursor-not-allowed' : ''
+                      }`}
                     />
                   </div>
                 </div>
@@ -204,6 +258,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
               <label className="block font-bold text-slate-300 mb-1">Amount to Convert</label>
               <input
                 type="number"
+                disabled={isLoading || isSaving}
                 value={calcAmount}
                 onChange={(e) => setCalcAmount(Number(e.target.value))}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono font-bold"
@@ -214,6 +269,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
               <div>
                 <label className="block font-bold text-slate-300 mb-1">From Currency</label>
                 <select
+                  disabled={isLoading || isSaving}
                   value={calcFrom}
                   onChange={(e) => setCalcFrom(e.target.value as Currency)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
@@ -225,6 +281,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
               <div>
                 <label className="block font-bold text-slate-300 mb-1">To Currency</label>
                 <select
+                  disabled={isLoading || isSaving}
                   value={calcTo}
                   onChange={(e) => setCalcTo(e.target.value as Currency)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
@@ -236,12 +293,20 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
 
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl text-center space-y-1">
               <span className="text-[10px] text-slate-400 uppercase font-bold">Calculated Conversion</span>
-              <div className="text-xl font-black font-mono text-emerald-400">
-                {calcTo} {calculateConverted().toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              </div>
-              <div className="text-[10px] text-slate-500">
-                Applied rate: 1 {calcFrom} = {(calculateConverted() / (calcAmount || 1)).toFixed(4)} {calcTo}
-              </div>
+              {conversionResult.error ? (
+                <div className="text-xs font-semibold text-rose-400 py-2">
+                  {conversionResult.error}
+                </div>
+              ) : (
+                <>
+                  <div className="text-xl font-black font-mono text-emerald-400">
+                    {calcTo} {(conversionResult.value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Applied rate: 1 {calcFrom} = {((conversionResult.value ?? 0) / (calcAmount || 1)).toFixed(4)} {calcTo}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -250,7 +315,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
 
       {/* SECTION 2: INTERNATIONAL PRICING TIERS MATRIX */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
           <div>
             <h3 className="text-sm font-bold flex items-center space-x-2">
               <Layers className="w-4 h-4 text-indigo-400" />
@@ -258,8 +323,16 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
             </h3>
             <p className="text-xs text-slate-400">Set customized regional checkout prices for each product in local currencies.</p>
           </div>
-          <span className="bg-indigo-500/20 text-indigo-300 text-xs font-bold px-3 py-1 rounded-full border border-indigo-500/30">
-            Multi-Currency Matrix
+          <span className="bg-indigo-500/20 text-indigo-300 text-xs font-bold px-3 py-1 rounded-full border border-indigo-500/30 w-fit">
+            Multi-Currency Matrix ({config.supportedCurrencies.length} Currencies)
+          </span>
+        </div>
+
+        {/* Pricing matrix checkout notice */}
+        <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-400 text-xs flex items-center space-x-2">
+          <Info className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+          <span>
+            Notice: The international pricing matrix is currently a stored configuration and does not automatically change actual checkout/payment calculations in this phase.
           </span>
         </div>
 
@@ -267,284 +340,46 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
           <table className="w-full text-left text-xs text-slate-300">
             <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
               <tr>
-                <th className="p-3">Product / Feature</th>
-                <th className="p-3">PKR</th>
-                <th className="p-3">USD ($)</th>
-                <th className="p-3">AED (د.إ)</th>
-                <th className="p-3">SAR (﷼)</th>
-                <th className="p-3">GBP (£)</th>
-                <th className="p-3">EUR (€)</th>
+                <th className="p-3 min-w-[220px]">Product / Feature</th>
+                {config.supportedCurrencies.map((curr) => (
+                  <th key={curr} className="p-3 min-w-[90px]">{curr}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 font-mono">
-              
-              {/* Product 1: Featured Job Listing */}
-              <tr>
-                <td className="p-3 font-sans font-bold text-amber-400">⭐ Featured Job Badge (30 Days)</td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.featuredJobFee.PKR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        featuredJobFee: { ...config.internationalPricingTiers.featuredJobFee, PKR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.featuredJobFee.USD}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        featuredJobFee: { ...config.internationalPricingTiers.featuredJobFee, USD: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.featuredJobFee.AED}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        featuredJobFee: { ...config.internationalPricingTiers.featuredJobFee, AED: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.featuredJobFee.SAR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        featuredJobFee: { ...config.internationalPricingTiers.featuredJobFee, SAR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.featuredJobFee.GBP}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        featuredJobFee: { ...config.internationalPricingTiers.featuredJobFee, GBP: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.featuredJobFee.EUR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        featuredJobFee: { ...config.internationalPricingTiers.featuredJobFee, EUR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-              </tr>
-
-              {/* Product 2: Verified Company Checkmark */}
-              <tr>
-                <td className="p-3 font-sans font-bold text-cyan-400">🛡️ Verified Employer KYC Checkmark</td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.verifiedCompanyBadgeFee.PKR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        verifiedCompanyBadgeFee: { ...config.internationalPricingTiers.verifiedCompanyBadgeFee, PKR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.verifiedCompanyBadgeFee.USD}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        verifiedCompanyBadgeFee: { ...config.internationalPricingTiers.verifiedCompanyBadgeFee, USD: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.verifiedCompanyBadgeFee.AED}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        verifiedCompanyBadgeFee: { ...config.internationalPricingTiers.verifiedCompanyBadgeFee, AED: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.verifiedCompanyBadgeFee.SAR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        verifiedCompanyBadgeFee: { ...config.internationalPricingTiers.verifiedCompanyBadgeFee, SAR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.verifiedCompanyBadgeFee.GBP}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        verifiedCompanyBadgeFee: { ...config.internationalPricingTiers.verifiedCompanyBadgeFee, GBP: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.verifiedCompanyBadgeFee.EUR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        verifiedCompanyBadgeFee: { ...config.internationalPricingTiers.verifiedCompanyBadgeFee, EUR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-              </tr>
-
-              {/* Product 3: Unlimited Monthly Employer Plan */}
-              <tr>
-                <td className="p-3 font-sans font-bold text-emerald-400">👑 Unlimited Monthly Employer Plan</td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.unlimitedMonthlySlotFee.PKR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        unlimitedMonthlySlotFee: { ...config.internationalPricingTiers.unlimitedMonthlySlotFee, PKR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.unlimitedMonthlySlotFee.USD}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        unlimitedMonthlySlotFee: { ...config.internationalPricingTiers.unlimitedMonthlySlotFee, USD: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.unlimitedMonthlySlotFee.AED}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        unlimitedMonthlySlotFee: { ...config.internationalPricingTiers.unlimitedMonthlySlotFee, AED: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.unlimitedMonthlySlotFee.SAR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        unlimitedMonthlySlotFee: { ...config.internationalPricingTiers.unlimitedMonthlySlotFee, SAR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.unlimitedMonthlySlotFee.GBP}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        unlimitedMonthlySlotFee: { ...config.internationalPricingTiers.unlimitedMonthlySlotFee, GBP: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-                <td className="p-3">
-                  <input
-                    type="number"
-                    value={config.internationalPricingTiers.unlimitedMonthlySlotFee.EUR}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      internationalPricingTiers: {
-                        ...config.internationalPricingTiers,
-                        unlimitedMonthlySlotFee: { ...config.internationalPricingTiers.unlimitedMonthlySlotFee, EUR: Number(e.target.value) }
-                      }
-                    })}
-                    className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
-                  />
-                </td>
-              </tr>
-
+              {TIER_DEFINITIONS.map((tier) => (
+                <tr key={tier.key}>
+                  <td className={`p-3 font-sans font-bold ${tier.color}`}>
+                    {tier.icon} {tier.label}
+                  </td>
+                  {config.supportedCurrencies.map((curr) => {
+                    const currentVal = config.internationalPricingTiers?.[tier.key]?.[curr] ?? 0;
+                    return (
+                      <td key={curr} className="p-3">
+                        <input
+                          type="number"
+                          disabled={isLoading || isSaving}
+                          value={currentVal}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setConfig({
+                              ...config,
+                              internationalPricingTiers: {
+                                ...config.internationalPricingTiers,
+                                [tier.key]: {
+                                  ...(config.internationalPricingTiers?.[tier.key] || {}),
+                                  [curr]: val
+                                }
+                              }
+                            });
+                          }}
+                          className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-white"
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

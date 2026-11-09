@@ -110,7 +110,7 @@ export async function runCurrencyPersistenceTests() {
   // 3. Database Connection Safety & Write Isolation
   console.log('\n--- 3. Database Connection Safety & Write Isolation ---');
   const prodDbUri = (process.env.MONGODB_URI || '').trim();
-  const testDbUri = (process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI || '').trim();
+  const testDbUri = (process.env.TEST_MONGODB_URI || '').trim();
 
   if (!isMongoConfigured()) {
     const unconfiguredGet = await CurrencyRepository.getConfig();

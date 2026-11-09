@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DollarSign,
   Globe,
@@ -8,14 +8,15 @@ import {
   TrendingUp,
   Percent,
   Layers,
-  ArrowRightLeft
+  ArrowRightLeft,
+  AlertTriangle
 } from 'lucide-react';
 import { Currency } from '../../types/job';
 import { CurrencyExchangeConfig } from '../../types/adminSuite';
 
 interface AdminCurrencyManagerProps {
   currencyConfig: CurrencyExchangeConfig;
-  onUpdateCurrencyConfig: (updated: CurrencyExchangeConfig) => void;
+  onUpdateCurrencyConfig: (updated: CurrencyExchangeConfig) => Promise<any> | void;
 }
 
 export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
@@ -24,7 +25,16 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
 }) => {
   const [config, setConfig] = useState<CurrencyExchangeConfig>(currencyConfig);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Sync state if parent prop updates
+  useEffect(() => {
+    if (currencyConfig) {
+      setConfig(currencyConfig);
+    }
+  }, [currencyConfig]);
 
   // Conversion test calculator state
   const [calcAmount, setCalcAmount] = useState<number>(10000);
@@ -55,11 +65,19 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
     }, 1000);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateCurrencyConfig(config);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onUpdateCurrencyConfig(config);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to save currency configuration to database.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const calculateConverted = () => {
@@ -94,7 +112,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
           <button
             type="button"
             onClick={handleSyncLiveRates}
-            disabled={isSyncing}
+            disabled={isSyncing || isSaving}
             className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center space-x-2 cursor-pointer transition-all disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
@@ -103,18 +121,26 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
 
           <button
             type="submit"
-            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-2 cursor-pointer transition-all active:scale-95"
+            disabled={isSaving}
+            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
           >
-            <Save className="w-4 h-4" />
-            <span>Save Currency Config</span>
+            {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            <span>{isSaving ? 'Saving...' : 'Save Currency Config'}</span>
           </button>
         </div>
       </div>
 
       {saveSuccess && (
         <div className="p-4 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs flex items-center space-x-2">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>Currency exchange rates and international tier matrices saved successfully!</span>
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>Currency exchange rates and international tier matrices saved successfully to database!</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-4 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 font-bold text-xs flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>{saveError}</span>
         </div>
       )}
 

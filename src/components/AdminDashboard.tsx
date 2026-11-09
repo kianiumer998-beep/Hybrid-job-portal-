@@ -662,6 +662,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     (api as any).settings?.updateCommunication?.(newCfg)?.catch((err: any) => console.error('[AdminDashboard] Failed to save Comm config:', err));
   };
 
+  const handleUpdateCurrencyConfig = async (newCfg: CurrencyExchangeConfig) => {
+    const res = await api.currency.updateConfig(newCfg);
+    if (res && res.success && res.config) {
+      setCurrencyConfig(res.config);
+      try {
+        localStorage.setItem('career_pak_currency_config', JSON.stringify(res.config));
+      } catch (e) {}
+      return res.config;
+    } else {
+      throw new Error(res?.message || 'Server rejected currency configuration save.');
+    }
+  };
+
+  // Fetch backend currency configuration on mount with non-destructive legacy migration
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCurrencyConfig = async () => {
+      try {
+        const res = await api.currency.getConfig();
+        if (!isMounted) return;
+        if (res && res.success && res.config) {
+          if (res.isConfigured) {
+            setCurrencyConfig(res.config);
+          } else {
+            // Check legacy LocalStorage for non-destructive migration to backend
+            const savedLegacy = localStorage.getItem('career_pak_currency_config');
+            if (savedLegacy) {
+              try {
+                const parsed = JSON.parse(savedLegacy);
+                if (parsed && typeof parsed === 'object' && parsed.rates) {
+                  const saveRes = await api.currency.updateConfig(parsed);
+                  if (saveRes && saveRes.success && saveRes.config) {
+                    setCurrencyConfig(saveRes.config);
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[AdminDashboard] Error fetching backend currency configuration:', err);
+      }
+    };
+    fetchCurrencyConfig();
+    return () => { isMounted = false; };
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem('career_pak_currency_config', JSON.stringify(currencyConfig));
@@ -2926,7 +2973,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {adminTab === 'currency-forex' && (
         <AdminCurrencyManager
           currencyConfig={currencyConfig}
-          onUpdateCurrencyConfig={setCurrencyConfig}
+          onUpdateCurrencyConfig={handleUpdateCurrencyConfig}
         />
       )}
 

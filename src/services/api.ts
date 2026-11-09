@@ -622,6 +622,31 @@ export const api = {
     }
   },
 
+  // --- CURRENCY CONFIGURATION ---
+  currency: {
+    async getConfig() {
+      return safeFetchJson<{
+        success: boolean;
+        isConfigured: boolean;
+        config: any;
+        message?: string;
+      }>(`${API_BASE}/currency/config`);
+    },
+    async updateConfig(configData: any) {
+      return safeFetchJson<{
+        success: boolean;
+        isConfigured: boolean;
+        config: any;
+        message?: string;
+      }>(`${API_BASE}/currency/config`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(configData)
+      });
+    }
+  },
+
+
   // --- TRANSACTIONS ---
   transactions: {
     async getAll(userId?: string) {

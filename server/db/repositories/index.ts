@@ -9,3 +9,5 @@ export * from './AdRepository';
 export * from './NotificationRepository';
 export * from './PaymentSettingsRepository';
 export * from './LocationRepository';
+export * from './CurrencyRepository';
+

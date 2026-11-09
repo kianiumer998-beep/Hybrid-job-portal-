@@ -38,10 +38,12 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
           const parsed = JSON.parse(legacy);
           if (Array.isArray(parsed) && parsed.length > 0) {
             const res = await api.kyc.importLegacy(parsed);
-            if (res.success) {
+            if (res.success && res.invalid === 0) {
               localStorage.removeItem('career_pak_kyc_requests');
+            } else if (res.invalid > 0) {
+              setError('Some legacy records were invalid and could not be migrated. Please review manually.');
             } else {
-              console.error('Legacy migration failed', res);
+              setError('Failed to migrate legacy records.');
             }
           }
         }

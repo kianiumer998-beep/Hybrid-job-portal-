@@ -37,7 +37,7 @@ export async function runKycPersistenceTests() {
   try {
     client = new MongoClient(testDbUri);
     await client.connect();
-    const coll = client.db().collection('kyc_requests');
+    const coll = client.db().collection<EmployerKycRequest>('kyc_requests_test');
 
     // 1. Valid KYC record save & retrieval
     const req: EmployerKycRequest = {
@@ -56,29 +56,27 @@ export async function runKycPersistenceTests() {
     await coll.insertOne(req);
     createdIds.push(req.id);
     
-    const retrieved = await KycRepository.getAll();
+    const retrieved = await KycRepository.getAll(coll);
     if (!retrieved.find(r => r.id === req.id)) throw new Error('Failed to retrieve');
 
     // 2. Approval persistence
-    await KycRepository.updateRequest(req.id, { status: 'Verified', verifiedAt: '2026-11-09 10:00', badgeLevel: 'Top Employer' });
-    const approved = await KycRepository.getAll();
-    if (approved.find(r => r.id === req.id)?.status !== 'Verified') throw new Error('Approval failed');
+    const approved = await KycRepository.updateRequest(req.id, { status: 'Verified', verifiedAt: '2026-11-09 10:00', badgeLevel: 'Top Employer' }, coll);
+    if (!approved || approved.status !== 'Verified') throw new Error('Approval failed');
 
     // 3. Rejection persistence
     const req2: EmployerKycRequest = { ...req, id: `test2_${Date.now()}`, status: 'Pending' };
     await coll.insertOne(req2);
     createdIds.push(req2.id);
-    await KycRepository.updateRequest(req2.id, { status: 'Rejected', rejectionReason: 'Bad Docs' });
-    const rejected = await KycRepository.getAll();
-    if (rejected.find(r => r.id === req2.id)?.rejectionReason !== 'Bad Docs') throw new Error('Rejection failed');
+    const rejected = await KycRepository.updateRequest(req2.id, { status: 'Rejected', rejectionReason: 'Bad Docs' }, coll);
+    if (!rejected || rejected.rejectionReason !== 'Bad Docs') throw new Error('Rejection failed');
 
     // 4. Legacy import (non-destructive)
     const legacy: EmployerKycRequest[] = [
-      { ...req, id: 'kyc-01' }, // Should be skipped (Rule 3)
-      { ...req, id: 'kyc-05', companyName: 'Legacy Corp' } // Should be imported
+      { ...req, id: 'kyc-01', status: 'Pending' }, // Should be skipped (Rule 3)
+      { ...req, id: 'kyc-05', companyName: 'Legacy Corp', status: 'Pending' } // Should be imported
     ];
-    await KycRepository.importLegacyRequests(legacy);
-    const imported = await KycRepository.getAll();
+    await KycRepository.importLegacyRequests(legacy, coll);
+    const imported = await KycRepository.getAll(coll);
     if (imported.find(r => r.id === 'kyc-01')) throw new Error('Sample record kyc-01 imported');
     if (!imported.find(r => r.id === 'kyc-05')) throw new Error('Legacy record kyc-05 not imported');
 

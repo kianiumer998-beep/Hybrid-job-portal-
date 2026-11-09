@@ -20,22 +20,24 @@ kycRouter.patch('/requests/:id', requireAdminPermission('users.manage'), async (
   try {
     const { status, rejectionReason, badgeLevel } = req.body;
     
-    // Server-side validation
+    // Validation
+    if (!['Verified', 'Rejected'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status transition' });
+    
     const updateData: any = { status };
     if (status === 'Verified') {
-      if (!badgeLevel) return res.status(400).json({ success: false, message: 'Missing badge level' });
+      if (!['Standard Verified', 'Top Employer', 'Government Agency'].includes(badgeLevel)) 
+        return res.status(400).json({ success: false, message: 'Invalid badge level' });
       updateData.badgeLevel = badgeLevel;
       updateData.verifiedAt = new Date().toISOString().replace('T', ' ').substring(0, 16);
-      // NOTE: Should ideally get admin identity from authenticated user context, 
-      // but keeping it simple based on existing frontend mock logic
-      updateData.verifiedBy = 'Admin (Master)'; 
+      updateData.verifiedBy = (req as any).user?.email || 'Admin'; 
     } else if (status === 'Rejected') {
-      if (!rejectionReason) return res.status(400).json({ success: false, message: 'Missing rejection reason' });
-      updateData.rejectionReason = rejectionReason;
+      if (!rejectionReason || rejectionReason.trim() === '') 
+        return res.status(400).json({ success: false, message: 'Rejection reason required' });
+      updateData.rejectionReason = rejectionReason.trim();
     }
 
     const updated = await KycRepository.updateRequest(req.params.id, updateData);
-    if (!updated) return res.status(404).json({ success: false, message: 'Request not found' });
+    if (!updated) return res.status(409).json({ success: false, message: 'Request finalized or not found' });
     
     res.json({ success: true, request: updated });
   } catch (err: any) {

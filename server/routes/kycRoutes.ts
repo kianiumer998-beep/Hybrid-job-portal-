@@ -9,14 +9,37 @@ export const kycRouter = express.Router();
 
 const isSafeDocumentUrl = (url?: string): boolean => {
   if (!url || typeof url !== 'string') return false;
-  const trimmed = url.trim().toLowerCase();
-  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('data:') || lower.startsWith('blob:') || lower.startsWith('javascript:')) {
     return false;
   }
-  return (
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('/')
-  );
+  if (trimmed.startsWith('//') || trimmed.startsWith('\\') || trimmed.startsWith('/\\') || trimmed.startsWith('///')) {
+    return false;
+  }
+
+  if (lower.startsWith('https://')) {
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  if (trimmed.startsWith('/')) {
+    if (trimmed.length > 1 && (trimmed[1] === '/' || trimmed[1] === '\\')) {
+      return false;
+    }
+    if (trimmed.includes('\\')) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 };
 
 // GET /api/kyc/my-request — Employer fetches their active/latest KYC request
@@ -45,21 +68,24 @@ kycRouter.post('/requests', requireAuth, async (req: any, res: any) => {
       return res.status(401).json({ success: false, message: 'Invalid authenticated user identity' });
     }
 
-    // Fresh employer-role verification from DB
-    const dbUser = await UserRepository.getByIdAsync(userId) || (user.email ? await UserRepository.getByEmailAsync(user.email) : null);
-    const freshRole = dbUser?.role || user.role;
-    if (freshRole !== 'Employer/Job Poster') {
+    // Require matching current database user — NO fallback to JWT role user.role
+    const dbUser = await UserRepository.getByIdAsync(userId);
+    if (!dbUser || dbUser.id !== userId) {
+      return res.status(401).json({ success: false, message: 'Current database user record not found or mismatched.' });
+    }
+
+    if (dbUser.role !== 'Employer/Job Poster') {
       return res.status(403).json({
         success: false,
         message: 'Access denied: Only employers can submit KYC verification requests.'
       });
     }
 
-    // Email identity must come strictly from authenticated server identity, never req.body.email
-    const authEmail = (user.email && typeof user.email === 'string') ? user.email.trim() : (dbUser?.email && typeof dbUser.email === 'string' ? dbUser.email.trim() : '');
+    // Authoritative email MUST come strictly from dbUser.email
+    const authEmail = (dbUser.email && typeof dbUser.email === 'string') ? dbUser.email.trim() : '';
 
     if (!authEmail || !authEmail.includes('@')) {
-      return res.status(401).json({ success: false, message: 'Invalid or missing authenticated user email identity' });
+      return res.status(401).json({ success: false, message: 'Authoritative database user email identity missing or invalid.' });
     }
 
     const { companyName, contactPerson, phone, ntnOrTaxNumber, companyWebsite, secpRegistrationNumber, officialDocUrl } = req.body;

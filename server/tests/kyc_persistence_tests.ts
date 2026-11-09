@@ -240,6 +240,108 @@ export async function runKycPersistenceTests() {
       throw new Error('Legacy import failed to preserve existing DB record');
     }
 
+    // 9. Pending + Verified records for the same user cannot coexist
+    const pendingVerifiedUserId = `user_pv_${testRunId}`;
+    const verReq: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_ver_${Date.now()}`,
+      userId: pendingVerifiedUserId,
+      status: 'Verified',
+      badgeLevel: 'Top Employer'
+    };
+    await KycRepository.createRequest(verReq, coll);
+    createdIds.push(verReq.id);
+
+    let verDuplicateCaught = false;
+    try {
+      await KycRepository.createRequest({
+        ...newReqInput,
+        id: `kyc_pend_attempt_${Date.now()}`,
+        userId: pendingVerifiedUserId,
+        status: 'Pending'
+      }, coll);
+    } catch (err: any) {
+      if (err?.message?.includes('Duplicate')) {
+        verDuplicateCaught = true;
+      }
+    }
+    if (!verDuplicateCaught) {
+      throw new Error('Pending + Verified coexistence block test failed: new Pending request was allowed for a Verified user.');
+    }
+
+    // 10. Rejected -> new Pending submission succeeds & releases active slot
+    const rejectedThenPendingUser = `user_rtp_${testRunId}`;
+    const firstReq: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_rtp_1_${Date.now()}`,
+      userId: rejectedThenPendingUser,
+      status: 'Pending'
+    };
+    await KycRepository.createRequest(firstReq, coll);
+    createdIds.push(firstReq.id);
+
+    const rejRes = await KycRepository.updateRequest(firstReq.id, {
+      status: 'Rejected',
+      rejectionReason: 'Invalid document upload'
+    }, coll);
+    if (!rejRes || rejRes.status !== 'Rejected') {
+      throw new Error('Rejection update failed to release active slot');
+    }
+
+    const secondReq: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_rtp_2_${Date.now()}`,
+      userId: rejectedThenPendingUser,
+      status: 'Pending'
+    };
+    const newPendingRes = await KycRepository.createRequest(secondReq, coll);
+    if (!newPendingRes || newPendingRes.status !== 'Pending') {
+      throw new Error('Rejected -> new Pending submission test failed');
+    }
+    createdIds.push(secondReq.id);
+
+    // 11. Index initialization failure & conflict detection test
+    const conflictUserId = `user_conflict_${testRunId}`;
+    await coll.insertOne({
+      id: `kyc_conf_1_${Date.now()}`,
+      userId: conflictUserId,
+      companyName: 'Conflict 1',
+      contactPerson: 'Owner 1',
+      email: `${conflictUserId}_1@corp.com`,
+      phone: '111',
+      ntnOrTaxNumber: '111',
+      companyWebsite: 'https://c1.com',
+      submittedAt: new Date().toISOString(),
+      status: 'Pending',
+      badgeLevel: 'Standard Verified'
+    });
+    await coll.insertOne({
+      id: `kyc_conf_2_${Date.now()}`,
+      userId: conflictUserId,
+      companyName: 'Conflict 2',
+      contactPerson: 'Owner 2',
+      email: `${conflictUserId}_2@corp.com`,
+      phone: '222',
+      ntnOrTaxNumber: '222',
+      companyWebsite: 'https://c2.com',
+      submittedAt: new Date().toISOString(),
+      status: 'Verified',
+      badgeLevel: 'Top Employer'
+    });
+    createdIds.push(`kyc_conf_1_${Date.now()}`, `kyc_conf_2_${Date.now()}`);
+
+    let conflictDetected = false;
+    try {
+      await KycRepository.ensureIndexes(coll);
+    } catch (err: any) {
+      if (err?.message?.includes('Database Conflict Error')) {
+        conflictDetected = true;
+      }
+    }
+    if (!conflictDetected) {
+      throw new Error('Index initialization conflict detection failed to fail closed on conflicting active records');
+    }
+
     console.log('[PASS] All KYC integration tests passed.');
   } catch (err: any) {
     console.error('[FAIL] KYC integration tests failed:', err);

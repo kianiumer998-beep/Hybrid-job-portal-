@@ -22,14 +22,37 @@ interface AdminEmployerKycHubProps {
 
 const isSafeUrl = (url?: string): boolean => {
   if (!url || typeof url !== 'string') return false;
-  const trimmed = url.trim().toLowerCase();
-  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('data:') || lower.startsWith('blob:') || lower.startsWith('javascript:')) {
     return false;
   }
-  return (
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('/')
-  );
+  if (trimmed.startsWith('//') || trimmed.startsWith('\\') || trimmed.startsWith('/\\') || trimmed.startsWith('///')) {
+    return false;
+  }
+
+  if (lower.startsWith('https://')) {
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  if (trimmed.startsWith('/')) {
+    if (trimmed.length > 1 && (trimmed[1] === '/' || trimmed[1] === '\\')) {
+      return false;
+    }
+    if (trimmed.includes('\\')) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 };
 
 export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {

@@ -109,7 +109,7 @@ export async function runCurrencyPersistenceTests() {
         await client.connect();
         const coll = client.db().collection('test_system_settings_isolated');
         
-        // Integration 3.1: Save/Reload
+        // 3.1: Save/Reload
         const key = `key_${runTimestamp}_${Math.random()}`;
         const payload = { ...INITIAL_CURRENCY_CONFIG, rates: { USD: 0.00359 } };
         await CurrencyRepository.saveConfig(payload, coll, key);
@@ -118,10 +118,10 @@ export async function runCurrencyPersistenceTests() {
         const res = await CurrencyRepository.getConfig(coll, key);
         assert(res.isConfigured === true && res.config.rates.USD === 0.00359, '3.1: saveConfig/getConfig() integration', 'integration');
 
-        // Integration 3.2: Missing doc
+        // 3.2: Missing doc
         assert((await CurrencyRepository.getConfig(coll, `missing_${runTimestamp}`)).isConfigured === false, '3.2: Missing doc → isConfigured=false', 'integration');
 
-        // Integration 3.3: Invalid existing doc
+        // 3.3: Invalid existing doc
         const invDocKey = `inv_${runTimestamp}_${Math.random()}`;
         await coll.insertOne({ key: invDocKey, config: { rates: { USD: -99 } } });
         createdKeys.push({ key: invDocKey, id: '3.3' });
@@ -130,7 +130,7 @@ export async function runCurrencyPersistenceTests() {
           assert(false, '3.3: Invalid doc → Error', 'integration');
         } catch (err: any) { assert(err.message.includes('Data Integrity Error'), '3.3: Invalid doc → Data Integrity Error', 'integration'); }
 
-        // Integration 3.4: Invalid rate rejection in DB
+        // 3.4: Invalid rate rejection in DB
         const invRateKey = `invRate_${runTimestamp}_${Math.random()}`;
         try {
           await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invRateKey);
@@ -143,14 +143,14 @@ export async function runCurrencyPersistenceTests() {
       } catch (err: any) { assert(false, '3.0: Database integration test execution error', 'integration', err?.message); }
       finally {
         if (client) {
-          try {
-            const coll = client.db().collection('test_system_settings_isolated');
-            for (const item of createdKeys) { 
+          const coll = client.db().collection('test_system_settings_isolated');
+          for (const item of createdKeys) { 
+            try {
               const deleted = await coll.deleteOne({ key: item.key });
-              if (deleted.deletedCount !== 1) { console.error(`[CLEANUP FAILED] Key: ${item.key}`); cleanupFailures++; }
-            }
-          } catch (cleanupErr: any) { console.error('[CLEANUP FAILED]', cleanupErr); cleanupFailures++; }
-          await client.close().catch((closeErr) => { console.error('[CLOSE FAILED]', closeErr); cleanupFailures++; });
+              if (deleted.deletedCount !== 1) throw new Error(`Deleted count ${deleted.deletedCount}`);
+            } catch (cleanupErr: any) { console.error(`[CLEANUP FAILED] Key: ${item.key}`, cleanupErr); cleanupFailures++; }
+          }
+          try { await client.close(); } catch (closeErr) { console.error('[CLOSE FAILED]', closeErr); cleanupFailures++; }
         }
       }
     }

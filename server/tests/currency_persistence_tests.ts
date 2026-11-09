@@ -26,12 +26,9 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
   const testInfo = parseDbInfo(cleanTest);
 
   if (!prodInfo || !testInfo) return { safe: false, reason: 'Invalid MongoDB URI format.' };
-  
-  // HOST/PORT equality AND DATABASE name inequality are REQUIRED for cluster isolation.
   if (prodInfo.host !== testInfo.host || prodInfo.port !== testInfo.port) return { safe: false, reason: 'Test and Production database must share the same host and port for safe isolation.' };
   if (prodInfo.dbName === testInfo.dbName) return { safe: false, reason: 'Test database name must be different from production database name.' };
   if (prodInfo.dbName === 'admin' || testInfo.dbName === 'admin') return { safe: false, reason: 'Cannot safely use "admin" database.' };
-  
   return { safe: true };
 }
 
@@ -64,13 +61,18 @@ export async function runCurrencyPersistenceTests() {
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: 'invalid' as any } }).valid === false, '1.3: Rejects non-numeric rate', 'unit');
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, internationalPricingTiers: { ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers, featuredJobFee: { USD: -100 } } }).valid === false, '1.4: Rejects negative fee tier', 'unit');
   
-  // Legacy LocalStorage payload compatibility test
+  // LocalStorage compatibility test
   const KEY = 'career_pak_currency_config';
+  const mockStorage = new Map<string, string>();
   const fixture = { ...INITIAL_CURRENCY_CONFIG };
-  const serialized = JSON.stringify(fixture);
-  const parsed = JSON.parse(serialized);
-  assert(KEY === 'career_pak_currency_config', '1.5a: Uses exact legacy LocalStorage key', 'unit');
-  assert(validateCurrencyConfig(parsed).valid === true, '1.5b: Validates genuine legacy LocalStorage payload structure', 'unit');
+  mockStorage.set(KEY, JSON.stringify(fixture));
+  const retrieved = mockStorage.get(KEY);
+  assert(retrieved !== undefined, '1.5a: Retrieves from LocalStorage key', 'unit');
+  const parsed = JSON.parse(retrieved!);
+  const val = validateCurrencyConfig(parsed);
+  assert(val.valid === true, '1.5b: Validates genuine legacy LocalStorage payload structure', 'unit');
+  assert(val.sanitized?.baseCurrency === fixture.baseCurrency, '1.5c: baseCurrency survives serialization', 'unit');
+  assert(Object.keys(val.sanitized?.rates || {}).length > 0, '1.5d: rates survive serialization', 'unit');
   
   assert(validateCurrencyConfig({ baseCurrency: 'PKR', rates: { USD: -5 } }).valid === false, '1.6: Invalid doc structure rejection', 'unit');
 
@@ -165,7 +167,7 @@ export async function runCurrencyPersistenceTests() {
     }
   }
 
-  console.log(`\nRESULTS: ${unit.p} Unit PASS, ${config.p} Config PASS, ${integration.p} Integration PASS, ${unit.f + config.f + integration.f} FAIL, ${integration.nr} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
+  console.log(`\nRESULTS: ${unit.p + config.p + integration.p} PASS (${unit.p} unit, ${config.p} config, ${integration.p} integration), ${unit.f + config.f + integration.f} FAIL, ${integration.nr} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
   if (unit.f + config.f + integration.f > 0 || cleanupFailures > 0) throw new Error('Tests failed or cleanup error.');
 }
 

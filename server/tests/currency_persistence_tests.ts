@@ -1,6 +1,7 @@
 import { CurrencyRepository, validateCurrencyConfig } from '../db/repositories/CurrencyRepository';
 import { INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
-import { isMongoConfigured, getMongoDb } from '../db/mongodb';
+import { isMongoConfigured } from '../db/mongodb';
+import { MongoClient } from 'mongodb';
 
 export async function runCurrencyPersistenceTests() {
   console.log('====================================================');
@@ -26,7 +27,7 @@ export async function runCurrencyPersistenceTests() {
     notRun++;
   }
 
-  // 1. Validation Rules & Rejection Integrity (In-Memory Unit Tests)
+  // 1. Validation Rules & Data Integrity (In-Memory Unit Tests)
   console.log('--- 1. Validation Rules & Data Integrity ---');
   const invalidCodeConfig = {
     ...INITIAL_CURRENCY_CONFIG,
@@ -68,8 +69,8 @@ export async function runCurrencyPersistenceTests() {
   const val4 = validateCurrencyConfig(negativeTierConfig);
   assert(val4.valid === false, '1.4: Rejects negative fee tier value');
 
-  // 2. Legacy Migration Payload Validation
-  console.log('\n--- 2. Legacy Migration Payload Safety ---');
+  // 2. Migration Payload & Document Integrity Rules
+  console.log('\n--- 2. Migration Payload & Document Integrity Rules ---');
   const legacyPayload = {
     ...INITIAL_CURRENCY_CONFIG,
     rates: {
@@ -80,9 +81,15 @@ export async function runCurrencyPersistenceTests() {
   const legacyVal = validateCurrencyConfig(legacyPayload);
   assert(legacyVal.valid === true && legacyVal.sanitized?.rates.USD === 0.00362, '2.1: Valid legacy LocalStorage payload validates safely');
 
-  // 3. Database Write Isolation Protection
-  console.log('\n--- 3. Database Write Isolation & Safety ---');
-  const testDbUri = process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI;
+  // Test data integrity validation for invalid document payloads
+  const invalidDocPayload = { baseCurrency: 'PKR', rates: { USD: -5 } };
+  const invalidVal = validateCurrencyConfig(invalidDocPayload);
+  assert(invalidVal.valid === false && Boolean(invalidVal.message), '2.2: Invalid existing document structure generates explicit validation error');
+
+  // 3. Database Connection Safety & Write Isolation
+  console.log('\n--- 3. Database Connection Safety & Write Isolation ---');
+  const prodDbUri = (process.env.MONGODB_URI || '').trim();
+  const testDbUri = (process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI || '').trim();
 
   if (!isMongoConfigured()) {
     const unconfiguredGet = await CurrencyRepository.getConfig();
@@ -96,21 +103,38 @@ export async function runCurrencyPersistenceTests() {
       assert(err.message.includes('MONGODB_URI is not configured'), '3.3: Unconfigured Mongo saveConfig throws clear error');
     }
   } else if (!testDbUri) {
-    // Production MONGODB_URI is configured, but dedicated TEST_MONGODB_URI is absent.
-    // Strict requirement: Never write test rates or modify/delete production currency_exchange_config document.
-    reportNotRun('3.1: Write test to production system_settings', 'Dedicated TEST_MONGODB_URI environment variable not provided. Production database write skipped to prevent pollution.');
-    reportNotRun('3.2: Verification of reload after save', 'Skipped due to production DB write protection.');
+    reportNotRun('3.1: Isolated Database Integration Write Test', 'Dedicated TEST_MONGODB_URI environment variable is not configured. Production database write skipped.');
+    reportNotRun('3.2: Database Persistence Reload Verification', 'Skipped due to absence of isolated test database URI.');
+  } else if (prodDbUri && testDbUri === prodDbUri) {
+    reportNotRun('3.1: Isolated Database Integration Write Test', 'TEST_MONGODB_URI resolves to the same connection string as production MONGODB_URI. Refusing to run tests to prevent production database mutation.');
+    reportNotRun('3.2: Database Persistence Reload Verification', 'Skipped to protect production database settings.');
   } else {
-    // Dedicated TEST_MONGODB_URI is provided. Run safe isolated integration test on test DB.
-    console.log('  [INFO] Dedicated TEST_MONGODB_URI detected. Running isolated database write test...');
+    console.log('  [INFO] Independent TEST_MONGODB_URI detected. Running safe isolated test on dedicated test client...');
+    let testClient: MongoClient | null = null;
     try {
-      const db = await getMongoDb();
-      const testCollection = db.collection('test_system_settings');
-      await testCollection.insertOne({ key: 'test_isolated', testAt: new Date().toISOString() });
-      await testCollection.deleteOne({ key: 'test_isolated' });
-      assert(true, '3.1: Successfully performed isolated DB test write on dedicated test database');
-    } catch (e: any) {
-      assert(false, '3.1: Dedicated test database write failed', e?.message);
+      testClient = new MongoClient(testDbUri);
+      await testClient.connect();
+      const testDb = testClient.db();
+      const testColl = testDb.collection('test_system_settings_isolated');
+
+      const testDoc = {
+        key: 'test_currency_exchange_config',
+        config: INITIAL_CURRENCY_CONFIG,
+        createdAt: new Date().toISOString()
+      };
+
+      await testColl.insertOne(testDoc);
+      const fetched = await testColl.findOne({ key: 'test_currency_exchange_config' });
+      assert(Boolean(fetched && fetched.config), '3.1: Dedicated test client writes and retrieves isolated test document safely');
+
+      await testColl.deleteOne({ key: 'test_currency_exchange_config' });
+      assert(true, '3.2: Cleaned up isolated test document from dedicated test database');
+    } catch (err: any) {
+      assert(false, '3.1: Dedicated test database execution failed', err?.message);
+    } finally {
+      if (testClient) {
+        await testClient.close().catch(() => {});
+      }
     }
   }
 

@@ -147,9 +147,14 @@ export async function runCurrencyPersistenceTests() {
         const invRateKey = `invRate_${runTimestamp}_${Math.random()}`;
         try {
           await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invRateKey);
-          assert(false, '3.4: saveConfig() rejects invalid rate in DB', 'integration');
+          createdKeys.push({ key: invRateKey, id: '3.4' });
+          assert(false, '3.4: saveConfig() unexpectedly succeeded with invalid rate', 'integration');
         } catch (err: any) {
-          assert(err.message.includes('Validation Error'), '3.4: saveConfig() rejects invalid rate in DB', 'integration');
+          if (err.message.includes('Validation Error')) {
+            assert(true, '3.4: saveConfig() rejects invalid rate in DB', 'integration');
+          } else {
+            assert(false, '3.4: saveConfig() unexpected error', 'integration', err.message);
+          }
         }
         
       } catch (err: any) { assert(false, '3.0: Database integration test execution error', 'integration', err?.message); }

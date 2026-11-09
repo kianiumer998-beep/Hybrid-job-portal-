@@ -333,7 +333,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                     ? 'Processing...' 
                     : (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)
                       ? 'Channel Disabled'
-                      : 'Schedule Broadcast Now'}
+                      : 'Save Broadcast Draft'}
                 </span>
               </button>
             </div>
@@ -373,13 +373,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                   )}
                 </div>
 
-                <div className="text-[9px] text-slate-600 text-right font-mono">
-                  Delivered • Today {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div className="text-[9px] text-slate-500 text-right font-mono">
+                  Preview Only
                 </div>
               </div>
 
-              <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[11px] text-indigo-300">
-                ⚡ <strong>Instant Delivery:</strong> High-priority routing via Meta WhatsApp Business & SendGrid Dedicated IP pool.
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] text-slate-400">
+                ℹ️ <strong>Campaign Preview:</strong> Visual representation of message formatting for selected communication channels.
               </div>
             </div>
           </div>
@@ -407,12 +407,22 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                       {camp.channel}
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                      camp.status === 'Draft'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : camp.status === 'Sent'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : 'bg-slate-700/30 text-slate-300 border-slate-600/30'
+                    }`}>
                       {camp.status}
                     </span>
                   </div>
                   <div className="text-slate-400 text-xs font-mono">
-                    Sent at: {camp.sentAt} • Audience: <span className="text-amber-400">{camp.targetAudience}</span> ({camp.recipientsCount} Delivered)
+                    {camp.status === 'Draft' ? (
+                      <>Status: <span className="text-amber-400">Draft</span> • Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach)</>
+                    ) : (
+                      <>{camp.sentAt ? `Sent at: ${camp.sentAt} • ` : ''}Audience: <span className="text-amber-400">{camp.targetAudience}</span> (~{camp.recipientsCount} Estimated Reach)</>
+                    )}
                   </div>
                   <div className="text-slate-500 text-[11px] line-clamp-1">
                     "{camp.messageBody}"
@@ -420,13 +430,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-4 font-mono text-right">
-                  {camp.openRate && (
+                  {camp.status !== 'Draft' && camp.openRate !== undefined && camp.openRate > 0 && (
                     <div>
                       <span className="text-[10px] text-slate-500 block uppercase">Open Rate</span>
                       <span className="font-bold text-emerald-400">{camp.openRate}%</span>
                     </div>
                   )}
-                  {camp.clickRate && (
+                  {camp.status !== 'Draft' && camp.clickRate !== undefined && camp.clickRate > 0 && (
                     <div>
                       <span className="text-[10px] text-slate-500 block uppercase">Click CTR</span>
                       <span className="font-bold text-amber-400">{camp.clickRate}%</span>

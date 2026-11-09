@@ -27,18 +27,27 @@ interface AdminWhatsAppManagerProps {
   subscribersCount?: number;
 }
 
-const isRealGroupLink = (link?: string | null): boolean => {
+const isValidWhatsAppGroupLink = (link?: string | null): boolean => {
+  if (!link || typeof link !== 'string') return false;
+  const trimmed = link.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === 'chat.whatsapp.com' || host === 'whatsapp.com' || host.endsWith('.whatsapp.com');
+  } catch {
+    return false;
+  }
+};
+
+const isRealWhatsAppGroupLink = (link?: string | null): boolean => {
   if (!link || typeof link !== 'string') return false;
   const trimmed = link.trim();
   if (!trimmed) return false;
   if (trimmed === DEFAULT_WHATSAPP_CONFIG.groupLink) return false;
   if (trimmed === 'https://chat.whatsapp.com/sampleCareerPakCommunity') return false;
-  try {
-    const parsed = new URL(trimmed);
-    return Boolean(parsed.protocol && parsed.host);
-  } catch {
-    return false;
-  }
+  return isValidWhatsAppGroupLink(trimmed);
 };
 
 export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
@@ -47,11 +56,11 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   subscribersCount = 0
 }) => {
   const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => {
-    let resolvedGroupLink = isRealGroupLink(config?.groupLink) ? config.groupLink : undefined;
+    let resolvedGroupLink = isRealWhatsAppGroupLink(config?.groupLink) ? config.groupLink : undefined;
     if (!resolvedGroupLink) {
       try {
         const legacy = localStorage.getItem('hybrid_whatsapp_group_link');
-        if (isRealGroupLink(legacy)) {
+        if (isRealWhatsAppGroupLink(legacy)) {
           resolvedGroupLink = legacy!.trim();
         }
       } catch {}
@@ -76,7 +85,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     if (hasAttemptedMigrationRef.current) return;
 
     // Rule 1 & 3: Existing MongoDB saved Group Link must always take priority over legacy LocalStorage
-    if (isRealGroupLink(config?.groupLink)) {
+    if (isRealWhatsAppGroupLink(config?.groupLink)) {
       return;
     }
 
@@ -86,7 +95,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     } catch {}
 
     // Rule 2 & 7: If MongoDB has no saved Group Link and a valid legacy LocalStorage value exists (not placeholder), migrate it to MongoDB
-    if (isRealGroupLink(legacyLink)) {
+    if (isRealWhatsAppGroupLink(legacyLink)) {
       hasAttemptedMigrationRef.current = true;
       const validLink = legacyLink!.trim();
       const payload: WhatsAppSupportConfig = {
@@ -97,8 +106,11 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
 
       Promise.resolve(onUpdateConfig(payload))
         .then((res: any) => {
-          // Rule 5: Do not delete legacy LocalStorage value until backend confirmation
-          const isSuccess = res === true || res?.success === true || (res && typeof res === 'object' && !res.error && res.status !== 'error');
+          // Rule 5: Treat migration as successful only when the backend explicitly confirms success.
+          // Do not delete legacy LocalStorage on undefined, malformed, or unsuccessful responses.
+          const isSuccess = Boolean(
+            res === true || (res && typeof res === 'object' && res.success === true)
+          );
           if (isSuccess) {
             try {
               localStorage.removeItem('hybrid_whatsapp_group_link');
@@ -125,7 +137,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     if (config) {
       setFormData(prev => {
         let resolvedLink = prev.groupLink;
-        if (isRealGroupLink(config.groupLink)) {
+        if (isRealWhatsAppGroupLink(config.groupLink)) {
           resolvedLink = config.groupLink;
         }
         return {
@@ -151,17 +163,19 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     setIsSaving(true);
     try {
       if (formData.groupLink && formData.groupLink.trim()) {
-        try {
-          new URL(formData.groupLink.trim());
-        } catch {
-          setSaveError('Validation Error: Please enter a valid URL for the WhatsApp Group Link.');
+        const trimmedLink = formData.groupLink.trim();
+        if (!isValidWhatsAppGroupLink(trimmedLink)) {
+          setSaveError('Validation Error: Please enter a valid HTTPS WhatsApp invite link (e.g., https://chat.whatsapp.com/...).');
           setIsSaving(false);
           return;
         }
       }
 
       const result = await onUpdateConfig(formData);
-      if (result === false) {
+      const isSaveSuccess = Boolean(
+        result === true || (result && typeof result === 'object' && result.success === true)
+      );
+      if (!isSaveSuccess) {
         setSaveError('Failed to save WhatsApp support configuration to server. Form values retained.');
         setIsSaving(false);
         return;

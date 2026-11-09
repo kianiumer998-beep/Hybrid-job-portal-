@@ -651,6 +651,24 @@ export const api = {
     async getAll() {
       return safeFetchJson(`${API_BASE}/kyc/requests`, { headers: getAuthHeader() });
     },
+    async getMyRequest() {
+      return safeFetchJson(`${API_BASE}/kyc/my-request`, { headers: getAuthHeader() });
+    },
+    async submitRequest(data: {
+      companyName: string;
+      contactPerson: string;
+      phone: string;
+      ntnOrTaxNumber: string;
+      companyWebsite: string;
+      secpRegistrationNumber?: string;
+      officialDocUrl?: string;
+    }) {
+      return safeFetchJson(`${API_BASE}/kyc/requests`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
     async updateRequest(id: string, updates: any) {
       return safeFetchJson(`${API_BASE}/kyc/requests/${id}`, {
         method: 'PATCH',

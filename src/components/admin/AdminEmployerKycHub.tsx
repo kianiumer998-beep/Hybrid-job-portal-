@@ -20,6 +20,17 @@ interface AdminEmployerKycHubProps {
   // We will load from API instead of prop
 }
 
+const isSafeUrl = (url?: string): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim().toLowerCase();
+  return (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('data:')
+  );
+};
+
 export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
   const [requests, setRequests] = useState<EmployerKycRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,27 +46,31 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
         // Check for legacy migration
         const legacy = localStorage.getItem('career_pak_kyc_requests');
         if (legacy) {
-          const parsed = JSON.parse(legacy);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const res = await api.kyc.importLegacy(parsed);
-            if (res.success && res.invalid === 0) {
-              localStorage.removeItem('career_pak_kyc_requests');
-            } else if (res.invalid > 0) {
-              setError('Some legacy records were invalid and could not be migrated. Please review manually.');
-            } else {
-              setError('Failed to migrate legacy records.');
+          try {
+            const parsed = JSON.parse(legacy);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const res = await api.kyc.importLegacy(parsed);
+              if (res.success && res.invalid === 0) {
+                localStorage.removeItem('career_pak_kyc_requests');
+              } else if (res.invalid > 0) {
+                setError(`Some legacy records (${res.invalid}) were invalid and could not be automatically migrated. Local data has been preserved for manual review.`);
+              } else {
+                setError('Failed to migrate legacy records.');
+              }
             }
+          } catch (migErr: any) {
+            setError('Error processing legacy KYC requests during migration.');
           }
         }
         
         const res = await api.kyc.getAll();
-        if (res.success) {
+        if (res.success && Array.isArray(res.requests)) {
           setRequests(res.requests);
         } else {
-          setError(res.message || 'Failed to load requests');
+          setError(res?.message || 'Failed to load requests');
         }
       } catch (err: any) {
-        setError(err.message || 'Failed to load requests');
+        setError(err?.message || 'Failed to load requests');
       } finally {
         setLoading(false);
       }
@@ -83,12 +98,12 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
         status: 'Verified',
         badgeLevel: badge
       });
-      if (res.success) {
+      if (res.success && res.request) {
         setRequests(requests.map(r => r.id === req.id ? res.request : r));
         setSelectedKyc(null);
         alert(`✅ Employer "${req.companyName}" has been successfully VERIFIED with ${badge} status!`);
       } else {
-        alert('Failed to approve: ' + res.message);
+        alert('Failed to approve: ' + (res?.message || 'Unknown error'));
       }
     } catch (err: any) {
       alert('Failed to approve: ' + err.message);
@@ -101,23 +116,29 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
         status: 'Rejected',
         rejectionReason: reason
       });
-      if (res.success) {
+      if (res.success && res.request) {
         setRequests(requests.map(r => r.id === req.id ? res.request : r));
         setSelectedKyc(null);
         alert(`⛔ KYC Request for "${req.companyName}" rejected. Reason logged.`);
       } else {
-        alert('Failed to reject: ' + res.message);
+        alert('Failed to reject: ' + (res?.message || 'Unknown error'));
       }
     } catch (err: any) {
       alert('Failed to reject: ' + err.message);
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center p-20 text-white"><Loader2 className="w-8 h-8 animate-spin" /></div>;
-  if (error) return <div className="p-20 text-center text-rose-400">Error: {error}</div>;
+  if (loading) return <div className="flex items-center justify-center p-20 text-white"><Loader2 className="w-8 h-8 animate-spin text-cyan-400" /></div>;
 
   return (
     <div className="space-y-6 text-white">
+      {error && (
+        <div className="p-4 bg-rose-950/40 border border-rose-500/40 rounded-2xl text-rose-300 text-xs flex items-center justify-between">
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)} className="text-rose-400 hover:text-white font-bold ml-4">Dismiss</button>
+        </div>
+      )}
+
       {/* Top Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -262,15 +283,19 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 uppercase block font-sans font-bold">Official Website</span>
-                <a
-                  href={req.companyWebsite}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-cyan-400 hover:underline flex items-center space-x-1"
-                >
-                  <span className="line-clamp-1">{req.companyWebsite.replace('https://', '')}</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                {isSafeUrl(req.companyWebsite) ? (
+                  <a
+                    href={req.companyWebsite}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-cyan-400 hover:underline flex items-center space-x-1"
+                  >
+                    <span className="line-clamp-1">{req.companyWebsite.replace('https://', '').replace('http://', '')}</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <span className="text-slate-400 font-sans italic">Not provided</span>
+                )}
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 uppercase block font-sans font-bold">Submitted At</span>
@@ -301,21 +326,30 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
             <div className="space-y-4 text-xs">
               <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
                 <span className="text-xs font-bold text-amber-400 uppercase">Attached Verification Documents</span>
-                <div className="flex items-center justify-between p-3 bg-slate-900 rounded-xl border border-slate-800">
-                  <div className="flex items-center space-x-2">
-                    <FileText className="w-5 h-5 text-cyan-400" />
-                    <div>
-                      <div className="font-bold text-white">SECP_Incorporation_&_NTN_Certificate.pdf</div>
-                      <div className="text-[10px] text-slate-500">Official Government PDF Document</div>
+                {selectedKyc.officialDocUrl && isSafeUrl(selectedKyc.officialDocUrl) ? (
+                  <div className="flex items-center justify-between p-3 bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="flex items-center space-x-2 overflow-hidden">
+                      <FileText className="w-5 h-5 text-cyan-400 shrink-0" />
+                      <div className="overflow-hidden">
+                        <div className="font-bold text-white truncate max-w-xs">{selectedKyc.officialDocUrl}</div>
+                        <div className="text-[10px] text-slate-500">Official Verification Document</div>
+                      </div>
                     </div>
+                    <a
+                      href={selectedKyc.officialDocUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg border border-slate-700 inline-flex items-center space-x-1 shrink-0"
+                    >
+                      <span>View Document</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
-                  <button
-                    onClick={() => alert(`Opening verified document: ${selectedKyc.officialDocUrl}`)}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg border border-slate-700"
-                  >
-                    View Document →
-                  </button>
-                </div>
+                ) : (
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800/60 text-slate-400 text-xs italic">
+                    No verification document uploaded
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2 pt-2">

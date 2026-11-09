@@ -16,6 +16,29 @@ export const KycRepository = {
     return dbColl.find({}).toArray();
   },
 
+  async getByUserId(userId: string, coll?: Collection<EmployerKycRequest>): Promise<EmployerKycRequest | null> {
+    const dbColl = await this.getCollection(coll);
+    const records = await dbColl.find({ userId }).sort({ submittedAt: -1 }).limit(1).toArray();
+    return records[0] || null;
+  },
+
+  async createRequest(newReq: EmployerKycRequest, coll?: Collection<EmployerKycRequest>): Promise<EmployerKycRequest> {
+    const dbColl = await this.getCollection(coll);
+    
+    // Duplicate check: prevent duplicate submission if an active ('Pending') or 'Verified' request exists for this user
+    const existing = await dbColl.findOne({
+      userId: newReq.userId,
+      status: { $in: ['Pending', 'Verified'] }
+    });
+
+    if (existing) {
+      throw new Error('Duplicate Request Error: An active or verified KYC request already exists for this employer.');
+    }
+
+    await dbColl.insertOne(newReq);
+    return newReq;
+  },
+
   async updateRequest(id: string, updateData: Partial<EmployerKycRequest>, coll?: Collection<EmployerKycRequest>): Promise<EmployerKycRequest | null> {
     const dbColl = await this.getCollection(coll);
     
@@ -92,25 +115,11 @@ export const KycRepository = {
           sanitized.rejectionReason = req.rejectionReason.trim();
         }
 
-        // Validate verifiedAt and verifiedBy whenever supplied (regardless of status)
-        const auditFields: (keyof EmployerKycRequest)[] = ['verifiedAt', 'verifiedBy'];
-        for (const field of auditFields) {
-          if (req[field] !== undefined) {
-            const val = req[field];
-            if (typeof val !== 'string' || val.trim() === '') {
-              isRecordInvalid = true;
-              break;
-            }
-            sanitized[field] = val.trim();
-          }
-        }
-        if (isRecordInvalid) { invalid++; continue; }
-
-        // Additional allowlisted optional fields
-        const optionalFields: (keyof EmployerKycRequest)[] = ['secpRegistrationNumber', 'officialDocUrl'];
+        // Validate optional audit & legacy fields whenever supplied as non-null
+        const optionalFields: (keyof EmployerKycRequest)[] = ['verifiedAt', 'verifiedBy', 'secpRegistrationNumber', 'officialDocUrl'];
         for (const field of optionalFields) {
-          if (req[field] !== undefined) {
-            const val = req[field];
+          const val = req[field];
+          if (val !== undefined && val !== null) {
             if (typeof val !== 'string' || val.trim() === '') {
               isRecordInvalid = true;
               break;

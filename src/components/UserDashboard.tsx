@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { UserAccount, Job, JobType, Region, ChatMessage, PaymentTransaction, JobApplication, Currency, GOVT_DEPT_OPTIONS, GOVT_SCALE_OPTIONS, GOVT_CADRE_OPTIONS, NEWSPAPER_OPTIONS, JobPostingPricingConfig, DEFAULT_JOB_POSTING_PRICING_CONFIG, FeePaymentData } from '../types/job';
 import { Advertisement, AdPricingConfig, DEFAULT_AD_PRICING_CONFIG, CampaignCustomizationConfig } from '../types/ad';
+import { EmployerKycRequest } from '../types/adminSuite';
 import { UserCampaignHub } from './ads/UserCampaignHub';
 import { PAKISTAN_LOCATIONS } from '../data/pakistanLocations';
 import { api } from '../services/api';
@@ -164,6 +165,68 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState<boolean>(false);
   const [showNotificationDrawer, setShowNotificationDrawer] = useState<boolean>(false);
+
+  // Employer KYC State
+  const [myKycRequest, setMyKycRequest] = useState<EmployerKycRequest | null>(null);
+  const [isLoadingKyc, setIsLoadingKyc] = useState<boolean>(false);
+  const [kycSubmitStatus, setKycSubmitStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isSubmittingKyc, setIsSubmittingKyc] = useState<boolean>(false);
+
+  const [kycCompany, setKycCompany] = useState<string>(currentUser?.companyName || '');
+  const [kycContact, setKycContact] = useState<string>(currentUser?.name || '');
+  const [kycPhone, setKycPhone] = useState<string>(currentUser?.phone || '');
+  const [kycNtn, setKycNtn] = useState<string>('');
+  const [kycWebsite, setKycWebsite] = useState<string>('');
+  const [kycSecp, setKycSecp] = useState<string>('');
+  const [kycDocUrl, setKycDocUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (currentUser?.role === 'Employer/Job Poster') {
+      let isMounted = true;
+      const fetchMyKyc = async () => {
+        setIsLoadingKyc(true);
+        try {
+          const res = await api.kyc.getMyRequest();
+          if (isMounted && res && res.success) {
+            setMyKycRequest(res.request || null);
+          }
+        } catch (e) {}
+        finally {
+          if (isMounted) setIsLoadingKyc(false);
+        }
+      };
+      fetchMyKyc();
+      return () => { isMounted = false; };
+    }
+  }, [currentUser?.role, currentUser?.id]);
+
+  const handleKycSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmittingKyc) return;
+    setIsSubmittingKyc(true);
+    setKycSubmitStatus(null);
+    try {
+      const res = await api.kyc.submitRequest({
+        companyName: kycCompany,
+        contactPerson: kycContact,
+        phone: kycPhone,
+        ntnOrTaxNumber: kycNtn,
+        companyWebsite: kycWebsite,
+        secpRegistrationNumber: kycSecp.trim() || undefined,
+        officialDocUrl: kycDocUrl.trim() || undefined
+      });
+      if (res && res.success && res.request) {
+        setMyKycRequest(res.request);
+        setKycSubmitStatus({ type: 'success', message: 'KYC Verification request submitted successfully! It is now under review by moderation.' });
+      } else {
+        setKycSubmitStatus({ type: 'error', message: res?.message || 'Failed to submit KYC request.' });
+      }
+    } catch (err: any) {
+      setKycSubmitStatus({ type: 'error', message: err?.message || 'Error submitting KYC request.' });
+    } finally {
+      setIsSubmittingKyc(false);
+    }
+  };
 
   const currentUserId = currentUser?.id;
   const activeUserIdRef = useRef<string | undefined>(currentUserId);
@@ -2148,6 +2211,219 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </form>
           </div>
+
+          {/* EMPLOYER BUSINESS VERIFICATION (KYC) CARD */}
+          {currentUser.role === 'Employer/Job Poster' && (
+            <div className="lg:col-span-12 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 shadow-xl">
+              <div className="border-b border-slate-800 pb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
+                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                    <span>Employer Business Verification (KYC)</span>
+                  </h3>
+                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                    Verify your business identity to display the Verified Employer badge and build trust with job seekers.
+                  </p>
+                </div>
+                {myKycRequest && (
+                  <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-full border ${
+                    myKycRequest.status === 'Verified'
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : myKycRequest.status === 'Rejected'
+                      ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  }`}>
+                    {myKycRequest.status === 'Verified' ? '✓ Verified Employer' : myKycRequest.status === 'Rejected' ? '✕ Verification Rejected' : '⏳ Pending Approval'}
+                  </span>
+                )}
+              </div>
+
+              {isLoadingKyc ? (
+                <div className="flex items-center space-x-2 py-4 text-xs text-slate-400">
+                  <Clock className="w-4 h-4 animate-spin text-emerald-400" />
+                  <span>Loading KYC verification details...</span>
+                </div>
+              ) : myKycRequest?.status === 'Verified' ? (
+                <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center space-x-2 text-emerald-400 font-bold text-sm">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    <span>Your Organization is Fully Verified!</span>
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    Your official verification badge is active on all your job postings.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs text-slate-300 border-t border-emerald-500/20">
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase font-bold">Company</span>
+                      <span className="font-semibold">{myKycRequest.companyName}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase font-bold">NTN / Tax #</span>
+                      <span className="font-mono font-semibold">{myKycRequest.ntnOrTaxNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase font-bold">Verified Date</span>
+                      <span className="font-semibold">{myKycRequest.verifiedAt ? new Date(myKycRequest.verifiedAt).toLocaleDateString() : 'Active'}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : myKycRequest?.status === 'Pending' ? (
+                <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center space-x-2 text-amber-400 font-bold text-sm">
+                    <Clock className="w-5 h-5 text-amber-400" />
+                    <span>Verification Request Under Administrative Review</span>
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    Your business documents and NTN registration details are currently being processed by our compliance team. You will be notified once reviewed.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs text-slate-300 border-t border-amber-500/20">
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase font-bold">Submitted Company</span>
+                      <span className="font-semibold">{myKycRequest.companyName}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase font-bold">NTN / Tax #</span>
+                      <span className="font-mono font-semibold">{myKycRequest.ntnOrTaxNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase font-bold">Status</span>
+                      <span className="font-semibold text-amber-400">Pending Review</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {myKycRequest?.status === 'Rejected' && (
+                    <div className="bg-rose-950/30 border border-rose-500/30 rounded-xl p-4 space-y-1 text-xs">
+                      <div className="flex items-center space-x-2 text-rose-400 font-bold">
+                        <AlertCircle className="w-4 h-4 text-rose-400" />
+                        <span>Previous Verification Request Rejected</span>
+                      </div>
+                      <p className="text-slate-300">
+                        Reason: <span className="text-rose-300 font-medium">{myKycRequest.rejectionReason || 'Required business tax or company document verification failed.'}</span>
+                      </p>
+                      <p className="text-slate-400 text-[11px] pt-1">
+                        Please review your details below and resubmit with valid verification information.
+                      </p>
+                    </div>
+                  )}
+
+                  {kycSubmitStatus && (
+                    <div className={`p-3.5 rounded-xl border text-xs font-medium flex items-center space-x-2 ${
+                      kycSubmitStatus.type === 'success'
+                        ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
+                        : 'bg-rose-950/50 border-rose-500/40 text-rose-300'
+                    }`}>
+                      {kycSubmitStatus.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
+                      <span>{kycSubmitStatus.message}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleKycSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-1">Company / Business Name *</label>
+                        <input
+                          type="text"
+                          value={kycCompany}
+                          onChange={(e) => setKycCompany(e.target.value)}
+                          required
+                          placeholder="Registered Organization Name"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-medium focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-1">Contact Person *</label>
+                        <input
+                          type="text"
+                          value={kycContact}
+                          onChange={(e) => setKycContact(e.target.value)}
+                          required
+                          placeholder="Authorized Representative Name"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-medium focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-1">Contact Phone *</label>
+                        <input
+                          type="text"
+                          value={kycPhone}
+                          onChange={(e) => setKycPhone(e.target.value)}
+                          required
+                          placeholder="+92 300 1234567"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-1">NTN / Tax ID Number *</label>
+                        <input
+                          type="text"
+                          value={kycNtn}
+                          onChange={(e) => setKycNtn(e.target.value)}
+                          required
+                          placeholder="e.g. 1234567-8"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-1">Company Website *</label>
+                        <input
+                          type="url"
+                          value={kycWebsite}
+                          onChange={(e) => setKycWebsite(e.target.value)}
+                          required
+                          placeholder="https://company.com"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-medium focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-1">SECP Reg # (Optional)</label>
+                        <input
+                          type="text"
+                          value={kycSecp}
+                          onChange={(e) => setKycSecp(e.target.value)}
+                          placeholder="e.g. 0012345"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">Official Document URL (Optional)</label>
+                      <input
+                        type="url"
+                        value={kycDocUrl}
+                        onChange={(e) => setKycDocUrl(e.target.value)}
+                        placeholder="https://drive.google.com/... or https://company.com/ntn.pdf"
+                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Link to SECP Registration, FBR NTN Certificate, or Business Incorporation Certificate.
+                      </p>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="submit"
+                        disabled={isSubmittingKyc}
+                        className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 hover:scale-105 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                      >
+                        {isSubmittingKyc && <Clock className="w-3.5 h-3.5 animate-spin text-slate-950" />}
+                        <span>{isSubmittingKyc ? 'Submitting Verification...' : 'Submit Verification Request'}</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
       )}

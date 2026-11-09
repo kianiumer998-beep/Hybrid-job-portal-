@@ -738,6 +738,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (e) {}
   }, [kycRequests]);
 
+  useEffect(() => {
+    let isMounted = true;
+    const fetchKycRequests = async () => {
+      try {
+        const res = await api.kyc.getAll();
+        if (isMounted && res && res.success && Array.isArray(res.requests)) {
+          setKycRequests(res.requests);
+        }
+      } catch (e) {}
+    };
+    fetchKycRequests();
+    return () => { isMounted = false; };
+  }, []);
+
   // WhatsApp Support Configuration State
   const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
     if (whatsAppSupportConfig) return { ...DEFAULT_WHATSAPP_CONFIG, ...whatsAppSupportConfig };

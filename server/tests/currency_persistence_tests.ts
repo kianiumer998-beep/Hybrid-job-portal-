@@ -164,17 +164,23 @@ export async function runCurrencyPersistenceTests() {
       assert(false, '3.2: Unconfigured Mongo saveConfig must throw', 'config');
     } catch (err: any) { assert(err.message.includes('MONGODB_URI is not configured'), '3.2: Unconfigured Mongo saveConfig throws clear error', 'config'); }
     
-    reportNotRun('Integration 3.1: Actual saveConfig/getConfig reload', 'Unconfigured environment');
-    reportNotRun('Integration 3.2: Missing doc isConfigured=false', 'Unconfigured environment');
-    reportNotRun('Integration 3.3: Invalid existing document error', 'Unconfigured environment');
-    reportNotRun('Integration 3.4: Invalid rate rejection in DB', 'Unconfigured environment');
+    reportNotRun('Integration 3.1: All eight currency rates survive save and reload', 'Unconfigured environment');
+    reportNotRun('Integration 3.2: All five pricing tiers survive save and reload', 'Unconfigured environment');
+    reportNotRun('Integration 3.3: Custom pricing tier values survive unchanged', 'Unconfigured environment');
+    reportNotRun('Integration 3.4: Missing supported currency rejection in DB', 'Unconfigured environment');
+    reportNotRun('Integration 3.5: Missing doc returns isConfigured=false', 'Unconfigured environment');
+    reportNotRun('Integration 3.6: Invalid existing document error', 'Unconfigured environment');
+    reportNotRun('Integration 3.7: Invalid rate rejection in DB', 'Unconfigured environment');
   } else {
     const sep = isSafeDistinctTestUri(prodDbUri, testDbUri);
     if (!sep.safe) {
-      reportNotRun('Integration 3.1: Actual saveConfig/getConfig reload', sep.reason || 'Isolation check failed');
-      reportNotRun('Integration 3.2: Missing doc isConfigured=false', sep.reason || 'Isolation check failed');
-      reportNotRun('Integration 3.3: Invalid existing document error', sep.reason || 'Isolation check failed');
-      reportNotRun('Integration 3.4: Invalid rate rejection in DB', sep.reason || 'Isolation check failed');
+      reportNotRun('Integration 3.1: All eight currency rates survive save and reload', sep.reason || 'Isolation check failed');
+      reportNotRun('Integration 3.2: All five pricing tiers survive save and reload', sep.reason || 'Isolation check failed');
+      reportNotRun('Integration 3.3: Custom pricing tier values survive unchanged', sep.reason || 'Isolation check failed');
+      reportNotRun('Integration 3.4: Missing supported currency rejection in DB', sep.reason || 'Isolation check failed');
+      reportNotRun('Integration 3.5: Missing doc returns isConfigured=false', sep.reason || 'Isolation check failed');
+      reportNotRun('Integration 3.6: Invalid existing document error', sep.reason || 'Isolation check failed');
+      reportNotRun('Integration 3.7: Invalid rate rejection in DB', sep.reason || 'Isolation check failed');
     } else {
       console.log('  [INFO] Safe distinct TEST_MONGODB_URI confirmed. Running integration tests...');
       let client: MongoClient | null = null;
@@ -186,38 +192,72 @@ export async function runCurrencyPersistenceTests() {
         await client.connect();
         const coll = client.db().collection('test_system_settings_isolated');
         
-        // Integration 3.1: Save/Reload
+        // Integration 3.1 & 3.2 & 3.3: Save custom payload with all 8 currencies and custom tier values
         const key = `key_${runTimestamp}_${Math.random()}`;
-        const payload = { ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: 0.00359 } };
-        await CurrencyRepository.saveConfig(payload, coll, key);
-        createdKeys.push({ key, id: '3.1' });
+        const customPayload = {
+          ...INITIAL_CURRENCY_CONFIG,
+          rates: {
+            ...INITIAL_CURRENCY_CONFIG.rates,
+            USD: 0.00359,
+            EUR: 0.00333
+          },
+          internationalPricingTiers: {
+            ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers,
+            featuredJobFee: { ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers.featuredJobFee, USD: 888 },
+            urgentBadgeFee: { ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers.urgentBadgeFee, EUR: 555 }
+          }
+        };
+        await CurrencyRepository.saveConfig(customPayload, coll, key);
+        createdKeys.push({ key, id: '3.1-3.3' });
         
-        const res = await CurrencyRepository.getConfig(coll, key);
-        assert(res.isConfigured === true && res.config.rates.USD === 0.00359, '3.1: saveConfig/getConfig() integration', 'integration');
+        const reloadRes = await CurrencyRepository.getConfig(coll, key);
+        assert(reloadRes.isConfigured === true, '3.1a: Document is configured after save', 'integration');
+        
+        // Assert all 8 currencies survive save/reload
+        const all8RatesSaved = ALLOWED_CURRENCIES.every(c => reloadRes.config.rates[c] !== undefined && reloadRes.config.rates[c] > 0);
+        assert(all8RatesSaved && reloadRes.config.rates.USD === 0.00359, '3.1b: All eight currency rates survive MongoDB save and reload', 'integration');
 
-        // Integration 3.2: Missing doc
-        assert((await CurrencyRepository.getConfig(coll, `missing_${runTimestamp}`)).isConfigured === false, '3.2: Missing doc → isConfigured=false', 'integration');
+        // Assert all 5 pricing tiers survive
+        const all5TiersSaved = ALLOWED_TIER_KEYS.every(tk => reloadRes.config.internationalPricingTiers[tk] !== undefined);
+        assert(all5TiersSaved, '3.2: All five pricing tiers survive MongoDB save and reload', 'integration');
 
-        // Integration 3.3: Invalid existing doc
+        // Assert custom tier values survive unchanged
+        const customPreserved = reloadRes.config.internationalPricingTiers.featuredJobFee.USD === 888 && reloadRes.config.internationalPricingTiers.urgentBadgeFee.EUR === 555;
+        assert(customPreserved, '3.3: All existing custom tier values remain unchanged', 'integration');
+
+        // Integration 3.4: Missing supported currency rejection in DB
+        const missingCurrKey = `missingCurr_${runTimestamp}_${Math.random()}`;
+        try {
+          await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, supportedCurrencies: ['PKR', 'USD'] as any }, coll, missingCurrKey);
+          createdKeys.push({ key: missingCurrKey, id: '3.4' });
+          assert(false, '3.4: saveConfig() unexpectedly accepted payload with missing supported currencies', 'integration');
+        } catch (err: any) {
+          assert(err.message.includes('Validation Error'), '3.4: Missing supported currency rejected in DB', 'integration');
+        }
+
+        // Integration 3.5: Missing doc returns isConfigured=false
+        assert((await CurrencyRepository.getConfig(coll, `missing_${runTimestamp}`)).isConfigured === false, '3.5: Missing doc returns isConfigured=false', 'integration');
+
+        // Integration 3.6: Invalid existing doc
         const invDocKey = `inv_${runTimestamp}_${Math.random()}`;
         await coll.insertOne({ key: invDocKey, config: { rates: { USD: -99 } } });
-        createdKeys.push({ key: invDocKey, id: '3.3' });
+        createdKeys.push({ key: invDocKey, id: '3.6' });
         try {
           await CurrencyRepository.getConfig(coll, invDocKey);
-          assert(false, '3.3: Invalid doc → Error', 'integration');
-        } catch (err: any) { assert(err.message.includes('Data Integrity Error'), '3.3: Invalid doc → Data Integrity Error', 'integration'); }
+          assert(false, '3.6: Invalid doc → Error', 'integration');
+        } catch (err: any) { assert(err.message.includes('Data Integrity Error'), '3.6: Invalid existing document error', 'integration'); }
 
-        // Integration 3.4: Invalid rate rejection in DB
+        // Integration 3.7: Invalid rate rejection in DB
         const invRateKey = `invRate_${runTimestamp}_${Math.random()}`;
         try {
-          await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invRateKey);
-          createdKeys.push({ key: invRateKey, id: '3.4' });
-          assert(false, '3.4: saveConfig() unexpectedly succeeded with invalid rate', 'integration');
+          await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: -5 } }, coll, invRateKey);
+          createdKeys.push({ key: invRateKey, id: '3.7' });
+          assert(false, '3.7: saveConfig() unexpectedly succeeded with invalid rate', 'integration');
         } catch (err: any) {
           if (err.message.includes('Validation Error')) {
-            assert(true, '3.4: saveConfig() rejects invalid rate in DB', 'integration');
+            assert(true, '3.7: saveConfig() rejects invalid rate in DB', 'integration');
           } else {
-            assert(false, '3.4: saveConfig() unexpected error', 'integration', err.message);
+            assert(false, '3.7: saveConfig() unexpected error', 'integration', err.message);
           }
         }
         

@@ -44,8 +44,11 @@ export function validateCurrencyConfig(raw: any): { valid: boolean; message?: st
     }
   }
 
-  if (!cleanSupported.includes('PKR')) {
-    return { valid: false, message: 'Validation Error: "PKR" must be included in supportedCurrencies.' };
+  // OBJECTIVE 1: Enforce complete 8-currency configuration in supportedCurrencies
+  for (const curr of ALLOWED_CURRENCIES) {
+    if (!cleanSupported.includes(curr)) {
+      return { valid: false, message: `Validation Error: "supportedCurrencies" must include all 8 supported currencies (PKR, USD, EUR, GBP, AED, SAR, CAD, AUD). Missing "${curr}".` };
+    }
   }
 
   const cleanRates: Record<Currency, number> = {} as any;
@@ -65,8 +68,9 @@ export function validateCurrencyConfig(raw: any): { valid: boolean; message?: st
     return { valid: false, message: 'Validation Error: Base currency "PKR" rate must be exactly 1.0.' };
   }
 
-  for (const curr of cleanSupported) {
-    if (cleanRates[curr] === undefined || !Number.isFinite(cleanRates[curr]) || cleanRates[curr] <= 0) {
+  // Ensure valid positive finite rates exist for all 8 supported currencies
+  for (const curr of ALLOWED_CURRENCIES) {
+    if (cleanRates[curr] === undefined || typeof cleanRates[curr] !== 'number' || !Number.isFinite(cleanRates[curr]) || cleanRates[curr] <= 0) {
       return { valid: false, message: `Validation Error: Missing or invalid rate for supported currency "${curr}".` };
     }
   }

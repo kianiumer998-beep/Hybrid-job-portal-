@@ -35,6 +35,8 @@ const TIER_DEFINITIONS: {
   { key: 'candidateDatabaseAccessFee', label: 'Candidate Database Access Fee', icon: '📂', color: 'text-purple-400' },
 ];
 
+const ACTIVE_SUPPORTED_CURRENCIES: Currency[] = ['PKR', 'USD', 'AED', 'SAR', 'GBP', 'EUR', 'CAD', 'AUD'];
+
 export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
   currencyConfig,
   onUpdateCurrencyConfig,
@@ -50,7 +52,10 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
   // Sync state if parent prop updates
   useEffect(() => {
     if (currencyConfig) {
-      setConfig(currencyConfig);
+      setConfig({
+        ...currencyConfig,
+        supportedCurrencies: ACTIVE_SUPPORTED_CURRENCIES
+      });
     }
   }, [currencyConfig]);
 
@@ -69,10 +74,11 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
     setIsSaving(true);
     setSaveError(null);
     try {
-      // Ensure PKR rate is always 1.0 on save
+      // Ensure PKR rate is always 1.0 and all 8 currencies are included on save
       const payload: CurrencyExchangeConfig = {
         ...config,
         baseCurrency: 'PKR',
+        supportedCurrencies: ACTIVE_SUPPORTED_CURRENCIES,
         rates: {
           ...config.rates,
           PKR: 1.0
@@ -203,7 +209,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            {config.supportedCurrencies.map((curr) => {
+            {ACTIVE_SUPPORTED_CURRENCIES.map((curr) => {
               const isBase = curr === 'PKR';
               const rate = isBase ? 1.0 : (config.rates[curr] ?? 0);
               const inverse = isBase ? 1 : (rate > 0 ? Math.round(1 / rate) : 'N/A');
@@ -274,7 +280,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
                   onChange={(e) => setCalcFrom(e.target.value as Currency)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
                 >
-                  {config.supportedCurrencies.map(c => <option key={c} value={c}>{c}</option>)}
+                  {ACTIVE_SUPPORTED_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
 
@@ -286,7 +292,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
                   onChange={(e) => setCalcTo(e.target.value as Currency)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
                 >
-                  {config.supportedCurrencies.map(c => <option key={c} value={c}>{c}</option>)}
+                  {ACTIVE_SUPPORTED_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
             </div>
@@ -324,7 +330,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
             <p className="text-xs text-slate-400">Set customized regional checkout prices for each product in local currencies.</p>
           </div>
           <span className="bg-indigo-500/20 text-indigo-300 text-xs font-bold px-3 py-1 rounded-full border border-indigo-500/30 w-fit">
-            Multi-Currency Matrix ({config.supportedCurrencies.length} Currencies)
+            Multi-Currency Matrix ({ACTIVE_SUPPORTED_CURRENCIES.length} Currencies)
           </span>
         </div>
 
@@ -341,7 +347,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
             <thead className="bg-slate-950 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
               <tr>
                 <th className="p-3 min-w-[220px]">Product / Feature</th>
-                {config.supportedCurrencies.map((curr) => (
+                {ACTIVE_SUPPORTED_CURRENCIES.map((curr) => (
                   <th key={curr} className="p-3 min-w-[90px]">{curr}</th>
                 ))}
               </tr>
@@ -352,7 +358,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
                   <td className={`p-3 font-sans font-bold ${tier.color}`}>
                     {tier.icon} {tier.label}
                   </td>
-                  {config.supportedCurrencies.map((curr) => {
+                  {ACTIVE_SUPPORTED_CURRENCIES.map((curr) => {
                     const currentVal = config.internationalPricingTiers?.[tier.key]?.[curr] ?? 0;
                     return (
                       <td key={curr} className="p-3">

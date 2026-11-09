@@ -66,11 +66,16 @@ export async function runCurrencyPersistenceTests() {
   assert(validateCurrencyConfig({ baseCurrency: 'PKR', rates: { USD: -5 } }).valid === false, '1.6: Invalid doc structure rejection', 'unit');
 
   // 2. URI Safety Unit Tests
-  console.log('\n--- 2. Database URI Isolation Unit Tests ---');
-  assert(isSafeDistinctTestUri('mongodb://h:27017/prod', 'mongodb://h:27017/test').safe === true, '2A: Distinct DB name → PASS', 'unit');
-  assert(isSafeDistinctTestUri('mongodb://h:27017/prod', 'mongodb://h:27018/test').safe === false, '2B: Diff port → REJECT', 'unit');
+  console.log('\n--- 2. Database URI Isolation Fail-Closed Unit Tests ---');
+  assert(isSafeDistinctTestUri('mongodb://h:27017/prod', 'mongodb://h:27017/test').safe === true, '2A: Same host/port, diff DB → PASS', 'unit');
+  assert(isSafeDistinctTestUri('mongodb://h:27017/prod', 'mongodb://h:27018/test').safe === false, '2B: Same host, diff port → REJECT', 'unit');
   assert(isSafeDistinctTestUri('mongodb://h1:27017/prod', 'mongodb://h2:27017/test').safe === false, '2C: Diff host → REJECT', 'unit');
-  assert(isSafeDistinctTestUri('mongodb://h:27017/db', 'mongodb://h:27017/db').safe === false, '2D: Same DB → REJECT', 'unit');
+  assert(isSafeDistinctTestUri('mongodb://h1:27017/prod', 'mongodb://h2:27018/test').safe === false, '2D: Diff host, diff port → REJECT', 'unit');
+  assert(isSafeDistinctTestUri('mongodb://h:27017/db', 'mongodb://h:27017/db').safe === false, '2E: Same host/port, same DB → REJECT', 'unit');
+  assert(isSafeDistinctTestUri('', 'mongodb://host:27017/test').safe === false, '2F-1: Missing prod URI → REJECT', 'unit');
+  assert(isSafeDistinctTestUri('mongodb://host:27017/prod', '').safe === false, '2F-2: Missing test URI → REJECT', 'unit');
+  assert(isSafeDistinctTestUri('mongodb://host:27017/admin', 'mongodb://host:27017/test').safe === false, '2F-3: Admin DB → REJECT', 'unit');
+  assert(isSafeDistinctTestUri('not-a-uri', 'mongodb://host:27017/test').safe === false, '2F-4: Invalid URI → REJECT', 'unit');
 
   // 3. Database Connection Safety & Integration
   console.log('\n--- 3. Database Connection Safety & Integration ---');
@@ -89,40 +94,61 @@ export async function runCurrencyPersistenceTests() {
   } else {
     const sep = isSafeDistinctTestUri(prodDbUri, testDbUri);
     if (!sep.safe) {
-      reportNotRun('3.1: saveConfig/getConfig() integration', sep.reason || 'Isolation check failed');
-      reportNotRun('3.2: Invalid rate rejection in DB', 'Skipped due to isolation failure');
-      reportNotRun('3.3: Missing/invalid doc distinction', 'Skipped due to isolation failure');
+      reportNotRun('3.1: saveConfig() / getConfig() integration', sep.reason || 'Isolation check failed');
+      reportNotRun('3.2: Missing/invalid doc distinction', 'Skipped due to isolation failure');
+      reportNotRun('3.3: Invalid rate rejection in DB', 'Skipped due to isolation failure');
     } else {
       console.log('  [INFO] Safe distinct TEST_MONGODB_URI confirmed. Running integration tests...');
       let client: MongoClient | null = null;
+      const createdKeys: string[] = [];
       const testRunId = `test_run_${Date.now()}`;
+
       try {
         client = new MongoClient(testDbUri);
         await client.connect();
         const coll = client.db().collection('test_system_settings_isolated');
         
-        // 3.1 & 3.2: Save/Reload
+        // Integration 3.1 & 3.2: Save/Reload
+        const key = `key_${testRunId}_${Math.random()}`;
         const payload = { ...INITIAL_CURRENCY_CONFIG, rates: { USD: 0.00359 } };
-        await CurrencyRepository.saveConfig(payload, coll, testRunId);
-        const res = await CurrencyRepository.getConfig(coll, testRunId);
+        await CurrencyRepository.saveConfig(payload, coll, key);
+        createdKeys.push(key);
+        
+        const res = await CurrencyRepository.getConfig(coll, key);
         assert(res.isConfigured === true && res.config.rates.USD === 0.00359, '3.1: saveConfig/getConfig() integration', 'integration');
 
-        // 3.3: Invalid rate rejection
+        // Integration 3.3: Invalid rate rejection in DB
+        const invKey = `inv_${testRunId}_${Math.random()}`;
         try {
-          await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, `${testRunId}_inv`);
-          assert(false, '3.2: saveConfig() rejects invalid rate', 'integration');
-        } catch (err: any) { assert(err.message.includes('Validation Error'), '3.2: saveConfig() rejects invalid rate', 'integration'); }
+          await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invKey);
+          assert(false, '3.2: saveConfig() rejects invalid rate in DB', 'integration');
+        } catch (err: any) { 
+          createdKeys.push(invKey); // Track to clean up even if insert failed (though it shouldn't)
+          assert(err.message.includes('Validation Error'), '3.2: saveConfig() rejects invalid rate in DB', 'integration'); 
+        }
 
-        // 3.4: Missing/invalid doc
-        assert((await CurrencyRepository.getConfig(coll, 'nonexistent')).isConfigured === false, '3.3a: Missing doc → isConfigured=false', 'integration');
-        await coll.insertOne({ key: 'inv', config: { rates: { USD: -99 } } });
+        // Integration 3.4: Missing/invalid doc
+        assert((await CurrencyRepository.getConfig(coll, `missing_${testRunId}`)).isConfigured === false, '3.3a: Missing doc → isConfigured=false', 'integration');
+        
+        const invalidDocKey = `invalid_${testRunId}_${Math.random()}`;
+        await coll.insertOne({ key: invalidDocKey, config: { rates: { USD: -99 } } });
+        createdKeys.push(invalidDocKey);
         try {
-          await CurrencyRepository.getConfig(coll, 'inv');
+          await CurrencyRepository.getConfig(coll, invalidDocKey);
           assert(false, '3.3b: Invalid doc → Error', 'integration');
         } catch (err: any) { assert(err.message.includes('Data Integrity Error'), '3.3b: Invalid doc → Data Integrity Error', 'integration'); }
         
-        await coll.deleteMany({});
-      } finally { await client?.close().catch(() => {}); }
+      } catch (err: any) {
+        assert(false, '3.0: Database integration test execution error', 'integration', err?.message);
+      } finally {
+        if (client) {
+          try {
+            const coll = client.db().collection('test_system_settings_isolated');
+            for (const key of createdKeys) { await coll.deleteOne({ key }); }
+          } catch (cleanupErr: any) { console.error('[CLEANUP WARNING]', cleanupErr); }
+          await client.close().catch(() => {});
+        }
+      }
     }
   }
 

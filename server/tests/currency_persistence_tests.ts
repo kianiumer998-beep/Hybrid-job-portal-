@@ -4,23 +4,35 @@ import { isMongoConfigured } from '../db/mongodb';
 import { MongoClient } from 'mongodb';
 
 export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe: boolean; reason?: string } {
-  if (!testUri || !testUri.trim()) {
+  const cleanProd = (prodUri || '').trim();
+  const cleanTest = (testUri || '').trim();
+
+  if (!cleanProd) {
+    return { safe: false, reason: 'Production MONGODB_URI is not configured or empty.' };
+  }
+
+  if (!cleanTest) {
     return { safe: false, reason: 'Dedicated TEST_MONGODB_URI / MONGODB_TEST_URI environment variable is not configured.' };
   }
 
-  const cleanProd = prodUri.trim();
-  const cleanTest = testUri.trim();
-
-  if (cleanProd && cleanTest.toLowerCase() === cleanProd.toLowerCase()) {
+  if (cleanTest.toLowerCase() === cleanProd.toLowerCase()) {
     return { safe: false, reason: 'TEST_MONGODB_URI is identical to production MONGODB_URI.' };
   }
 
   const parseDbInfo = (uri: string) => {
     try {
-      const normalized = uri.replace(/^mongodb(\+srv)?:\/\//, 'http://');
+      if (!uri.startsWith('mongodb://') && !uri.startsWith('mongodb+srv://')) {
+        return null;
+      }
+      const normalized = uri.replace(/^mongodb(\+srv)?:\/\//i, 'http://');
       const url = new URL(normalized);
-      const pathname = url.pathname.replace(/^\//, '').split('?')[0];
-      return { host: url.hostname, port: url.port, dbName: pathname || 'admin' };
+      const host = (url.hostname || '').toLowerCase();
+      const port = url.port || (uri.startsWith('mongodb+srv://') ? '27017' : '27017');
+      const pathname = url.pathname.replace(/^\//, '').split('?')[0].trim().toLowerCase();
+      const dbName = pathname || 'admin';
+
+      if (!host) return null;
+      return { host, port, dbName };
     } catch {
       return null;
     }
@@ -29,10 +41,17 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
   const prodInfo = parseDbInfo(cleanProd);
   const testInfo = parseDbInfo(cleanTest);
 
-  if (prodInfo && testInfo) {
-    if (prodInfo.host === testInfo.host && prodInfo.port === testInfo.port && prodInfo.dbName === testInfo.dbName) {
-      return { safe: false, reason: `TEST_MONGODB_URI points to the same database host/name (${testInfo.dbName}) as production MONGODB_URI.` };
-    }
+  // FAIL-CLOSED: If either URI cannot be parsed, refuse DB write tests
+  if (!prodInfo) {
+    return { safe: false, reason: 'Production MONGODB_URI could not be safely parsed for isolation verification.' };
+  }
+
+  if (!testInfo) {
+    return { safe: false, reason: 'TEST_MONGODB_URI could not be safely parsed for isolation verification.' };
+  }
+
+  if (prodInfo.host === testInfo.host && prodInfo.port === testInfo.port && prodInfo.dbName === testInfo.dbName) {
+    return { safe: false, reason: `TEST_MONGODB_URI points to the same database host/port/database (${testInfo.host}:${testInfo.port}/${testInfo.dbName}) as production MONGODB_URI.` };
   }
 
   return { safe: true };
@@ -103,6 +122,26 @@ export async function runCurrencyPersistenceTests() {
   };
   const val4 = validateCurrencyConfig(negativeTierConfig);
   assert(val4.valid === false, '1.4: Rejects negative fee tier value');
+
+  // 1.5. Database URI Isolation Fail-Closed Unit Tests
+  console.log('\n--- 1.5. Database URI Isolation Fail-Closed Tests ---');
+  const checkMissingProd = isSafeDistinctTestUri('', 'mongodb://127.0.0.1:27017/test_db');
+  assert(checkMissingProd.safe === false, '1.5a: Rejects missing production MONGODB_URI');
+
+  const checkMissingTest = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod_db', '');
+  assert(checkMissingTest.safe === false, '1.5b: Rejects missing TEST_MONGODB_URI');
+
+  const checkMatching = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/db', 'mongodb://127.0.0.1:27017/db');
+  assert(checkMatching.safe === false, '1.5c: Rejects matching production and test URIs');
+
+  const checkInvalidTest = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod', 'not-a-valid-uri');
+  assert(checkInvalidTest.safe === false, '1.5d: Fail-closed on invalid test URI');
+
+  const checkInvalidProd = isSafeDistinctTestUri('not-a-valid-uri', 'mongodb://127.0.0.1:27017/test');
+  assert(checkInvalidProd.safe === false, '1.5e: Fail-closed on invalid production URI');
+
+  const checkValidDistinct = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod_db', 'mongodb://127.0.0.1:27017/test_db');
+  assert(checkValidDistinct.safe === true, '1.5f: Accepts distinct valid test database URI');
 
   // 2. Migration Payload & Document Integrity Rules
   console.log('\n--- 2. Migration Payload & Document Integrity Rules ---');

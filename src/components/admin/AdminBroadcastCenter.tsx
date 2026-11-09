@@ -320,20 +320,16 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
               <button
                 type="submit"
-                disabled={isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)}
+                disabled={isSending}
                 className={`px-6 py-3 font-black rounded-xl shadow-lg flex items-center space-x-2 cursor-pointer transition-all active:scale-95 text-xs ${
-                  isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)
+                  isSending
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
                     : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
                 }`}
               >
                 <Send className={`w-4 h-4 ${isSending ? 'animate-spin' : ''}`} />
                 <span>
-                  {isSending 
-                    ? 'Processing...' 
-                    : (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)
-                      ? 'Channel Disabled'
-                      : 'Save Broadcast Draft'}
+                  {isSending ? 'Processing...' : 'Save Broadcast Draft'}
                 </span>
               </button>
             </div>
@@ -485,7 +481,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               </span>
               <h4 className="font-bold text-sm text-white">FPSC & WAPDA Gazette Closing Deadline</h4>
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                Sends a high-engagement WhatsApp push with bank challan fee details and submission deadlines.
+                Template preview only. Selecting this fills the draft composer with bank challan fee details and submission deadlines; it does not send a WhatsApp message.
               </p>
             </div>
             <button

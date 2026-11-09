@@ -212,7 +212,10 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     setIsSaving(true);
     try {
       const result = await onUpdateConfig(DEFAULT_WHATSAPP_CONFIG);
-      if (result === false) {
+      const isRestoreSuccess = Boolean(
+        result === true || (result && typeof result === 'object' && result.success === true)
+      );
+      if (!isRestoreSuccess) {
         setSaveError('Failed to restore defaults on server. Form values retained.');
         setIsSaving(false);
         return;

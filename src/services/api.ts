@@ -646,6 +646,26 @@ export const api = {
     }
   },
 
+  // --- EMPLOYER KYC VERIFICATION ---
+  kyc: {
+    async getAll() {
+      return safeFetchJson(`${API_BASE}/kyc/requests`, { headers: getAuthHeader() });
+    },
+    async updateRequest(id: string, updates: any) {
+      return safeFetchJson(`${API_BASE}/kyc/requests/${id}`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify(updates)
+      });
+    },
+    async importLegacy(requests: any[]) {
+      return safeFetchJson(`${API_BASE}/kyc/requests/import`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ requests })
+      });
+    }
+  },
 
   // --- TRANSACTIONS ---
   transactions: {

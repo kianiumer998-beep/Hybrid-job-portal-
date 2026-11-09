@@ -3041,12 +3041,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB: EMPLOYER KYC & SECP IDENTITY VERIFICATION */}
       {adminTab === 'employer-kyc' && (
-        <AdminEmployerKycHub
-          kycRequests={kycRequests}
-          onUpdateKycRequest={(updated) => {
-            setKycRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
-          }}
-        />
+        <AdminEmployerKycHub />
       )}
 
       {/* TAB: ADVERTISEMENT & CAMPAIGN ENGINE */}

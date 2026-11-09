@@ -24,6 +24,7 @@ import { locationRouter } from './server/routes/locationRoutes';
 import { jobVisibilityRouter } from './server/routes/jobVisibilityRoutes';
 import { notificationRouter } from './server/routes/notificationRoutes';
 import { currencyRouter } from './server/routes/currencyRoutes';
+import { kycRouter } from './server/routes/kycRoutes';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -155,6 +156,7 @@ async function startServer() {
   app.use('/api/jobs-visibility', jobVisibilityRouter);
   app.use('/api/notifications', notificationRouter);
   app.use('/api/currency', currencyRouter);
+  app.use('/api/kyc', kycRouter);
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

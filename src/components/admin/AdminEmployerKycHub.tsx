@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -10,24 +10,56 @@ import {
   Search,
   Award,
   Filter,
-  UserCheck
+  UserCheck,
+  Loader2
 } from 'lucide-react';
 import { EmployerKycRequest } from '../../types/adminSuite';
-import { INITIAL_KYC_REQUESTS } from '../../data/mockAdminSuiteData';
+import { api } from '../../services/api';
 
 interface AdminEmployerKycHubProps {
-  kycRequests?: EmployerKycRequest[];
-  onUpdateKycRequest?: (request: EmployerKycRequest) => void;
+  // We will load from API instead of prop
 }
 
-export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = ({
-  kycRequests = INITIAL_KYC_REQUESTS,
-  onUpdateKycRequest
-}) => {
-  const [requests, setRequests] = useState<EmployerKycRequest[]>(kycRequests);
+export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
+  const [requests, setRequests] = useState<EmployerKycRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'All' | 'Pending' | 'Verified' | 'Rejected'>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedKyc, setSelectedKyc] = useState<EmployerKycRequest | null>(null);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setLoading(true);
+        // Check for legacy migration
+        const legacy = localStorage.getItem('career_pak_kyc_requests');
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const res = await api.kyc.importLegacy(parsed);
+            if (res.success) {
+              localStorage.removeItem('career_pak_kyc_requests');
+            } else {
+              console.error('Legacy migration failed', res);
+            }
+          }
+        }
+        
+        const res = await api.kyc.getAll();
+        if (res.success) {
+          setRequests(res.requests);
+        } else {
+          setError(res.message || 'Failed to load requests');
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to load requests');
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   const filtered = requests.filter((req) => {
     if (filterStatus !== 'All' && req.status !== filterStatus) return false;
@@ -43,33 +75,44 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = ({
     return true;
   });
 
-  const handleApproveKyc = (req: EmployerKycRequest, badge: 'Standard Verified' | 'Top Employer' | 'Government Agency') => {
-    const updated: EmployerKycRequest = {
-      ...req,
-      status: 'Verified',
-      badgeLevel: badge,
-      verifiedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-      verifiedBy: 'Admin (Master)'
-    };
-    const updatedList = requests.map(r => r.id === req.id ? updated : r);
-    setRequests(updatedList);
-    if (onUpdateKycRequest) onUpdateKycRequest(updated);
-    setSelectedKyc(null);
-    alert(`✅ Employer "${req.companyName}" has been successfully VERIFIED with ${badge} status!`);
+  const handleApproveKyc = async (req: EmployerKycRequest, badge: 'Standard Verified' | 'Top Employer' | 'Government Agency') => {
+    try {
+      const res = await api.kyc.updateRequest(req.id, {
+        status: 'Verified',
+        badgeLevel: badge
+      });
+      if (res.success) {
+        setRequests(requests.map(r => r.id === req.id ? res.request : r));
+        setSelectedKyc(null);
+        alert(`✅ Employer "${req.companyName}" has been successfully VERIFIED with ${badge} status!`);
+      } else {
+        alert('Failed to approve: ' + res.message);
+      }
+    } catch (err: any) {
+      alert('Failed to approve: ' + err.message);
+    }
   };
 
-  const handleRejectKyc = (req: EmployerKycRequest, reason: string) => {
-    const updated: EmployerKycRequest = {
-      ...req,
-      status: 'Rejected',
-      rejectionReason: reason
-    };
-    const updatedList = requests.map(r => r.id === req.id ? updated : r);
-    setRequests(updatedList);
-    if (onUpdateKycRequest) onUpdateKycRequest(updated);
-    setSelectedKyc(null);
-    alert(`⛔ KYC Request for "${req.companyName}" rejected. Reason logged.`);
+  const handleRejectKyc = async (req: EmployerKycRequest, reason: string) => {
+    try {
+      const res = await api.kyc.updateRequest(req.id, {
+        status: 'Rejected',
+        rejectionReason: reason
+      });
+      if (res.success) {
+        setRequests(requests.map(r => r.id === req.id ? res.request : r));
+        setSelectedKyc(null);
+        alert(`⛔ KYC Request for "${req.companyName}" rejected. Reason logged.`);
+      } else {
+        alert('Failed to reject: ' + res.message);
+      }
+    } catch (err: any) {
+      alert('Failed to reject: ' + err.message);
+    }
   };
+
+  if (loading) return <div className="flex items-center justify-center p-20 text-white"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+  if (error) return <div className="p-20 text-center text-rose-400">Error: {error}</div>;
 
   return (
     <div className="space-y-6 text-white">

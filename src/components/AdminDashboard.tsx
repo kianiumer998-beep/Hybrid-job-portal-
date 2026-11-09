@@ -684,10 +684,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       try {
         const res = await api.currency.getConfig();
         if (!isMounted) return;
-        if (res && res.success && res.config) {
-          if (res.isConfigured) {
+        if (res && res.success === true && res.config) {
+          if (res.isConfigured === true) {
             setCurrencyConfig(res.config);
-          } else if (!hasMigratedCurrencyRef.current) {
+          } else if (res.isConfigured === false && !hasMigratedCurrencyRef.current) {
             hasMigratedCurrencyRef.current = true;
             // Check legacy LocalStorage for non-destructive migration to backend
             const savedLegacy = localStorage.getItem('career_pak_currency_config');

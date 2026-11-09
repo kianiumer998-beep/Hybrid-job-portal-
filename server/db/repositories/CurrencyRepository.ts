@@ -95,14 +95,20 @@ export class CurrencyRepository {
       'fetch currency config'
     );
 
-    if (doc && doc.config) {
-      const validation = validateCurrencyConfig(doc.config);
-      if (validation.valid && validation.sanitized) {
-        return { isConfigured: true, config: validation.sanitized };
-      }
+    if (!doc) {
+      return { isConfigured: false, config: INITIAL_CURRENCY_CONFIG };
     }
 
-    return { isConfigured: false, config: INITIAL_CURRENCY_CONFIG };
+    if (!doc.config || typeof doc.config !== 'object') {
+      throw new Error('Data Integrity Error: Currency configuration document exists in database but has invalid or missing "config" field.');
+    }
+
+    const validation = validateCurrencyConfig(doc.config);
+    if (!validation.valid || !validation.sanitized) {
+      throw new Error(`Data Integrity Error: Existing currency configuration document in database is invalid: ${validation.message || 'Validation failed'}`);
+    }
+
+    return { isConfigured: true, config: validation.sanitized };
   }
 
   static async saveConfig(rawConfig: any): Promise<CurrencyExchangeConfig> {

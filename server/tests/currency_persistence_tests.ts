@@ -43,25 +43,21 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
 
   // FAIL-CLOSED: If either URI cannot be parsed, refuse DB write tests
   if (!prodInfo) {
-    return { safe: false, reason: 'Production MONGODB_URI could not be safely parsed for isolation verification.' };
+    return { safe: false, reason: 'Production MONGODB_URI could not be safely parsed for cluster isolation verification.' };
   }
 
   if (!testInfo) {
-    return { safe: false, reason: 'TEST_MONGODB_URI could not be safely parsed for isolation verification.' };
+    return { safe: false, reason: 'TEST_MONGODB_URI could not be safely parsed for cluster isolation verification.' };
   }
 
-  // Same database name is strictly rejected regardless of host variations
+  // Same database name is strictly rejected regardless of hostname variation
   if (prodInfo.dbName === testInfo.dbName) {
     return { safe: false, reason: `TEST_MONGODB_URI targets the same database name ("${testInfo.dbName}") as production MONGODB_URI.` };
   }
 
-  const extractDomain = (host: string) => {
-    const parts = host.split('.');
-    return parts.length >= 2 ? parts.slice(-2).join('.') : host;
-  };
-
-  if (extractDomain(prodInfo.host) === extractDomain(testInfo.host) && prodInfo.dbName === testInfo.dbName) {
-    return { safe: false, reason: `Ambiguous cluster configuration: TEST_MONGODB_URI shares cluster domain (${extractDomain(prodInfo.host)}) and database name ("${testInfo.dbName}") with production MONGODB_URI.` };
+  // Refuse default 'admin' database name
+  if (prodInfo.dbName === 'admin' || testInfo.dbName === 'admin') {
+    return { safe: false, reason: 'Database name is default "admin" or unassigned; cannot verify isolated test database identity.' };
   }
 
   return { safe: true };

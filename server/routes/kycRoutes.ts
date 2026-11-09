@@ -29,7 +29,9 @@ kycRouter.patch('/requests/:id', requireAdminPermission('users.manage'), async (
         return res.status(400).json({ success: false, message: 'Invalid badge level' });
       updateData.badgeLevel = badgeLevel;
       updateData.verifiedAt = new Date().toISOString().replace('T', ' ').substring(0, 16);
-      updateData.verifiedBy = (req as any).user?.email || 'Admin'; 
+      const adminEmail = (req as any).user?.email;
+      if (!adminEmail) return res.status(401).json({ success: false, message: 'Admin identity unavailable' });
+      updateData.verifiedBy = adminEmail;
     } else if (status === 'Rejected') {
       if (!rejectionReason || rejectionReason.trim() === '') 
         return res.status(400).json({ success: false, message: 'Rejection reason required' });

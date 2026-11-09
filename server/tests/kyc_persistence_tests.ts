@@ -76,6 +76,7 @@ export async function runKycPersistenceTests() {
       { ...req, id: 'kyc-05', companyName: 'Legacy Corp', status: 'Pending' } // Should be imported
     ];
     await KycRepository.importLegacyRequests(legacy, coll);
+    createdIds.push('kyc-05');
     const imported = await KycRepository.getAll(coll);
     if (imported.find(r => r.id === 'kyc-01')) throw new Error('Sample record kyc-01 imported');
     if (!imported.find(r => r.id === 'kyc-05')) throw new Error('Legacy record kyc-05 not imported');
@@ -86,7 +87,7 @@ export async function runKycPersistenceTests() {
     process.exit(1);
   } finally {
     if (client) {
-      const coll = client.db().collection('kyc_requests');
+      const coll = client.db().collection<EmployerKycRequest>('kyc_requests_test');
       for (const id of createdIds) await coll.deleteOne({ id });
       await client.close();
     }

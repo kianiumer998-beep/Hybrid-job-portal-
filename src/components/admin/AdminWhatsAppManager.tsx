@@ -35,7 +35,7 @@ const isValidWhatsAppGroupLink = (link?: string | null): boolean => {
     const parsed = new URL(trimmed);
     if (parsed.protocol !== 'https:') return false;
     const host = parsed.hostname.toLowerCase();
-    return host === 'chat.whatsapp.com' || host === 'whatsapp.com' || host.endsWith('.whatsapp.com');
+    return host === 'chat.whatsapp.com';
   } catch {
     return false;
   }
@@ -165,7 +165,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       if (formData.groupLink && formData.groupLink.trim()) {
         const trimmedLink = formData.groupLink.trim();
         if (!isValidWhatsAppGroupLink(trimmedLink)) {
-          setSaveError('Validation Error: Please enter a valid HTTPS WhatsApp invite link (e.g., https://chat.whatsapp.com/...).');
+          setSaveError('Validation Error: Please enter a valid HTTPS WhatsApp group invite link using hostname chat.whatsapp.com (e.g., https://chat.whatsapp.com/yourGroupCode).');
           setIsSaving(false);
           return;
         }

@@ -187,7 +187,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
           </div>
           <h2 className="text-xl font-black text-white">Targeted Email, WhatsApp & Push Campaigns</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Dispatch weekly job digests, urgent FPSC/WAPDA gazette alerts, employer discount notifications, and system advisories.
+            Draft and manage templates for weekly job digests, urgent FPSC/WAPDA gazette alerts, employer discount notifications, and system announcements.
           </p>
         </div>
 
@@ -195,7 +195,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-1 flex items-center space-x-1 text-xs">
           {[
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
-            { id: 'history', label: `Sent Campaigns (${campaignList.length})`, icon: Clock },
+            { id: 'history', label: `Campaign History (${campaignList.length})`, icon: Clock },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
             { id: 'providers', label: 'SMTP & WhatsApp Gateways', icon: Layers }
           ].map((t) => {
@@ -248,7 +248,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-300 mb-1">Delivery Channel</label>
+                  <label className="block font-bold text-slate-300 mb-1">Communication Channel</label>
                   <select
                     value={channel}
                     onChange={(e) => setChannel(e.target.value as any)}
@@ -387,13 +387,13 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         </div>
       )}
 
-      {/* TAB 2: SENT CAMPAIGNS HISTORY */}
+      {/* TAB 2: CAMPAIGN HISTORY */}
       {activeTab === 'history' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <h3 className="text-sm font-bold flex items-center space-x-2">
               <Clock className="w-4 h-4 text-amber-400" />
-              <span>Broadcast Campaign Log & Telemetry</span>
+              <span>Campaign History & Saved Drafts</span>
             </h3>
             <span className="text-xs font-mono text-slate-400">{campaignList.length} Total Campaigns</span>
           </div>
@@ -537,7 +537,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 <Layers className="w-4 h-4 text-emerald-400" />
                 <span>SMTP, Meta WhatsApp Cloud & Twilio API Gateways</span>
               </h3>
-              <p className="text-xs text-slate-400">Configure connection strings and API keys for broadcast dispatch.</p>
+              <p className="text-xs text-slate-400">Configure connection strings and API keys for future communication integrations.</p>
             </div>
             <button
               type="submit"

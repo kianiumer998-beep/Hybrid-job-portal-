@@ -60,6 +60,12 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
     return { safe: false, reason: 'Database name is default "admin" or unassigned; cannot verify isolated test database identity.' };
   }
 
+  // Different hostnames with unverified cluster identity: refuse to prevent writing to unknown/aliased cluster nodes
+  if (prodInfo.host !== testInfo.host) {
+    return { safe: false, reason: `Different hostnames ("${prodInfo.host}" vs "${testInfo.host}") with unverified cluster identity; refusing database write test for safety.` };
+  }
+
+  // Same host & port, verified different non-admin database name
   return { safe: true };
 }
 
@@ -146,11 +152,14 @@ export async function runCurrencyPersistenceTests() {
   const checkInvalidProd = isSafeDistinctTestUri('not-a-valid-uri', 'mongodb://127.0.0.1:27017/test');
   assert(checkInvalidProd.safe === false, '1.5e: Fail-closed on invalid production URI');
 
-  const checkSameDbDiffHost = isSafeDistinctTestUri('mongodb+srv://cluster0-node1.mongodb.net/prod_db', 'mongodb+srv://cluster0-node2.mongodb.net/prod_db');
+  const checkSameDbDiffHost = isSafeDistinctTestUri('mongodb+srv://node1.mongo.net/prod_db', 'mongodb+srv://node2.mongo.net/prod_db');
   assert(checkSameDbDiffHost.safe === false, '1.5f: Rejects different hostnames sharing same database name');
 
-  const checkValidDistinct = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod_db', 'mongodb://127.0.0.1:27017/test_db');
-  assert(checkValidDistinct.safe === true, '1.5g: Accepts distinct valid test database URI');
+  const checkDiffHostDiffDbUnknown = isSafeDistinctTestUri('mongodb+srv://hostA.com/prod_db', 'mongodb+srv://hostB.com/test_db');
+  assert(checkDiffHostDiffDbUnknown.safe === false, '1.5g: Rejects different hostnames with unverified cluster identity');
+
+  const checkValidSameEndpoint = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod_db', 'mongodb://127.0.0.1:27017/test_db');
+  assert(checkValidSameEndpoint.safe === true, '1.5h: Accepts distinct database name on same verified endpoint');
 
   // 2. Migration Payload & Document Integrity Rules
   console.log('\n--- 2. Migration Payload & Document Integrity Rules ---');

@@ -104,22 +104,31 @@ export class FeatureFlagsRepository {
         'update feature flags'
       );
 
-      // Bounded recovery strategy: if document disappeared between step 1 and 2 (matchedCount === 0), retry once with upsert
+      // Bounded recovery strategy: if document disappeared between step 1 and step 2 (matchedCount === 0),
+      // re-ensure the document with $setOnInsert and retry the $set update separately to prevent path conflicts.
       if (updateResult.matchedCount === 0) {
-        const recoveryResult = await withMongoTimeout(
+        await withMongoTimeout(
           coll.updateOne(
             { key: DOC_KEY },
-            { 
-              $set: setFields,
-              $setOnInsert: setOnInsertFields
-            },
+            { $setOnInsert: setOnInsertFields },
             { upsert: true }
           ),
           8000,
-          'recover update feature flags'
+          're-ensure feature flags document'
         );
-        if (recoveryResult.matchedCount === 0 && recoveryResult.upsertedCount === 0) {
-          throw new Error('Persistence Error: Failed to update or recover feature flags document in MongoDB.');
+
+        const retryResult = await withMongoTimeout(
+          coll.updateOne(
+            { key: DOC_KEY },
+            { $set: setFields },
+            { upsert: false }
+          ),
+          8000,
+          'retry update feature flags'
+        );
+
+        if (retryResult.matchedCount === 0) {
+          throw new Error('Persistence Error: Failed to update feature flags document in MongoDB after recovery attempt.');
         }
       }
     }

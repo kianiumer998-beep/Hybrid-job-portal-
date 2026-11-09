@@ -109,7 +109,7 @@ export async function runCurrencyPersistenceTests() {
         await client.connect();
         const coll = client.db().collection('test_system_settings_isolated');
         
-        // 3.1: Save/Reload
+        // Integration 3.1: Save/Reload
         const key = `key_${runTimestamp}_${Math.random()}`;
         const payload = { ...INITIAL_CURRENCY_CONFIG, rates: { USD: 0.00359 } };
         await CurrencyRepository.saveConfig(payload, coll, key);
@@ -118,10 +118,10 @@ export async function runCurrencyPersistenceTests() {
         const res = await CurrencyRepository.getConfig(coll, key);
         assert(res.isConfigured === true && res.config.rates.USD === 0.00359, '3.1: saveConfig/getConfig() integration', 'integration');
 
-        // 3.2: Missing doc
+        // Integration 3.2: Missing doc
         assert((await CurrencyRepository.getConfig(coll, `missing_${runTimestamp}`)).isConfigured === false, '3.2: Missing doc → isConfigured=false', 'integration');
 
-        // 3.3: Invalid existing doc
+        // Integration 3.3: Invalid existing doc
         const invDocKey = `inv_${runTimestamp}_${Math.random()}`;
         await coll.insertOne({ key: invDocKey, config: { rates: { USD: -99 } } });
         createdKeys.push({ key: invDocKey, id: '3.3' });
@@ -130,7 +130,7 @@ export async function runCurrencyPersistenceTests() {
           assert(false, '3.3: Invalid doc → Error', 'integration');
         } catch (err: any) { assert(err.message.includes('Data Integrity Error'), '3.3: Invalid doc → Data Integrity Error', 'integration'); }
 
-        // 3.4: Invalid rate rejection in DB
+        // Integration 3.4: Invalid rate rejection in DB
         const invRateKey = `invRate_${runTimestamp}_${Math.random()}`;
         try {
           await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invRateKey);
@@ -150,14 +150,14 @@ export async function runCurrencyPersistenceTests() {
               if (deleted.deletedCount !== 1) { console.error(`[CLEANUP FAILED] Key: ${item.key}`); cleanupFailures++; }
             }
           } catch (cleanupErr: any) { console.error('[CLEANUP FAILED]', cleanupErr); cleanupFailures++; }
-          await client.close().catch(() => {});
+          await client.close().catch((closeErr) => { console.error('[CLOSE FAILED]', closeErr); cleanupFailures++; });
         }
       }
     }
   }
 
-  console.log(`\nRESULTS: ${unit.p + config.p + integration.p} PASS (${unit.p} unit, ${config.p} config, ${integration.p} integration), ${failed} FAIL, ${notRun + integration.nr} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
-  if (failed > 0 || cleanupFailures > 0) throw new Error('Tests failed or cleanup error.');
+  console.log(`\nRESULTS: ${unit.p + config.p + integration.p} PASS (${unit.p} unit, ${config.p} config, ${integration.p} integration), ${unit.f + config.f + integration.f} FAIL, ${notRun + integration.nr} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
+  if (unit.f + config.f + integration.f > 0 || cleanupFailures > 0) throw new Error('Tests failed or cleanup error.');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

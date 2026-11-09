@@ -82,8 +82,15 @@ export const KycRepository = {
             continue;
           }
           sanitized.badgeLevel = req.badgeLevel;
-          if (req.verifiedAt) sanitized.verifiedAt = String(req.verifiedAt).trim();
-          if (req.verifiedBy) sanitized.verifiedBy = String(req.verifiedBy).trim();
+          
+          if (req.verifiedAt !== undefined && req.verifiedAt !== null) {
+            if (typeof req.verifiedAt !== 'string' || req.verifiedAt.trim() === '') { invalid++; continue; }
+            sanitized.verifiedAt = req.verifiedAt.trim();
+          }
+          if (req.verifiedBy !== undefined && req.verifiedBy !== null) {
+            if (typeof req.verifiedBy !== 'string' || req.verifiedBy.trim() === '') { invalid++; continue; }
+            sanitized.verifiedBy = req.verifiedBy.trim();
+          }
         }
 
         if (req.status === 'Rejected') {
@@ -94,10 +101,24 @@ export const KycRepository = {
           sanitized.rejectionReason = req.rejectionReason.trim();
         }
 
-        // Additional allowlisted fields
-        if (req.userId) sanitized.userId = String(req.userId).trim();
-        if (req.secpRegistrationNumber) sanitized.secpRegistrationNumber = String(req.secpRegistrationNumber).trim();
-        if (req.officialDocUrl) sanitized.officialDocUrl = String(req.officialDocUrl).trim();
+        // Additional allowlisted optional fields
+        const optionalFields: (keyof EmployerKycRequest)[] = ['userId', 'secpRegistrationNumber', 'officialDocUrl'];
+        let hasInvalidOptional = false;
+        for (const field of optionalFields) {
+          const val = req[field];
+          if (val !== undefined && val !== null) {
+            if (typeof val !== 'string' || val.trim() === '') {
+              hasInvalidOptional = true;
+              break;
+            }
+            sanitized[field] = val.trim();
+          }
+        }
+
+        if (hasInvalidOptional) {
+          invalid++;
+          continue;
+        }
 
         // 5. Sample exclusions
         if (['kyc-01', 'kyc-02', 'kyc-03', 'kyc-04'].includes(sanitized.id)) {

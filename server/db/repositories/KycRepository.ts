@@ -36,61 +36,89 @@ export const KycRepository = {
     let skipped = 0;
     let invalid = 0;
 
+    if (!Array.isArray(requests)) {
+      return { imported, skipped, invalid: 1 };
+    }
+
     for (const req of requests) {
-      // 1. Basic type and null check
-      if (!req || typeof req !== 'object' || Array.isArray(req)) {
-        invalid++;
-        continue;
-      }
-
-      // 2. Required string fields validation (non-empty trimmed)
-      const requiredFields: (keyof EmployerKycRequest)[] = ['id', 'companyName', 'contactPerson', 'email', 'phone', 'ntnOrTaxNumber', 'companyWebsite', 'submittedAt'];
-      const hasMissingFields = requiredFields.some(f => {
-        const val = req[f];
-        return typeof val !== 'string' || val.trim() === '';
-      });
-
-      if (hasMissingFields) {
-        invalid++;
-        continue;
-      }
-
-      // 3. Status validation
-      if (!['Pending', 'Verified', 'Rejected'].includes(req.status)) {
-        invalid++;
-        continue;
-      }
-
-      // 4. Conditional validations (BadgeLevel and RejectionReason)
-      if (req.status === 'Verified') {
-        const validBadges = ['Standard Verified', 'Top Employer', 'Government Agency'];
-        if (req.badgeLevel && !validBadges.includes(req.badgeLevel)) {
+      try {
+        // 1. Basic type and null check
+        if (!req || typeof req !== 'object' || Array.isArray(req)) {
           invalid++;
           continue;
         }
-      }
 
-      if (req.status === 'Rejected' && (!req.rejectionReason || typeof req.rejectionReason !== 'string' || req.rejectionReason.trim() === '')) {
+        // 2. Required string fields validation & sanitization (non-empty trimmed)
+        const requiredFields: (keyof EmployerKycRequest)[] = ['id', 'companyName', 'contactPerson', 'email', 'phone', 'ntnOrTaxNumber', 'companyWebsite', 'submittedAt'];
+        const sanitized: any = {};
+        let isRecordInvalid = false;
+
+        for (const field of requiredFields) {
+          const val = req[field];
+          if (typeof val !== 'string' || val.trim() === '') {
+            isRecordInvalid = true;
+            break;
+          }
+          sanitized[field] = val.trim();
+        }
+
+        if (isRecordInvalid) {
+          invalid++;
+          continue;
+        }
+
+        // 3. Status validation
+        if (!['Pending', 'Verified', 'Rejected'].includes(req.status)) {
+          invalid++;
+          continue;
+        }
+        sanitized.status = req.status;
+
+        // 4. Conditional validations (BadgeLevel and RejectionReason)
+        if (req.status === 'Verified') {
+          const validBadges = ['Standard Verified', 'Top Employer', 'Government Agency'];
+          if (!req.badgeLevel || !validBadges.includes(req.badgeLevel)) {
+            invalid++;
+            continue;
+          }
+          sanitized.badgeLevel = req.badgeLevel;
+          if (req.verifiedAt) sanitized.verifiedAt = String(req.verifiedAt).trim();
+          if (req.verifiedBy) sanitized.verifiedBy = String(req.verifiedBy).trim();
+        }
+
+        if (req.status === 'Rejected') {
+          if (!req.rejectionReason || typeof req.rejectionReason !== 'string' || req.rejectionReason.trim() === '') {
+            invalid++;
+            continue;
+          }
+          sanitized.rejectionReason = req.rejectionReason.trim();
+        }
+
+        // Additional allowlisted fields
+        if (req.userId) sanitized.userId = String(req.userId).trim();
+        if (req.secpRegistrationNumber) sanitized.secpRegistrationNumber = String(req.secpRegistrationNumber).trim();
+        if (req.officialDocUrl) sanitized.officialDocUrl = String(req.officialDocUrl).trim();
+
+        // 5. Sample exclusions
+        if (['kyc-01', 'kyc-02', 'kyc-03', 'kyc-04'].includes(sanitized.id)) {
+          skipped++;
+          continue;
+        }
+        
+        const result = await dbColl.updateOne(
+          { id: sanitized.id },
+          { $setOnInsert: sanitized },
+          { upsert: true }
+        );
+        
+        if (result.upsertedCount === 1) {
+          imported++;
+        } else {
+          skipped++;
+        }
+      } catch (err) {
+        console.error('[KycRepository] Unexpected error during legacy import loop:', err);
         invalid++;
-        continue;
-      }
-
-      // 5. Sample exclusions
-      if (['kyc-01', 'kyc-02', 'kyc-03', 'kyc-04'].includes(req.id)) {
-        skipped++;
-        continue;
-      }
-      
-      const result = await dbColl.updateOne(
-        { id: req.id },
-        { $setOnInsert: req },
-        { upsert: true }
-      );
-      
-      if (result.upsertedCount === 1) {
-        imported++;
-      } else {
-        skipped++;
       }
     }
     return { imported, skipped, invalid };

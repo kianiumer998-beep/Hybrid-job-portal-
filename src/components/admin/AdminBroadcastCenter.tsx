@@ -14,7 +14,8 @@ import {
   Eye,
   Layers,
   Search,
-  Filter
+  Filter,
+  Info
 } from 'lucide-react';
 import { Subscriber, UserAccount, AdminFeatureFlags } from '../../types/job';
 import { BroadcastCampaign, CommunicationProviderConfig } from '../../types/adminSuite';
@@ -77,8 +78,31 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   // Calculate exact audience count from actual available records
   const calculateAudienceCount = () => {
     switch (targetAudience) {
-      case 'All Users':
-        return safeUsers.length + safeSubscribers.length;
+      case 'All Users': {
+        const seenEmails = new Set<string>();
+        const seenIds = new Set<string>();
+        let count = 0;
+
+        for (const u of safeUsers) {
+          const email = (u?.email || '').trim().toLowerCase();
+          const id = u?.id ? String(u.id).trim() : '';
+          if (email) seenEmails.add(email);
+          if (id) seenIds.add(id);
+          count++;
+        }
+
+        for (const s of safeSubscribers) {
+          const email = (s?.email || '').trim().toLowerCase();
+          const id = s?.id ? String(s.id).trim() : '';
+          const alreadySeen = (email && seenEmails.has(email)) || (id && seenIds.has(id));
+          if (!alreadySeen) {
+            if (email) seenEmails.add(email);
+            if (id) seenIds.add(id);
+            count++;
+          }
+        }
+        return count;
+      }
       case 'Job Seekers Only':
         return safeUsers.filter(u => !u?.role?.toLowerCase()?.includes('employer') && !u?.companyName).length;
       case 'Employers / Posters':
@@ -205,8 +229,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 <Send className="w-4 h-4 text-amber-400" />
                 <span>Draft New Broadcast Campaign</span>
               </h3>
-              <span className="text-[11px] font-mono text-emerald-400 font-bold">
-                🎯 Target Reach: ~{audienceCount} Recipients
+              <span className="text-[11px] font-mono text-emerald-400 font-bold" title="Estimated Audience Reach">
+                🎯 Target Reach: ~{audienceCount} (Estimated Audience Reach)
               </span>
             </div>
 
@@ -245,7 +269,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                     onChange={(e) => setTargetAudience(e.target.value as any)}
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
                   >
-                    <option value="All Users">All Registered Users ({users.length})</option>
+                    <option value="All Users">All Users (~{audienceCount} estimated reach)</option>
                     <option value="Job Seekers Only">Job Seekers Only</option>
                     <option value="Employers / Posters">Employers & Job Posters</option>
                     <option value="Subscribed Members">Active WhatsApp Pro Subscribers ({subscribers.length})</option>
@@ -513,9 +537,20 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             </button>
           </div>
 
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 flex items-start space-x-3 text-amber-300 text-xs leading-relaxed">
+            <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+            <div>
+              <p className="font-bold">Provider Gateway Persistence Notice</p>
+              <p className="text-slate-300 mt-0.5">
+                Remote SMTP, Meta WhatsApp Cloud API, and Twilio credential persistence is not yet active in this foundation phase. Configurations entered here are held in-memory for preview purposes. Automated delivery will be enabled in a future phase.
+              </p>
+            </div>
+          </div>
+
           {providerSaveSuccess && (
-            <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs">
-              ✅ Gateway settings updated and validated!
+            <div className="p-3 bg-indigo-500/20 border border-indigo-500/40 rounded-xl text-indigo-300 font-bold text-xs flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
+              <span>Gateway settings stored in local session. (Remote provider persistence is not active in this phase.)</span>
             </div>
           )}
 

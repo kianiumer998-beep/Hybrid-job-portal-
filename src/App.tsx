@@ -3190,8 +3190,9 @@ export default function App() {
               try {
                 const res = await api.settings.updateCommunication({ whatsAppSupportConfig: newCfg });
                 if (res && res.success) {
-                  setWhatsAppSupportConfig(res.whatsAppSupportConfig || newCfg);
-                  return true;
+                  const saved = res.whatsAppSupportConfig || newCfg;
+                  setWhatsAppSupportConfig(saved);
+                  return res;
                 }
                 return false;
               } catch (err) {

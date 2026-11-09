@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MessageCircle,
   Phone,
@@ -27,23 +27,39 @@ interface AdminWhatsAppManagerProps {
   subscribersCount?: number;
 }
 
+const isRealGroupLink = (link?: string | null): boolean => {
+  if (!link || typeof link !== 'string') return false;
+  const trimmed = link.trim();
+  if (!trimmed) return false;
+  if (trimmed === DEFAULT_WHATSAPP_CONFIG.groupLink) return false;
+  if (trimmed === 'https://chat.whatsapp.com/sampleCareerPakCommunity') return false;
+  try {
+    const parsed = new URL(trimmed);
+    return Boolean(parsed.protocol && parsed.host);
+  } catch {
+    return false;
+  }
+};
+
 export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   config,
   onUpdateConfig,
   subscribersCount = 0
 }) => {
   const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => {
-    let resolvedGroupLink = config?.groupLink;
+    let resolvedGroupLink = isRealGroupLink(config?.groupLink) ? config.groupLink : undefined;
     if (!resolvedGroupLink) {
       try {
         const legacy = localStorage.getItem('hybrid_whatsapp_group_link');
-        if (legacy) resolvedGroupLink = legacy;
+        if (isRealGroupLink(legacy)) {
+          resolvedGroupLink = legacy!.trim();
+        }
       } catch {}
     }
     return {
       ...DEFAULT_WHATSAPP_CONFIG,
       ...(config || {}),
-      groupLink: resolvedGroupLink || DEFAULT_WHATSAPP_CONFIG.groupLink
+      groupLink: resolvedGroupLink || config?.groupLink || DEFAULT_WHATSAPP_CONFIG.groupLink
     };
   });
 
@@ -53,22 +69,72 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     'السلام علیکم! کیریئر پاک پر جاب الرٹس اور اپلائی کرنے کے لیے رہنمائی درکار ہے۔'
   );
 
+  const hasAttemptedMigrationRef = useRef(false);
+
+  // Safe migration of legacy LocalStorage group link to MongoDB
+  useEffect(() => {
+    if (hasAttemptedMigrationRef.current) return;
+
+    // Rule 1 & 3: Existing MongoDB saved Group Link must always take priority over legacy LocalStorage
+    if (isRealGroupLink(config?.groupLink)) {
+      return;
+    }
+
+    let legacyLink: string | null = null;
+    try {
+      legacyLink = localStorage.getItem('hybrid_whatsapp_group_link');
+    } catch {}
+
+    // Rule 2 & 7: If MongoDB has no saved Group Link and a valid legacy LocalStorage value exists (not placeholder), migrate it to MongoDB
+    if (isRealGroupLink(legacyLink)) {
+      hasAttemptedMigrationRef.current = true;
+      const validLink = legacyLink!.trim();
+      const payload: WhatsAppSupportConfig = {
+        ...DEFAULT_WHATSAPP_CONFIG,
+        ...(config || {}),
+        groupLink: validLink
+      };
+
+      Promise.resolve(onUpdateConfig(payload))
+        .then((res: any) => {
+          // Rule 5: Do not delete legacy LocalStorage value until backend confirmation
+          const isSuccess = res === true || res?.success === true || (res && typeof res === 'object' && !res.error && res.status !== 'error');
+          if (isSuccess) {
+            try {
+              localStorage.removeItem('hybrid_whatsapp_group_link');
+            } catch {}
+            setFormData(prev => ({
+              ...prev,
+              groupLink: validLink,
+              ...(res?.whatsAppSupportConfig || {})
+            }));
+          } else {
+            // Rule 6: Retain legacy value and report failure safely if migration fails
+            console.warn('[AdminWhatsAppManager] Backend did not confirm group link migration. Legacy LocalStorage value retained.');
+          }
+        })
+        .catch((err: any) => {
+          // Rule 6: Retain legacy value and report failure safely if migration fails
+          console.warn('[AdminWhatsAppManager] Failed to migrate legacy Group Link to MongoDB:', err);
+        });
+    }
+  }, [config, onUpdateConfig]);
+
   // Keep local state in sync if parent config prop updates
   useEffect(() => {
     if (config) {
-      let resolvedGroupLink = config.groupLink;
-      if (!resolvedGroupLink) {
-        try {
-          const legacy = localStorage.getItem('hybrid_whatsapp_group_link');
-          if (legacy) resolvedGroupLink = legacy;
-        } catch {}
-      }
-      setFormData(prev => ({
-        ...DEFAULT_WHATSAPP_CONFIG,
-        ...prev,
-        ...config,
-        groupLink: resolvedGroupLink || prev.groupLink || DEFAULT_WHATSAPP_CONFIG.groupLink
-      }));
+      setFormData(prev => {
+        let resolvedLink = prev.groupLink;
+        if (isRealGroupLink(config.groupLink)) {
+          resolvedLink = config.groupLink;
+        }
+        return {
+          ...DEFAULT_WHATSAPP_CONFIG,
+          ...prev,
+          ...config,
+          groupLink: resolvedLink || DEFAULT_WHATSAPP_CONFIG.groupLink
+        };
+      });
     }
   }, [config]);
 
@@ -100,6 +166,11 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
         setIsSaving(false);
         return;
       }
+
+      // If user saved successfully, clear legacy LocalStorage on confirmed save
+      try {
+        localStorage.removeItem('hybrid_whatsapp_group_link');
+      } catch {}
 
       // Use authoritative server state returned by MongoDB if available
       if (result && typeof result === 'object') {
@@ -191,7 +262,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       {savedSuccess && (
         <div className="bg-emerald-950/80 border border-emerald-500 rounded-2xl p-4 flex items-center space-x-3 text-emerald-300 text-sm font-bold shadow-lg animate-in fade-in">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span>WhatsApp configuration saved and deployed site-wide successfully! (سیٹنگز محفوظ ہوگئیں)</span>
+          <span>WhatsApp configuration saved successfully! (سیٹنگز محفوظ ہوگئیں)</span>
         </div>
       )}
 

@@ -210,7 +210,7 @@ interface AdminDashboardProps {
   landingConfig?: LandingPageConfig;
   onUpdateLandingConfig?: (config: LandingPageConfig) => void;
   whatsAppSupportConfig?: WhatsAppSupportConfig;
-  onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => void;
+  onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => Promise<any> | boolean | void;
   siteSeoConfig?: SiteSeoConfig;
   onUpdateSeoConfig?: (config: SiteSeoConfig) => Promise<any> | void;
   isSeoConfigLoading?: boolean;
@@ -648,18 +648,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Load backend Communication provider credentials on mount
-  useEffect(() => {
-    (api as any).settings?.getCommunication?.()?.then((res: any) => {
-      if (res?.success && res.config) {
-        setCommConfig(prev => ({ ...prev, ...res.config }));
-      }
-    }).catch(() => {});
-  }, []);
-
   const handleUpdateCommConfig = (newCfg: CommunicationProviderConfig) => {
     setCommConfig(newCfg);
-    (api as any).settings?.updateCommunication?.(newCfg)?.catch((err: any) => console.error('[AdminDashboard] Failed to save Comm config:', err));
   };
 
   const handleUpdateCurrencyConfig = async (newCfg: CurrencyExchangeConfig) => {
@@ -759,11 +749,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const currentWhatsAppConfig = whatsAppSupportConfig || internalWhatsAppConfig;
   const currentTransactions = Array.isArray(paymentTransactions) ? paymentTransactions : internalTransactions;
 
-  const handleUpdateWhatsApp = (newCfg: WhatsAppSupportConfig) => {
+  const handleUpdateWhatsApp = async (newCfg: WhatsAppSupportConfig) => {
     setInternalWhatsAppConfig(newCfg);
     if (onUpdateWhatsAppConfig) {
-      onUpdateWhatsAppConfig(newCfg);
+      return await onUpdateWhatsAppConfig(newCfg);
     }
+    return true;
   };
 
   const handleApproveTx = async (

@@ -1,7 +1,6 @@
 import { CurrencyExchangeConfig } from '../../../src/types/adminSuite';
 import { INITIAL_CURRENCY_CONFIG } from '../../../src/data/mockAdminSuiteData';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
-import { Database } from '../database';
 
 const COLLECTION_NAME = 'system_settings';
 const DOC_KEY = 'currency_exchange_config';
@@ -84,30 +83,20 @@ export function validateCurrencyConfig(raw: any): { valid: boolean; message?: st
 
 export class CurrencyRepository {
   static async getConfig(): Promise<{ isConfigured: boolean; config: CurrencyExchangeConfig }> {
-    if (isMongoConfigured()) {
-      try {
-        const db = await getMongoDb();
-        const coll = db.collection(COLLECTION_NAME);
-        const doc = await withMongoTimeout(
-          coll.findOne({ key: DOC_KEY }),
-          8000,
-          'fetch currency config'
-        );
-        if (doc && doc.config) {
-          const validation = validateCurrencyConfig(doc.config);
-          if (validation.valid && validation.sanitized) {
-            return { isConfigured: true, config: validation.sanitized };
-          }
-        }
-      } catch (err) {
-        console.error('[CurrencyRepository] Failed to fetch from MongoDB, checking disk fallback:', err);
-      }
+    if (!isMongoConfigured()) {
+      return { isConfigured: false, config: INITIAL_CURRENCY_CONFIG };
     }
 
-    // Disk JSON fallback via Database
-    const diskConfig = Database.getCurrencyConfig();
-    if (diskConfig) {
-      const validation = validateCurrencyConfig(diskConfig);
+    const db = await getMongoDb();
+    const coll = db.collection(COLLECTION_NAME);
+    const doc = await withMongoTimeout(
+      coll.findOne({ key: DOC_KEY }),
+      8000,
+      'fetch currency config'
+    );
+
+    if (doc && doc.config) {
+      const validation = validateCurrencyConfig(doc.config);
       if (validation.valid && validation.sanitized) {
         return { isConfigured: true, config: validation.sanitized };
       }
@@ -117,6 +106,10 @@ export class CurrencyRepository {
   }
 
   static async saveConfig(rawConfig: any): Promise<CurrencyExchangeConfig> {
+    if (!isMongoConfigured()) {
+      throw new Error('Database Configuration Error: MONGODB_URI is not configured in the environment.');
+    }
+
     const validation = validateCurrencyConfig(rawConfig);
     if (!validation.valid || !validation.sanitized) {
       throw new Error(validation.message || 'Validation Error: Invalid currency configuration.');
@@ -124,29 +117,25 @@ export class CurrencyRepository {
 
     const cleanConfig = validation.sanitized;
 
-    if (isMongoConfigured()) {
-      const db = await getMongoDb();
-      const coll = db.collection(COLLECTION_NAME);
+    const db = await getMongoDb();
+    const coll = db.collection(COLLECTION_NAME);
 
-      await withMongoTimeout(
-        coll.updateOne(
-          { key: DOC_KEY },
-          {
-            $set: {
-              key: DOC_KEY,
-              config: cleanConfig,
-              updatedAt: new Date().toISOString()
-            }
-          },
-          { upsert: true }
-        ),
-        8000,
-        'save currency config'
-      );
-    }
+    await withMongoTimeout(
+      coll.updateOne(
+        { key: DOC_KEY },
+        {
+          $set: {
+            key: DOC_KEY,
+            config: cleanConfig,
+            updatedAt: new Date().toISOString()
+          }
+        },
+        { upsert: true }
+      ),
+      8000,
+      'save currency config'
+    );
 
-    // Always update disk fallback for consistency across container reboots
-    Database.saveCurrencyConfig(cleanConfig);
     return cleanConfig;
   }
 }

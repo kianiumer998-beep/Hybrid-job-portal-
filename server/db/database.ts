@@ -4,7 +4,7 @@ import { INITIAL_PAYMENT_TRANSACTIONS } from '../../src/data/mockTransactions';
 import { INITIAL_ADVERTISEMENTS, DEFAULT_AD_PRICING_CONFIG, DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG } from '../../src/types/ad';
 import { DEFAULT_JOB_POSTING_PRICING_CONFIG, DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG } from '../../src/types/job';
 import { DEFAULT_LANDING_PAGE_CONFIG, DEFAULT_CATEGORY_POSTING_FEES } from '../../src/types/landing';
-import { INITIAL_SITE_SEO_CONFIG, INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
+import { INITIAL_SITE_SEO_CONFIG } from '../../src/data/mockAdminSuiteData';
 import { ALL_VERIFIED_SCRAPER_PORTALS } from '../../src/data/allScraperPortals';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -749,15 +749,6 @@ export class Database {
 
   static saveSeoConfig(config: any): void {
     safeWriteJson('seo_config.json', config);
-  }
-
-  // --- CURRENCY CONFIG ---
-  static getCurrencyConfig(): any {
-    return safeReadJson<any>('currency_config.json', INITIAL_CURRENCY_CONFIG);
-  }
-
-  static saveCurrencyConfig(config: any): void {
-    safeWriteJson('currency_config.json', config);
   }
 
   // --- USER SAVED JOBS ---

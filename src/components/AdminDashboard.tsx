@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Job, 
   JobStatus,
@@ -675,6 +675,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const hasMigratedCurrencyRef = useRef(false);
+
   // Fetch backend currency configuration on mount with non-destructive legacy migration
   useEffect(() => {
     let isMounted = true;
@@ -685,7 +687,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         if (res && res.success && res.config) {
           if (res.isConfigured) {
             setCurrencyConfig(res.config);
-          } else {
+          } else if (!hasMigratedCurrencyRef.current) {
+            hasMigratedCurrencyRef.current = true;
             // Check legacy LocalStorage for non-destructive migration to backend
             const savedLegacy = localStorage.getItem('career_pak_currency_config');
             if (savedLegacy) {

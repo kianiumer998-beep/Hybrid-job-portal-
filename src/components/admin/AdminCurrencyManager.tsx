@@ -61,7 +61,7 @@ export const AdminCurrencyManager: React.FC<AdminCurrencyManagerProps> = ({
         }
       });
       setIsSyncing(false);
-      alert('✅ Live Forex Exchange Rates synchronized against Open Exchange Rates API!');
+      alert('Notice: Exchange rates updated with baseline interbank reference rates. Click "Save Currency Config" to save updates to the database.');
     }, 1000);
   };
 

@@ -50,8 +50,18 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
     return { safe: false, reason: 'TEST_MONGODB_URI could not be safely parsed for isolation verification.' };
   }
 
-  if (prodInfo.host === testInfo.host && prodInfo.port === testInfo.port && prodInfo.dbName === testInfo.dbName) {
-    return { safe: false, reason: `TEST_MONGODB_URI points to the same database host/port/database (${testInfo.host}:${testInfo.port}/${testInfo.dbName}) as production MONGODB_URI.` };
+  // Same database name is strictly rejected regardless of host variations
+  if (prodInfo.dbName === testInfo.dbName) {
+    return { safe: false, reason: `TEST_MONGODB_URI targets the same database name ("${testInfo.dbName}") as production MONGODB_URI.` };
+  }
+
+  const extractDomain = (host: string) => {
+    const parts = host.split('.');
+    return parts.length >= 2 ? parts.slice(-2).join('.') : host;
+  };
+
+  if (extractDomain(prodInfo.host) === extractDomain(testInfo.host) && prodInfo.dbName === testInfo.dbName) {
+    return { safe: false, reason: `Ambiguous cluster configuration: TEST_MONGODB_URI shares cluster domain (${extractDomain(prodInfo.host)}) and database name ("${testInfo.dbName}") with production MONGODB_URI.` };
   }
 
   return { safe: true };
@@ -140,8 +150,11 @@ export async function runCurrencyPersistenceTests() {
   const checkInvalidProd = isSafeDistinctTestUri('not-a-valid-uri', 'mongodb://127.0.0.1:27017/test');
   assert(checkInvalidProd.safe === false, '1.5e: Fail-closed on invalid production URI');
 
+  const checkSameDbDiffHost = isSafeDistinctTestUri('mongodb+srv://cluster0-node1.mongodb.net/prod_db', 'mongodb+srv://cluster0-node2.mongodb.net/prod_db');
+  assert(checkSameDbDiffHost.safe === false, '1.5f: Rejects different hostnames sharing same database name');
+
   const checkValidDistinct = isSafeDistinctTestUri('mongodb://127.0.0.1:27017/prod_db', 'mongodb://127.0.0.1:27017/test_db');
-  assert(checkValidDistinct.safe === true, '1.5f: Accepts distinct valid test database URI');
+  assert(checkValidDistinct.safe === true, '1.5g: Accepts distinct valid test database URI');
 
   // 2. Migration Payload & Document Integrity Rules
   console.log('\n--- 2. Migration Payload & Document Integrity Rules ---');

@@ -3,6 +3,41 @@ import { INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
 import { isMongoConfigured } from '../db/mongodb';
 import { MongoClient } from 'mongodb';
 
+export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe: boolean; reason?: string } {
+  if (!testUri || !testUri.trim()) {
+    return { safe: false, reason: 'Dedicated TEST_MONGODB_URI / MONGODB_TEST_URI environment variable is not configured.' };
+  }
+
+  const cleanProd = prodUri.trim();
+  const cleanTest = testUri.trim();
+
+  if (cleanProd && cleanTest.toLowerCase() === cleanProd.toLowerCase()) {
+    return { safe: false, reason: 'TEST_MONGODB_URI is identical to production MONGODB_URI.' };
+  }
+
+  const parseDbInfo = (uri: string) => {
+    try {
+      const normalized = uri.replace(/^mongodb(\+srv)?:\/\//, 'http://');
+      const url = new URL(normalized);
+      const pathname = url.pathname.replace(/^\//, '').split('?')[0];
+      return { host: url.hostname, port: url.port, dbName: pathname || 'admin' };
+    } catch {
+      return null;
+    }
+  };
+
+  const prodInfo = parseDbInfo(cleanProd);
+  const testInfo = parseDbInfo(cleanTest);
+
+  if (prodInfo && testInfo) {
+    if (prodInfo.host === testInfo.host && prodInfo.port === testInfo.port && prodInfo.dbName === testInfo.dbName) {
+      return { safe: false, reason: `TEST_MONGODB_URI points to the same database host/name (${testInfo.dbName}) as production MONGODB_URI.` };
+    }
+  }
+
+  return { safe: true };
+}
+
 export async function runCurrencyPersistenceTests() {
   console.log('====================================================');
   console.log('   CURRENCY PERSISTENCE ISOLATED TEST SUITE        ');
@@ -31,7 +66,7 @@ export async function runCurrencyPersistenceTests() {
   console.log('--- 1. Validation Rules & Data Integrity ---');
   const invalidCodeConfig = {
     ...INITIAL_CURRENCY_CONFIG,
-    baseCurrency: '' // Empty code
+    baseCurrency: ''
   };
   const val1 = validateCurrencyConfig(invalidCodeConfig);
   assert(val1.valid === false, '1.1: Rejects empty baseCurrency code');
@@ -81,12 +116,11 @@ export async function runCurrencyPersistenceTests() {
   const legacyVal = validateCurrencyConfig(legacyPayload);
   assert(legacyVal.valid === true && legacyVal.sanitized?.rates.USD === 0.00362, '2.1: Valid legacy LocalStorage payload validates safely');
 
-  // Test data integrity validation for invalid document payloads
   const invalidDocPayload = { baseCurrency: 'PKR', rates: { USD: -5 } };
   const invalidVal = validateCurrencyConfig(invalidDocPayload);
   assert(invalidVal.valid === false && Boolean(invalidVal.message), '2.2: Invalid existing document structure generates explicit validation error');
 
-  // 3. Database Connection Safety & Write Isolation
+  // 3. Database Connection Safety & Write Isolation Checks
   console.log('\n--- 3. Database Connection Safety & Write Isolation ---');
   const prodDbUri = (process.env.MONGODB_URI || '').trim();
   const testDbUri = (process.env.TEST_MONGODB_URI || process.env.MONGODB_TEST_URI || '').trim();
@@ -102,38 +136,84 @@ export async function runCurrencyPersistenceTests() {
     } catch (err: any) {
       assert(err.message.includes('MONGODB_URI is not configured'), '3.3: Unconfigured Mongo saveConfig throws clear error');
     }
-  } else if (!testDbUri) {
-    reportNotRun('3.1: Isolated Database Integration Write Test', 'Dedicated TEST_MONGODB_URI environment variable is not configured. Production database write skipped.');
-    reportNotRun('3.2: Database Persistence Reload Verification', 'Skipped due to absence of isolated test database URI.');
-  } else if (prodDbUri && testDbUri === prodDbUri) {
-    reportNotRun('3.1: Isolated Database Integration Write Test', 'TEST_MONGODB_URI resolves to the same connection string as production MONGODB_URI. Refusing to run tests to prevent production database mutation.');
-    reportNotRun('3.2: Database Persistence Reload Verification', 'Skipped to protect production database settings.');
   } else {
-    console.log('  [INFO] Independent TEST_MONGODB_URI detected. Running safe isolated test on dedicated test client...');
-    let testClient: MongoClient | null = null;
-    try {
-      testClient = new MongoClient(testDbUri);
-      await testClient.connect();
-      const testDb = testClient.db();
-      const testColl = testDb.collection('test_system_settings_isolated');
+    const separationCheck = isSafeDistinctTestUri(prodDbUri, testDbUri);
 
-      const testDoc = {
-        key: 'test_currency_exchange_config',
-        config: INITIAL_CURRENCY_CONFIG,
-        createdAt: new Date().toISOString()
-      };
+    if (!separationCheck.safe) {
+      reportNotRun('3.1: Actual CurrencyRepository.saveConfig() persistence test', separationCheck.reason || 'Test DB isolation check failed.');
+      reportNotRun('3.2: Actual CurrencyRepository.getConfig() reload test', 'Skipped due to DB isolation check failure.');
+      reportNotRun('3.3: CurrencyRepository rejection of invalid rate updates', 'Skipped due to DB isolation check failure.');
+      reportNotRun('3.4: CurrencyRepository missing vs invalid document distinction', 'Skipped due to DB isolation check failure.');
+    } else {
+      console.log('  [INFO] Safe distinct TEST_MONGODB_URI confirmed. Running actual repository logic on isolated test collection...');
+      let testClient: MongoClient | null = null;
+      const createdKeys: string[] = [];
+      const testRunId = `test_currency_config_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-      await testColl.insertOne(testDoc);
-      const fetched = await testColl.findOne({ key: 'test_currency_exchange_config' });
-      assert(Boolean(fetched && fetched.config), '3.1: Dedicated test client writes and retrieves isolated test document safely');
+      try {
+        testClient = new MongoClient(testDbUri);
+        await testClient.connect();
+        const testDb = testClient.db();
+        const testColl = testDb.collection('test_system_settings_isolated');
 
-      await testColl.deleteOne({ key: 'test_currency_exchange_config' });
-      assert(true, '3.2: Cleaned up isolated test document from dedicated test database');
-    } catch (err: any) {
-      assert(false, '3.1: Dedicated test database execution failed', err?.message);
-    } finally {
-      if (testClient) {
-        await testClient.close().catch(() => {});
+        // Test 3.1: Actual CurrencyRepository.saveConfig()
+        const testConfigPayload = {
+          ...INITIAL_CURRENCY_CONFIG,
+          lastSyncedAt: '2026-11-08 22:45 UTC',
+          rates: {
+            ...INITIAL_CURRENCY_CONFIG.rates,
+            USD: 0.00359
+          }
+        };
+
+        const savedResult = await CurrencyRepository.saveConfig(testConfigPayload, testColl, testRunId);
+        createdKeys.push(testRunId);
+        assert(savedResult.rates.USD === 0.00359, '3.1: CurrencyRepository.saveConfig() saves rates correctly to test collection');
+
+        // Test 3.2: Actual CurrencyRepository.getConfig() reload
+        const reloadedResult = await CurrencyRepository.getConfig(testColl, testRunId);
+        assert(reloadedResult.isConfigured === true && reloadedResult.config.rates.USD === 0.00359, '3.2: CurrencyRepository.getConfig() reloads exact saved configuration');
+
+        // Test 3.3: Rejection of invalid rates
+        try {
+          await CurrencyRepository.saveConfig(negativeRateConfig, testColl, testRunId);
+          assert(false, '3.3: CurrencyRepository.saveConfig() should reject invalid rates');
+        } catch (err: any) {
+          assert(err.message.includes('Validation Error'), '3.3: CurrencyRepository.saveConfig() throws Validation Error on invalid payload');
+        }
+
+        // Test 3.4: Missing document returns isConfigured: false
+        const missingKey = `${testRunId}_missing`;
+        const missingResult = await CurrencyRepository.getConfig(testColl, missingKey);
+        assert(missingResult.isConfigured === false, '3.4a: Missing document in CurrencyRepository returns isConfigured = false');
+
+        // Test 3.4b: Invalid existing document throws Data Integrity Error
+        const invalidKey = `${testRunId}_invalid`;
+        await testColl.insertOne({ key: invalidKey, config: { baseCurrency: 'PKR', rates: { USD: -999 } } });
+        createdKeys.push(invalidKey);
+
+        try {
+          await CurrencyRepository.getConfig(testColl, invalidKey);
+          assert(false, '3.4b: Existing invalid document must throw Data Integrity Error');
+        } catch (err: any) {
+          assert(err.message.includes('Data Integrity Error'), '3.4b: Existing invalid document throws clear Data Integrity Error');
+        }
+
+      } catch (err: any) {
+        assert(false, '3.0: Database integration test execution error', err?.message);
+      } finally {
+        if (testClient) {
+          try {
+            const testDb = testClient.db();
+            const testColl = testDb.collection('test_system_settings_isolated');
+            for (const key of createdKeys) {
+              await testColl.deleteOne({ key });
+            }
+          } catch (cleanupErr: any) {
+            console.error('[CLEANUP WARNING] Failed to clean up test records:', cleanupErr);
+          }
+          await testClient.close().catch(() => {});
+        }
       }
     }
   }

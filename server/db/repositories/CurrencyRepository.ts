@@ -82,18 +82,25 @@ export function validateCurrencyConfig(raw: any): { valid: boolean; message?: st
 }
 
 export class CurrencyRepository {
-  static async getConfig(): Promise<{ isConfigured: boolean; config: CurrencyExchangeConfig }> {
-    if (!isMongoConfigured()) {
+  static async getConfig(overrideCollection?: any, overrideDocKey?: string): Promise<{ isConfigured: boolean; config: CurrencyExchangeConfig }> {
+    if (!overrideCollection && !isMongoConfigured()) {
       return { isConfigured: false, config: INITIAL_CURRENCY_CONFIG };
     }
 
-    const db = await getMongoDb();
-    const coll = db.collection(COLLECTION_NAME);
-    const doc = await withMongoTimeout(
-      coll.findOne({ key: DOC_KEY }),
-      8000,
-      'fetch currency config'
-    );
+    const docKey = overrideDocKey || DOC_KEY;
+    let doc: any = null;
+
+    if (overrideCollection) {
+      doc = await overrideCollection.findOne({ key: docKey });
+    } else {
+      const db = await getMongoDb();
+      const coll = db.collection(COLLECTION_NAME);
+      doc = await withMongoTimeout(
+        coll.findOne({ key: docKey }),
+        8000,
+        'fetch currency config'
+      );
+    }
 
     if (!doc) {
       return { isConfigured: false, config: INITIAL_CURRENCY_CONFIG };
@@ -111,8 +118,8 @@ export class CurrencyRepository {
     return { isConfigured: true, config: validation.sanitized };
   }
 
-  static async saveConfig(rawConfig: any): Promise<CurrencyExchangeConfig> {
-    if (!isMongoConfigured()) {
+  static async saveConfig(rawConfig: any, overrideCollection?: any, overrideDocKey?: string): Promise<CurrencyExchangeConfig> {
+    if (!overrideCollection && !isMongoConfigured()) {
       throw new Error('Database Configuration Error: MONGODB_URI is not configured in the environment.');
     }
 
@@ -122,25 +129,40 @@ export class CurrencyRepository {
     }
 
     const cleanConfig = validation.sanitized;
+    const docKey = overrideDocKey || DOC_KEY;
 
-    const db = await getMongoDb();
-    const coll = db.collection(COLLECTION_NAME);
-
-    await withMongoTimeout(
-      coll.updateOne(
-        { key: DOC_KEY },
+    if (overrideCollection) {
+      await overrideCollection.updateOne(
+        { key: docKey },
         {
           $set: {
-            key: DOC_KEY,
+            key: docKey,
             config: cleanConfig,
             updatedAt: new Date().toISOString()
           }
         },
         { upsert: true }
-      ),
-      8000,
-      'save currency config'
-    );
+      );
+    } else {
+      const db = await getMongoDb();
+      const coll = db.collection(COLLECTION_NAME);
+
+      await withMongoTimeout(
+        coll.updateOne(
+          { key: docKey },
+          {
+            $set: {
+              key: docKey,
+              config: cleanConfig,
+              updatedAt: new Date().toISOString()
+            }
+          },
+          { upsert: true }
+        ),
+        8000,
+        'save currency config'
+      );
+    }
 
     return cleanConfig;
   }

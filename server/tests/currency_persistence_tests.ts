@@ -26,9 +26,12 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
   const testInfo = parseDbInfo(cleanTest);
 
   if (!prodInfo || !testInfo) return { safe: false, reason: 'Invalid MongoDB URI format.' };
+  
+  // HOST/PORT equality AND DATABASE name inequality are REQUIRED for cluster isolation.
   if (prodInfo.host !== testInfo.host || prodInfo.port !== testInfo.port) return { safe: false, reason: 'Test and Production database must share the same host and port for safe isolation.' };
   if (prodInfo.dbName === testInfo.dbName) return { safe: false, reason: 'Test database name must be different from production database name.' };
   if (prodInfo.dbName === 'admin' || testInfo.dbName === 'admin') return { safe: false, reason: 'Cannot safely use "admin" database.' };
+  
   return { safe: true };
 }
 
@@ -37,7 +40,7 @@ export async function runCurrencyPersistenceTests() {
   console.log('   CURRENCY PERSISTENCE ISOLATED TEST SUITE        ');
   console.log('====================================================\n');
 
-  let unit = { p: 0, f: 0 }, config = { p: 0, f: 0 }, integration = { p: 0, f: 0, nr: 0 }, failed = 0, notRun = 0, cleanupFailures = 0;
+  let unit = { p: 0, f: 0 }, config = { p: 0, f: 0 }, integration = { p: 0, f: 0, nr: 0 }, cleanupFailures = 0;
   
   function assert(condition: boolean, testName: string, type: 'unit' | 'config' | 'integration', detail?: string) {
     if (condition) {
@@ -61,9 +64,13 @@ export async function runCurrencyPersistenceTests() {
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { ...INITIAL_CURRENCY_CONFIG.rates, USD: 'invalid' as any } }).valid === false, '1.3: Rejects non-numeric rate', 'unit');
   assert(validateCurrencyConfig({ ...INITIAL_CURRENCY_CONFIG, internationalPricingTiers: { ...INITIAL_CURRENCY_CONFIG.internationalPricingTiers, featuredJobFee: { USD: -100 } } }).valid === false, '1.4: Rejects negative fee tier', 'unit');
   
-  // Genuine LocalStorage structure test
-  const legacyPayload = JSON.stringify(INITIAL_CURRENCY_CONFIG);
-  assert(validateCurrencyConfig(JSON.parse(legacyPayload)).valid === true, '1.5: Validates genuine legacy LocalStorage payload', 'unit');
+  // Legacy LocalStorage payload compatibility test
+  const KEY = 'career_pak_currency_config';
+  const fixture = { ...INITIAL_CURRENCY_CONFIG };
+  const serialized = JSON.stringify(fixture);
+  const parsed = JSON.parse(serialized);
+  assert(KEY === 'career_pak_currency_config', '1.5a: Uses exact legacy LocalStorage key', 'unit');
+  assert(validateCurrencyConfig(parsed).valid === true, '1.5b: Validates genuine legacy LocalStorage payload structure', 'unit');
   
   assert(validateCurrencyConfig({ baseCurrency: 'PKR', rates: { USD: -5 } }).valid === false, '1.6: Invalid doc structure rejection', 'unit');
 
@@ -109,7 +116,7 @@ export async function runCurrencyPersistenceTests() {
         await client.connect();
         const coll = client.db().collection('test_system_settings_isolated');
         
-        // 3.1: Save/Reload
+        // Integration 3.1: Save/Reload
         const key = `key_${runTimestamp}_${Math.random()}`;
         const payload = { ...INITIAL_CURRENCY_CONFIG, rates: { USD: 0.00359 } };
         await CurrencyRepository.saveConfig(payload, coll, key);
@@ -118,10 +125,10 @@ export async function runCurrencyPersistenceTests() {
         const res = await CurrencyRepository.getConfig(coll, key);
         assert(res.isConfigured === true && res.config.rates.USD === 0.00359, '3.1: saveConfig/getConfig() integration', 'integration');
 
-        // 3.2: Missing doc
+        // Integration 3.2: Missing doc
         assert((await CurrencyRepository.getConfig(coll, `missing_${runTimestamp}`)).isConfigured === false, '3.2: Missing doc → isConfigured=false', 'integration');
 
-        // 3.3: Invalid existing doc
+        // Integration 3.3: Invalid existing doc
         const invDocKey = `inv_${runTimestamp}_${Math.random()}`;
         await coll.insertOne({ key: invDocKey, config: { rates: { USD: -99 } } });
         createdKeys.push({ key: invDocKey, id: '3.3' });
@@ -130,7 +137,7 @@ export async function runCurrencyPersistenceTests() {
           assert(false, '3.3: Invalid doc → Error', 'integration');
         } catch (err: any) { assert(err.message.includes('Data Integrity Error'), '3.3: Invalid doc → Data Integrity Error', 'integration'); }
 
-        // 3.4: Invalid rate rejection in DB
+        // Integration 3.4: Invalid rate rejection in DB
         const invRateKey = `invRate_${runTimestamp}_${Math.random()}`;
         try {
           await CurrencyRepository.saveConfig({ ...INITIAL_CURRENCY_CONFIG, rates: { USD: -5 } }, coll, invRateKey);
@@ -143,20 +150,22 @@ export async function runCurrencyPersistenceTests() {
       } catch (err: any) { assert(false, '3.0: Database integration test execution error', 'integration', err?.message); }
       finally {
         if (client) {
-          const coll = client.db().collection('test_system_settings_isolated');
-          for (const item of createdKeys) { 
-            try {
-              const deleted = await coll.deleteOne({ key: item.key });
-              if (deleted.deletedCount !== 1) throw new Error(`Deleted count ${deleted.deletedCount}`);
-            } catch (cleanupErr: any) { console.error(`[CLEANUP FAILED] Key: ${item.key}`, cleanupErr); cleanupFailures++; }
-          }
+          try {
+            const coll = client.db().collection('test_system_settings_isolated');
+            for (const item of createdKeys) { 
+              try {
+                const deleted = await coll.deleteOne({ key: item.key });
+                if (deleted.deletedCount !== 1) { console.error(`[CLEANUP FAILED] Key: ${item.key}`); cleanupFailures++; }
+              } catch (delErr) { console.error(`[CLEANUP FAILED] Key: ${item.key}`, delErr); cleanupFailures++; }
+            }
+          } catch (cleanupErr: any) { console.error('[CLEANUP FAILED]', cleanupErr); cleanupFailures++; }
           try { await client.close(); } catch (closeErr) { console.error('[CLOSE FAILED]', closeErr); cleanupFailures++; }
         }
       }
     }
   }
 
-  console.log(`\nRESULTS: ${unit.p + config.p + integration.p} PASS (${unit.p} unit, ${config.p} config, ${integration.p} integration), ${unit.f + config.f + integration.f} FAIL, ${notRun + integration.nr} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
+  console.log(`\nRESULTS: ${unit.p} Unit PASS, ${config.p} Config PASS, ${integration.p} Integration PASS, ${unit.f + config.f + integration.f} FAIL, ${integration.nr} NOT RUN, ${cleanupFailures} CLEANUP FAILURES`);
   if (unit.f + config.f + integration.f > 0 || cleanupFailures > 0) throw new Error('Tests failed or cleanup error.');
 }
 

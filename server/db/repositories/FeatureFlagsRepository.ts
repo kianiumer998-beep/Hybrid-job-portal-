@@ -29,7 +29,6 @@ export class FeatureFlagsRepository {
         if (typeof raw[key] === 'boolean') {
           result[key] = raw[key];
         }
-        // Invalid, missing, or unknown keys preserve existing valid value from current.
       }
     }
     return result;
@@ -54,8 +53,7 @@ export class FeatureFlagsRepository {
 
   static async saveFlags(updates: Partial<AdminFeatureFlags>, currentFlags?: AdminFeatureFlags): Promise<AdminFeatureFlags> {
     if (!isMongoConfigured()) {
-      const baseline = currentFlags || DEFAULT_FEATURE_FLAGS;
-      return FeatureFlagsRepository.sanitizeFlags(updates, baseline);
+      throw new Error('Database unavailable: Cannot persist feature flags when MongoDB is not configured.');
     }
 
     const db = await getMongoDb();
@@ -80,7 +78,7 @@ export class FeatureFlagsRepository {
       'ensure feature flags document'
     );
 
-    // 2. Perform separate atomic $set update (upsert: false since document is guaranteed to exist by step 1)
+    // 2. Perform separate atomic $set update
     const setFields: Record<string, any> = {
       updatedAt: new Date().toISOString()
     };
@@ -106,8 +104,6 @@ export class FeatureFlagsRepository {
         'update feature flags'
       );
 
-      // Bounded recovery strategy: if document disappeared between step 1 and step 2 (matchedCount === 0),
-      // re-ensure the document with $setOnInsert and retry the $set update separately to prevent path conflicts.
       if (updateResult.matchedCount === 0) {
         await withMongoTimeout(
           coll.updateOne(

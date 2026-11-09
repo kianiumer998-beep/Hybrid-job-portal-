@@ -4,16 +4,14 @@ import { requireAdminPermission } from '../auth/authManager';
 
 export const systemSettingsRouter = Router();
 
-// GET Communication Settings (Features + WhatsApp Support + Provider Config)
+// GET Public WhatsApp Support Configuration (Publicly accessible for sticky button)
 systemSettingsRouter.get('/communication', async (req, res) => {
   try {
     const whatsAppSupportConfig = await SystemSettingsRepository.getWhatsAppSupportConfig();
-    const config = await SystemSettingsRepository.getCommConfig();
     
     return res.json({
       success: true,
-      whatsAppSupportConfig,
-      config
+      whatsAppSupportConfig
     });
   } catch (err: any) {
     console.error('[SystemSettingsRoutes] Error fetching communication settings:', err);
@@ -24,35 +22,68 @@ systemSettingsRouter.get('/communication', async (req, res) => {
   }
 });
 
-// UPDATE Communication Settings
+// PUT Update WhatsApp Support Configuration (Admin with 'settings.manage' permission only)
 systemSettingsRouter.put('/communication', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const user = (req as any).user;
-    const { whatsAppSupportConfig, ...commConfig } = req.body;
+    const { whatsAppSupportConfig } = req.body;
 
-    if (whatsAppSupportConfig) {
-      await SystemSettingsRepository.saveWhatsAppSupportConfig(whatsAppSupportConfig);
+    if (!whatsAppSupportConfig || typeof whatsAppSupportConfig !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid request: whatsAppSupportConfig object is required.'
+      });
     }
 
-    if (Object.keys(commConfig).length > 0) {
-      await SystemSettingsRepository.saveCommConfig(commConfig);
+    // Validate explicitly supported WhatsApp support configuration fields and reject unexpected fields
+    const allowedKeys = new Set([
+      'enabled',
+      'phoneNumber',
+      'defaultMessage',
+      'agentName',
+      'supportHoursText',
+      'position',
+      'showGreetingBubble',
+      'greetingText',
+      'mobileSize',
+      'desktopSize',
+      'iconSize',
+      'bubbleSize',
+      'autoShowDelaySeconds',
+      'showOnlineBadge',
+      'greetingCtaText',
+      'enablePulseAnimation',
+      'groupLink'
+    ]);
+
+    const sanitizedConfig: Record<string, any> = {};
+    for (const key of Object.keys(whatsAppSupportConfig)) {
+      if (!allowedKeys.has(key)) {
+        return res.status(400).json({
+          success: false,
+          message: `Validation Error: Unexpected configuration field '${key}' is not permitted.`
+        });
+      }
+      sanitizedConfig[key] = whatsAppSupportConfig[key];
     }
+
+    const savedConfig = await SystemSettingsRepository.saveWhatsAppSupportConfig(sanitizedConfig);
 
     AuditRepository.add({
       user: user?.name || user?.email || 'Administrator',
       role: user?.role || 'System Manager',
-      action: 'Communication Settings Updated',
+      action: 'WhatsApp Support Settings Updated',
       target: 'System Settings',
       status: 'Success',
       metadata: {
-        updatedWhatsAppSupport: !!whatsAppSupportConfig,
-        updatedCommConfig: Object.keys(commConfig).length > 0
+        updatedFields: Object.keys(sanitizedConfig)
       }
     });
 
     return res.json({
       success: true,
-      message: 'Communication settings updated successfully.'
+      whatsAppSupportConfig: savedConfig,
+      message: 'WhatsApp support configuration updated successfully.'
     });
   } catch (err: any) {
     console.error('[SystemSettingsRoutes] Error updating communication settings:', err);

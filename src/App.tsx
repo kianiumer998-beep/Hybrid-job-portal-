@@ -3186,11 +3186,18 @@ export default function App() {
             landingConfig={landingConfig}
             onUpdateLandingConfig={handleUpdateLandingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
-            onUpdateWhatsAppConfig={(newCfg) => {
-              setWhatsAppSupportConfig(newCfg);
-              api.settings.updateCommunication({ whatsAppSupportConfig: newCfg }).catch(err => {
+            onUpdateWhatsAppConfig={async (newCfg) => {
+              try {
+                const res = await api.settings.updateCommunication({ whatsAppSupportConfig: newCfg });
+                if (res && res.success) {
+                  setWhatsAppSupportConfig(res.whatsAppSupportConfig || newCfg);
+                  return true;
+                }
+                return false;
+              } catch (err) {
                 console.error('[App] Failed to save WhatsApp config to backend:', err);
-              });
+                return false;
+              }
             }}
             siteSeoConfig={siteSeoConfig}
             onUpdateSeoConfig={handleUpdateSeoConfig}

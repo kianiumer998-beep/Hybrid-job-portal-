@@ -1218,7 +1218,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     enablePostingFeePaywall: true,
     enableCvBuilderPaywall: true,
     enableLiveSupportChat: true,
-    deduplicationEnabled: true
+    deduplicationEnabled: true,
+    enableEmailAlerts: false,
+    enableWhatsAppAlerts: false
   });
 
   // Fetch initial feature flags from backend API

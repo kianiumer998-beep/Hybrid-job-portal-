@@ -20,7 +20,7 @@ import {
   Trash2,
   Copy
 } from 'lucide-react';
-import { UserAccount, Subscriber, Job } from '../../types/job';
+import { UserAccount, Subscriber, Job, AdminFeatureFlags } from '../../types/job';
 
 export interface BulkNotificationBroadcast {
   id: string;
@@ -36,7 +36,7 @@ export interface BulkNotificationBroadcast {
   recipientsCount: number;
   openRatePercent: number;
   clickRatePercent: number;
-  status: 'Delivered' | 'Scheduled' | 'Failed';
+  status: 'Delivered' | 'Scheduled' | 'Failed' | 'Draft';
 }
 
 const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
@@ -51,10 +51,10 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     messageBody: 'Fresh high-paying USD & EUR compensation roles have just been posted with verified direct HR application links.',
     ctaText: 'Explore Remote Roles',
     ctaUrl: '#jobs',
-    recipientsCount: 4280,
-    openRatePercent: 68.4,
-    clickRatePercent: 24.1,
-    status: 'Delivered'
+    recipientsCount: 0,
+    openRatePercent: 0,
+    clickRatePercent: 0,
+    status: 'Draft'
   },
   {
     id: 'notif-002',
@@ -67,10 +67,10 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     messageBody: 'Upgrade your resume with our single-column modern tech format designed to bypass Silicon Valley ATS filters.',
     ctaText: 'Build ATS CV Now',
     ctaUrl: '#cv',
-    recipientsCount: 8940,
-    openRatePercent: 52.0,
-    clickRatePercent: 19.5,
-    status: 'Delivered'
+    recipientsCount: 0,
+    openRatePercent: 0,
+    clickRatePercent: 0,
+    status: 'Draft'
   },
   {
     id: 'notif-003',
@@ -83,10 +83,10 @@ const INITIAL_BROADCAST_HISTORY: BulkNotificationBroadcast[] = [
     messageBody: 'Book premier homepage sponsor banners and popup slots at flat 50% off for the next 7 days.',
     ctaText: 'Launch Campaign Slot',
     ctaUrl: '#dashboard',
-    recipientsCount: 1450,
-    openRatePercent: 41.2,
-    clickRatePercent: 12.8,
-    status: 'Delivered'
+    recipientsCount: 0,
+    openRatePercent: 0,
+    clickRatePercent: 0,
+    status: 'Draft'
   }
 ];
 
@@ -184,28 +184,28 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
     } catch (e) {}
   }, [history]);
 
-  // Calculate Audience Count dynamically
+  // Calculate exact audience count from actual available records
   const audienceEstimate = useMemo(() => {
-    const totalUsers = Math.max(users.length, 1240);
-    const totalSubs = Math.max(subscribers.length, 380);
+    const totalUsers = users.length;
+    const totalSubs = subscribers.length;
 
     switch (targetAudience) {
       case 'all_users':
         return totalUsers + totalSubs;
       case 'pro_subscribers':
-        return Math.round(totalSubs * 1.8);
+        return totalSubs;
       case 'free_users':
-        return Math.round(totalUsers * 0.7);
+        return users.filter(u => u.plan === 'Free').length;
       case 'employers_only':
-        return Math.round(totalUsers * 0.22);
+        return users.filter(u => u.role?.toLowerCase()?.includes('employer') || u.companyName).length;
       case 'unpaid_expired':
-        return Math.round(totalUsers * 0.15);
+        return users.filter(u => u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Expired').length;
       case 'active_jobseekers':
-        return Math.round(totalUsers * 0.85);
+        return users.filter(u => Array.isArray(u.appliedJobs) && u.appliedJobs.length > 0).length;
       default:
         return totalUsers;
     }
-  }, [targetAudience, users.length, subscribers.length]);
+  }, [targetAudience, users, subscribers]);
 
   const handleApplyTemplate = (tpl: typeof TEMPLATE_PRESETS[0]) => {
     setTitle(tpl.title);
@@ -231,7 +231,6 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
       const now = new Date();
       const nowStr = now.toISOString().replace('T', ' ').substring(0, 16);
 
-      // Foundational Phase: We do NOT implement actual dispatch yet.
       const newBroadcast: BulkNotificationBroadcast = {
         id: `notif-${Date.now()}`,
         timestamp: nowStr,
@@ -246,7 +245,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
         recipientsCount: audienceEstimate,
         openRatePercent: 0,
         clickRatePercent: 0,
-        status: 'Scheduled'
+        status: 'Draft'
       };
 
       setHistory((prev) => [newBroadcast, ...prev]);
@@ -255,7 +254,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
       }
 
       setIsSending(false);
-      setSendSuccessMsg(`✅ Broadcast queued and saved. Multi-channel delivery via ${channel} is currently under development or disabled for this foundational phase.`);
+      setSendSuccessMsg(`✅ Broadcast saved as Draft. Delivery via ${channel} is under development for future phases.`);
       setTimeout(() => setSendSuccessMsg(null), 5000);
     }, 1000);
   };

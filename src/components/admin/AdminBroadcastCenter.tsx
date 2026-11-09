@@ -16,7 +16,7 @@ import {
   Search,
   Filter
 } from 'lucide-react';
-import { Subscriber, UserAccount } from '../../types/job';
+import { Subscriber, UserAccount, AdminFeatureFlags } from '../../types/job';
 import { BroadcastCampaign, CommunicationProviderConfig } from '../../types/adminSuite';
 
 interface AdminBroadcastCenterProps {
@@ -74,11 +74,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   );
   const [providerSaveSuccess, setProviderSaveSuccess] = useState(false);
 
-  // Calculate estimated audience count
+  // Calculate exact audience count from actual available records
   const calculateAudienceCount = () => {
     switch (targetAudience) {
       case 'All Users':
-        return safeUsers.length;
+        return safeUsers.length + safeSubscribers.length;
       case 'Job Seekers Only':
         return safeUsers.filter(u => !u?.role?.toLowerCase()?.includes('employer') && !u?.companyName).length;
       case 'Employers / Posters':
@@ -88,9 +88,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       case 'Unpaid / Expired Users':
         return safeUsers.filter(u => u?.plan === 'Free' || u?.membershipStatus === 'Expired').length;
       case 'Government Job Seekers':
-        return Math.round(safeUsers.length * 0.65);
+        return safeUsers.filter(u => Array.isArray(u.skills) && u.skills.some(s => s.toLowerCase().includes('govt') || s.toLowerCase().includes('bps'))).length;
       case 'Overseas / Gulf Candidates':
-        return Math.round(safeUsers.length * 0.35);
+        return safeUsers.filter(u => u?.address && /gulf|dubai|uk|saudi|uae/i.test(u.address)).length;
       default:
         return safeUsers.length;
     }
@@ -116,10 +116,6 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
     setIsSending(true);
     setTimeout(() => {
-      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
-      
-      // Foundational Phase: We do NOT implement actual dispatch yet.
-      // We save the campaign as 'Scheduled' or 'Draft' instead of claiming it was 'Sent'.
       const newCamp: BroadcastCampaign = {
         id: `camp-${Date.now().toString(36)}`,
         title: title.trim(),
@@ -127,8 +123,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
         targetAudience,
         subject: subject.trim() || title.trim(),
         messageBody: messageBody.trim(),
-        sentAt: undefined, // Not sent yet
-        status: 'Scheduled',
+        sentAt: undefined,
+        status: 'Draft',
         recipientsCount: audienceCount,
         openRate: 0,
         clickRate: 0
@@ -140,7 +136,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
       setCampaignList([newCamp, ...campaignList]);
       setIsSending(false);
       
-      alert(`✅ Broadcast Campaign "${newCamp.title}" has been saved and scheduled. Actual delivery via ${newCamp.channel} is currently under development or disabled for this foundational phase.`);
+      alert(`✅ Broadcast Campaign "${newCamp.title}" has been saved as Draft. Actual delivery via ${newCamp.channel} is under development for future phases.`);
       
       setTitle('');
       setSubject('');

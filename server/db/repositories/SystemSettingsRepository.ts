@@ -3,19 +3,43 @@ import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
 const COLLECTION_NAME = 'system_settings';
 
 export interface WhatsAppSupportConfig {
-  phoneNumber: string;
-  welcomeMessage: string;
   enabled: boolean;
-  position: 'right' | 'left';
-  themeColor: string;
+  phoneNumber: string;
+  defaultMessage: string;
+  agentName: string;
+  supportHoursText: string;
+  position: 'bottom-right' | 'bottom-left' | 'right' | 'left';
+  showGreetingBubble?: boolean;
+  greetingText?: string;
+  mobileSize?: 'compact' | 'standard' | 'large';
+  desktopSize?: 'compact' | 'standard' | 'large';
+  iconSize?: 'compact' | 'standard' | 'large';
+  bubbleSize?: 'compact' | 'standard' | 'large';
+  autoShowDelaySeconds?: number;
+  showOnlineBadge?: boolean;
+  greetingCtaText?: string;
+  enablePulseAnimation?: boolean;
+  groupLink?: string;
 }
 
 export const DEFAULT_WHATSAPP_SUPPORT_CONFIG: WhatsAppSupportConfig = {
-  phoneNumber: '',
-  welcomeMessage: 'Hi! I need help with...',
   enabled: true,
-  position: 'right',
-  themeColor: '#25D366'
+  phoneNumber: '923001234567',
+  defaultMessage: 'Hello! I need assistance regarding job applications and career alerts on HybridJobs.pk.',
+  agentName: 'Ayesha (Career Advisor)',
+  supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
+  position: 'bottom-right',
+  showGreetingBubble: true,
+  greetingText: 'Need help applying for remote jobs, hiring candidates, or setting WhatsApp alerts? Chat directly with our team!',
+  mobileSize: 'standard',
+  desktopSize: 'standard',
+  iconSize: 'standard',
+  bubbleSize: 'standard',
+  autoShowDelaySeconds: 4.5,
+  showOnlineBadge: true,
+  greetingCtaText: 'Start WhatsApp Chat',
+  enablePulseAnimation: true,
+  groupLink: 'https://chat.whatsapp.com/sampleCareerPakCommunity'
 };
 
 export class SystemSettingsRepository {
@@ -38,7 +62,7 @@ export class SystemSettingsRepository {
 
   static async saveSetting<T>(key: string, value: T): Promise<T> {
     if (!isMongoConfigured()) {
-      return value;
+      throw new Error('Database unavailable: Cannot persist system settings when MongoDB is not configured.');
     }
     const db = await getMongoDb();
     const coll = db.collection(COLLECTION_NAME);
@@ -62,27 +86,19 @@ export class SystemSettingsRepository {
   }
 
   static async getWhatsAppSupportConfig(): Promise<WhatsAppSupportConfig> {
-    return this.getSetting<WhatsAppSupportConfig>('whats_app_support_config', DEFAULT_WHATSAPP_SUPPORT_CONFIG);
+    const raw = await this.getSetting<Partial<WhatsAppSupportConfig>>('whats_app_support_config', DEFAULT_WHATSAPP_SUPPORT_CONFIG);
+    return {
+      ...DEFAULT_WHATSAPP_SUPPORT_CONFIG,
+      ...(raw || {})
+    };
   }
 
   static async saveWhatsAppSupportConfig(config: Partial<WhatsAppSupportConfig>): Promise<WhatsAppSupportConfig> {
     const current = await this.getWhatsAppSupportConfig();
-    const updated = { ...current, ...config };
+    const updated: WhatsAppSupportConfig = {
+      ...current,
+      ...(config || {})
+    };
     return this.saveSetting<WhatsAppSupportConfig>('whats_app_support_config', updated);
-  }
-
-  static async getCommConfig(): Promise<any> {
-    return this.getSetting<any>('comm_config', {
-      smtpHost: 'smtp.sendgrid.net',
-      smtpPort: 587,
-      smtpUser: 'apikey',
-      smtpSenderEmail: 'jobs@careerpak.pk'
-    });
-  }
-
-  static async saveCommConfig(config: any): Promise<any> {
-    const current = await this.getCommConfig();
-    const updated = { ...current, ...config };
-    return this.saveSetting<any>('comm_config', updated);
   }
 }

@@ -16,13 +16,14 @@ import {
   Monitor,
   Clock,
   Bell,
-  Zap
+  Zap,
+  AlertCircle
 } from 'lucide-react';
 import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from '../WhatsAppStickyButton';
 
 interface AdminWhatsAppManagerProps {
   config: WhatsAppSupportConfig;
-  onUpdateConfig: (updated: WhatsAppSupportConfig) => void;
+  onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
   subscribersCount?: number;
 }
 
@@ -59,18 +60,47 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   const testChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(formData.defaultMessage || DEFAULT_WHATSAPP_CONFIG.defaultMessage)}`;
   const testUrduChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(testUrduMessage)}`;
 
-  const handleSave = (e?: React.FormEvent) => {
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    onUpdateConfig(formData);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    setSaveError(null);
+    setIsSaving(true);
+    try {
+      const result = await onUpdateConfig(formData);
+      if (result === false) {
+        setSaveError('Failed to save WhatsApp support configuration to server. Form values retained.');
+        setIsSaving(false);
+        return;
+      }
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Error saving WhatsApp configuration to server.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleRestoreDefaults = () => {
-    setFormData(DEFAULT_WHATSAPP_CONFIG);
-    onUpdateConfig(DEFAULT_WHATSAPP_CONFIG);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+  const handleRestoreDefaults = async () => {
+    setSaveError(null);
+    setIsSaving(true);
+    try {
+      const result = await onUpdateConfig(DEFAULT_WHATSAPP_CONFIG);
+      if (result === false) {
+        setSaveError('Failed to restore defaults on server. Form values retained.');
+        setIsSaving(false);
+        return;
+      }
+      setFormData(DEFAULT_WHATSAPP_CONFIG);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Error resetting WhatsApp configuration.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCopyLink = (text: string) => {
@@ -123,6 +153,13 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
         <div className="bg-emerald-950/80 border border-emerald-500 rounded-2xl p-4 flex items-center space-x-3 text-emerald-300 text-sm font-bold shadow-lg animate-in fade-in">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>WhatsApp configuration saved and deployed site-wide successfully! (سیٹنگز محفوظ ہوگئیں)</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="bg-rose-950/80 border border-rose-500 rounded-2xl p-4 flex items-center space-x-3 text-rose-300 text-sm font-bold shadow-lg animate-in fade-in">
+          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          <span>{saveError}</span>
         </div>
       )}
 
@@ -499,10 +536,11 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
 
               <button
                 type="submit"
-                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-xl shadow-emerald-500/25 transition-all cursor-pointer active:scale-95"
+                disabled={isSaving}
+                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-xl shadow-emerald-500/25 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
               >
-                <Save className="w-4 h-4" />
-                <span>Save & Apply WhatsApp Configuration</span>
+                <Save className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
+                <span>{isSaving ? 'Saving to Server...' : 'Save & Apply WhatsApp Configuration'}</span>
               </button>
             </div>
           </div>

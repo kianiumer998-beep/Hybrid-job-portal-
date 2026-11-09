@@ -32,14 +32,21 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   onUpdateConfig,
   subscribersCount = 0
 }) => {
-  const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => ({
-    ...DEFAULT_WHATSAPP_CONFIG,
-    ...config
-  }));
-
-  const [groupLink, setGroupLink] = useState<string>(() => {
-    return localStorage.getItem('hybrid_whatsapp_group_link') || 'https://chat.whatsapp.com/sampleCareerPakCommunity';
+  const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => {
+    let resolvedGroupLink = config?.groupLink;
+    if (!resolvedGroupLink) {
+      try {
+        const legacy = localStorage.getItem('hybrid_whatsapp_group_link');
+        if (legacy) resolvedGroupLink = legacy;
+      } catch {}
+    }
+    return {
+      ...DEFAULT_WHATSAPP_CONFIG,
+      ...(config || {}),
+      groupLink: resolvedGroupLink || DEFAULT_WHATSAPP_CONFIG.groupLink
+    };
   });
+
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [testUrduMessage, setTestUrduMessage] = useState(
@@ -49,10 +56,19 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   // Keep local state in sync if parent config prop updates
   useEffect(() => {
     if (config) {
-      setFormData({
+      let resolvedGroupLink = config.groupLink;
+      if (!resolvedGroupLink) {
+        try {
+          const legacy = localStorage.getItem('hybrid_whatsapp_group_link');
+          if (legacy) resolvedGroupLink = legacy;
+        } catch {}
+      }
+      setFormData(prev => ({
         ...DEFAULT_WHATSAPP_CONFIG,
-        ...config
-      });
+        ...prev,
+        ...config,
+        groupLink: resolvedGroupLink || prev.groupLink || DEFAULT_WHATSAPP_CONFIG.groupLink
+      }));
     }
   }, [config]);
 
@@ -68,12 +84,35 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     setSaveError(null);
     setIsSaving(true);
     try {
+      if (formData.groupLink && formData.groupLink.trim()) {
+        try {
+          new URL(formData.groupLink.trim());
+        } catch {
+          setSaveError('Validation Error: Please enter a valid URL for the WhatsApp Group Link.');
+          setIsSaving(false);
+          return;
+        }
+      }
+
       const result = await onUpdateConfig(formData);
       if (result === false) {
         setSaveError('Failed to save WhatsApp support configuration to server. Form values retained.');
         setIsSaving(false);
         return;
       }
+
+      // Use authoritative server state returned by MongoDB if available
+      if (result && typeof result === 'object') {
+        const updatedCfg = result.whatsAppSupportConfig || result;
+        if (updatedCfg && typeof updatedCfg === 'object') {
+          setFormData(prev => ({
+            ...DEFAULT_WHATSAPP_CONFIG,
+            ...prev,
+            ...updatedCfg
+          }));
+        }
+      }
+
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: any) {
@@ -249,14 +288,14 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
               <div className="flex items-center space-x-2">
                 <input
                   type="url"
-                  value={groupLink}
-                  onChange={(e) => setGroupLink(e.target.value)}
+                  value={formData.groupLink || ''}
+                  onChange={(e) => setFormData({ ...formData, groupLink: e.target.value })}
                   placeholder="https://chat.whatsapp.com/..."
                   className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
                 />
                 <button
                   type="button"
-                  onClick={() => handleCopyLink(groupLink)}
+                  onClick={() => handleCopyLink(formData.groupLink || '')}
                   className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center space-x-1.5 shrink-0 cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5" />

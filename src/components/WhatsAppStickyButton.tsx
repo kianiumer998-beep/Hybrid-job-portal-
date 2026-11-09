@@ -18,6 +18,7 @@ export interface WhatsAppSupportConfig {
   showOnlineBadge?: boolean;
   greetingCtaText?: string;
   enablePulseAnimation?: boolean;
+  groupLink?: string;
 }
 
 export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
@@ -36,7 +37,8 @@ export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
   autoShowDelaySeconds: 4.5,
   showOnlineBadge: true,
   greetingCtaText: 'Start WhatsApp Chat',
-  enablePulseAnimation: true
+  enablePulseAnimation: true,
+  groupLink: 'https://chat.whatsapp.com/sampleCareerPakCommunity'
 };
 
 interface WhatsAppStickyButtonProps {

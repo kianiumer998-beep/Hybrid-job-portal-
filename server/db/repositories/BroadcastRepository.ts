@@ -1,6 +1,7 @@
 import { Collection } from 'mongodb';
 import { getMongoDb } from '../mongodb';
 import { BroadcastCampaign } from '../../../src/types/adminSuite';
+import * as crypto from 'crypto';
 
 const COLLECTION = 'broadcast_campaigns';
 
@@ -274,7 +275,7 @@ export const BroadcastRepository = {
         continue;
       }
 
-      // Fix B Step 1: Validate incoming legacy campaign before classifying as duplicate or inserting
+      // Validate incoming legacy campaign before insertion or ID generation
       const validation = validateBroadcastPayload(item);
       if (!validation.valid || !validation.clean) {
         failed++;
@@ -284,76 +285,22 @@ export const BroadcastRepository = {
         continue;
       }
 
-      // Fix C: Missing or invalid legacy IDs
-      // Do not silently generate a different random ID on every retry for a legacy record without a valid historical ID.
-      // Use a deterministic, collision-safe migration identity (e.g. hash/slug derived from title and messageBody) or classify as failure.
+      // Fix B: Collision-resistant deterministic legacy ID using crypto hash (Node built-in crypto)
+      // Incorporates all identity-defining and persisted campaign content fields: title, channel, targetAudience, subject, messageBody, categoryFilter.
+      // Excludes changing timestamps or random values.
       let cleanId = rawId;
       if (!cleanId) {
-        const titleSnippet = validation.clean.title!.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 20);
-        const bodySnippet = validation.clean.messageBody!.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 20);
-        cleanId = `camp-det-${titleSnippet}-${bodySnippet}`;
-        if (cleanId.length < 15) {
-          failed++;
-          const msg = 'Legacy campaign lacks a valid ID and could not derive a deterministic migration identity.';
-          failedItems.push({ title: validation.clean.title, error: msg });
-          errors.push(msg);
-          continue;
-        }
-      }
+        const identityString = [
+          validation.clean.title || '',
+          validation.clean.channel || '',
+          validation.clean.targetAudience || '',
+          validation.clean.subject || '',
+          validation.clean.messageBody || '',
+          validation.clean.categoryFilter || ''
+        ].join('||');
 
-      // Fix B Step 2 & 3 & 4 & 5: When existing MongoDB record has same ID, compare normalized campaign content.
-      // Only classify as safe duplicate when relevant campaign content matches.
-      // If ID matches but title, channel, audience, subject, message body, category, etc. conflict:
-      // Do not overwrite, do not count as safe duplicate, report conflict/failure, allEligibleSucceeded = false.
-      // Handle database lookup errors as failures, never as successful duplicates.
-      if (cleanId) {
-        let existing: any = null;
-        try {
-          existing = await dbColl.findOne({ id: cleanId } as any);
-        } catch (findErr: any) {
-          failed++;
-          const msg = findErr?.message || 'Database error during lookup';
-          failedItems.push({ id: cleanId, title: validation.clean.title, error: msg });
-          errors.push(`Lookup error for campaign "${cleanId}": ${msg}`);
-          continue;
-        }
-
-        if (existing) {
-          // Compare normalized campaign content
-          const existingNormTitle = String(existing.title || '').trim();
-          const existingNormChannel = String(existing.channel || '').trim();
-          const existingNormAudience = String(existing.targetAudience || '').trim();
-          const existingNormSubject = String(existing.subject || '').trim();
-          const existingNormBody = String(existing.messageBody || '').trim();
-          const existingNormCategory = String(existing.categoryFilter || 'All Categories').trim();
-
-          const incomingNormTitle = validation.clean.title!;
-          const incomingNormChannel = validation.clean.channel!;
-          const incomingNormAudience = validation.clean.targetAudience!;
-          const incomingNormSubject = validation.clean.subject!;
-          const incomingNormBody = validation.clean.messageBody!;
-          const incomingNormCategory = validation.clean.categoryFilter!;
-
-          const isContentIdentical =
-            existingNormTitle === incomingNormTitle &&
-            existingNormChannel === incomingNormChannel &&
-            existingNormAudience === incomingNormAudience &&
-            existingNormSubject === incomingNormSubject &&
-            existingNormBody === incomingNormBody &&
-            existingNormCategory === incomingNormCategory;
-
-          if (isContentIdentical) {
-            duplicates++;
-            duplicateIds.push(cleanId);
-            continue;
-          } else {
-            failed++;
-            const conflictMsg = `Content conflict for campaign ID "${cleanId}": Existing record content does not match incoming legacy content.`;
-            failedItems.push({ id: cleanId, title: incomingNormTitle, error: conflictMsg });
-            errors.push(conflictMsg);
-            continue;
-          }
-        }
+        const hashHex = crypto.createHash('sha256').update(identityString, 'utf8').digest('hex');
+        cleanId = `camp-det-${hashHex.substring(0, 24)}`;
       }
 
       const now = new Date().toISOString();
@@ -382,10 +329,62 @@ export const BroadcastRepository = {
         imported++;
         importedIds.push(cleanId);
       } catch (insertErr: any) {
+        // Fix A: Duplicate-key race condition handling
         if (insertErr?.code === 11000) {
-          // Double check content comparison on concurrent duplicate key error
-          duplicates++;
-          duplicateIds.push(cleanId);
+          // When insertOne throws code 11000, fetch the existing document again using the same campaign ID
+          let existing: any = null;
+          try {
+            existing = await dbColl.findOne({ id: cleanId } as any);
+          } catch (findErr: any) {
+            failed++;
+            const msg = `Duplicate-key race lookup error for campaign "${cleanId}": ${findErr?.message || 'Database error'}`;
+            failedItems.push({ id: cleanId, title: docToInsert.title, error: msg });
+            errors.push(msg);
+            continue;
+          }
+
+          if (!existing) {
+            failed++;
+            const msg = `Duplicate-key race error for campaign "${cleanId}": Record reported duplicate key but could not be found in follow-up lookup.`;
+            failedItems.push({ id: cleanId, title: docToInsert.title, error: msg });
+            errors.push(msg);
+            continue;
+          }
+
+          // Normalize and compare all relevant campaign content fields
+          const existingNormTitle = String(existing.title || '').trim();
+          const existingNormChannel = String(existing.channel || '').trim();
+          const existingNormAudience = String(existing.targetAudience || '').trim();
+          const existingNormSubject = String(existing.subject || '').trim();
+          const existingNormBody = String(existing.messageBody || '').trim();
+          const existingNormCategory = String(existing.categoryFilter || 'All Categories').trim();
+
+          const incomingNormTitle = docToInsert.title;
+          const incomingNormChannel = docToInsert.channel;
+          const incomingNormAudience = docToInsert.targetAudience;
+          const incomingNormSubject = docToInsert.subject;
+          const incomingNormBody = docToInsert.messageBody;
+          const incomingNormCategory = docToInsert.categoryFilter;
+
+          const isContentIdentical =
+            existingNormTitle === incomingNormTitle &&
+            existingNormChannel === incomingNormChannel &&
+            existingNormAudience === incomingNormAudience &&
+            existingNormSubject === incomingNormSubject &&
+            existingNormBody === incomingNormBody &&
+            existingNormCategory === incomingNormCategory;
+
+          if (isContentIdentical) {
+            // Count as duplicate ONLY if the existing document's normalized content exactly matches the incoming campaign
+            duplicates++;
+            duplicateIds.push(cleanId);
+          } else {
+            // If content differs, increment failed and report an explicit content conflict
+            failed++;
+            const conflictMsg = `Content conflict on duplicate-key race for campaign ID "${cleanId}": Existing record content does not match incoming legacy content.`;
+            failedItems.push({ id: cleanId, title: incomingNormTitle, error: conflictMsg });
+            errors.push(conflictMsg);
+          }
         } else {
           failed++;
           const msg = insertErr?.message || 'Database insert failed';

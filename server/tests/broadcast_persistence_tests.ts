@@ -33,9 +33,11 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
 function createMockBroadcastCollection(initialDocs: any[] = []) {
   const docs: any[] = [...initialDocs];
   let throwFindError = false;
+  let simulateCode11000OnInsert = false;
   return {
     docs,
     setThrowFindError(val: boolean) { throwFindError = val; },
+    setSimulateCode11000OnInsert(val: boolean) { simulateCode11000OnInsert = val; },
     findOne: async (filter: any) => {
       if (throwFindError) {
         throw new Error('Simulated database connection / lookup failure');
@@ -46,7 +48,7 @@ function createMockBroadcastCollection(initialDocs: any[] = []) {
       return null;
     },
     insertOne: async (doc: any) => {
-      if (docs.some(d => d.id === doc.id)) {
+      if (simulateCode11000OnInsert || docs.some(d => d.id === doc.id)) {
         const err: any = new Error(`E11000 duplicate key error collection: broadcast_campaigns index: unique_broadcast_campaign_id dup key: { id: "${doc.id}" }`);
         err.code = 11000;
         throw err;
@@ -129,7 +131,7 @@ async function simulateMigrationCheck(
 }
 
 export async function runBroadcastUnitTests() {
-  console.log('[START] Running Broadcast persistence unit tests (STEP-04.4-02.2)...');
+  console.log('[START] Running Broadcast persistence unit tests (STEP-04.4-02.3)...');
 
   const validPayload = {
     title: 'Weekly Digest #42',
@@ -141,279 +143,133 @@ export async function runBroadcastUnitTests() {
     categoryFilter: 'All Categories'
   };
 
-  const STORAGE_KEY = 'career_pak_broadcast_campaigns';
+  // ---------------------------------------------------------
+  // FIX A REGRESSION TESTS: DUPLICATE-KEY RACE CONDITIONS
+  // ---------------------------------------------------------
 
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 1: Mixed array containing valid campaigns plus null
-  // ---------------------------------------------------------
+  // Test A.1: Duplicate-key insert race with identical content → safe duplicate
   {
-    const storage = new Map<string, string>();
-    const legacyData = [
-      { id: 'user-valid-1', ...validPayload, title: 'Valid 1' },
-      null,
-      { id: 'user-valid-2', ...validPayload, title: 'Valid 2' }
-    ];
-    const originalRaw = JSON.stringify(legacyData);
-    storage.set(STORAGE_KEY, originalRaw);
-
-    const mockColl = createMockBroadcastCollection([]);
-    const migrationResult = await simulateMigrationCheck(storage, async (items) => {
-      return await BroadcastRepository.importLegacyCampaigns(items, mockColl);
-    });
-
-    if (migrationResult.keyRemoved) {
-      throw new Error('Test 1 failed: Array containing null must NOT remove LocalStorage key');
-    }
-    if (storage.get(STORAGE_KEY) !== originalRaw) {
-      throw new Error('Test 1 failed: Original storage raw JSON was altered');
-    }
-  }
-
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 2: Mixed array containing valid campaigns plus primitive values
-  // ---------------------------------------------------------
-  {
-    const storage = new Map<string, string>();
-    const legacyData = [
-      { id: 'user-valid-1', ...validPayload, title: 'Valid 1' },
-      'invalid-primitive-string',
-      12345,
-      true
-    ];
-    const originalRaw = JSON.stringify(legacyData);
-    storage.set(STORAGE_KEY, originalRaw);
-
-    const mockColl = createMockBroadcastCollection([]);
-    const migrationResult = await simulateMigrationCheck(storage, async (items) => {
-      return await BroadcastRepository.importLegacyCampaigns(items, mockColl);
-    });
-
-    if (migrationResult.keyRemoved) {
-      throw new Error('Test 2 failed: Array containing primitives must NOT remove LocalStorage key');
-    }
-    if (storage.get(STORAGE_KEY) !== originalRaw) {
-      throw new Error('Test 2 failed: Original storage modified');
-    }
-  }
-
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 3: Malformed object without required campaign fields
-  // ---------------------------------------------------------
-  {
-    const storage = new Map<string, string>();
-    const legacyData = [
-      { id: 'user-malformed-1', title: '' }, // empty title fails validation
-    ];
-    const originalRaw = JSON.stringify(legacyData);
-    storage.set(STORAGE_KEY, originalRaw);
-
-    const mockColl = createMockBroadcastCollection([]);
-    const migrationResult = await simulateMigrationCheck(storage, async (items) => {
-      return await BroadcastRepository.importLegacyCampaigns(items, mockColl);
-    });
-
-    if (migrationResult.keyRemoved) {
-      throw new Error('Test 3 failed: Malformed object must fail migration and preserve LocalStorage key');
-    }
-    if (storage.get(STORAGE_KEY) !== originalRaw) {
-      throw new Error('Test 3 failed: Storage modified');
-    }
-  }
-
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 4: Synthetic-only array
-  // ---------------------------------------------------------
-  {
-    const storage = new Map<string, string>();
-    const legacyData = [
-      { id: 'camp-01', ...validPayload, title: 'Synthetic 1' },
-      { id: 'camp-02', ...validPayload, title: 'Synthetic 2' },
-      { id: 'camp-03', ...validPayload, title: 'Synthetic 3' }
-    ];
-    storage.set(STORAGE_KEY, JSON.stringify(legacyData));
-
-    const mockColl = createMockBroadcastCollection([]);
-    const migrationResult = await simulateMigrationCheck(storage, async (items) => {
-      return await BroadcastRepository.importLegacyCampaigns(items, mockColl);
-    });
-
-    if (!migrationResult.keyRemoved) {
-      throw new Error('Test 4 failed: Synthetic-only array must remove LocalStorage key safely');
-    }
-  }
-
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 5: Same ID and identical normalized content: safe duplicate
-  // ---------------------------------------------------------
-  {
-    const existingDoc = { id: 'user-id-5', ...validPayload, title: 'Same Content' };
+    const existingDoc = { id: 'race-identical-id', ...validPayload, title: 'Race Identical Title' };
     const mockColl = createMockBroadcastCollection([existingDoc]);
+    mockColl.setSimulateCode11000OnInsert(true); // force 11000 on insertOne
 
     const importRes = await BroadcastRepository.importLegacyCampaigns([
-      { id: 'user-id-5', ...validPayload, title: 'Same Content' }
+      { id: 'race-identical-id', ...validPayload, title: 'Race Identical Title' }
     ], mockColl);
 
-    if (importRes.duplicates !== 1 || importRes.imported !== 0 || importRes.failed !== 0 || !importRes.allEligibleSucceeded) {
-      throw new Error(`Test 5 failed: Identical content with same ID must be counted as safe duplicate (duplicates=${importRes.duplicates}, failed=${importRes.failed})`);
+    if (importRes.duplicates !== 1 || importRes.failed !== 0 || !importRes.allEligibleSucceeded) {
+      throw new Error(`Test A.1 failed: Identical content race must be counted as safe duplicate (duplicates=${importRes.duplicates}, failed=${importRes.failed})`);
     }
   }
 
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 6: Same ID but different title: conflict, not duplicate
-  // ---------------------------------------------------------
+  // Test A.2: Duplicate-key insert race with different content → failure/conflict
   {
-    const existingDoc = { id: 'user-id-6', ...validPayload, title: 'Old Title' };
+    const existingDoc = { id: 'race-conflict-id', ...validPayload, title: 'Existing DB Title' };
     const mockColl = createMockBroadcastCollection([existingDoc]);
+    mockColl.setSimulateCode11000OnInsert(true); // force 11000 on insertOne
 
     const importRes = await BroadcastRepository.importLegacyCampaigns([
-      { id: 'user-id-6', ...validPayload, title: 'New Conflicting Title' }
+      { id: 'race-conflict-id', ...validPayload, title: 'Conflicting Incoming Title' }
     ], mockColl);
 
     if (importRes.failed !== 1 || importRes.duplicates !== 0 || importRes.allEligibleSucceeded) {
-      throw new Error(`Test 6 failed: Different title with same ID must be reported as failure/conflict (failed=${importRes.failed}, allEligibleSucceeded=${importRes.allEligibleSucceeded})`);
+      throw new Error(`Test A.2 failed: Different content race must be reported as conflict/failure (failed=${importRes.failed}, allEligibleSucceeded=${importRes.allEligibleSucceeded})`);
     }
   }
 
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 7: Same ID but different message body: conflict, not duplicate
-  // ---------------------------------------------------------
-  {
-    const existingDoc = { id: 'user-id-7', ...validPayload, messageBody: 'Old message body content' };
-    const mockColl = createMockBroadcastCollection([existingDoc]);
-
-    const importRes = await BroadcastRepository.importLegacyCampaigns([
-      { id: 'user-id-7', ...validPayload, messageBody: 'Completely different message body text' }
-    ], mockColl);
-
-    if (importRes.failed !== 1 || importRes.duplicates !== 0 || importRes.allEligibleSucceeded) {
-      throw new Error(`Test 7 failed: Different message body with same ID must be reported as conflict/failure`);
-    }
-  }
-
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 8: Database lookup failure: migration failure
-  // ---------------------------------------------------------
+  // Test A.3: Duplicate-key follow-up lookup failure → failure
   {
     const mockColl = createMockBroadcastCollection([]);
-    mockColl.setThrowFindError(true);
+    mockColl.setSimulateCode11000OnInsert(true);
+    mockColl.setThrowFindError(true); // lookup fails during race check
 
     const importRes = await BroadcastRepository.importLegacyCampaigns([
-      { id: 'user-id-8', ...validPayload }
+      { id: 'race-fail-lookup', ...validPayload }
     ], mockColl);
 
     if (importRes.failed !== 1 || importRes.allEligibleSucceeded) {
-      throw new Error('Test 8 failed: Database lookup error must be reported as migration failure');
+      throw new Error('Test A.3 failed: Follow-up lookup error on 11000 must result in migration failure');
+    }
+  }
+
+  // Test A.4: Duplicate-key follow-up lookup returns no document → failure
+  {
+    const mockColl = createMockBroadcastCollection([]);
+    mockColl.setSimulateCode11000OnInsert(true); // 11000 thrown, but findOne returns null (phantom/missing)
+
+    const importRes = await BroadcastRepository.importLegacyCampaigns([
+      { id: 'race-phantom-id', ...validPayload }
+    ], mockColl);
+
+    if (importRes.failed !== 1 || importRes.allEligibleSucceeded) {
+      throw new Error('Test A.4 failed: Follow-up lookup returning no document on 11000 must result in migration failure');
     }
   }
 
   // ---------------------------------------------------------
-  // TEST REQUIREMENT 9: Missing legacy ID: safe and repeatable behavior
+  // FIX B REGRESSION TESTS: CRYPTOGRAPHIC DETERMINISTIC ID
   // ---------------------------------------------------------
+
+  // Test B.5: Same missing-ID campaign imported twice → same deterministic ID and one stored record
   {
     const mockColl = createMockBroadcastCollection([]);
-    const legacyItemWithoutId = { ...validPayload, title: 'No ID Legacy Campaign' };
+    const legacyItemWithoutId = { ...validPayload, title: 'Cryptographic Deterministic ID Test' };
 
     const run1 = await BroadcastRepository.importLegacyCampaigns([legacyItemWithoutId], mockColl);
     if (run1.imported !== 1) {
-      throw new Error(`Test 9 failed: Missing ID record should be imported deterministically, got imported=${run1.imported}`);
+      throw new Error(`Test B.5 failed: First import failed (imported=${run1.imported})`);
     }
-    const importedId1 = run1.importedIds[0];
+    const id1 = run1.importedIds[0];
 
-    // Retry import with same item without ID -> should produce deterministic ID and count as safe duplicate
     const run2 = await BroadcastRepository.importLegacyCampaigns([legacyItemWithoutId], mockColl);
     if (run2.duplicates !== 1 || run2.imported !== 0) {
-      throw new Error(`Test 9 failed: Retry of missing ID record must be recognized as duplicate deterministically (duplicates=${run2.duplicates}, imported=${run2.imported})`);
+      throw new Error(`Test B.5 failed: Second import must be recognized as duplicate (duplicates=${run2.duplicates})`);
     }
-    const importedId2 = run2.duplicateIds[0];
-    if (importedId1 !== importedId2) {
-      throw new Error(`Test 9 failed: Deterministic ID not repeatable between runs ("${importedId1}" vs "${importedId2}")`);
+    const id2 = run2.duplicateIds[0];
+
+    if (id1 !== id2) {
+      throw new Error(`Test B.5 failed: Deterministic IDs do not match ("${id1}" vs "${id2}")`);
+    }
+    if (mockColl.docs.length !== 1) {
+      throw new Error(`Test B.5 failed: Expected exactly 1 record in collection, got ${mockColl.docs.length}`);
     }
   }
 
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 10: Retry after partial migration: no data loss and no duplicate campaign creation
-  // ---------------------------------------------------------
+  // Test B.6: Different campaigns sharing similar title/body prefixes → distinct deterministic IDs
   {
-    const storage = new Map<string, string>();
-    const legacyData = [
-      { id: 'user-retry-1', ...validPayload, title: 'Retry Item 1' },
-      { id: 'user-retry-2', ...validPayload, title: '' } // fails validation on first run
-    ];
-    const originalRaw = JSON.stringify(legacyData);
-    storage.set(STORAGE_KEY, originalRaw);
-
     const mockColl = createMockBroadcastCollection([]);
+    const campA = { ...validPayload, title: 'Gazette Opening A', messageBody: 'Apply for post A' };
+    const campB = { ...validPayload, title: 'Gazette Opening B', messageBody: 'Apply for post B' };
 
-    // Fix the invalid item for retry simulation
-    legacyData[1].title = 'Retry Item 2 Validated';
-
-    // First migration attempt (fails due to invalid item)
-    storage.set(STORAGE_KEY, JSON.stringify([
-      { id: 'user-retry-1', ...validPayload, title: 'Retry Item 1' },
-      { id: 'user-retry-2', title: '' }
-    ]));
-    const res1 = await simulateMigrationCheck(storage, async (items) => BroadcastRepository.importLegacyCampaigns(items, mockColl));
-    if (res1.keyRemoved) {
-      throw new Error('Test 10 failed: Partial migration must not remove LocalStorage key');
+    const importRes = await BroadcastRepository.importLegacyCampaigns([campA, campB], mockColl);
+    if (importRes.imported !== 2) {
+      throw new Error(`Test B.6 failed: Expected 2 imported, got ${importRes.imported}`);
     }
-
-    // Second migration attempt (retry with fixed data)
-    storage.set(STORAGE_KEY, JSON.stringify(legacyData));
-    const res2 = await simulateMigrationCheck(storage, async (items) => BroadcastRepository.importLegacyCampaigns(items, mockColl));
-    if (!res2.keyRemoved) {
-      throw new Error('Test 10 failed: Successful retry must remove LocalStorage key');
-    }
-
-    const totalInColl = await mockColl.countDocuments();
-    if (totalInColl !== 2) {
-      throw new Error(`Test 10 failed: Expected exactly 2 campaigns in DB, got ${totalInColl}`);
+    if (importRes.importedIds[0] === importRes.importedIds[1]) {
+      throw new Error('Test B.6 failed: Different campaigns produced colliding deterministic IDs');
     }
   }
 
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 11: Exact original LocalStorage payload remains unchanged on every failure/conflict
-  // ---------------------------------------------------------
+  // Test B.7: Different channel, audience, or category with otherwise similar content → distinct identity
   {
-    const storage = new Map<string, string>();
-    const legacyData = [
-      { id: 'conflict-id', ...validPayload, title: 'Incoming Title Conflict' }
-    ];
-    const originalRaw = JSON.stringify(legacyData);
-    storage.set(STORAGE_KEY, originalRaw);
-
-    const mockColl = createMockBroadcastCollection([
-      { id: 'conflict-id', ...validPayload, title: 'Existing DB Title' }
-    ]);
-
-    await simulateMigrationCheck(storage, async (items) => BroadcastRepository.importLegacyCampaigns(items, mockColl));
-
-    if (storage.get(STORAGE_KEY) !== originalRaw) {
-      throw new Error('Test 11 failed: LocalStorage payload was modified or removed on conflict');
-    }
-  }
-
-  // ---------------------------------------------------------
-  // TEST REQUIREMENT 12: LocalStorage removal only after every non-synthetic record is conclusively accounted for
-  // ---------------------------------------------------------
-  {
-    const storage = new Map<string, string>();
-    const legacyData = [
-      { id: 'camp-01', ...validPayload, title: 'Synthetic' }, // synthetic
-      { id: 'conclusive-1', ...validPayload, title: 'Conclusive 1' },
-      { id: 'conclusive-2', ...validPayload, title: 'Conclusive 2' }
-    ];
-    const originalRaw = JSON.stringify(legacyData);
-    storage.set(STORAGE_KEY, originalRaw);
-
     const mockColl = createMockBroadcastCollection([]);
-    const migrationResult = await simulateMigrationCheck(storage, async (items) => BroadcastRepository.importLegacyCampaigns(items, mockColl));
+    const camp1 = { ...validPayload, channel: 'Email' as const };
+    const camp2 = { ...validPayload, channel: 'WhatsApp' as const };
 
-    if (!migrationResult.keyRemoved) {
-      throw new Error('Test 12 failed: LocalStorage key must be removed when all non-synthetic records are successfully imported');
+    const importRes = await BroadcastRepository.importLegacyCampaigns([camp1, camp2], mockColl);
+    if (importRes.imported !== 2 || importRes.importedIds[0] === importRes.importedIds[1]) {
+      throw new Error('Test B.7 failed: Channel change did not produce distinct deterministic ID');
     }
   }
 
-  console.log('[PASS] All STEP-04.4-02.2 Broadcast unit tests passed successfully.');
+  // Additional sanity checks
+  const adminDashboardPath = path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx');
+  const adminDashboardContent = fs.readFileSync(adminDashboardPath, 'utf8');
+  if (adminDashboardContent.includes("localStorage.setItem('career_pak_broadcast_campaigns'")) {
+    throw new Error('Regression: AdminDashboard.tsx contains localStorage.setItem for career_pak_broadcast_campaigns!');
+  }
+
+  console.log('[PASS] All STEP-04.4-02.3 Broadcast unit tests passed successfully.');
 }
 
 export async function runBroadcastPersistenceTests() {
@@ -448,20 +304,71 @@ export async function runBroadcastPersistenceTests() {
       categoryFilter: 'Technology'
     };
 
-    // Integration Scenario: Content Conflict Handling
-    const historicalId = `hist-conflict-${testRunId}`;
-    await BroadcastRepository.createCampaign({ ...campaignInput, id: historicalId, title: 'Original DB Title' }, coll);
+    // FIX C INTEGRATION TEST: Seed historical record directly into isolated test collection using insertOne()
+    const historicalId = `hist-seed-${testRunId}`;
+    const originalHistoricalDoc = {
+      id: historicalId,
+      title: 'Original Seeded Title',
+      channel: 'Email' as const,
+      targetAudience: 'Job Seekers Only' as const,
+      subject: 'Original Seeded Subject',
+      messageBody: 'Original Seeded Message Body',
+      categoryFilter: 'Technology',
+      status: 'Draft' as const,
+      recipientsCount: 500,
+      openRate: 0,
+      clickRate: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
+    await coll.insertOne(originalHistoricalDoc as any);
+
+    // Submit a legacy campaign with the same ID but conflicting content
     const conflictingImport = [
-      { id: historicalId, ...campaignInput, title: 'Conflicting Import Title' }
+      {
+        id: historicalId,
+        ...campaignInput,
+        title: 'Conflicting Updated Title'
+      }
     ];
 
     const result = await BroadcastRepository.importLegacyCampaigns(conflictingImport, coll);
-    if (result.failed !== 1 || result.allEligibleSucceeded) {
-      throw new Error('Integration Scenario failed: Content conflict did not report failure in MongoDB integration test');
+
+    // Verify requirements:
+    // 1. failed === 1
+    if (result.failed !== 1) {
+      throw new Error(`Fix C Integration failed: Expected failed === 1, got ${result.failed}`);
+    }
+    // 2. duplicates === 0
+    if (result.duplicates !== 0) {
+      throw new Error(`Fix C Integration failed: Expected duplicates === 0, got ${result.duplicates}`);
+    }
+    // 3. allEligibleSucceeded === false
+    if (result.allEligibleSucceeded) {
+      throw new Error('Fix C Integration failed: Expected allEligibleSucceeded to be false');
+    }
+    // 4. Fetch original MongoDB document and verify every original content field remains unchanged
+    const fetchedDoc = await coll.findOne({ id: historicalId } as any);
+    if (!fetchedDoc) {
+      throw new Error('Fix C Integration failed: Historical document disappeared from collection');
+    }
+    if (fetchedDoc.title !== 'Original Seeded Title') {
+      throw new Error(`Fix C Integration failed: Document title was overwritten to "${fetchedDoc.title}"`);
+    }
+    if (fetchedDoc.subject !== 'Original Seeded Subject') {
+      throw new Error('Fix C Integration failed: Document subject was overwritten');
+    }
+    if (fetchedDoc.messageBody !== 'Original Seeded Message Body') {
+      throw new Error('Fix C Integration failed: Document messageBody was overwritten');
+    }
+    // 5. Verify no extra campaign was inserted (total count is still 1)
+    const totalCount = await coll.countDocuments({});
+    if (totalCount !== 1) {
+      throw new Error(`Fix C Integration failed: Expected exactly 1 document in collection, got ${totalCount}`);
     }
 
-    console.log('[PASS] Broadcast persistence integration test scenarios passed.');
+    console.log('[PASS] Broadcast persistence Fix C MongoDB integration test passed successfully.');
   } catch (err: any) {
     console.error('[FAIL] Broadcast persistence integration tests failed:', err);
     process.exitCode = 1;

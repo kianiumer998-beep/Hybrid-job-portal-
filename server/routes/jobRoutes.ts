@@ -289,16 +289,20 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
     // Only notify genuine user-posted listings with a verified submittedByUserId
     if (target && !isScraped && sourceType === 'user_posted' && target.submittedByUserId) {
       try {
+        const recipientUserId = String(target.submittedByUserId);
         const rejectionReason = reason || 'Details did not meet submission criteria.';
         const body = `Your job submission "${target.title}" was not approved. Reason: ${rejectionReason}`;
-        await NotificationRepository.create({
+        const stableEventId = `notif-job-reject-${id}`;
+
+        await NotificationRepository.createAsync({
+          userId: recipientUserId,
           title: 'Job Submission Rejected',
-          body,
-          plainText: body,
-          targetAudience: 'specific_users',
-          targetUserIds: [String(target.submittedByUserId)],
-          channels: { bell: true, popup: false, pageBanner: false },
-          status: 'published'
+          message: body,
+          type: 'warning',
+          channel: 'in-app',
+          eventId: stableEventId,
+          idempotencyKey: stableEventId,
+          metadata: { jobId: id, jobTitle: target.title, reason: rejectionReason }
         }, 'System - Job Moderation');
         notificationSent = true;
       } catch (notifErr) {
@@ -367,15 +371,18 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
           const body = userJobs.length === 1
             ? `Your job posting "${userJobs[0].title}" has been removed by administration.`
             : `${userJobs.length} of your job postings (${titles}${extra}) have been removed by administration.`;
+          const firstJobId = userJobs[0]?.id || 'bulk';
+          const stableEventId = `notif-job-bulk-delete-${userId}-${firstJobId}-${userJobs.length}`;
 
-          await NotificationRepository.create({
+          await NotificationRepository.createAsync({
+            userId,
             title: 'Job Posting Removed',
-            body,
-            plainText: body,
-            targetAudience: 'specific_users',
-            targetUserIds: [userId],
-            channels: { bell: true, popup: false, pageBanner: false },
-            status: 'published'
+            message: body,
+            type: 'alert',
+            channel: 'in-app',
+            eventId: stableEventId,
+            idempotencyKey: stableEventId,
+            metadata: { userJobCount: userJobs.length, jobIds: userJobs.map(j => j.id) }
           }, 'System - Job Moderation');
 
           notificationsSent++;
@@ -539,15 +546,18 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
           const body = userJobs.length === 1
             ? `Your job submission "${userJobs[0].title}" was not approved. Reason: ${rejectionReason}`
             : `${userJobs.length} of your job submissions (${titles}${extra}) were not approved. Reason: ${rejectionReason}`;
+          const firstJobId = userJobs[0]?.id || 'bulk';
+          const stableEventId = `notif-job-bulk-reject-${userId}-${firstJobId}-${userJobs.length}`;
 
-          await NotificationRepository.create({
+          await NotificationRepository.createAsync({
+            userId,
             title: 'Job Submission Rejected',
-            body,
-            plainText: body,
-            targetAudience: 'specific_users',
-            targetUserIds: [userId],
-            channels: { bell: true, popup: false, pageBanner: false },
-            status: 'published'
+            message: body,
+            type: 'warning',
+            channel: 'in-app',
+            eventId: stableEventId,
+            idempotencyKey: stableEventId,
+            metadata: { userJobCount: userJobs.length, jobIds: userJobs.map(j => j.id), reason: rejectionReason }
           }, 'System - Job Moderation');
 
           notificationsSent++;
@@ -1451,15 +1461,19 @@ jobRouter.delete('/:id', requireAdminPermission('jobs.manage'), async (req, res)
       const st = deriveJobSourceType(existing);
       if (!isScraped && st === 'user_posted' && existing.submittedByUserId) {
         try {
+          const recipientUserId = String(existing.submittedByUserId);
           const body = `Your job posting "${existing.title}" has been removed by administration.`;
-          await NotificationRepository.create({
+          const stableEventId = `notif-job-delete-${id}`;
+
+          await NotificationRepository.createAsync({
+            userId: recipientUserId,
             title: 'Job Posting Removed',
-            body,
-            plainText: body,
-            targetAudience: 'specific_users',
-            targetUserIds: [String(existing.submittedByUserId)],
-            channels: { bell: true, popup: false, pageBanner: false },
-            status: 'published'
+            message: body,
+            type: 'alert',
+            channel: 'in-app',
+            eventId: stableEventId,
+            idempotencyKey: stableEventId,
+            metadata: { jobId: id, jobTitle: existing.title }
           }, 'System - Job Moderation');
           notificationSent = true;
         } catch (notifErr) {
@@ -1543,15 +1557,19 @@ jobRouter.delete('/permanent/:id', requireAdminPermission('jobs.manage'), async 
       const st = deriveJobSourceType(existing);
       if (!isScraped && st === 'user_posted' && existing.submittedByUserId) {
         try {
+          const recipientUserId = String(existing.submittedByUserId);
           const body = `Your job posting "${existing.title}" has been permanently removed by administration.`;
-          await NotificationRepository.create({
+          const stableEventId = `notif-job-perm-delete-${id}`;
+
+          await NotificationRepository.createAsync({
+            userId: recipientUserId,
             title: 'Job Posting Removed',
-            body,
-            plainText: body,
-            targetAudience: 'specific_users',
-            targetUserIds: [String(existing.submittedByUserId)],
-            channels: { bell: true, popup: false, pageBanner: false },
-            status: 'published'
+            message: body,
+            type: 'alert',
+            channel: 'in-app',
+            eventId: stableEventId,
+            idempotencyKey: stableEventId,
+            metadata: { jobId: id, jobTitle: existing.title }
           }, 'System - Job Moderation');
           notificationSent = true;
         } catch (notifErr) {

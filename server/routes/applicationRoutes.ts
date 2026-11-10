@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import crypto from 'crypto';
-import { ApplicationRepository, AuditRepository, JobRepository, UserRepository } from '../db/repositories';
+import { ApplicationRepository, AuditRepository, JobRepository, UserRepository, NotificationRepository } from '../db/repositories';
 import { Database } from '../db/database';
 import { ADMIN_ROLES, hasAdminPermission, requireAdminPermission, requireAuth } from '../auth/authManager';
 import { cvStorage, validateCvMagicBytes, generateCvDownloadToken, verifyCvDownloadToken } from '../services/cvStorage';
@@ -569,6 +569,31 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       );
     }
 
+    // Dispatch in-app notification to job owner if owner is verified and not applicant
+    try {
+      const jobOwnerId = job.submittedByUserId || job.postedByUserId || job.userId;
+      if (jobOwnerId && String(jobOwnerId) !== effectiveApplicantId) {
+        const stableEventId = `notif-app-submit-${newApp.id}`;
+        await NotificationRepository.createAsync({
+          userId: String(jobOwnerId),
+          title: 'New Job Application Received',
+          message: `New application received from ${applicantName} for "${job.title}".`,
+          type: 'info',
+          channel: 'in-app',
+          eventId: stableEventId,
+          idempotencyKey: stableEventId,
+          metadata: {
+            applicationId: newApp.id,
+            jobId,
+            jobTitle: job.title,
+            applicantId: effectiveApplicantId
+          }
+        }, 'System - Job Applications');
+      }
+    } catch (notifErr) {
+      console.error(`Failed to dispatch application notification for app ${newApp.id}:`, notifErr);
+    }
+
     AuditRepository.add({
       user: (req as any).user.name,
       role: (req as any).user.role,
@@ -606,17 +631,17 @@ applicationRouter.patch('/:id/status', requireAuth, async (req, res) => {
       });
     }
 
+    const existingApplication = await ApplicationRepository.getByIdAsync(req.params.id);
+    if (!existingApplication) {
+      return res.status(404).json({ success: false, message: 'Application not found.' });
+    }
+
     if (!canManageAllApplications) {
       if (user.role !== 'Employer') {
         return res.status(403).json({
           success: false,
           message: 'Access denied: Employer or administrative privileges required to update application status.'
         });
-      }
-
-      const existingApplication = await ApplicationRepository.getByIdAsync(req.params.id);
-      if (!existingApplication) {
-        return res.status(404).json({ success: false, message: 'Application not found.' });
       }
 
       const targetJobId = existingApplication.jobId ? String(existingApplication.jobId).trim() : '';
@@ -638,9 +663,41 @@ applicationRouter.patch('/:id/status', requireAuth, async (req, res) => {
     }
 
     const { status, notes } = req.body;
+    const previousStatus = existingApplication.status;
     const updated = await ApplicationRepository.updateStatusAsync(req.params.id, status, notes);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Application not found.' });
+    }
+
+    // Notify applicant if status actually changed
+    if (previousStatus !== status) {
+      try {
+        const applicantId = existingApplication.applicantId;
+        if (applicantId) {
+          const targetJobId = existingApplication.jobId ? String(existingApplication.jobId).trim() : '';
+          const job = targetJobId ? await JobRepository.getById(targetJobId) : null;
+          const jobTitle = job?.title || existingApplication.jobTitle || 'Position';
+          const stableEventId = `notif-app-status-${req.params.id}-${status}`;
+          const notifType = status === 'Rejected' ? 'warning' : status === 'Shortlisted' || status === 'Hired' ? 'success' : 'info';
+
+          await NotificationRepository.createAsync({
+            userId: String(applicantId),
+            title: 'Application Status Updated',
+            message: `Your application for "${jobTitle}" has been updated to ${status}.`,
+            type: notifType,
+            channel: 'in-app',
+            eventId: stableEventId,
+            idempotencyKey: stableEventId,
+            metadata: {
+              applicationId: req.params.id,
+              jobId: existingApplication.jobId,
+              newStatus: status
+            }
+          }, 'System - Job Applications');
+        }
+      } catch (notifErr) {
+        console.error(`Failed to dispatch status notification for app ${req.params.id}:`, notifErr);
+      }
     }
 
     AuditRepository.add({

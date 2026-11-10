@@ -65,6 +65,27 @@ function normalizeNotificationRecord(doc: any): NotificationRecord {
   } as NotificationRecord;
 }
 
+function validateExistingNotificationRecord(existing: any, record: NotificationRecord): boolean {
+  if (!existing) return true;
+  const normExisting = normalizeNotificationRecord(existing);
+  if (record.userId !== undefined && String(normExisting.userId ?? '') !== String(record.userId ?? '')) {
+    return false;
+  }
+  if (record.title && normExisting.title !== record.title) {
+    return false;
+  }
+  if (record.message && normExisting.message !== record.message) {
+    return false;
+  }
+  if (record.type && normExisting.type !== record.type) {
+    return false;
+  }
+  if (record.channel && normExisting.channel !== record.channel) {
+    return false;
+  }
+  return true;
+}
+
 export class NotificationRepository {
   static getAll(filters?: { userId?: string; type?: string; unreadOnly?: boolean }): NotificationRecord[] {
     let list = [...inMemoryNotifications];
@@ -121,11 +142,6 @@ export class NotificationRepository {
 
   static create(data: Partial<NotificationRecord> | any, _author?: string): NotificationRecord {
     const eventKey = data.eventId || data.idempotencyKey || undefined;
-    if (eventKey) {
-      const existing = inMemoryNotifications.find(n => n.eventId === eventKey || n.idempotencyKey === eventKey);
-      if (existing) return normalizeNotificationRecord(existing);
-    }
-
     const isRead = Boolean(data.isRead ?? data.read ?? false);
 
     const record: NotificationRecord = {
@@ -143,6 +159,16 @@ export class NotificationRepository {
       metadata: data.metadata || undefined,
       createdAt: data.createdAt || new Date().toISOString()
     };
+
+    if (eventKey) {
+      const existing = inMemoryNotifications.find(n => n.eventId === eventKey || n.idempotencyKey === eventKey);
+      if (existing) {
+        if (!validateExistingNotificationRecord(existing, record)) {
+          throw new Error('Notification idempotency collision: existing notification with eventId belongs to another recipient or contains conflicting content.');
+        }
+        return normalizeNotificationRecord(existing);
+      }
+    }
 
     inMemoryNotifications.unshift(record);
     if (inMemoryNotifications.length > 500) {
@@ -180,12 +206,18 @@ export class NotificationRepository {
             $or: [{ eventId: eventKey }, { idempotencyKey: eventKey }]
           });
           if (existing) {
+            if (!validateExistingNotificationRecord(existing, record)) {
+              throw new Error('Notification idempotency collision: existing notification with eventId belongs to another recipient or contains conflicting content.');
+            }
             return normalizeNotificationRecord(existing);
           }
         }
         await coll.insertOne({ ...record });
         return record;
       } catch (err: any) {
+        if (err?.message?.includes('idempotency collision')) {
+          throw err;
+        }
         if (err?.code === 11000 && eventKey) {
           try {
             const coll = await getNotificationsCollection();
@@ -193,9 +225,16 @@ export class NotificationRepository {
               $or: [{ eventId: eventKey }, { idempotencyKey: eventKey }]
             });
             if (existing) {
+              if (!validateExistingNotificationRecord(existing, record)) {
+                throw new Error('Notification idempotency collision: existing notification with eventId belongs to another recipient or contains conflicting content.');
+              }
               return normalizeNotificationRecord(existing);
             }
-          } catch {}
+          } catch (raceErr: any) {
+            if (raceErr.message?.includes('idempotency collision')) {
+              throw raceErr;
+            }
+          }
         }
         throw new Error(`MongoDB notifications operation failed: ${err.message || err}`);
       }

@@ -4227,7 +4227,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 <div className="py-10 text-center space-y-2">
                   <Bell className="w-8 h-8 text-slate-600 mx-auto" />
                   <p className="text-sm font-semibold text-slate-400">No notifications yet</p>
-                  <p className="text-xs text-slate-500">You will receive updates here when payment proofs are reviewed or submitted.</p>
+                  <p className="text-xs text-slate-500">You will receive updates here regarding your job applications, postings, and account status.</p>
                 </div>
               ) : (
                 notifications.map((n) => (

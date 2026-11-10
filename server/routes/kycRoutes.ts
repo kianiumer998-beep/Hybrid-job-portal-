@@ -7,7 +7,7 @@ import { EmployerKycRequest } from '../../src/types/adminSuite';
 
 export const kycRouter = express.Router();
 
-const isSafeDocumentUrl = (url?: string): boolean => {
+export const isSafeDocumentUrl = (url?: string): boolean => {
   if (!url || typeof url !== 'string') return false;
   const trimmed = url.trim();
   if (!trimmed) return false;

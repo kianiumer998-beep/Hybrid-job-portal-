@@ -4,13 +4,41 @@ import { EmployerKycRequest } from '../../../src/types/adminSuite';
 
 const COLLECTION = 'kyc_requests';
 
-const initPromises = new Map<string, Promise<void>>();
-const initCompleted = new Set<string>();
+// Collection-instance-safe initialization cache using WeakMap and WeakSet
+const inFlightInitMap = new WeakMap<Collection<any>, Promise<void>>();
+const initializedSet = new WeakSet<Collection<any>>();
 
-export function getCollectionKey(coll: Collection<any>): string {
-  const dbName = coll.dbName || (coll as any).s?.namespace?.db || 'default';
-  const collName = coll.collectionName || (coll as any).s?.namespace?.collection || 'kyc_requests';
-  return `${dbName}:${collName}`;
+export function isCollectionInitialized(coll: Collection<any>): boolean {
+  return initializedSet.has(coll);
+}
+
+export function isValidCombinedIndexDefinition(indexSpec: any): boolean {
+  if (!indexSpec || typeof indexSpec !== 'object') return false;
+
+  // 1. Key must be exactly { activeUserId: 1 } with no additional key fields
+  if (!indexSpec.key || typeof indexSpec.key !== 'object') return false;
+  const keyEntries = Object.entries(indexSpec.key);
+  if (keyEntries.length !== 1) return false;
+  const [firstKey, firstVal] = keyEntries[0];
+  if (firstKey !== 'activeUserId' || (firstVal !== 1 && firstVal !== 1.0)) return false;
+
+  // 2. unique must be exactly true
+  if (indexSpec.unique !== true) return false;
+
+  // 3. partialFilterExpression must be exactly { activeUserId: { $type: 'string' } }
+  // with no additional conditions or extra operators
+  const pfe = indexSpec.partialFilterExpression;
+  if (!pfe || typeof pfe !== 'object') return false;
+  const pfeKeys = Object.keys(pfe);
+  if (pfeKeys.length !== 1 || pfeKeys[0] !== 'activeUserId') return false;
+
+  const activeUserIdCond = pfe.activeUserId;
+  if (!activeUserIdCond || typeof activeUserIdCond !== 'object') return false;
+  const condKeys = Object.keys(activeUserIdCond);
+  if (condKeys.length !== 1 || condKeys[0] !== '$type') return false;
+  if (activeUserIdCond.$type !== 'string' && activeUserIdCond.$type !== 2) return false;
+
+  return true;
 }
 
 async function getCollectionIndexes(coll: Collection<any>): Promise<any[]> {
@@ -27,12 +55,8 @@ async function getCollectionIndexes(coll: Collection<any>): Promise<any[]> {
 export const KycRepository = {
   resetIndexInitialization(coll?: Collection<any>): void {
     if (coll) {
-      const key = getCollectionKey(coll);
-      initPromises.delete(key);
-      initCompleted.delete(key);
-    } else {
-      initPromises.clear();
-      initCompleted.clear();
+      inFlightInitMap.delete(coll);
+      initializedSet.delete(coll);
     }
   },
 
@@ -60,6 +84,19 @@ export const KycRepository = {
   },
 
   async runMigrationAndIndexSetup(dbColl: Collection<EmployerKycRequest>): Promise<void> {
+    const targetIndexName = 'unique_combined_active_kyc_user';
+    const existingIndexes = await getCollectionIndexes(dbColl);
+    const foundIndex = existingIndexes.find(idx => idx.name === targetIndexName);
+
+    // If index already exists before initialization, validate exact definition immediately
+    if (foundIndex) {
+      if (!isValidCombinedIndexDefinition(foundIndex)) {
+        throw new Error(
+          `Index Conflict Error: Index "${targetIndexName}" already exists with incompatible definition: ${JSON.stringify(foundIndex)}`
+        );
+      }
+    }
+
     // 1. Inspect existing Pending and Verified records
     const activeRecords = await dbColl.find({ status: { $in: ['Pending', 'Verified'] } }).toArray();
 
@@ -118,24 +155,8 @@ export const KycRepository = {
       }
     }
 
-    // 10 & 11. Create combined unique index and verify actual index definition
-    const targetIndexName = 'unique_combined_active_kyc_user';
-    const existingIndexes = await getCollectionIndexes(dbColl);
-    const foundIndex = existingIndexes.find(idx => idx.name === targetIndexName);
-
-    if (foundIndex) {
-      const isKeyMatch = foundIndex.key && (foundIndex.key as any).activeUserId === 1 && Object.keys(foundIndex.key).length === 1;
-      const isUnique = foundIndex.unique === true;
-      const isPartialMatch = foundIndex.partialFilterExpression &&
-        (foundIndex.partialFilterExpression as any).activeUserId &&
-        (foundIndex.partialFilterExpression as any).activeUserId.$type === 'string';
-
-      if (!isKeyMatch || !isUnique || !isPartialMatch) {
-        throw new Error(
-          `Index Conflict Error: Index "${targetIndexName}" already exists with incompatible definition: ${JSON.stringify(foundIndex)}`
-        );
-      }
-    } else {
+    // 10 & 11. Create combined unique index and verify exact index definition if not already created
+    if (!foundIndex) {
       await dbColl.createIndex(
         { activeUserId: 1 } as any,
         {
@@ -147,16 +168,7 @@ export const KycRepository = {
 
       const verifiedIndexes = await getCollectionIndexes(dbColl);
       const verifiedIndex = verifiedIndexes.find(idx => idx.name === targetIndexName);
-      if (!verifiedIndex) {
-        throw new Error(`Index Verification Error: Failed to find created index "${targetIndexName}".`);
-      }
-      const isKeyMatch = verifiedIndex.key && (verifiedIndex.key as any).activeUserId === 1 && Object.keys(verifiedIndex.key).length === 1;
-      const isUnique = verifiedIndex.unique === true;
-      const isPartialMatch = verifiedIndex.partialFilterExpression &&
-        (verifiedIndex.partialFilterExpression as any).activeUserId &&
-        (verifiedIndex.partialFilterExpression as any).activeUserId.$type === 'string';
-
-      if (!isKeyMatch || !isUnique || !isPartialMatch) {
+      if (!verifiedIndex || !isValidCombinedIndexDefinition(verifiedIndex)) {
         throw new Error(
           `Index Verification Error: Index "${targetIndexName}" created with incompatible definition: ${JSON.stringify(verifiedIndex)}`
         );
@@ -180,13 +192,12 @@ export const KycRepository = {
 
   async ensureIndexes(coll?: Collection<EmployerKycRequest>): Promise<void> {
     const dbColl = await this.getCollection(coll);
-    const key = getCollectionKey(dbColl);
 
-    if (initCompleted.has(key)) {
+    if (initializedSet.has(dbColl)) {
       return;
     }
 
-    const existingPromise = initPromises.get(key);
+    const existingPromise = inFlightInitMap.get(dbColl);
     if (existingPromise) {
       return existingPromise;
     }
@@ -194,15 +205,15 @@ export const KycRepository = {
     const initPromise = (async () => {
       try {
         await this.runMigrationAndIndexSetup(dbColl);
-        initCompleted.add(key);
+        initializedSet.add(dbColl);
       } catch (err) {
         throw err;
       } finally {
-        initPromises.delete(key);
+        inFlightInitMap.delete(dbColl);
       }
     })();
 
-    initPromises.set(key, initPromise);
+    inFlightInitMap.set(dbColl, initPromise);
     return initPromise;
   },
 

@@ -1,5 +1,5 @@
 import { MongoClient, Collection } from 'mongodb';
-import { KycRepository } from '../db/repositories/KycRepository';
+import { KycRepository, isValidCombinedIndexDefinition, isCollectionInitialized } from '../db/repositories/KycRepository';
 import { EmployerKycRequest } from '../../src/types/adminSuite';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -109,6 +109,147 @@ export async function runKycUnitTests() {
   const adminDashboardContent = fs.readFileSync(adminDashboardPath, 'utf8');
   if (adminDashboardContent.includes("localStorage.setItem('career_pak_kyc_requests'")) {
     throw new Error('Regression: AdminDashboard.tsx contains localStorage.setItem for career_pak_kyc_requests!');
+  }
+
+  // Test 7: Exact combined-index definition validation (isValidCombinedIndexDefinition)
+  // Exact required index definition must pass
+  const validExactSpec = {
+    key: { activeUserId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'string' } }
+  };
+  if (!isValidCombinedIndexDefinition(validExactSpec)) {
+    throw new Error('isValidCombinedIndexDefinition rejected exact valid spec');
+  }
+
+  // Spec with BSON type 2 (string) must pass
+  const validExactBsonSpec = {
+    key: { activeUserId: 1.0 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 2 } }
+  };
+  if (!isValidCombinedIndexDefinition(validExactBsonSpec)) {
+    throw new Error('isValidCombinedIndexDefinition rejected valid BSON spec');
+  }
+
+  // Incompatible: extra partialFilterExpression field (e.g. status: 'Pending')
+  const invalidExtraFilter = {
+    key: { activeUserId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'string' }, status: 'Pending' }
+  };
+  if (isValidCombinedIndexDefinition(invalidExtraFilter)) {
+    throw new Error('isValidCombinedIndexDefinition accepted extra partial-filter field');
+  }
+
+  // Incompatible: missing or incorrect $type
+  const invalidWrongType = {
+    key: { activeUserId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'number' } }
+  };
+  if (isValidCombinedIndexDefinition(invalidWrongType)) {
+    throw new Error('isValidCombinedIndexDefinition accepted wrong $type (number)');
+  }
+
+  const invalidMissingType = {
+    key: { activeUserId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $exists: true } }
+  };
+  if (isValidCombinedIndexDefinition(invalidMissingType)) {
+    throw new Error('isValidCombinedIndexDefinition accepted missing $type condition');
+  }
+
+  const invalidEmptyCond = {
+    key: { activeUserId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: {} }
+  };
+  if (isValidCombinedIndexDefinition(invalidEmptyCond)) {
+    throw new Error('isValidCombinedIndexDefinition accepted empty activeUserId condition');
+  }
+
+  const invalidExtraCondField = {
+    key: { activeUserId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'string', $exists: true } }
+  };
+  if (isValidCombinedIndexDefinition(invalidExtraCondField)) {
+    throw new Error('isValidCombinedIndexDefinition accepted extra condition operator');
+  }
+
+  // Incompatible: extra key fields
+  const invalidExtraKey = {
+    key: { activeUserId: 1, status: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'string' } }
+  };
+  if (isValidCombinedIndexDefinition(invalidExtraKey)) {
+    throw new Error('isValidCombinedIndexDefinition accepted extra key fields');
+  }
+
+  // Incompatible: wrong key
+  const invalidWrongKey = {
+    key: { userId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'string' } }
+  };
+  if (isValidCombinedIndexDefinition(invalidWrongKey)) {
+    throw new Error('isValidCombinedIndexDefinition accepted wrong key');
+  }
+
+  // Incompatible: inverted key direction
+  const invalidKeyDirection = {
+    key: { activeUserId: -1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'string' } }
+  };
+  if (isValidCombinedIndexDefinition(invalidKeyDirection)) {
+    throw new Error('isValidCombinedIndexDefinition accepted inverted key direction');
+  }
+
+  // Incompatible: unique not true
+  const invalidNotUnique = {
+    key: { activeUserId: 1 },
+    unique: false,
+    partialFilterExpression: { activeUserId: { $type: 'string' } }
+  };
+  if (isValidCombinedIndexDefinition(invalidNotUnique)) {
+    throw new Error('isValidCombinedIndexDefinition accepted unique: false');
+  }
+
+  const invalidMissingUnique = {
+    key: { activeUserId: 1 },
+    partialFilterExpression: { activeUserId: { $type: 'string' } }
+  };
+  if (isValidCombinedIndexDefinition(invalidMissingUnique)) {
+    throw new Error('isValidCombinedIndexDefinition accepted missing unique field');
+  }
+
+  // Incompatible: missing partialFilterExpression
+  const invalidMissingFilter = {
+    key: { activeUserId: 1 },
+    unique: true
+  };
+  if (isValidCombinedIndexDefinition(invalidMissingFilter)) {
+    throw new Error('isValidCombinedIndexDefinition accepted missing partialFilterExpression');
+  }
+
+  // Incompatible: null or empty
+  if (isValidCombinedIndexDefinition(null) || isValidCombinedIndexDefinition(undefined) || isValidCombinedIndexDefinition({})) {
+    throw new Error('isValidCombinedIndexDefinition accepted null/empty spec');
+  }
+
+  // Test 8: Collection-instance cache isolation (WeakMap / WeakSet)
+  const dummyColl1 = { name: 'dummy_kyc_1' } as any;
+  const dummyColl2 = { name: 'dummy_kyc_1' } as any;
+  if (isCollectionInitialized(dummyColl1) || isCollectionInitialized(dummyColl2)) {
+    throw new Error('Uninitialized dummy collections should report false for isCollectionInitialized');
+  }
+  KycRepository.resetIndexInitialization(dummyColl1);
+  if (isCollectionInitialized(dummyColl1) || isCollectionInitialized(dummyColl2)) {
+    throw new Error('Reset of uninitialized collection altered state');
   }
 
   console.log('[PASS] All KYC unit tests passed successfully.');
@@ -458,7 +599,115 @@ export async function runKycPersistenceTests() {
       throw new Error('Scenario 13 failed: Existing record was modified or overwritten during legacy import.');
     }
 
-    console.log('[PASS] All 14 KYC MongoDB integration test scenarios passed.');
+    // Scenario 15: Incompatible existing index causes ensureIndexes to fail closed; index and records not modified
+    const incompCollName = `kyc_test_incomp_${testRunId}`;
+    const incompColl = client.db().collection<EmployerKycRequest>(incompCollName);
+    extraCollections.push(incompColl);
+
+    const incompRecId = `kyc_hist_${Date.now()}`;
+    await incompColl.insertOne({
+      ...newReqInput,
+      id: incompRecId,
+      userId: `user_hist_${testRunId}`,
+      status: 'Pending',
+      companyName: 'Untouched Historical Company'
+    } as any);
+
+    // Create an incompatible index (extra field in partialFilterExpression)
+    await incompColl.createIndex(
+      { activeUserId: 1 } as any,
+      {
+        unique: true,
+        partialFilterExpression: { activeUserId: { $type: 'string' }, status: 'Pending' } as any,
+        name: 'unique_combined_active_kyc_user'
+      }
+    );
+
+    let incompCaught = false;
+    try {
+      await KycRepository.ensureIndexes(incompColl);
+    } catch (err: any) {
+      if (err?.message?.includes('Index Conflict Error')) {
+        incompCaught = true;
+      }
+    }
+    if (!incompCaught) {
+      throw new Error('Scenario 15 failed: ensureIndexes did not fail closed on incompatible existing index.');
+    }
+
+    // Verify index was not dropped or replaced
+    const postIndexes = await incompColl.indexes();
+    const existingIncompIdx = postIndexes.find(i => i.name === 'unique_combined_active_kyc_user');
+    if (!existingIncompIdx) {
+      throw new Error('Scenario 15 failed: Incompatible existing index was dropped.');
+    }
+    if (isValidCombinedIndexDefinition(existingIncompIdx)) {
+      throw new Error('Scenario 15 failed: Incompatible existing index was replaced with valid definition.');
+    }
+
+    // Historical record must remain unchanged
+    const unchangedDoc = await incompColl.findOne({ id: incompRecId });
+    if (!unchangedDoc || unchangedDoc.companyName !== 'Untouched Historical Company') {
+      throw new Error('Scenario 15 failed: Existing historical KYC record was modified during failed initialization.');
+    }
+
+    // Scenario 16: Exact required existing index definition is accepted without error
+    const exactCollName = `kyc_test_exact_${testRunId}`;
+    const exactColl = client.db().collection<EmployerKycRequest>(exactCollName);
+    extraCollections.push(exactColl);
+
+    await exactColl.createIndex(
+      { activeUserId: 1 } as any,
+      {
+        unique: true,
+        partialFilterExpression: { activeUserId: { $type: 'string' } },
+        name: 'unique_combined_active_kyc_user'
+      }
+    );
+
+    await KycRepository.ensureIndexes(exactColl);
+    if (!isCollectionInitialized(exactColl)) {
+      throw new Error('Scenario 16 failed: Collection was not marked initialized after accepting exact index.');
+    }
+
+    // Scenario 17: Cache isolation between distinct collection instances (WeakMap / WeakSet)
+    const isoCollName = `kyc_test_instance_iso_${testRunId}`;
+    const collA = client.db().collection<EmployerKycRequest>(isoCollName);
+    const collB = client.db().collection<EmployerKycRequest>(isoCollName);
+    extraCollections.push(collA);
+
+    if (collA === collB) {
+      throw new Error('Scenario 17 setup error: Expected collA and collB to be distinct instances.');
+    }
+
+    if (isCollectionInitialized(collA) || isCollectionInitialized(collB)) {
+      throw new Error('Scenario 17 failed: Initial state of distinct instances must not be initialized.');
+    }
+
+    await KycRepository.ensureIndexes(collA);
+    if (!isCollectionInitialized(collA)) {
+      throw new Error('Scenario 17 failed: collA was not marked initialized.');
+    }
+    if (isCollectionInitialized(collB)) {
+      throw new Error('Scenario 17 failed: collB unexpectedly shared initialization state with collA.');
+    }
+
+    // Reset collA and verify only collA is reset
+    KycRepository.resetIndexInitialization(collA);
+    if (isCollectionInitialized(collA)) {
+      throw new Error('Scenario 17 failed: collA was not reset.');
+    }
+
+    // Initialize collB and verify collA remains uninitialized
+    await KycRepository.ensureIndexes(collB);
+    if (!isCollectionInitialized(collB)) {
+      throw new Error('Scenario 17 failed: collB was not marked initialized.');
+    }
+    if (isCollectionInitialized(collA)) {
+      throw new Error('Scenario 17 failed: collA unexpectedly became initialized when collB initialized.');
+    }
+
+    console.log('[PASS] All 17 KYC MongoDB integration test scenarios passed.');
   } catch (err: any) {
     console.error('[FAIL] KYC integration tests failed:', err);
     process.exitCode = 1;

@@ -1,8 +1,30 @@
 import assert from 'assert';
 import express from 'express';
 import { createServer, Server } from 'http';
-import { URL } from 'url';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * Helper to calculate SHA-256 of all JSON files in /data
+ */
+function getDataDirectorySnapshot(): Record<string, string> {
+  const dataDir = path.resolve(process.cwd(), 'data');
+  const snapshot: Record<string, string> = {};
+  
+  if (!fs.existsSync(dataDir)) return snapshot;
+
+  const files = fs.readdirSync(dataDir);
+  for (const file of files) {
+    if (file.endsWith('.json')) {
+      const filePath = path.join(dataDir, file);
+      const content = fs.readFileSync(filePath);
+      const hash = crypto.createHash('sha256').update(content).digest('hex');
+      snapshot[file] = hash;
+    }
+  }
+  return snapshot;
+}
 
 async function runTests() {
   // 0. Environment isolation
@@ -12,13 +34,15 @@ async function runTests() {
   process.env.MONGO_URI = '';
   delete process.env.USE_REAL_MONGO_TEST;
 
+  // Pre-test snapshot
+  const preTestSnapshot = getDataDirectorySnapshot();
+
   // Dynamic imports
   const { NotificationRepository } = await import('../db/repositories/NotificationRepository');
   const { UserRepository } = await import('../db/repositories/UserRepository');
   const { JobRepository } = await import('../db/repositories/JobRepository');
   const { ApplicationRepository } = await import('../db/repositories/ApplicationRepository');
   const { PaymentSettingsRepository } = await import('../db/repositories/PaymentSettingsRepository');
-  const { isMongoConfigured } = await import('../db/mongodb');
   const { transactionRouter } = await import('../routes/transactionRoutes');
   const { notificationRouter } = await import('../routes/notificationRoutes');
   const { jobRouter } = await import('../routes/jobRoutes');
@@ -32,55 +56,79 @@ async function runTests() {
 
   // --- 1. Snapshot original state ---
   const originalGetPublicSettings = PaymentSettingsRepository.getPublicSettings;
-  const originalGetTransactions = Database.getTransactions;
-  const originalSaveTransactions = Database.saveTransactions;
-  const originalAddTransaction = Database.addTransaction;
-  const originalGetAuditLogs = Database.getAuditLogs;
-  const originalAddAuditLog = Database.addAuditLog;
-  const originalGetUsers = Database.getUsers;
-  const originalSaveUsers = Database.saveUsers;
-  const originalCreateAsync = NotificationRepository.createAsync;
   const originalIsUserPremium = JobVisibilityRepository.isUserPremiumAuthoritative;
-  const originalGetApplySettings = Database.getApplySettings;
 
-  let storageMode: 'REAL_MONGODB' | 'IN_MEMORY' = 'IN_MEMORY';
+  // --- 2. Comprehensive Database Mocking (Storage Isolation) ---
+  const originalDatabase = { ...Database };
+  
+  // In-memory state for the test
+  let inMemTransactions: any[] = [];
+  let inMemAuditLogs: any[] = [];
+  let inMemUsers: any[] = [];
+  let inMemJobs: any[] = [];
+  let inMemPendingJobs: any[] = [];
+  let inMemApplications: any[] = [];
+
+  // Override all persistence methods to prevent JSON file writes
+  Database.saveTransactions = (txs: any[]) => { inMemTransactions = [...txs]; };
+  Database.addTransaction = (tx: any) => {
+    const newTx = { ...tx, id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, dateTime: tx.dateTime || new Date().toISOString().replace('T', ' ').substring(0, 16) };
+    inMemTransactions.unshift(newTx);
+    return newTx;
+  };
+  Database.getTransactions = () => [...inMemTransactions];
+
+  Database.addAuditLog = (entry: any) => {
+    const newLog = { id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`, timestamp: new Date().toISOString(), status: 'Success', ...entry };
+    inMemAuditLogs.unshift(newLog);
+    return newLog;
+  };
+  Database.getAuditLogs = () => [...inMemAuditLogs];
+
+  Database.saveUsers = (users: any[]) => { inMemUsers = [...users]; };
+  Database.getUsers = () => [...inMemUsers];
+
+  Database.saveJobs = (jobs: any[]) => { inMemJobs = [...jobs]; };
+  Database.getJobs = () => [...inMemJobs];
+  Database.addJob = (job: any) => {
+    inMemJobs.push(job);
+    return job;
+  };
+
+  Database.savePendingJobs = (jobs: any[]) => { inMemPendingJobs = [...jobs]; };
+  Database.getPendingJobs = () => [...inMemPendingJobs];
+  Database.addPendingJob = (job: any) => {
+    inMemPendingJobs.push(job);
+    return job;
+  };
+
+  Database.saveApplications = (apps: any[]) => { inMemApplications = [...apps]; };
+  Database.getApplications = () => [...inMemApplications];
+  Database.addApplication = (app: any) => {
+    inMemApplications.push(app);
+    return app;
+  };
+
+  // Stub other potentially dangerous methods
+  const noop = () => {};
+  Database.saveAds = noop;
+  Database.saveApplySettings = noop;
+  (Database as any).saveLocationCatalog = noop;
+  Database.savePricing = noop;
+  (Database as any).saveScraperRuns = noop;
+  Database.saveScraperSources = noop;
+  Database.saveSeoConfig = noop;
+  Database.addScraperRun = (run: any) => ({ ...run, id: run.id || `run-${Date.now()}` });
+
   let httpServer: Server | null = null;
-
-  const cleanupTxIds: string[] = [];
-  const cleanupNotifIds: string[] = [];
-  const cleanupUserIds: string[] = [];
-  const cleanupJobIds: string[] = [];
-  const cleanupAppIds: string[] = [];
   let testCount = 0;
   let passCount = 0;
 
   try {
-    // --- 2. Initialize Memory-Only Test Mode ---
+    // --- 3. Initialize Memory-Only Test Mode Mocks ---
     JobVisibilityRepository.isUserPremiumAuthoritative = async () => true;
-    storageMode = 'IN_MEMORY';
     console.log('➜ STORAGE MODE: IN-MEMORY FALLBACK UNIT-TEST MODE (Strict Isolation)');
     console.log('[NOT RUN] Live MongoDB Integration tests: Real MongoDB not supported in this test suite.');
-
-    let inMemTransactions: any[] = [];
-    let inMemAuditLogs: any[] = [];
-    let inMemUsers: any[] = [];
-
-    Database.getAuditLogs = () => [...inMemAuditLogs];
-    Database.addAuditLog = (entry: any) => {
-      const newLog = { id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`, timestamp: new Date().toISOString(), status: 'Success', ...entry };
-      inMemAuditLogs.unshift(newLog);
-      return newLog;
-    };
-
-    Database.getTransactions = () => [...inMemTransactions];
-    Database.saveTransactions = (txs: any[]) => { inMemTransactions = [...txs]; };
-    Database.addTransaction = (tx: any) => {
-      const newTx = { ...tx, id: tx.id || `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, dateTime: tx.dateTime || new Date().toISOString().replace('T', ' ').substring(0, 16) };
-      inMemTransactions.unshift(newTx);
-      return newTx;
-    };
-    Database.getUsers = () => [...inMemUsers];
-    Database.saveUsers = (users: any[]) => { inMemUsers = [...users]; };
 
     Database.getApplySettings = () => ({
       requireCv: false,
@@ -133,11 +181,8 @@ async function runTests() {
     const adminUserId = `admin-int-${Date.now()}`;
 
     await UserRepository.createAsync({ id: adminUserId, name: 'Administrator', email: 'admin-int@example.com', role: 'Super Admin' });
-    cleanupUserIds.push(adminUserId);
     await UserRepository.createAsync({ id: testUserAId, name: 'User A', email: 'usera-int@example.com', role: 'Employer' });
-    cleanupUserIds.push(testUserAId);
     await UserRepository.createAsync({ id: testUserBId, name: 'User B', email: 'userb-int@example.com', role: 'Member' });
-    cleanupUserIds.push(testUserBId);
 
     console.log('\n--- 1. Idempotency & Conflict Validation ---');
 
@@ -206,7 +251,6 @@ async function runTests() {
     testCount++;
     const userJobId = `job-user-${Date.now()}`;
     Database.addPendingJob({ id: userJobId, title: 'Software Job', submittedByUserId: testUserAId, sourceType: 'user_posted', status: 'Pending' } as any);
-    cleanupJobIds.push(userJobId);
     activeTestUser = { userId: adminUserId, role: 'Super Admin' };
     const rejectRes = await fetch(`${baseUrl}/api/jobs/queue/pending/${userJobId}/reject`, {
       method: 'POST',
@@ -223,7 +267,6 @@ async function runTests() {
     testCount++;
     const scrapedJobId = `scraped-${Date.now()}`;
     Database.addPendingJob({ id: scrapedJobId, title: 'Scraped Job', isScraped: true, sourceType: 'scraped', status: 'Pending' } as any);
-    cleanupJobIds.push(scrapedJobId);
     await fetch(`${baseUrl}/api/jobs/queue/pending/${scrapedJobId}/reject`, { method: 'POST' });
     const allNotifs = await NotificationRepository.getAllAsync();
     assert(!allNotifs.some(n => n.eventId === `notif-job-reject-${scrapedJobId}`));
@@ -234,7 +277,6 @@ async function runTests() {
     testCount++;
     const missingUserJobId = `job-missing-${Date.now()}`;
     Database.addPendingJob({ id: missingUserJobId, title: 'Job for Ghost', submittedByUserId: 'non-existent-user', sourceType: 'user_posted', status: 'Pending' } as any);
-    cleanupJobIds.push(missingUserJobId);
     const missingRejectRes = await fetch(`${baseUrl}/api/jobs/queue/pending/${missingUserJobId}/reject`, { method: 'POST' });
     assert.strictEqual(missingRejectRes.status, 200);
     passCount++;
@@ -246,7 +288,6 @@ async function runTests() {
     testCount++;
     const bulkIds = [`b1-${Date.now()}`, `b2-${Date.now()}`];
     bulkIds.forEach(id => Database.addPendingJob({ id, title: 'Bulk', submittedByUserId: testUserAId, sourceType: 'user_posted', status: 'Pending' } as any));
-    cleanupJobIds.push(...bulkIds);
 
     const hashInput1 = JSON.stringify(['bulk-reject', testUserAId, [...bulkIds].sort(), 'Bulk Reject']);
     const expectedEventId = `notif-job-bulk-reject-${crypto.createHash('sha256').update(hashInput1).digest('hex')}`;
@@ -267,7 +308,6 @@ async function runTests() {
     testCount++;
     const liveJobId = `live-job-${Date.now()}`;
     Database.addJob({ id: liveJobId, title: 'Live Job', submittedByUserId: testUserAId, sourceType: 'user_posted', status: 'Approved' } as any);
-    cleanupJobIds.push(liveJobId);
     activeTestUser = { userId: testUserBId, role: 'Member', name: 'User B', email: 'userb-int@example.com' };
     const appSubRes = await fetch(`${baseUrl}/api/applications`, {
       method: 'POST',
@@ -277,7 +317,6 @@ async function runTests() {
     const subData = await appSubRes.json();
     assert.strictEqual(appSubRes.status, 201);
     const appId = subData.application.id;
-    cleanupAppIds.push(appId);
     const ownerNotifsSub = await NotificationRepository.getAllAsync({ userId: testUserAId });
     assert(ownerNotifsSub.some(n => n.eventId === `notif-app-submit-${appId}`));
     passCount++;
@@ -336,18 +375,33 @@ async function runTests() {
     const txData = await txRes.json();
     assert.strictEqual(txRes.status, 201);
     const subTxId = txData.transaction.id;
-    cleanupTxIds.push(subTxId);
     const txNotifs = await NotificationRepository.getAllAsync({ userId: testUserBId });
     assert(txNotifs.some(n => n.eventId === `payment-submitted-${subTxId}`));
     passCount++;
     console.log('✓ Test 12: Payment submission generates notification.');
+
+    console.log('\n--- 6. Storage Safety Regression ---');
+    
+    testCount++;
+    const postTestSnapshot = getDataDirectorySnapshot();
+    for (const [file, preHash] of Object.entries(preTestSnapshot)) {
+      const postHash = postTestSnapshot[file];
+      assert.strictEqual(postHash, preHash, `Storage corruption detected in ${file}! Hash mismatch.`);
+    }
+    // Check for new files
+    for (const file of Object.keys(postTestSnapshot)) {
+      if (!(file in preTestSnapshot)) {
+        assert.fail(`Unauthorized new data file created: ${file}`);
+      }
+    }
+    passCount++;
+    console.log('✓ Test 13: Storage isolation verified (SHA-256 integrity check passed).');
 
   } catch (err: any) {
     console.error('\n[TEST ERROR]', err);
     throw err;
   } finally {
     // --- Cleanup ---
-    console.log('\n--- Cleaning up test records ---');
     if (httpServer) httpServer.close();
     
     // Restore Env
@@ -358,27 +412,25 @@ async function runTests() {
       process.env[key] = originalEnv[key];
     }
 
-    // Restore Mocks
+    // Restore Repository methods
     PaymentSettingsRepository.getPublicSettings = originalGetPublicSettings;
-    Database.getTransactions = originalGetTransactions;
-    Database.saveTransactions = originalSaveTransactions;
-    Database.addTransaction = originalAddTransaction;
-    Database.getAuditLogs = originalGetAuditLogs;
-    Database.addAuditLog = originalAddAuditLog;
-    Database.getUsers = originalGetUsers;
-    Database.saveUsers = originalSaveUsers;
-    NotificationRepository.createAsync = originalCreateAsync;
     JobVisibilityRepository.isUserPremiumAuthoritative = originalIsUserPremium;
-    Database.getApplySettings = originalGetApplySettings;
+
+    // Restore Database methods
+    Object.assign(Database, originalDatabase);
+    
+    // Clear Notification memory store
+    NotificationRepository.clearInMemoryStore();
 
     if (passCount === testCount && testCount > 0) {
       console.log(`\n===============================================================`);
-      console.log(`=== ALL ${passCount} TEST SCENARIOS PASSED SUCCESSFULLY (${storageMode}) ===`);
+      console.log(`=== ALL ${passCount} TEST SCENARIOS PASSED SUCCESSFULLY (IN_MEMORY) ===`);
       console.log(`===============================================================\n`);
     } else {
       console.log(`\n===============================================================`);
-      console.log(`=== TEST SUITE FINISHED: ${passCount}/${testCount} PASSED (${storageMode}) ===`);
+      console.log(`=== TEST SUITE FINISHED: ${passCount}/${testCount} PASSED (IN_MEMORY) ===`);
       console.log(`===============================================================\n`);
+      process.exit(1);
     }
   }
 }

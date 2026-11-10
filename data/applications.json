@@ -1,0 +1,20 @@
+[
+  {
+    "id": "app-demo-1",
+    "jobId": "job-1",
+    "jobTitle": "Senior React & Node.js Engineer",
+    "companyName": "Vercel Remote Tech",
+    "applicantId": "user-demo-1",
+    "applicantName": "Ali Raza",
+    "applicantEmail": "ali.raza@example.com",
+    "applicantPhone": "+92 300 1122334",
+    "appliedAt": "2026-11-10T14:31:58.949Z",
+    "status": "Applied",
+    "paymentStatus": "Subscription Paid",
+    "coverLetter": "I have 5 years experience with React, TypeScript and Node.js microservices.",
+    "answers": {
+      "q-notice": "15 Days",
+      "q-salary-exp": "PKR 450,000 / month"
+    }
+  }
+]

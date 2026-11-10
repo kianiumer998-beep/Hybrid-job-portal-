@@ -1,9 +1,10 @@
+import crypto from 'crypto';
 import path from 'path';
 import { Router } from 'express';
 import { Database, generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdminPermission } from '../auth/authManager';
-import { JobRepository, AuditRepository, NotificationRepository } from '../db/repositories';
+import { JobRepository, AuditRepository, NotificationRepository, UserRepository } from '../db/repositories';
 import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType } from '../services/jobValidation';
 import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
 import { isMongoConfigured } from '../db/mongodb';
@@ -290,21 +291,24 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
     if (target && !isScraped && sourceType === 'user_posted' && target.submittedByUserId) {
       try {
         const recipientUserId = String(target.submittedByUserId);
-        const rejectionReason = reason || 'Details did not meet submission criteria.';
-        const body = `Your job submission "${target.title}" was not approved. Reason: ${rejectionReason}`;
-        const stableEventId = `notif-job-reject-${id}`;
+        const recipient = await UserRepository.getByIdAsync(recipientUserId);
+        if (recipient) {
+          const rejectionReason = reason || 'Details did not meet submission criteria.';
+          const body = `Your job submission "${target.title}" was not approved. Reason: ${rejectionReason}`;
+          const stableEventId = `notif-job-reject-${id}`;
 
-        await NotificationRepository.createAsync({
-          userId: recipientUserId,
-          title: 'Job Submission Rejected',
-          message: body,
-          type: 'warning',
-          channel: 'in-app',
-          eventId: stableEventId,
-          idempotencyKey: stableEventId,
-          metadata: { jobId: id, jobTitle: target.title, reason: rejectionReason }
-        }, 'System - Job Moderation');
-        notificationSent = true;
+          await NotificationRepository.createAsync({
+            userId: recipientUserId,
+            title: 'Job Submission Rejected',
+            message: body,
+            type: 'warning',
+            channel: 'in-app',
+            eventId: stableEventId,
+            idempotencyKey: stableEventId,
+            metadata: { jobId: id, jobTitle: target.title, reason: rejectionReason }
+          }, 'System - Job Moderation');
+          notificationSent = true;
+        }
       } catch (notifErr) {
         console.error(`Failed to dispatch rejection notification for job ${id}:`, notifErr);
       }
@@ -371,8 +375,13 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
           const body = userJobs.length === 1
             ? `Your job posting "${userJobs[0].title}" has been removed by administration.`
             : `${userJobs.length} of your job postings (${titles}${extra}) have been removed by administration.`;
-          const firstJobId = userJobs[0]?.id || 'bulk';
-          const stableEventId = `notif-job-bulk-delete-${userId}-${firstJobId}-${userJobs.length}`;
+          const sortedJobIds = userJobs.map(j => j.id).sort();
+          const hash = crypto.createHash('sha256')
+            .update('bulk-delete')
+            .update(userId)
+            .update(sortedJobIds.join(','))
+            .digest('hex');
+          const stableEventId = `notif-job-bulk-delete-${hash}`;
 
           await NotificationRepository.createAsync({
             userId,
@@ -543,11 +552,17 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
           const titles = userJobs.map(j => `"${j.title}"`).slice(0, 3).join(', ');
           const extra = userJobs.length > 3 ? ` and ${userJobs.length - 3} more` : '';
           const rejectionReason = reason || 'Details did not meet submission criteria.';
+          const sortedJobIds = userJobs.map(j => j.id).sort();
           const body = userJobs.length === 1
             ? `Your job submission "${userJobs[0].title}" was not approved. Reason: ${rejectionReason}`
             : `${userJobs.length} of your job submissions (${titles}${extra}) were not approved. Reason: ${rejectionReason}`;
-          const firstJobId = userJobs[0]?.id || 'bulk';
-          const stableEventId = `notif-job-bulk-reject-${userId}-${firstJobId}-${userJobs.length}`;
+          const hash = crypto.createHash('sha256')
+            .update('bulk-reject')
+            .update(userId)
+            .update(sortedJobIds.join(','))
+            .update(rejectionReason)
+            .digest('hex');
+          const stableEventId = `notif-job-bulk-reject-${hash}`;
 
           await NotificationRepository.createAsync({
             userId,

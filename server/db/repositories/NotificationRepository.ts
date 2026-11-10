@@ -68,21 +68,35 @@ function normalizeNotificationRecord(doc: any): NotificationRecord {
 function validateExistingNotificationRecord(existing: any, record: NotificationRecord): boolean {
   if (!existing) return true;
   const normExisting = normalizeNotificationRecord(existing);
+
+  // 1. Verify userId whenever supplied.
   if (record.userId !== undefined && String(normExisting.userId ?? '') !== String(record.userId ?? '')) {
     return false;
   }
-  if (record.title && normExisting.title !== record.title) {
+  // 2. Verify recipient whenever supplied.
+  if (record.recipient !== undefined && String(normExisting.recipient ?? '') !== String(record.recipient ?? '')) {
     return false;
   }
-  if (record.message && normExisting.message !== record.message) {
+  // 3. Verify title, message, type and channel.
+  if (record.title !== undefined && normExisting.title !== record.title) {
     return false;
   }
-  if (record.type && normExisting.type !== record.type) {
+  if (record.message !== undefined && normExisting.message !== record.message) {
     return false;
   }
-  if (record.channel && normExisting.channel !== record.channel) {
+  if (record.type !== undefined && normExisting.type !== record.type) {
     return false;
   }
+  if (record.channel !== undefined && normExisting.channel !== record.channel) {
+    return false;
+  }
+  // 4. Verify relevant metadata when supplied.
+  if (record.metadata !== undefined) {
+    if (JSON.stringify(normExisting.metadata ?? {}) !== JSON.stringify(record.metadata)) {
+      return false;
+    }
+  }
+
   return true;
 }
 

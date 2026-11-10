@@ -285,22 +285,23 @@ export const BroadcastRepository = {
         continue;
       }
 
-      // Fix B: Collision-resistant deterministic legacy ID using crypto hash (Node built-in crypto)
-      // Incorporates all identity-defining and persisted campaign content fields: title, channel, targetAudience, subject, messageBody, categoryFilter.
-      // Excludes changing timestamps or random values.
+      // Fix B: Improved deterministic hash encoding using JSON.stringify over a fixed-order array of normalized identity fields
+      // Uses the same six fields: title, channel, targetAudience, subject, messageBody, categoryFilter.
+      // Uses Node's built-in crypto SHA-256 with the full SHA-256 digest.
       let cleanId = rawId;
       if (!cleanId) {
-        const identityString = [
-          validation.clean.title || '',
-          validation.clean.channel || '',
-          validation.clean.targetAudience || '',
-          validation.clean.subject || '',
-          validation.clean.messageBody || '',
-          validation.clean.categoryFilter || ''
-        ].join('||');
+        const identityArray = [
+          validation.clean.title!,
+          validation.clean.channel!,
+          validation.clean.targetAudience!,
+          validation.clean.subject!,
+          validation.clean.messageBody!,
+          validation.clean.categoryFilter!
+        ];
 
-        const hashHex = crypto.createHash('sha256').update(identityString, 'utf8').digest('hex');
-        cleanId = `camp-det-${hashHex.substring(0, 24)}`;
+        const jsonSerialized = JSON.stringify(identityArray);
+        const fullHashHex = crypto.createHash('sha256').update(jsonSerialized, 'utf8').digest('hex');
+        cleanId = `camp-det-${fullHashHex}`;
       }
 
       const now = new Date().toISOString();

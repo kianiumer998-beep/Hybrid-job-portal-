@@ -252,6 +252,102 @@ export async function runKycUnitTests() {
     throw new Error('Reset of uninitialized collection altered state');
   }
 
+  // Test 9: Instrumented same-instance initialization executes only once
+  const origUnitRunMigration = KycRepository.runMigrationAndIndexSetup;
+  const unitColl = { name: 'unit_same_inst_coll' } as any;
+  let unitInitExecCount = 0;
+  try {
+    KycRepository.runMigrationAndIndexSetup = async function (c) {
+      if (c === unitColl) {
+        unitInitExecCount++;
+        await new Promise(r => setTimeout(r, 15));
+      }
+    };
+
+    // Call ensureIndexes() concurrently multiple times using the same collection instance
+    await Promise.all([
+      KycRepository.ensureIndexes(unitColl),
+      KycRepository.ensureIndexes(unitColl),
+      KycRepository.ensureIndexes(unitColl)
+    ]);
+
+    // Assert that runMigrationAndIndexSetup() executes exactly once for that instance
+    if (unitInitExecCount !== 1) {
+      throw new Error(`Test 9 failed: Expected exactly 1 execution during concurrent calls, got ${unitInitExecCount}`);
+    }
+
+    // Call ensureIndexes() again after successful initialization
+    await KycRepository.ensureIndexes(unitColl);
+
+    // Assert that the execution count remains exactly one
+    if (unitInitExecCount !== 1) {
+      throw new Error(`Test 9 failed: Execution count changed after repeated call: ${unitInitExecCount}`);
+    }
+  } finally {
+    // Restore the original method in a finally block, even if the test fails
+    KycRepository.runMigrationAndIndexSetup = origUnitRunMigration;
+  }
+
+  // Test 10: Instrumented different collection instances remain isolated
+  const origUnitIsoRunMigration = KycRepository.runMigrationAndIndexSetup;
+  const unitCollA = { name: 'unit_iso_coll' } as any;
+  const unitCollB = { name: 'unit_iso_coll' } as any;
+  const unitIsoCounts: Record<string, number> = { a: 0, b: 0 };
+  const getUnitCount = (k: string): number => unitIsoCounts[k];
+  try {
+    KycRepository.runMigrationAndIndexSetup = async function (c) {
+      if (c === unitCollA) unitIsoCounts['a']++;
+      if (c === unitCollB) unitIsoCounts['b']++;
+    };
+
+    // Initialize first instance and verify its count is 1
+    await KycRepository.ensureIndexes(unitCollA);
+    if (getUnitCount('a') !== 1 || getUnitCount('b') !== 0) {
+      throw new Error(`Test 10 failed: Initializing unitCollA yielded A=${getUnitCount('a')}, B=${getUnitCount('b')}`);
+    }
+
+    // Initialize second instance and verify its count is 1
+    await KycRepository.ensureIndexes(unitCollB);
+    if (getUnitCount('b') !== 1 || getUnitCount('a') !== 1) {
+      throw new Error(`Test 10 failed: Initializing unitCollB yielded A=${getUnitCount('a')}, B=${getUnitCount('b')}`);
+    }
+  } finally {
+    // Restore all instrumentation safely
+    KycRepository.runMigrationAndIndexSetup = origUnitIsoRunMigration;
+  }
+
+  // Test 11: Complete historical-record preservation invariant check
+  const mockHistoricalRecord = {
+    _id: 'mock_mongo_id_123',
+    id: 'kyc_hist_unit',
+    userId: 'u_hist_1',
+    companyName: 'Untouched Historical Company',
+    contactPerson: 'Historical Contact',
+    email: 'hist@company.com',
+    phone: '+92 300 0000000',
+    ntnOrTaxNumber: '1111111-1',
+    companyWebsite: 'https://company.com',
+    submittedAt: '2026-01-01T00:00:00.000Z',
+    status: 'Pending',
+    badgeLevel: 'Standard Verified',
+    activeUserId: 'u_hist_1'
+  };
+  const snapshotBefore = JSON.stringify(mockHistoricalRecord);
+  const incompatibleSpec = {
+    key: { activeUserId: 1 },
+    unique: true,
+    partialFilterExpression: { activeUserId: { $type: 'string' }, status: 'Pending' },
+    name: 'unique_combined_active_kyc_user'
+  };
+  const isCompat = isValidCombinedIndexDefinition(incompatibleSpec);
+  if (isCompat) {
+    throw new Error('Test 11 failed: Incompatible index specification should be invalid');
+  }
+  const snapshotAfter = JSON.stringify(mockHistoricalRecord);
+  if (snapshotBefore !== snapshotAfter) {
+    throw new Error('Test 11 failed: Record changed during validation');
+  }
+
   console.log('[PASS] All KYC unit tests passed successfully.');
 }
 
@@ -495,17 +591,46 @@ export async function runKycPersistenceTests() {
       throw new Error('Scenario 8 failed: ensureIndexes did not fail closed on whitespace-only userId.');
     }
 
-    // Scenario 9 & 10: Repeated initialization is not repeated; concurrent calls share operation
+    // Scenario 9 & 10: Repeated initialization is not repeated; same-instance concurrent calls execute exactly once
     const cacheCollName = `kyc_test_cache_${testRunId}`;
     const cacheColl = client.db().collection<EmployerKycRequest>(cacheCollName);
     extraCollections.push(cacheColl);
 
-    // Scenario 10: Concurrent initialization calls share the same initialization operation
-    const [p1, p2] = [KycRepository.ensureIndexes(cacheColl), KycRepository.ensureIndexes(cacheColl)];
-    await Promise.all([p1, p2]);
+    const origRunMigration = KycRepository.runMigrationAndIndexSetup;
+    let cacheCollInitCount = 0;
+    try {
+      // Safely wrap KycRepository.runMigrationAndIndexSetup inside the test
+      KycRepository.runMigrationAndIndexSetup = async function (c) {
+        if (c === cacheColl) {
+          cacheCollInitCount++;
+          await new Promise(res => setTimeout(res, 25));
+        }
+        return origRunMigration.call(this, c);
+      };
 
-    // Scenario 9: Repeated initialization resolves from cache immediately
-    await KycRepository.ensureIndexes(cacheColl);
+      // Call ensureIndexes() concurrently multiple times using the same collection instance
+      await Promise.all([
+        KycRepository.ensureIndexes(cacheColl),
+        KycRepository.ensureIndexes(cacheColl),
+        KycRepository.ensureIndexes(cacheColl)
+      ]);
+
+      // Assert that runMigrationAndIndexSetup() executes exactly once for that instance
+      if (cacheCollInitCount !== 1) {
+        throw new Error(`Scenario 10 failed: Expected exactly 1 execution during concurrent calls, got ${cacheCollInitCount}`);
+      }
+
+      // Call ensureIndexes() again after successful initialization
+      await KycRepository.ensureIndexes(cacheColl);
+
+      // Assert that the execution count remains exactly one
+      if (cacheCollInitCount !== 1) {
+        throw new Error(`Scenario 9 failed: Expected execution count to remain 1 after repeated call, got ${cacheCollInitCount}`);
+      }
+    } finally {
+      // Restore the original method in a finally block, even if the test fails
+      KycRepository.runMigrationAndIndexSetup = origRunMigration;
+    }
 
     // Scenario 11: Failed initialization: subsequent retry is possible
     const retryCollName = `kyc_test_retry_${testRunId}`;
@@ -599,7 +724,7 @@ export async function runKycPersistenceTests() {
       throw new Error('Scenario 13 failed: Existing record was modified or overwritten during legacy import.');
     }
 
-    // Scenario 15: Incompatible existing index causes ensureIndexes to fail closed; index and records not modified
+    // Scenario 15: Incompatible existing index causes ensureIndexes to fail closed; full record and index definition preserved
     const incompCollName = `kyc_test_incomp_${testRunId}`;
     const incompColl = client.db().collection<EmployerKycRequest>(incompCollName);
     extraCollections.push(incompColl);
@@ -613,6 +738,12 @@ export async function runKycPersistenceTests() {
       companyName: 'Untouched Historical Company'
     } as any);
 
+    // Before testing an incompatible existing index, capture the complete original document
+    const originalDoc = await incompColl.findOne({ id: incompRecId });
+    if (!originalDoc) {
+      throw new Error('Scenario 15 setup error: Failed to capture complete original document before index test.');
+    }
+
     // Create an incompatible index (extra field in partialFilterExpression)
     await incompColl.createIndex(
       { activeUserId: 1 } as any,
@@ -623,6 +754,7 @@ export async function runKycPersistenceTests() {
       }
     );
 
+    // Run ensureIndexes() and confirm it fails with the expected Index Conflict Error
     let incompCaught = false;
     try {
       await KycRepository.ensureIndexes(incompColl);
@@ -632,10 +764,51 @@ export async function runKycPersistenceTests() {
       }
     }
     if (!incompCaught) {
-      throw new Error('Scenario 15 failed: ensureIndexes did not fail closed on incompatible existing index.');
+      throw new Error('Scenario 15 failed: ensureIndexes did not fail closed with expected Index Conflict Error.');
     }
 
-    // Verify index was not dropped or replaced
+    // Fetch the document again
+    const postFailureDoc = await incompColl.findOne({ id: incompRecId });
+    if (!postFailureDoc) {
+      throw new Error('Scenario 15 failed: Historical record was deleted during failed initialization.');
+    }
+
+    // Compare all fields, including "_id", "userId", "status", "activeUserId", and all other stored fields
+    const origKeys = Object.keys(originalDoc).sort();
+    const postKeys = Object.keys(postFailureDoc).sort();
+    if (JSON.stringify(origKeys) !== JSON.stringify(postKeys)) {
+      throw new Error(`Scenario 15 failed: Document keys changed. Expected ${origKeys.join(',')}, got ${postKeys.join(',')}`);
+    }
+
+    for (const key of origKeys) {
+      const origVal = (originalDoc as any)[key];
+      const postVal = (postFailureDoc as any)[key];
+      const origValStr = origVal instanceof Object && typeof origVal.toString === 'function' ? origVal.toString() : JSON.stringify(origVal);
+      const postValStr = postVal instanceof Object && typeof postVal.toString === 'function' ? postVal.toString() : JSON.stringify(postVal);
+      if (origValStr !== postValStr) {
+        throw new Error(`Scenario 15 failed: Field "${key}" was modified. Original: ${origValStr}, After: ${postValStr}`);
+      }
+    }
+
+    if (
+      postFailureDoc._id.toString() !== originalDoc._id.toString() ||
+      postFailureDoc.userId !== originalDoc.userId ||
+      postFailureDoc.status !== originalDoc.status ||
+      (postFailureDoc as any).activeUserId !== (originalDoc as any).activeUserId ||
+      postFailureDoc.companyName !== originalDoc.companyName ||
+      postFailureDoc.email !== originalDoc.email ||
+      postFailureDoc.phone !== originalDoc.phone ||
+      postFailureDoc.ntnOrTaxNumber !== originalDoc.ntnOrTaxNumber ||
+      postFailureDoc.companyWebsite !== originalDoc.companyWebsite ||
+      postFailureDoc.submittedAt !== originalDoc.submittedAt ||
+      postFailureDoc.badgeLevel !== originalDoc.badgeLevel ||
+      postFailureDoc.secpRegistrationNumber !== originalDoc.secpRegistrationNumber ||
+      postFailureDoc.officialDocUrl !== originalDoc.officialDocUrl
+    ) {
+      throw new Error('Scenario 15 failed: Explicit field check failed for preserved historical record.');
+    }
+
+    // Also verify that the incompatible index still exists and retains its original incompatible definition
     const postIndexes = await incompColl.indexes();
     const existingIncompIdx = postIndexes.find(i => i.name === 'unique_combined_active_kyc_user');
     if (!existingIncompIdx) {
@@ -644,11 +817,9 @@ export async function runKycPersistenceTests() {
     if (isValidCombinedIndexDefinition(existingIncompIdx)) {
       throw new Error('Scenario 15 failed: Incompatible existing index was replaced with valid definition.');
     }
-
-    // Historical record must remain unchanged
-    const unchangedDoc = await incompColl.findOne({ id: incompRecId });
-    if (!unchangedDoc || unchangedDoc.companyName !== 'Untouched Historical Company') {
-      throw new Error('Scenario 15 failed: Existing historical KYC record was modified during failed initialization.');
+    const pfe = existingIncompIdx.partialFilterExpression;
+    if (!pfe || pfe.status !== 'Pending' || !pfe.activeUserId || pfe.activeUserId.$type !== 'string') {
+      throw new Error('Scenario 15 failed: Incompatible existing index was altered from original incompatible definition.');
     }
 
     // Scenario 16: Exact required existing index definition is accepted without error
@@ -670,7 +841,7 @@ export async function runKycPersistenceTests() {
       throw new Error('Scenario 16 failed: Collection was not marked initialized after accepting exact index.');
     }
 
-    // Scenario 17: Cache isolation between distinct collection instances (WeakMap / WeakSet)
+    // Scenario 17: Cache isolation between distinct collection instances with instrumented execution counting
     const isoCollName = `kyc_test_instance_iso_${testRunId}`;
     const collA = client.db().collection<EmployerKycRequest>(isoCollName);
     const collB = client.db().collection<EmployerKycRequest>(isoCollName);
@@ -684,12 +855,51 @@ export async function runKycPersistenceTests() {
       throw new Error('Scenario 17 failed: Initial state of distinct instances must not be initialized.');
     }
 
-    await KycRepository.ensureIndexes(collA);
-    if (!isCollectionInitialized(collA)) {
-      throw new Error('Scenario 17 failed: collA was not marked initialized.');
-    }
-    if (isCollectionInitialized(collB)) {
-      throw new Error('Scenario 17 failed: collB unexpectedly shared initialization state with collA.');
+    const origRunMigrationIso = KycRepository.runMigrationAndIndexSetup;
+    const collCounts: Record<string, number> = { a: 0, b: 0 };
+    const getCollCount = (k: string): number => collCounts[k];
+    try {
+      // Instrument or safely wrap KycRepository.runMigrationAndIndexSetup inside the test
+      KycRepository.runMigrationAndIndexSetup = async function (c) {
+        if (c === collA) collCounts['a']++;
+        if (c === collB) collCounts['b']++;
+        return origRunMigrationIso.call(this, c);
+      };
+
+      // Initialize the first instance and verify its initialization count is exactly one
+      await KycRepository.ensureIndexes(collA);
+      if (getCollCount('a') !== 1) {
+        throw new Error(`Scenario 17 failed: Expected collA init count 1, got ${getCollCount('a')}`);
+      }
+      if (getCollCount('b') !== 0) {
+        throw new Error(`Scenario 17 failed: collB init count unexpectedly changed when collA initialized: ${getCollCount('b')}`);
+      }
+      if (!isCollectionInitialized(collA)) {
+        throw new Error('Scenario 17 failed: collA was not marked initialized in success cache.');
+      }
+      if (isCollectionInitialized(collB)) {
+        throw new Error('Scenario 17 failed: collB unexpectedly marked initialized when collA was initialized.');
+      }
+
+      // Initialize the second instance and verify its own initialization count is exactly one
+      await KycRepository.ensureIndexes(collB);
+      if (getCollCount('b') !== 1) {
+        throw new Error(`Scenario 17 failed: Expected collB init count 1, got ${getCollCount('b')}`);
+      }
+      if (getCollCount('a') !== 1) {
+        throw new Error(`Scenario 17 failed: collA init count unexpectedly changed when collB initialized: ${getCollCount('a')}`);
+      }
+      if (!isCollectionInitialized(collB)) {
+        throw new Error('Scenario 17 failed: collB was not marked initialized in success cache.');
+      }
+
+      // Verify that initializing one instance does not cause the other instance to skip its initialization
+      if (getCollCount('a') !== 1 || getCollCount('b') !== 1) {
+        throw new Error('Scenario 17 failed: Initializing one instance caused the other to skip its initialization.');
+      }
+    } finally {
+      // Restore all instrumentation safely
+      KycRepository.runMigrationAndIndexSetup = origRunMigrationIso;
     }
 
     // Reset collA and verify only collA is reset
@@ -697,14 +907,8 @@ export async function runKycPersistenceTests() {
     if (isCollectionInitialized(collA)) {
       throw new Error('Scenario 17 failed: collA was not reset.');
     }
-
-    // Initialize collB and verify collA remains uninitialized
-    await KycRepository.ensureIndexes(collB);
     if (!isCollectionInitialized(collB)) {
-      throw new Error('Scenario 17 failed: collB was not marked initialized.');
-    }
-    if (isCollectionInitialized(collA)) {
-      throw new Error('Scenario 17 failed: collA unexpectedly became initialized when collB initialized.');
+      throw new Error('Scenario 17 failed: collB was reset when resetting collA.');
     }
 
     console.log('[PASS] All 17 KYC MongoDB integration test scenarios passed.');

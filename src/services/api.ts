@@ -1,5 +1,5 @@
 // Centralized Production API Service for Hybrid Job Portal
-import type { BroadcastCampaign } from '../types/adminSuite';
+import type { BroadcastCampaign, SafeCommunicationProviderConfig, UpdateCommunicationProviderPayload } from '../types/adminSuite';
 
 /**
  * Deterministic API base resolution for HybridJobs.
@@ -1050,13 +1050,57 @@ export const api = {
   // --- SETTINGS ---
   settings: {
     async getCommunication() {
-      return safeFetchJson(`${API_BASE}/settings/communication`, { headers: getAuthHeader() });
+      return safeFetchJson<{
+        success: boolean;
+        whatsAppSupportConfig?: any;
+        channelAvailability?: { email: boolean; whatsapp: boolean };
+        message?: string;
+      }>(`${API_BASE}/settings/communication`, { headers: getAuthHeader() });
     },
     async updateCommunication(data: any) {
       return safeFetchJson(`${API_BASE}/settings/communication`, {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(data)
+      });
+    },
+    async getCommunicationProviders() {
+      return safeFetchJson<{
+        success: boolean;
+        config?: SafeCommunicationProviderConfig;
+        message?: string;
+      }>(`${API_BASE}/settings/communication/providers`, { headers: getAuthHeader() });
+    },
+    async updateCommunicationProviders(payload: UpdateCommunicationProviderPayload) {
+      return safeFetchJson<{
+        success: boolean;
+        config?: SafeCommunicationProviderConfig;
+        message?: string;
+      }>(`${API_BASE}/settings/communication/providers`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(payload)
+      });
+    }
+  },
+
+  communicationProviders: {
+    async get() {
+      return safeFetchJson<{
+        success: boolean;
+        config?: SafeCommunicationProviderConfig;
+        message?: string;
+      }>(`${API_BASE}/settings/communication/providers`, { headers: getAuthHeader() });
+    },
+    async update(payload: UpdateCommunicationProviderPayload) {
+      return safeFetchJson<{
+        success: boolean;
+        config?: SafeCommunicationProviderConfig;
+        message?: string;
+      }>(`${API_BASE}/settings/communication/providers`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify(payload)
       });
     }
   }

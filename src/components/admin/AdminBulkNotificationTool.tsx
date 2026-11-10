@@ -154,6 +154,10 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   featureFlags,
   onBroadcastSent
 }) => {
+  const isEmailEnabled = featureFlags?.enableEmailAlerts !== false;
+  const isWhatsAppEnabled = featureFlags?.enableWhatsAppAlerts !== false;
+  const isMultiChannelEnabled = isEmailEnabled && isWhatsAppEnabled;
+
   const [history, setHistory] = useState<BulkNotificationBroadcast[]>(() => {
     try {
       const saved = localStorage.getItem('hybrid_admin_broadcast_history');
@@ -176,6 +180,20 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   const [previewChannel, setPreviewChannel] = useState<'In-App' | 'Email' | 'WhatsApp'>('In-App');
   const [isSending, setIsSending] = useState<boolean>(false);
   const [sendSuccessMsg, setSendSuccessMsg] = useState<string | null>(null);
+
+  // Fallback selected channel if currently selected channel is disabled
+  React.useEffect(() => {
+    if (channel === 'Multi-Channel' && !isMultiChannelEnabled) {
+      setChannel('In-App');
+      setPreviewChannel('In-App');
+    } else if (channel === 'Email' && !isEmailEnabled) {
+      setChannel('In-App');
+      setPreviewChannel('In-App');
+    } else if (channel === 'WhatsApp' && !isWhatsAppEnabled) {
+      setChannel('In-App');
+      setPreviewChannel('In-App');
+    }
+  }, [channel, isEmailEnabled, isWhatsAppEnabled, isMultiChannelEnabled]);
 
   // Persist broadcast history
   React.useEffect(() => {
@@ -381,10 +399,16 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                   }}
                   className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
                 >
-                  <option value="Multi-Channel">⚡ Multi-Channel (Push + Email + WhatsApp)</option>
+                  <option value="Multi-Channel" disabled={!isMultiChannelEnabled}>
+                    ⚡ Multi-Channel (Push + Email + WhatsApp) {!isMultiChannelEnabled ? '(Disabled)' : ''}
+                  </option>
                   <option value="In-App">🔔 In-App Push Notification Bell</option>
-                  <option value="Email">📧 Direct Email Broadcast</option>
-                  <option value="WhatsApp">💬 Direct WhatsApp Alert Digest</option>
+                  <option value="Email" disabled={!isEmailEnabled}>
+                    📧 Direct Email Broadcast {!isEmailEnabled ? '(Disabled)' : ''}
+                  </option>
+                  <option value="WhatsApp" disabled={!isWhatsAppEnabled}>
+                    💬 Direct WhatsApp Alert Digest {!isWhatsAppEnabled ? '(Disabled)' : ''}
+                  </option>
                 </select>
               </div>
             </div>
@@ -482,9 +506,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
             <div className="pt-2">
               <button
                 type="submit"
-                disabled={isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)}
+                disabled={isSending || (channel === 'Email' && !isEmailEnabled) || (channel === 'WhatsApp' && !isWhatsAppEnabled) || (channel === 'Multi-Channel' && !isMultiChannelEnabled)}
                 className={`w-full py-3 rounded-xl font-black text-sm shadow-xl flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 ${
-                  isSending || (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts)
+                  isSending || (channel === 'Email' && !isEmailEnabled) || (channel === 'WhatsApp' && !isWhatsAppEnabled) || (channel === 'Multi-Channel' && !isMultiChannelEnabled)
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
                     : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 shadow-emerald-500/25'
                 }`}
@@ -494,7 +518,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
                     <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
                     <span>Processing Broadcast...</span>
                   </>
-                ) : (channel === 'Email' && !featureFlags?.enableEmailAlerts) || (channel === 'WhatsApp' && !featureFlags?.enableWhatsAppAlerts) ? (
+                ) : (channel === 'Email' && !isEmailEnabled) || (channel === 'WhatsApp' && !isWhatsAppEnabled) || (channel === 'Multi-Channel' && !isMultiChannelEnabled) ? (
                   <>
                     <AlertCircle className="w-4 h-4" />
                     <span>Channel Currently Disabled</span>

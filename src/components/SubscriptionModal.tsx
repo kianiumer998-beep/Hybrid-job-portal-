@@ -28,6 +28,7 @@ interface SubscriptionModalProps {
   onSubscribeSuccess: (subscriberData: Subscriber) => void;
   initialSelectedJobTitle?: string;
   currentUser?: UserAccount | null;
+  whatsappEnabledGlobal?: boolean;
 }
 
 export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
@@ -35,7 +36,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   onClose,
   onSubscribeSuccess,
   initialSelectedJobTitle,
-  currentUser
+  currentUser,
+  whatsappEnabledGlobal = true
 }) => {
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
@@ -176,8 +178,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       return;
     }
 
-    if (!name.trim() || !phone.trim() || !email.trim()) {
-      setErrorMessage('Please fill out your Full Name, Phone (WhatsApp), and Email address.');
+    if (!name.trim() || (whatsappEnabledGlobal && !phone.trim()) || !email.trim()) {
+      setErrorMessage(whatsappEnabledGlobal ? 'Please fill out your Full Name, Phone (WhatsApp), and Email address.' : 'Please fill out your Full Name and Email address.');
       return;
     }
 
@@ -292,7 +294,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           currency: 'PKR',
           status: 'Pending', // Pending manual admin verification
           subscribedAt: new Date().toISOString(),
-          whatsappEnabled: true,
+          whatsappEnabled: Boolean(whatsappEnabledGlobal),
           transactionRef: txRes.transaction.transactionId || cleanTrxId
         };
 
@@ -324,7 +326,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold mb-3">
             <Zap className="w-3.5 h-3.5" />
-            <span>{modalCustoms.badgeText || 'Instant WhatsApp & Direct Apply Unlock'}</span>
+            <span>{modalCustoms.badgeText || (whatsappEnabledGlobal ? 'Instant WhatsApp & Direct Apply Unlock' : 'Direct Apply & Pro Alerts Unlock')}</span>
           </div>
 
           <h2 className="text-2xl font-black text-white leading-snug">
@@ -335,11 +337,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 Unlock Instant Apply for <span className="text-emerald-400">{initialSelectedJobTitle}</span>
               </>
             ) : (
-              'Get WhatsApp Job Alerts & Direct Application Access'
+              whatsappEnabledGlobal ? 'Get WhatsApp Job Alerts & Direct Application Access' : 'Get Verified Job Alerts & Direct Application Access'
             )}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            {modalCustoms.subtitle || 'Subscribe once to receive daily verified remote & hybrid job openings directly on WhatsApp and apply instantly with 1-click.'}
+            {modalCustoms.subtitle || 'Subscribe once to receive daily verified remote & hybrid job openings directly on your portal and apply instantly with 1-click.'}
           </p>
         </div>
 
@@ -380,10 +382,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 <span className="text-slate-400">Payment Channel:</span>
                 <span className="font-bold text-white">{submittedTx.paymentMethod || selectedMethod?.name}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">WhatsApp Alert Number:</span>
-                <span className="font-bold text-emerald-400">{phone}</span>
-              </div>
+              {whatsappEnabledGlobal && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">WhatsApp Alert Number:</span>
+                  <span className="font-bold text-emerald-400">{phone}</span>
+                </div>
+              )}
 
               {proofScreenshotUrl && (
                 <div className="pt-2 border-t border-slate-800">
@@ -580,18 +584,20 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">WhatsApp Phone Number *</label>
-                      <input
-                        type="tel"
-                        required
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="+92 300 1234567"
-                        className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
+                  <div className={`grid grid-cols-1 ${whatsappEnabledGlobal ? 'sm:grid-cols-2' : ''} gap-3`}>
+                    {whatsappEnabledGlobal && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">WhatsApp Phone Number *</label>
+                        <input
+                          type="tel"
+                          required={whatsappEnabledGlobal}
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          placeholder="+92 300 1234567"
+                          className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-400 mb-1">Email Address *</label>

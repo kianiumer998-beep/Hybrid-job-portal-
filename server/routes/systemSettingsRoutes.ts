@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { SystemSettingsRepository, AuditRepository } from '../db/repositories';
+import { SystemSettingsRepository, FeatureFlagsRepository, AuditRepository } from '../db/repositories';
 import { requireAdminPermission } from '../auth/authManager';
 
 export const systemSettingsRouter = Router();
@@ -8,10 +8,17 @@ export const systemSettingsRouter = Router();
 systemSettingsRouter.get('/communication', async (req, res) => {
   try {
     const whatsAppSupportConfig = await SystemSettingsRepository.getWhatsAppSupportConfig();
+    const flags = await FeatureFlagsRepository.getFlags();
+
+    const channelAvailability = {
+      email: flags.enableEmailAlerts === true,
+      whatsapp: flags.enableWhatsAppAlerts === true
+    };
     
     return res.json({
       success: true,
-      whatsAppSupportConfig
+      whatsAppSupportConfig,
+      channelAvailability
     });
   } catch (err: any) {
     console.error('[SystemSettingsRoutes] Error fetching communication settings:', err);

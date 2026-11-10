@@ -16,10 +16,21 @@ import {
   Search,
   Filter,
   Info,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck,
+  Lock,
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { Subscriber, UserAccount, AdminFeatureFlags } from '../../types/job';
-import { BroadcastCampaign, CommunicationProviderConfig } from '../../types/adminSuite';
+import {
+  BroadcastCampaign,
+  CommunicationProviderConfig,
+  SafeCommunicationProviderConfig,
+  UpdateCommunicationProviderPayload,
+  EmailProviderType,
+  WhatsAppProviderType
+} from '../../types/adminSuite';
 import { api } from '../../services/api';
 
 interface AdminBroadcastCenterProps {
@@ -56,6 +67,28 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>('compose');
 
+  // Channel Gating Statuses
+  const emailEnabled = featureFlags?.enableEmailAlerts !== false;
+  const whatsappEnabled = featureFlags?.enableWhatsAppAlerts !== false;
+  const multiChannelEnabled = emailEnabled && whatsappEnabled;
+
+  const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>('SMS');
+
+  // Synchronize channel selection when feature flags change
+  useEffect(() => {
+    if (channel === 'Email' && !emailEnabled) {
+      if (whatsappEnabled) setChannel('WhatsApp');
+      else setChannel('SMS');
+    } else if (channel === 'WhatsApp' && !whatsappEnabled) {
+      if (emailEnabled) setChannel('Email');
+      else setChannel('SMS');
+    } else if (channel === 'Multi-Channel' && !multiChannelEnabled) {
+      if (emailEnabled) setChannel('Email');
+      else if (whatsappEnabled) setChannel('WhatsApp');
+      else setChannel('SMS');
+    }
+  }, [emailEnabled, whatsappEnabled, multiChannelEnabled, channel]);
+
   // Synchronize campaign list whenever prop updates
   useEffect(() => {
     setCampaignList(Array.isArray(campaigns) ? campaigns : []);
@@ -63,7 +96,6 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   // Composer state
   const [title, setTitle] = useState('');
-  const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>('Email');
   const [targetAudience, setTargetAudience] = useState<
     'All Users' | 'Job Seekers Only' | 'Employers / Posters' | 'Subscribed Members' | 'Unpaid / Expired Users' | 'Government Job Seekers' | 'Overseas / Gulf Candidates'
   >('Job Seekers Only');
@@ -74,23 +106,86 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
-  // Provider Settings state
-  const [providerSettings, setProviderSettings] = useState<CommunicationProviderConfig>(
-    commConfig || {
-      smtpHost: 'smtp.sendgrid.net',
-      smtpPort: 587,
-      smtpUser: 'apikey',
-      smtpSenderEmail: 'jobs@careerpak.pk',
-      sendgridApiKey: '',
-      resendApiKey: '',
-      whatsappCloudApiToken: '',
-      whatsappPhoneNumberId: '',
-      twilioAccountSid: '',
-      twilioAuthToken: '',
-      twilioPhoneNumber: ''
-    }
-  );
+  // Provider Settings state loaded from backend API
+  const [safeProviderConfig, setSafeProviderConfig] = useState<SafeCommunicationProviderConfig>({
+    emailProvider: 'smtp',
+    smtpHost: '',
+    smtpPort: 587,
+    smtpUser: '',
+    smtpSenderEmail: '',
+    whatsappProvider: 'meta-cloud',
+    whatsappPhoneNumberId: '',
+    whatsappBusinessAccountId: '',
+    twilioAccountSid: '',
+    twilioPhoneNumber: '',
+    smtpPasswordConfigured: false,
+    sendgridApiKeyConfigured: false,
+    resendApiKeyConfigured: false,
+    whatsappCloudApiTokenConfigured: false,
+    twilioAuthTokenConfigured: false
+  });
+
+  // Non-secret Form State
+  const [emailProvider, setEmailProvider] = useState<EmailProviderType>('smtp');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState<number>(587);
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpSenderEmail, setSmtpSenderEmail] = useState('');
+  const [whatsappProvider, setWhatsappProvider] = useState<WhatsAppProviderType>('meta-cloud');
+  const [whatsappPhoneNumberId, setWhatsappPhoneNumberId] = useState('');
+  const [whatsappBusinessAccountId, setWhatsappBusinessAccountId] = useState('');
+  const [twilioAccountSid, setTwilioAccountSid] = useState('');
+  const [twilioPhoneNumber, setTwilioPhoneNumber] = useState('');
+
+  // Secret Form Inputs (ALWAYS initially blank!)
+  const [smtpPasswordInput, setSmtpPasswordInput] = useState('');
+  const [sendgridApiKeyInput, setSendgridApiKeyInput] = useState('');
+  const [resendApiKeyInput, setResendApiKeyInput] = useState('');
+  const [whatsappCloudApiTokenInput, setWhatsappCloudApiTokenInput] = useState('');
+  const [twilioAuthTokenInput, setTwilioAuthTokenInput] = useState('');
+
+  // Clear secret flags
+  const [clearSecrets, setClearSecrets] = useState<Array<'smtpPassword' | 'sendgridApiKey' | 'resendApiKey' | 'whatsappCloudApiToken' | 'twilioAuthToken'>>([]);
+  const [isProviderSaving, setIsProviderSaving] = useState(false);
   const [providerSaveSuccess, setProviderSaveSuccess] = useState(false);
+  const [providerSaveError, setProviderSaveError] = useState<string | null>(null);
+  const [isLoadingProviders, setIsLoadingProviders] = useState(false);
+
+  // Load authoritative provider config from server
+  const loadProviderConfig = async () => {
+    setIsLoadingProviders(true);
+    setProviderSaveError(null);
+    try {
+      const res = await api.communicationProviders.get();
+      if (res && res.success && res.config) {
+        setSafeProviderConfig(res.config);
+        setEmailProvider(res.config.emailProvider || 'smtp');
+        setSmtpHost(res.config.smtpHost || '');
+        setSmtpPort(res.config.smtpPort || 587);
+        setSmtpUser(res.config.smtpUser || '');
+        setSmtpSenderEmail(res.config.smtpSenderEmail || '');
+        setWhatsappProvider(res.config.whatsappProvider || 'meta-cloud');
+        setWhatsappPhoneNumberId(res.config.whatsappPhoneNumberId || '');
+        setWhatsappBusinessAccountId(res.config.whatsappBusinessAccountId || '');
+        setTwilioAccountSid(res.config.twilioAccountSid || '');
+        setTwilioPhoneNumber(res.config.twilioPhoneNumber || '');
+      }
+    } catch (err: any) {
+      console.error('[AdminBroadcastCenter] Failed to load provider settings:', err);
+    } finally {
+      setIsLoadingProviders(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProviderConfig();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'providers') {
+      loadProviderConfig();
+    }
+  }, [activeTab]);
 
   // Calculate exact audience count from actual available records
   const calculateAudienceCount = () => {
@@ -140,6 +235,15 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const audienceCount = calculateAudienceCount();
 
   const handleApplyTemplate = (tpl: { subject: string; body: string; channel: any; audience: any }) => {
+    if (tpl.channel === 'Email' && !emailEnabled) {
+      setFormError('Email templates cannot be selected because Email alerts are globally disabled.');
+      return;
+    }
+    if (tpl.channel === 'WhatsApp' && !whatsappEnabled) {
+      setFormError('WhatsApp templates cannot be selected because WhatsApp alerts are globally disabled.');
+      return;
+    }
+
     setSubject(tpl.subject);
     setMessageBody(tpl.body);
     setChannel(tpl.channel);
@@ -154,6 +258,19 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     e.preventDefault();
     setFormError(null);
     setFormSuccess(null);
+
+    if (channel === 'Email' && !emailEnabled) {
+      setFormError('Cannot save Email draft: Email channel is globally disabled by administrator.');
+      return;
+    }
+    if (channel === 'WhatsApp' && !whatsappEnabled) {
+      setFormError('Cannot save WhatsApp draft: WhatsApp channel is globally disabled by administrator.');
+      return;
+    }
+    if (channel === 'Multi-Channel' && !multiChannelEnabled) {
+      setFormError('Cannot save Multi-Channel draft: Requires both Email and WhatsApp channels to be enabled.');
+      return;
+    }
 
     if (!title.trim() || !messageBody.trim()) {
       setFormError('Please provide both campaign title and message content.');
@@ -187,7 +304,6 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             setFormError(res.error || 'Failed to persist broadcast draft to backend.');
           }
         } else {
-          // Callback without structured return (handled asynchronously)
           setTitle('');
           setSubject('');
           setMessageBody('');
@@ -213,11 +329,77 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     }
   };
 
-  const handleSaveProviders = (e: React.FormEvent) => {
+  type SecretKeyName = 'smtpPassword' | 'sendgridApiKey' | 'resendApiKey' | 'whatsappCloudApiToken' | 'twilioAuthToken';
+
+  const handleToggleClearSecret = (secretName: SecretKeyName) => {
+    setClearSecrets(prev =>
+      prev.includes(secretName) ? prev.filter(s => s !== secretName) : [...prev, secretName]
+    );
+  };
+
+  const handleSaveProviders = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateCommConfig(providerSettings);
-    setProviderSaveSuccess(true);
-    setTimeout(() => setProviderSaveSuccess(false), 3000);
+    setIsProviderSaving(true);
+    setProviderSaveError(null);
+    setProviderSaveSuccess(false);
+
+    const payload: UpdateCommunicationProviderPayload = {
+      emailProvider,
+      smtpHost: smtpHost.trim(),
+      smtpPort: Number(smtpPort) || 587,
+      smtpUser: smtpUser.trim(),
+      smtpSenderEmail: smtpSenderEmail.trim(),
+      whatsappProvider,
+      whatsappPhoneNumberId: whatsappPhoneNumberId.trim(),
+      whatsappBusinessAccountId: whatsappBusinessAccountId.trim(),
+      twilioAccountSid: twilioAccountSid.trim(),
+      twilioPhoneNumber: twilioPhoneNumber.trim(),
+
+      // Secrets (only include non-empty values)
+      smtpPassword: smtpPasswordInput.trim() || undefined,
+      sendgridApiKey: sendgridApiKeyInput.trim() || undefined,
+      resendApiKey: resendApiKeyInput.trim() || undefined,
+      whatsappCloudApiToken: whatsappCloudApiTokenInput.trim() || undefined,
+      twilioAuthToken: twilioAuthTokenInput.trim() || undefined,
+
+      clearSecrets: clearSecrets.length > 0 ? clearSecrets : undefined
+    };
+
+    try {
+      const res = await api.communicationProviders.update(payload);
+      if (res && res.success && res.config) {
+        setSafeProviderConfig(res.config);
+        // Clear secret input states
+        setSmtpPasswordInput('');
+        setSendgridApiKeyInput('');
+        setResendApiKeyInput('');
+        setWhatsappCloudApiTokenInput('');
+        setTwilioAuthTokenInput('');
+        setClearSecrets([]);
+
+        setProviderSaveSuccess(true);
+        setTimeout(() => setProviderSaveSuccess(false), 5000);
+
+        if (onUpdateCommConfig) {
+          onUpdateCommConfig({
+            smtpHost: res.config.smtpHost,
+            smtpPort: res.config.smtpPort,
+            smtpUser: res.config.smtpUser,
+            smtpSenderEmail: res.config.smtpSenderEmail,
+            whatsappPhoneNumberId: res.config.whatsappPhoneNumberId,
+            twilioAccountSid: res.config.twilioAccountSid,
+            twilioPhoneNumber: res.config.twilioPhoneNumber
+          });
+        }
+      } else {
+        setProviderSaveError(res?.message || 'Failed to persist provider configuration to database.');
+      }
+    } catch (err: any) {
+      console.error('[AdminBroadcastCenter] Provider save error:', err);
+      setProviderSaveError(err?.message || 'Network error updating provider configuration.');
+    } finally {
+      setIsProviderSaving(false);
+    }
   };
 
   return (
@@ -241,7 +423,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
             { id: 'compose', label: 'Compose Broadcast', icon: Send },
             { id: 'history', label: `Campaign History (${campaignList.length})`, icon: Clock },
             { id: 'templates', label: 'Campaign Templates', icon: FileText },
-            { id: 'providers', label: 'SMTP & WhatsApp Gateways', icon: Layers }
+            { id: 'providers', label: 'Provider Gateways', icon: Layers }
           ].map((t) => {
             const Icon = t.icon;
             return (
@@ -259,6 +441,33 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Global Channel Master-Switch Banners */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div className={`p-3 rounded-xl border flex items-center justify-between ${
+          emailEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+        }`}>
+          <div className="flex items-center space-x-2">
+            <Mail className="w-4 h-4 shrink-0" />
+            <span>Email Alerts Master Switch: <strong>{emailEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
+          </div>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${emailEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+            {emailEnabled ? 'ACTIVE' : 'DISABLED'}
+          </span>
+        </div>
+
+        <div className={`p-3 rounded-xl border flex items-center justify-between ${
+          whatsappEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+        }`}>
+          <div className="flex items-center space-x-2">
+            <MessageCircle className="w-4 h-4 shrink-0" />
+            <span>WhatsApp Alerts Master Switch: <strong>{whatsappEnabled ? 'ON (Enabled)' : 'OFF (Disabled)'}</strong></span>
+          </div>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${whatsappEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+            {whatsappEnabled ? 'ACTIVE' : 'DISABLED'}
+          </span>
         </div>
       </div>
 
@@ -312,11 +521,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                     onChange={(e) => setChannel(e.target.value as any)}
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
                   >
-                    <option value="Email">📧 Email Campaign (SMTP / SendGrid)</option>
-                    <option value="WhatsApp">💬 Official WhatsApp Alerts (Meta Cloud API)</option>
-                    <option value="SMS">📱 Direct SMS Blast (Twilio)</option>
+                    <option value="Email" disabled={!emailEnabled}>📧 Email Campaign {!emailEnabled ? '(Disabled)' : ''}</option>
+                    <option value="WhatsApp" disabled={!whatsappEnabled}>💬 Official WhatsApp Alerts {!whatsappEnabled ? '(Disabled)' : ''}</option>
+                    <option value="SMS">📱 Direct SMS Blast</option>
                     <option value="Push Notification">🔔 Browser Web Push Notification</option>
-                    <option value="Multi-Channel">⚡ Multi-Channel (Email + WhatsApp Blast)</option>
+                    <option value="Multi-Channel" disabled={!multiChannelEnabled}>⚡ Multi-Channel {!multiChannelEnabled ? '(Disabled - Requires Email & WhatsApp)' : ''}</option>
                   </select>
                 </div>
 
@@ -378,9 +587,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
               <button
                 type="submit"
-                disabled={isSending}
+                disabled={isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)}
                 className={`px-6 py-3 font-black rounded-xl shadow-lg flex items-center space-x-2 cursor-pointer transition-all active:scale-95 text-xs ${
-                  isSending
+                  isSending || (channel === 'Email' && !emailEnabled) || (channel === 'WhatsApp' && !whatsappEnabled) || (channel === 'Multi-Channel' && !multiChannelEnabled)
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
                     : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
                 }`}
@@ -575,9 +784,12 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 channel: 'Email',
                 audience: 'Job Seekers Only'
               })}
-              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl cursor-pointer text-center"
+              disabled={!emailEnabled}
+              className={`w-full py-2.5 font-bold rounded-xl cursor-pointer text-center ${
+                emailEnabled ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
             >
-              Use This Template →
+              {emailEnabled ? 'Use This Template →' : 'Template Disabled (Email OFF)'}
             </button>
           </div>
 
@@ -589,7 +801,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               </span>
               <h4 className="font-bold text-sm text-white">FPSC & WAPDA Gazette Closing Deadline</h4>
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                Template preview only. Selecting this fills the draft composer with bank challan fee details and submission deadlines; it does not send a WhatsApp message.
+                Template preview only. Selecting this fills the draft composer with bank challan fee details and submission deadlines.
               </p>
             </div>
             <button
@@ -599,9 +811,12 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 channel: 'WhatsApp',
                 audience: 'Subscribed Members'
               })}
-              className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl cursor-pointer text-center"
+              disabled={!whatsappEnabled}
+              className={`w-full py-2.5 font-bold rounded-xl cursor-pointer text-center ${
+                whatsappEnabled ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950' : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
             >
-              Use This Template →
+              {whatsappEnabled ? 'Use This Template →' : 'Template Disabled (WhatsApp OFF)'}
             </button>
           </div>
 
@@ -623,92 +838,366 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 channel: 'Email',
                 audience: 'Employers / Posters'
               })}
-              className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl cursor-pointer text-center"
+              disabled={!emailEnabled}
+              className={`w-full py-2.5 font-bold rounded-xl cursor-pointer text-center ${
+                emailEnabled ? 'bg-indigo-500 hover:bg-indigo-400 text-white' : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
             >
-              Use This Template →
+              {emailEnabled ? 'Use This Template →' : 'Template Disabled (Email OFF)'}
             </button>
           </div>
 
         </div>
       )}
 
-      {/* TAB 4: PROVIDER CREDENTIALS */}
+      {/* TAB 4: SECURE PROVIDER GATEWAYS & AES-256 CREDENTIALS */}
       {activeTab === 'providers' && (
-        <form onSubmit={handleSaveProviders} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+        <form onSubmit={handleSaveProviders} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-3">
             <div>
-              <h3 className="text-sm font-bold flex items-center space-x-2">
-                <Layers className="w-4 h-4 text-emerald-400" />
-                <span>SMTP, Meta WhatsApp Cloud & Twilio API Gateways</span>
+              <h3 className="text-base font-black flex items-center space-x-2 text-white">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                <span>MongoDB Encrypted Provider Configuration (AES-256-GCM)</span>
               </h3>
-              <p className="text-xs text-slate-400">Configure connection strings and API keys for future communication integrations.</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Manage authoritative Email & WhatsApp gateways. All API keys and secrets are encrypted server-side with AES-256-GCM.
+              </p>
             </div>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer"
+              disabled={isProviderSaving}
+              className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer flex items-center space-x-2 disabled:opacity-50"
             >
-              Save Gateway Config
+              <Lock className="w-3.5 h-3.5" />
+              <span>{isProviderSaving ? 'Encrypting & Saving...' : 'Save Provider Settings'}</span>
             </button>
           </div>
 
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 flex items-start space-x-3 text-amber-300 text-xs leading-relaxed">
-            <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
-            <div>
-              <p className="font-bold">Provider Gateway Persistence Notice</p>
-              <p className="text-slate-300 mt-0.5">
-                Remote SMTP, Meta WhatsApp Cloud API, and Twilio credential persistence is not yet active in this foundation phase. Configurations entered here are held in-memory for preview purposes. Automated delivery will be enabled in a future phase.
-              </p>
+          {isLoadingProviders ? (
+            <div className="py-8 text-center text-slate-400 space-y-2">
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto text-emerald-400" />
+              <p className="text-xs">Loading provider configuration from MongoDB...</p>
             </div>
-          </div>
+          ) : (
+            <>
+              {providerSaveError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{providerSaveError}</span>
+                </div>
+              )}
 
-          {providerSaveSuccess && (
-            <div className="p-3 bg-indigo-500/20 border border-indigo-500/40 rounded-xl text-indigo-300 font-bold text-xs flex items-center space-x-2">
-              <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
-              <span>Gateway settings stored in local session. (Remote provider persistence is not active in this phase.)</span>
-            </div>
+              {providerSaveSuccess && (
+                <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-200 font-bold text-xs flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Provider settings stored securely in MongoDB (Encrypted with AES-256-GCM).</span>
+                </div>
+              )}
+
+              {/* EMAIL PROVIDER SECTION */}
+              <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-4 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                  <span className="font-bold text-slate-200 uppercase text-[11px] tracking-wider flex items-center space-x-1.5">
+                    <Mail className="w-4 h-4 text-amber-400" />
+                    <span>Email Gateway Configuration</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    Provider: {emailProvider.toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Email Provider Adapter</label>
+                    <select
+                      value={emailProvider}
+                      onChange={(e) => setEmailProvider(e.target.value as EmailProviderType)}
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-bold"
+                    >
+                      <option value="smtp">Custom SMTP Server</option>
+                      <option value="sendgrid">SendGrid Web API</option>
+                      <option value="resend">Resend API</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">SMTP Sender Email Address</label>
+                    <input
+                      type="email"
+                      value={smtpSenderEmail}
+                      onChange={(e) => setSmtpSenderEmail(e.target.value)}
+                      placeholder="alerts@hybridjobs.pk"
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">SMTP Host</label>
+                    <input
+                      type="text"
+                      value={smtpHost}
+                      onChange={(e) => setSmtpHost(e.target.value)}
+                      placeholder="smtp.sendgrid.net"
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">SMTP Port (1–65535)</label>
+                    <input
+                      type="number"
+                      value={smtpPort}
+                      onChange={(e) => setSmtpPort(Number(e.target.value))}
+                      placeholder="587"
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">SMTP Username</label>
+                    <input
+                      type="text"
+                      value={smtpUser}
+                      onChange={(e) => setSmtpUser(e.target.value)}
+                      placeholder="apikey"
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+
+                  {/* Secret Field: SMTP Password */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-slate-300">SMTP Password</label>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        safeProviderConfig.smtpPasswordConfigured ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {safeProviderConfig.smtpPasswordConfigured ? 'Configured' : 'Not Configured'}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      value={smtpPasswordInput}
+                      onChange={(e) => setSmtpPasswordInput(e.target.value)}
+                      placeholder={safeProviderConfig.smtpPasswordConfigured ? '(Encrypted - Leave blank to keep existing)' : 'Enter new SMTP password'}
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                    {safeProviderConfig.smtpPasswordConfigured && (
+                      <label className="mt-1 flex items-center space-x-1.5 text-[11px] text-rose-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={clearSecrets.includes('smtpPassword')}
+                          onChange={() => handleToggleClearSecret('smtpPassword')}
+                          className="rounded border-slate-800"
+                        />
+                        <span>Clear saved password on save</span>
+                      </label>
+                    )}
+                  </div>
+
+                  {/* Secret Field: SendGrid API Key */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-slate-300">SendGrid API Key</label>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        safeProviderConfig.sendgridApiKeyConfigured ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {safeProviderConfig.sendgridApiKeyConfigured ? 'Configured' : 'Not Configured'}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      value={sendgridApiKeyInput}
+                      onChange={(e) => setSendgridApiKeyInput(e.target.value)}
+                      placeholder={safeProviderConfig.sendgridApiKeyConfigured ? '(Encrypted - Leave blank to keep existing)' : 'SG....'}
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                    {safeProviderConfig.sendgridApiKeyConfigured && (
+                      <label className="mt-1 flex items-center space-x-1.5 text-[11px] text-rose-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={clearSecrets.includes('sendgridApiKey')}
+                          onChange={() => handleToggleClearSecret('sendgridApiKey')}
+                          className="rounded border-slate-800"
+                        />
+                        <span>Clear saved API key on save</span>
+                      </label>
+                    )}
+                  </div>
+
+                  {/* Secret Field: Resend API Key */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-slate-300">Resend API Key</label>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        safeProviderConfig.resendApiKeyConfigured ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {safeProviderConfig.resendApiKeyConfigured ? 'Configured' : 'Not Configured'}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      value={resendApiKeyInput}
+                      onChange={(e) => setResendApiKeyInput(e.target.value)}
+                      placeholder={safeProviderConfig.resendApiKeyConfigured ? '(Encrypted - Leave blank to keep existing)' : 're_...'}
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                    {safeProviderConfig.resendApiKeyConfigured && (
+                      <label className="mt-1 flex items-center space-x-1.5 text-[11px] text-rose-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={clearSecrets.includes('resendApiKey')}
+                          onChange={() => handleToggleClearSecret('resendApiKey')}
+                          className="rounded border-slate-800"
+                        />
+                        <span>Clear saved API key on save</span>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* WHATSAPP PROVIDER SECTION */}
+              <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-4 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                  <span className="font-bold text-slate-200 uppercase text-[11px] tracking-wider flex items-center space-x-1.5">
+                    <MessageCircle className="w-4 h-4 text-emerald-400" />
+                    <span>WhatsApp Gateway Configuration</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    Provider: {whatsappProvider.toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">WhatsApp Provider Adapter</label>
+                    <select
+                      value={whatsappProvider}
+                      onChange={(e) => setWhatsappProvider(e.target.value as WhatsAppProviderType)}
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-bold"
+                    >
+                      <option value="meta-cloud">Meta WhatsApp Cloud API (Graph API)</option>
+                      <option value="twilio">Twilio Programmable Messaging</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">WhatsApp Phone Number ID</label>
+                    <input
+                      type="text"
+                      value={whatsappPhoneNumberId}
+                      onChange={(e) => setWhatsappPhoneNumberId(e.target.value)}
+                      placeholder="e.g. 10928374619"
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">WhatsApp Business Account ID (WABA)</label>
+                    <input
+                      type="text"
+                      value={whatsappBusinessAccountId}
+                      onChange={(e) => setWhatsappBusinessAccountId(e.target.value)}
+                      placeholder="e.g. 99283746102"
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+
+                  {/* Secret Field: WhatsApp Cloud API Access Token */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-slate-300">Meta Cloud API Access Token</label>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        safeProviderConfig.whatsappCloudApiTokenConfigured ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {safeProviderConfig.whatsappCloudApiTokenConfigured ? 'Configured' : 'Not Configured'}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      value={whatsappCloudApiTokenInput}
+                      onChange={(e) => setWhatsappCloudApiTokenInput(e.target.value)}
+                      placeholder={safeProviderConfig.whatsappCloudApiTokenConfigured ? '(Encrypted - Leave blank to keep existing)' : 'EAAQ...'}
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                    {safeProviderConfig.whatsappCloudApiTokenConfigured && (
+                      <label className="mt-1 flex items-center space-x-1.5 text-[11px] text-rose-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={clearSecrets.includes('whatsappCloudApiToken')}
+                          onChange={() => handleToggleClearSecret('whatsappCloudApiToken')}
+                          className="rounded border-slate-800"
+                        />
+                        <span>Clear saved Cloud API token on save</span>
+                      </label>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Twilio Account SID</label>
+                    <input
+                      type="text"
+                      value={twilioAccountSid}
+                      onChange={(e) => setTwilioAccountSid(e.target.value)}
+                      placeholder="AC..."
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+
+                  {/* Secret Field: Twilio Auth Token */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-slate-300">Twilio Auth Token</label>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        safeProviderConfig.twilioAuthTokenConfigured ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {safeProviderConfig.twilioAuthTokenConfigured ? 'Configured' : 'Not Configured'}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      value={twilioAuthTokenInput}
+                      onChange={(e) => setTwilioAuthTokenInput(e.target.value)}
+                      placeholder={safeProviderConfig.twilioAuthTokenConfigured ? '(Encrypted - Leave blank to keep existing)' : 'Twilio auth token'}
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                    {safeProviderConfig.twilioAuthTokenConfigured && (
+                      <label className="mt-1 flex items-center space-x-1.5 text-[11px] text-rose-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={clearSecrets.includes('twilioAuthToken')}
+                          onChange={() => handleToggleClearSecret('twilioAuthToken')}
+                          className="rounded border-slate-800"
+                        />
+                        <span>Clear saved Twilio token on save</span>
+                      </label>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Twilio Sender Phone Number</label>
+                    <input
+                      type="text"
+                      value={twilioPhoneNumber}
+                      onChange={(e) => setTwilioPhoneNumber(e.target.value)}
+                      placeholder="+18005559821"
+                      className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block font-bold text-slate-300 mb-1">SMTP Host (SendGrid / Postmark / Resend)</label>
-              <input
-                type="text"
-                value={providerSettings.smtpHost}
-                onChange={(e) => setProviderSettings({ ...providerSettings, smtpHost: e.target.value })}
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-300 mb-1">SMTP Sender Address</label>
-              <input
-                type="email"
-                value={providerSettings.smtpSenderEmail}
-                onChange={(e) => setProviderSettings({ ...providerSettings, smtpSenderEmail: e.target.value })}
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-300 mb-1">Meta WhatsApp Cloud API Token</label>
-              <input
-                type="password"
-                value={providerSettings.whatsappCloudApiToken || ''}
-                onChange={(e) => setProviderSettings({ ...providerSettings, whatsappCloudApiToken: e.target.value })}
-                placeholder="EAAQ..."
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-300 mb-1">WhatsApp Phone Number ID</label>
-              <input
-                type="text"
-                value={providerSettings.whatsappPhoneNumberId || ''}
-                onChange={(e) => setProviderSettings({ ...providerSettings, whatsappPhoneNumberId: e.target.value })}
-                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-              />
-            </div>
+          <div className="flex justify-end pt-2">
+            <button
+              type="submit"
+              disabled={isProviderSaving}
+              className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer flex items-center space-x-2 disabled:opacity-50"
+            >
+              <Lock className="w-4 h-4" />
+              <span>{isProviderSaving ? 'Encrypting & Saving...' : 'Save Provider Settings'}</span>
+            </button>
           </div>
         </form>
       )}

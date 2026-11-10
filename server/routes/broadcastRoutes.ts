@@ -1,5 +1,5 @@
 import express from 'express';
-import { BroadcastRepository } from '../db/repositories/BroadcastRepository';
+import { BroadcastRepository, FeatureFlagsRepository } from '../db/repositories';
 import { requireAdminPermission } from '../auth/authManager';
 import { isMongoConfigured } from '../db/mongodb';
 
@@ -28,6 +28,31 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
 
   try {
     const { title, channel, targetAudience, subject, messageBody, categoryFilter, recipientsCount } = req.body;
+
+    // Check authoritative backend feature flags
+    const flags = await FeatureFlagsRepository.getFlags();
+    const cleanChannel = String(channel || '').trim();
+
+    if (cleanChannel === 'Email' && !flags.enableEmailAlerts) {
+      return res.status(403).json({
+        success: false,
+        message: 'Channel Disabled: Email broadcast campaigns are currently disabled by administrator.'
+      });
+    }
+
+    if (cleanChannel === 'WhatsApp' && !flags.enableWhatsAppAlerts) {
+      return res.status(403).json({
+        success: false,
+        message: 'Channel Disabled: WhatsApp broadcast campaigns are currently disabled by administrator.'
+      });
+    }
+
+    if (cleanChannel === 'Multi-Channel' && (!flags.enableEmailAlerts || !flags.enableWhatsAppAlerts)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Channel Disabled: Multi-Channel broadcast creation requires all included channels (Email & WhatsApp) to be enabled.'
+      });
+    }
 
     // Fix B: Ignore any client-supplied ID during normal campaign creation.
     // Server generates unique ID.

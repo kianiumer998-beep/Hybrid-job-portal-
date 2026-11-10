@@ -720,19 +720,31 @@ export default function App() {
     };
   });
 
+  const [channelAvailability, setChannelAvailability] = useState<{ email: boolean; whatsapp: boolean }>({ email: false, whatsapp: false });
+  const [isChannelStatusLoaded, setIsChannelStatusLoaded] = useState<boolean>(false);
+
   useEffect(() => {
     try {
       localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(whatsAppSupportConfig));
     } catch (e) {}
   }, [whatsAppSupportConfig]);
 
-  // Sync WhatsApp config from backend on mount
+  // Sync WhatsApp config & safe channel availability from backend on mount
   useEffect(() => {
     api.settings.getCommunication().then(res => {
-      if (res?.success && res.whatsAppSupportConfig) {
-        setWhatsAppSupportConfig(prev => ({ ...prev, ...res.whatsAppSupportConfig }));
+      if (res?.success) {
+        if (res.whatsAppSupportConfig) {
+          setWhatsAppSupportConfig(prev => ({ ...prev, ...res.whatsAppSupportConfig }));
+        }
+        if (res.channelAvailability) {
+          setChannelAvailability(res.channelAvailability);
+          setIsChannelStatusLoaded(true);
+        }
       }
-    }).catch(err => console.error('[App] Failed to load WhatsApp config from backend:', err));
+    }).catch(err => {
+      console.error('[App] Failed to load communication settings from backend:', err);
+      setIsChannelStatusLoaded(false);
+    });
   }, []);
 
   // Payment Verification Transactions State (Loaded from /api/transactions for authenticated users)
@@ -3555,15 +3567,6 @@ export default function App() {
         }}
       />
 
-      {/* Floating Sticky WhatsApp Quick-Action Button */}
-      <WhatsAppStickyButton
-        config={whatsAppSupportConfig}
-        onOpenLegalModal={() => {
-          setLegalModalTab('contact');
-          setLegalModalOpen(true);
-        }}
-      />
-
       {/* MODALS */}
       <LegalDisclaimerModal
         isOpen={legalModalOpen}
@@ -3618,6 +3621,7 @@ export default function App() {
         onSubscribeSuccess={handleSubscribeSuccess}
         initialSelectedJobTitle={selectedJobTitleForSub}
         currentUser={currentUser}
+        whatsappEnabledGlobal={channelAvailability.whatsapp}
       />
 
       <CvPaywallModal
@@ -3690,10 +3694,12 @@ export default function App() {
       />
 
       {/* Persistent Floating WhatsApp Support & Alerts Button */}
-      <WhatsAppStickyButton
-        config={whatsAppSupportConfig}
-        onOpenLegalModal={() => setLegalModalOpen(true)}
-      />
+      {isChannelStatusLoaded && channelAvailability.whatsapp && whatsAppSupportConfig.enabled && (
+        <WhatsAppStickyButton
+          config={whatsAppSupportConfig}
+          onOpenLegalModal={() => setLegalModalOpen(true)}
+        />
+      )}
 
     </div>
   );

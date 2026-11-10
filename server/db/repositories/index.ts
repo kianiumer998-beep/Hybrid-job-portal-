@@ -14,4 +14,5 @@ export * from './KycRepository';
 export * from './SystemSettingsRepository';
 export * from './FeatureFlagsRepository';
 export * from './BroadcastRepository';
+export * from './CommunicationProviderRepository';
 

@@ -1355,6 +1355,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Toggle Feature Flag Handler
   const handleToggleFeature = async (flagKey: keyof AdminFeatureFlags) => {
+    const priorFlags = featureFlags;
     const updated = {
       ...featureFlags,
       [flagKey]: !featureFlags[flagKey]
@@ -1362,9 +1363,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFeatureFlags(updated);
 
     try {
-      await api.admin.updateFeatureFlags(updated);
+      const res = await api.admin.updateFeatureFlags(updated);
+      if (res && res.success === true) {
+        if (flagKey === 'enableEmailAlerts' || flagKey === 'enableWhatsAppAlerts') {
+          api.settings.getCommunication().catch(() => {});
+        }
+      } else {
+        console.error('Backend rejected feature flag update:', res?.message);
+        setFeatureFlags(priorFlags);
+      }
     } catch (e) {
       console.error('Failed to sync feature flags to backend API', e);
+      setFeatureFlags(priorFlags);
     }
   };
 

@@ -148,17 +148,16 @@ export const INITIAL_BROADCAST_CAMPAIGNS: BroadcastCampaign[] = [
 ];
 
 export const INITIAL_COMM_CONFIG: CommunicationProviderConfig = {
+  emailProvider: 'smtp',
   smtpHost: 'smtp.sendgrid.net',
   smtpPort: 587,
   smtpUser: 'apikey',
   smtpSenderEmail: 'alerts@careerpak.com',
-  sendgridApiKey: 'SG.mock_sendgrid_key_99841',
-  resendApiKey: 're_mock_resend_live_881',
-  whatsappCloudApiToken: 'EAAQmockTokenWhatsAppCloud2026',
+  whatsappProvider: 'meta-cloud',
   whatsappPhoneNumberId: '10928374619',
-  twilioAccountSid: 'ACmockTwilioSid884210',
-  twilioAuthToken: 'mockTwilioAuthToken992',
-  twilioPhoneNumber: '+18005559821'
+  whatsappBusinessAccountId: '109283746190',
+  twilioAccountSid: '',
+  twilioPhoneNumber: ''
 };
 
 export const INITIAL_SECURITY_CONFIG: SecurityConfig = {

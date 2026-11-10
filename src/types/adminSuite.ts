@@ -55,18 +55,70 @@ export interface BroadcastCampaign {
   clickRate?: number;
 }
 
+export type EmailProviderType = 'smtp' | 'sendgrid' | 'resend';
+export type WhatsAppProviderType = 'meta-cloud' | 'twilio';
+
 export interface CommunicationProviderConfig {
+  emailProvider?: EmailProviderType;
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
   smtpSenderEmail: string;
+  whatsappProvider?: WhatsAppProviderType;
   sendgridApiKey?: string;
   resendApiKey?: string;
   whatsappCloudApiToken?: string;
   whatsappPhoneNumberId?: string;
+  whatsappBusinessAccountId?: string;
   twilioAccountSid?: string;
   twilioAuthToken?: string;
   twilioPhoneNumber?: string;
+}
+
+export interface SafeCommunicationProviderConfig {
+  emailProvider: EmailProviderType;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpSenderEmail: string;
+  whatsappProvider: WhatsAppProviderType;
+  whatsappPhoneNumberId: string;
+  whatsappBusinessAccountId: string;
+  twilioAccountSid: string;
+  twilioPhoneNumber: string;
+
+  smtpPasswordConfigured: boolean;
+  sendgridApiKeyConfigured: boolean;
+  resendApiKeyConfigured: boolean;
+  whatsappCloudApiTokenConfigured: boolean;
+  twilioAuthTokenConfigured: boolean;
+}
+
+export interface UpdateCommunicationProviderPayload {
+  emailProvider?: EmailProviderType;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  smtpSenderEmail?: string;
+  whatsappProvider?: WhatsAppProviderType;
+  whatsappPhoneNumberId?: string;
+  whatsappBusinessAccountId?: string;
+  twilioAccountSid?: string;
+  twilioPhoneNumber?: string;
+
+  smtpPassword?: string;
+  sendgridApiKey?: string;
+  resendApiKey?: string;
+  whatsappCloudApiToken?: string;
+  twilioAuthToken?: string;
+
+  clearSecrets?: Array<
+    | 'smtpPassword'
+    | 'sendgridApiKey'
+    | 'resendApiKey'
+    | 'whatsappCloudApiToken'
+    | 'twilioAuthToken'
+  >;
 }
 
 export interface SecurityConfig {

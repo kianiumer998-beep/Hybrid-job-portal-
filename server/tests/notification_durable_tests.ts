@@ -18,9 +18,13 @@ function getDataDirectorySnapshot(): Record<string, string> {
   for (const file of files) {
     if (file.endsWith('.json')) {
       const filePath = path.join(dataDir, file);
-      const content = fs.readFileSync(filePath);
-      const hash = crypto.createHash('sha256').update(content).digest('hex');
-      snapshot[file] = hash;
+      try {
+        const content = fs.readFileSync(filePath);
+        const hash = crypto.createHash('sha256').update(content).digest('hex');
+        snapshot[file] = hash;
+      } catch (err) {
+        // If file is deleted during snapshot, it won't be in the map
+      }
     }
   }
   return snapshot;
@@ -54,8 +58,12 @@ async function runTests() {
   console.log('=== DURABLE NOTIFICATION & ROUTE INTEGRATION TEST SUITE ===');
   console.log('===============================================================\n');
 
-  // --- 1. Comprehensive Database Mocking (Strict Isolation) ---
-  const originalDatabase = { ...Database };
+  // --- 1. Capture Original State for Authoritative Restoration ---
+  const databaseDescriptors = Object.getOwnPropertyDescriptors(Database);
+  const paymentRepoDescriptors = Object.getOwnPropertyDescriptors(PaymentSettingsRepository);
+  const visibilityRepoDescriptors = Object.getOwnPropertyDescriptors(JobVisibilityRepository);
+
+  // --- 2. Complete Persistence & Read-Path Isolation Mocks ---
   
   // In-memory isolated state
   let inMemTransactions: any[] = [];
@@ -69,15 +77,20 @@ async function runTests() {
   let inMemJobAlerts: Record<string, any[]> = {};
   let inMemUserDocs: Record<string, any[]> = {};
   let inMemAds: any[] = [];
+  let inMemPricing: any = { jobPosting: {} };
+  let inMemApplySettings: any = {};
+  let inMemSeo: any = {};
+  let inMemScraperSources: any[] = [];
 
-  // Override all persistence methods to prevent JSON file writes
   const noop = () => {};
 
-  // JOBS
-  Database.saveJobs = (jobs: any[]) => { inMemJobs = [...jobs]; };
+  // Mock ALL Database methods that use safeReadJson or safeWriteJson
+  
+  // JOBS & PENDING
   Database.getJobs = () => [...inMemJobs];
-  Database.getJobById = (id: string) => inMemJobs.find(j => j.id === id) || null;
-  Database.getJobBySlug = (slug: string) => inMemJobs.find(j => j.slug === slug || j.id === slug) || null;
+  Database.saveJobs = (jobs: any[]) => { inMemJobs = [...jobs]; };
+  Database.getJobById = (id: string) => inMemJobs.find(j => j.id === id) || inMemPendingJobs.find(j => j.id === id) || null;
+  Database.getJobBySlug = (slug: string) => inMemJobs.find(j => j.slug === slug || j.id === slug) || inMemPendingJobs.find(j => j.slug === slug || j.id === slug) || null;
   Database.addJob = (job: any) => {
     const fresh = { ...job, id: job.id || `job-${Date.now()}` };
     inMemJobs.unshift(fresh);
@@ -89,20 +102,25 @@ async function runTests() {
   };
   Database.updateJob = (id: string, updates: any) => {
     const idx = inMemJobs.findIndex(j => j.id === id);
-    if (idx === -1) return null;
-    inMemJobs[idx] = { ...inMemJobs[idx], ...updates };
-    return inMemJobs[idx];
+    if (idx !== -1) {
+      inMemJobs[idx] = { ...inMemJobs[idx], ...updates };
+      return inMemJobs[idx];
+    }
+    const pIdx = inMemPendingJobs.findIndex(j => j.id === id);
+    if (pIdx !== -1) {
+      inMemPendingJobs[pIdx] = { ...inMemPendingJobs[pIdx], ...updates };
+      return inMemPendingJobs[pIdx];
+    }
+    return null;
   };
   Database.deleteJob = (id: string) => {
-    const prev = inMemJobs.length;
+    const prev = inMemJobs.length + inMemPendingJobs.length;
     inMemJobs = inMemJobs.filter(j => j.id !== id);
     inMemPendingJobs = inMemPendingJobs.filter(j => j.id !== id);
-    return inMemJobs.length < prev;
+    return (inMemJobs.length + inMemPendingJobs.length) < prev;
   };
-
-  // PENDING JOBS
-  Database.savePendingJobs = (jobs: any[]) => { inMemPendingJobs = [...jobs]; };
   Database.getPendingJobs = () => [...inMemPendingJobs];
+  Database.savePendingJobs = (jobs: any[]) => { inMemPendingJobs = [...jobs]; };
   Database.addPendingJob = (job: any) => {
     const fresh = { ...job, id: job.id || `pending-${Date.now()}` };
     inMemPendingJobs.unshift(fresh);
@@ -127,8 +145,8 @@ async function runTests() {
   };
 
   // USERS
-  Database.saveUsers = (users: any[]) => { inMemUsers = [...users]; };
   Database.getUsers = () => [...inMemUsers];
+  Database.saveUsers = (users: any[]) => { inMemUsers = [...users]; };
   Database.getUserById = (id: string) => inMemUsers.find(u => u.id === id) || null;
   Database.getUserByEmail = (email: string) => inMemUsers.find(u => u.email?.toLowerCase() === email.toLowerCase()) || null;
   Database.addUser = (user: any) => {
@@ -149,19 +167,19 @@ async function runTests() {
   };
 
   // APPLICATIONS
-  Database.saveApplications = (apps: any[]) => { inMemApplications = [...apps]; };
   Database.getApplications = () => [...inMemApplications];
+  Database.saveApplications = (apps: any[]) => { inMemApplications = [...apps]; };
   Database.addApplication = (app: any) => {
-    const fresh = { ...app, id: app.id || `app-${Date.now()}` };
+    const fresh = { ...app, id: app.id || `app-${Date.now()}`, appliedAt: new Date().toISOString() };
     inMemApplications.unshift(fresh);
     return fresh;
   };
 
   // TRANSACTIONS
-  Database.saveTransactions = (txs: any[]) => { inMemTransactions = [...txs]; };
   Database.getTransactions = () => [...inMemTransactions];
+  Database.saveTransactions = (txs: any[]) => { inMemTransactions = [...txs]; };
   Database.addTransaction = (tx: any) => {
-    const fresh = { ...tx, id: tx.id || `tx-${Date.now()}` };
+    const fresh = { ...tx, id: tx.id || `tx-${Date.now()}`, dateTime: new Date().toISOString() };
     inMemTransactions.unshift(fresh);
     return fresh;
   };
@@ -169,12 +187,13 @@ async function runTests() {
   // AUDIT LOGS
   Database.getAuditLogs = () => [...inMemAuditLogs];
   Database.addAuditLog = (entry: any) => {
-    const fresh = { ...entry, id: `log-${Date.now()}` };
+    const fresh = { ...entry, id: `log-${Date.now()}`, timestamp: new Date().toISOString() };
     inMemAuditLogs.unshift(fresh);
   };
 
   // SCRAPER
-  Database.saveScraperSources = noop;
+  Database.getScraperSources = () => [...inMemScraperSources];
+  Database.saveScraperSources = (s: any[]) => { inMemScraperSources = [...s]; };
   Database.getScraperRuns = () => [...inMemScraperRuns];
   Database.addScraperRun = (run: any) => {
     const fresh = { ...run, id: run.id || `run-${Date.now()}` };
@@ -182,11 +201,15 @@ async function runTests() {
     return fresh;
   };
 
-  // OTHERS
+  // SETTINGS & ADS
+  Database.getAds = () => [...inMemAds];
   Database.saveAds = (ads: any[]) => { inMemAds = [...ads]; };
-  Database.savePricing = noop;
-  Database.saveApplySettings = noop;
-  Database.saveSeoConfig = noop;
+  Database.getPricing = () => ({ ...inMemPricing });
+  Database.savePricing = (p: any) => { inMemPricing = { ...p }; };
+  Database.getApplySettings = () => ({ ...inMemApplySettings });
+  Database.saveApplySettings = (s: any) => { inMemApplySettings = { ...s }; };
+  Database.getSeoConfig = () => ({ ...inMemSeo });
+  Database.saveSeoConfig = (c: any) => { inMemSeo = { ...c }; };
 
   // USER DATA
   Database.getSavedJobs = (uid: string) => inMemSavedJobs[uid] || [];
@@ -239,17 +262,17 @@ async function runTests() {
   let suiteError: any = null;
 
   try {
-    // --- 2. Initialize Memory-Only Test Mode Mocks ---
+    // --- 3. Initialize Memory-Only Test Mode Mocks ---
     JobVisibilityRepository.isUserPremiumAuthoritative = async () => true;
     console.log('➜ STORAGE MODE: IN-MEMORY FALLBACK UNIT-TEST MODE (Strict Isolation)');
     console.log('[NOT RUN] Live MongoDB Integration tests: Real MongoDB not supported in this test suite.');
 
-    Database.getApplySettings = () => ({
+    inMemApplySettings = {
       requireCv: false,
       requirePhone: false,
       requireEmail: false,
       enforceDeadlines: false
-    });
+    };
 
     PaymentSettingsRepository.getPublicSettings = async () => ({
       isConfigured: true,
@@ -495,30 +518,58 @@ async function runTests() {
     console.log('✓ Test 12: Payment submission generates notification.');
 
   } catch (err: any) {
-    console.error('\n[TEST ERROR]', err);
+    console.error('\n[TEST SCENARIO FAILURE]', err);
     suiteError = err;
   } finally {
     // --- 6. Robust Cleanup & Mandatory Integrity Verification ---
     console.log('\n--- Finalizing Suite & Verifying Storage Integrity ---');
     
-    if (httpServer) httpServer.close();
+    // Await server closure (cleanup path ensures we continue if this fails)
+    if (httpServer) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('HTTP server close timeout')), 5000);
+          httpServer!.close((err) => {
+            clearTimeout(timeout);
+            err ? reject(err) : resolve();
+          });
+        });
+        console.log('✓ HTTP Server closed successfully.');
+      } catch (srvErr) {
+        console.error('! Error during HTTP server closure:', srvErr);
+      }
+    }
     
-    // Restore Repository methods
-    PaymentSettingsRepository.getPublicSettings = originalGetPublicSettings;
-    JobVisibilityRepository.isUserPremiumAuthoritative = originalIsUserPremium;
+    // Restoration of Property Descriptors (Bulletproof Restoration)
+    const restore = (target: any, descriptors: PropertyDescriptorMap) => {
+      const currentKeys = Object.getOwnPropertyNames(target);
+      currentKeys.forEach(key => {
+        if (!(key in descriptors)) {
+          // Remove mock properties that didn't exist originally
+          delete target[key];
+        }
+      });
+      Object.defineProperties(target, descriptors);
+    };
 
-    // Restore Database methods
-    Object.assign(Database, originalDatabase);
+    restore(Database, databaseDescriptors);
+    restore(PaymentSettingsRepository, paymentRepoDescriptors);
+    restore(JobVisibilityRepository, visibilityRepoDescriptors);
     
+    // Internal verification of restoration
+    const isRestored = Database.saveJobs === databaseDescriptors.saveJobs.value;
+    console.log(`✓ Original Database & Repository methods restored: ${isRestored}`);
+
     // Clear Notification memory store
     NotificationRepository.clearInMemoryStore();
 
     // Take post-test snapshot
-    const postTestSnapshot = getDataDirectorySnapshot();
     let integrityFailed = false;
     let integrityMessage = '';
 
     try {
+      const postTestSnapshot = getDataDirectorySnapshot();
+      
       // 1. Check for file deletions or modifications
       for (const [file, preHash] of Object.entries(preTestSnapshot)) {
         const postHash = postTestSnapshot[file];
@@ -540,14 +591,11 @@ async function runTests() {
 
       if (integrityFailed) {
         console.error('\n[STORAGE INTEGRITY FAILURE]' + integrityMessage);
-        testCount++; // Count as a failed scenario
       } else {
-        testCount++;
-        passCount++;
-        console.log('✓ Test 13: Storage isolation verified (Full SHA-256 snapshot check passed).');
+        console.log('✓ Storage isolation verified (Byte-for-byte snapshot check passed).');
       }
     } catch (verifErr: any) {
-      console.error('\n[INTEGRITY VERIFICATION ERROR]', verifErr);
+      console.error('\n[INTEGRITY VERIFICATION CRITICAL ERROR]', verifErr);
       integrityFailed = true;
     }
 
@@ -559,18 +607,22 @@ async function runTests() {
       process.env[key] = originalEnv[key];
     }
 
-    const finalStatus = (passCount === testCount && !suiteError) ? 'SUCCESS' : 'FAILURE';
+    // Final outcome evaluation
+    const finalPassed = (passCount === testCount && !integrityFailed && !suiteError);
+    
     console.log(`\n===============================================================`);
-    console.log(`=== TEST SUITE FINISHED: ${passCount}/${testCount} PASSED (${finalStatus}) ===`);
+    console.log(`=== TEST SUITE FINISHED: ${finalPassed ? 'SUCCESS' : 'FAILURE'} ===`);
+    console.log(`=== Functional Scenarios: ${passCount}/${testCount} Passed ===`);
+    console.log(`=== Storage Integrity: ${integrityFailed ? 'FAILED' : 'PASSED'} ===`);
     console.log(`===============================================================\n`);
 
-    if (finalStatus === 'FAILURE' || suiteError) {
+    if (!finalPassed) {
       process.exit(1);
     }
   }
 }
 
 runTests().catch((err) => {
-  console.error('\n[FATAL FAILURE]', err);
+  console.error('\n[FATAL EXIT ERROR]', err);
   process.exit(1);
 });

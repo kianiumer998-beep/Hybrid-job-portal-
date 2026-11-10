@@ -754,12 +754,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (e) {}
   }, [broadcastCampaigns]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('career_pak_kyc_requests', JSON.stringify(kycRequests));
-    } catch (e) {}
-  }, [kycRequests]);
-
   // WhatsApp Support Configuration State
   const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
     if (whatsAppSupportConfig) return { ...DEFAULT_WHATSAPP_CONFIG, ...whatsAppSupportConfig };

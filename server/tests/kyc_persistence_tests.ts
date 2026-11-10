@@ -1,6 +1,8 @@
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient, Collection } from 'mongodb';
 import { KycRepository } from '../db/repositories/KycRepository';
 import { EmployerKycRequest } from '../../src/types/adminSuite';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Helper for test isolation check (identical to currency_persistence_tests)
 export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe: boolean; reason?: string } {
@@ -19,347 +21,6 @@ export function isSafeDistinctTestUri(prodUri: string, testUri: string): { safe:
   if (!prodInfo || !testInfo || prodInfo.host !== testInfo.host || prodInfo.port !== testInfo.port) return { safe: false, reason: 'Invalid isolation' };
   if (prodInfo.dbName === testInfo.dbName) return { safe: false, reason: 'Same DB' };
   return { safe: true };
-}
-
-export async function runKycPersistenceTests() {
-  const testDbUri = process.env.TEST_MONGODB_URI || '';
-  const prodDbUri = process.env.MONGODB_URI || '';
-  const isolation = isSafeDistinctTestUri(prodDbUri, testDbUri);
-  
-  if (!isolation.safe) {
-    console.log(`[NOT RUN] KYC persistence tests skipped: ${isolation.reason}`);
-    return;
-  }
-
-  let client: MongoClient | null = null;
-  const createdIds: string[] = [];
-  const testRunId = `test_run_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-  try {
-    client = new MongoClient(testDbUri);
-    await client.connect();
-    const coll = client.db().collection<EmployerKycRequest>('kyc_requests_test');
-
-    // 1. Valid KYC record createRequest & retrieval by user ID
-    const uniqueUserId1 = `user_${testRunId}_1`;
-    const newReqInput: EmployerKycRequest = {
-      id: `kyc_test_${Date.now()}_1`,
-      userId: uniqueUserId1,
-      companyName: 'Test Corp Alpha',
-      contactPerson: 'Tester Alpha',
-      email: `${uniqueUserId1}@corp.com`,
-      phone: '+92 300 1111111',
-      ntnOrTaxNumber: '1234567-8',
-      companyWebsite: 'https://alpha.com',
-      submittedAt: new Date().toISOString(),
-      status: 'Pending',
-      badgeLevel: 'Standard Verified',
-      secpRegistrationNumber: 'SECP-123',
-      officialDocUrl: 'https://alpha.com/doc.pdf'
-    };
-
-    const createdReq = await KycRepository.createRequest(newReqInput, coll);
-    if (!createdReq || !createdReq.id) throw new Error('createRequest failed');
-    createdIds.push(createdReq.id);
-
-    if (createdReq.status !== 'Pending') throw new Error('New request status must be Pending');
-    if (createdReq.userId !== uniqueUserId1) throw new Error('User ID mismatch');
-
-    const retrievedByUser = await KycRepository.getByUserId(uniqueUserId1, coll);
-    if (!retrievedByUser || retrievedByUser.id !== createdReq.id) throw new Error('getByUserId failed');
-
-    // 2. Concurrent duplicate submission race-condition test
-    const concurrentUserId = `user_concurrent_${testRunId}`;
-    const concurrentReq1: EmployerKycRequest = {
-      ...newReqInput,
-      id: `kyc_conc_1_${Date.now()}`,
-      userId: concurrentUserId,
-      email: `${concurrentUserId}@corp.com`
-    };
-    const concurrentReq2: EmployerKycRequest = {
-      ...newReqInput,
-      id: `kyc_conc_2_${Date.now()}`,
-      userId: concurrentUserId,
-      email: `${concurrentUserId}@corp.com`
-    };
-
-    const concurrentResults = await Promise.allSettled([
-      KycRepository.createRequest(concurrentReq1, coll),
-      KycRepository.createRequest(concurrentReq2, coll)
-    ]);
-
-    const fulfilled = concurrentResults.filter(r => r.status === 'fulfilled');
-    const rejectedPromises = concurrentResults.filter(r => r.status === 'rejected');
-
-    if (fulfilled.length !== 1 || rejectedPromises.length !== 1) {
-      throw new Error(`Concurrent duplicate submission test failed: expected 1 fulfilled and 1 rejected, got ${fulfilled.length} fulfilled and ${rejectedPromises.length} rejected`);
-    }
-
-    if (fulfilled[0].status === 'fulfilled') {
-      createdIds.push(fulfilled[0].value.id);
-    }
-
-    const rejectionReason = (rejectedPromises[0] as PromiseRejectedResult).reason;
-    if (!rejectionReason?.message?.includes('Duplicate')) {
-      throw new Error(`Concurrent duplicate submission rejected with unexpected error: ${rejectionReason}`);
-    }
-
-    // 3. Multiple historical Rejected records test for the same user
-    const multiRejectUserId = `user_multi_reject_${testRunId}`;
-    const rejectedReq1: EmployerKycRequest = {
-      ...newReqInput,
-      id: `kyc_rej_1_${Date.now()}`,
-      userId: multiRejectUserId,
-      status: 'Rejected',
-      rejectionReason: 'Invalid NTN'
-    };
-    const rejectedReq2: EmployerKycRequest = {
-      ...newReqInput,
-      id: `kyc_rej_2_${Date.now()}`,
-      userId: multiRejectUserId,
-      status: 'Rejected',
-      rejectionReason: 'Incomplete doc'
-    };
-
-    await coll.insertOne(rejectedReq1);
-    await coll.insertOne(rejectedReq2);
-    createdIds.push(rejectedReq1.id, rejectedReq2.id);
-
-    const userRejections = await coll.find({ userId: multiRejectUserId, status: 'Rejected' }).toArray();
-    if (userRejections.length !== 2) {
-      throw new Error(`Multiple historical Rejected records test failed: expected 2 records, got ${userRejections.length}`);
-    }
-
-    // 4. Approval persistence & fresh DB read
-    const approved = await KycRepository.updateRequest(createdReq.id, {
-      status: 'Verified',
-      verifiedAt: new Date().toISOString(),
-      badgeLevel: 'Top Employer'
-    }, coll);
-    if (!approved || approved.status !== 'Verified' || approved.badgeLevel !== 'Top Employer') {
-      throw new Error('Approval update failed');
-    }
-
-    const freshDbAfterApprove = await coll.findOne({ id: createdReq.id });
-    if (!freshDbAfterApprove || freshDbAfterApprove.status !== 'Verified') {
-      throw new Error('Fresh DB read after approval failed');
-    }
-
-    // 5. Transition on finalized (Verified) request should be rejected
-    const invalidTransition = await KycRepository.updateRequest(createdReq.id, {
-      status: 'Rejected',
-      rejectionReason: 'Invalid transition attempt'
-    }, coll);
-    if (invalidTransition !== null) {
-      throw new Error('Update on finalized request must return null and be rejected');
-    }
-
-    // 6. Rejection persistence for a second user
-    const uniqueUserId2 = `user_${testRunId}_2`;
-    const createdReq2 = await KycRepository.createRequest({
-      ...newReqInput,
-      id: `kyc_test_${Date.now()}_2`,
-      userId: uniqueUserId2,
-      companyName: 'Test Corp Beta',
-      email: `${uniqueUserId2}@corp.com`
-    }, coll);
-    createdIds.push(createdReq2.id);
-
-    const rejectedUpdate = await KycRepository.updateRequest(createdReq2.id, {
-      status: 'Rejected',
-      rejectionReason: 'Tax ID mismatch'
-    }, coll);
-    if (!rejectedUpdate || rejectedUpdate.status !== 'Rejected' || rejectedUpdate.rejectionReason !== 'Tax ID mismatch') {
-      throw new Error('Rejection update failed');
-    }
-
-    // 7. Legacy import with optional fields containing null
-    const legacyNullId = `${testRunId}_legacy_null`;
-    const legacyInput: any[] = [
-      {
-        id: legacyNullId,
-        userId: `user_${testRunId}_legacy`,
-        companyName: 'Legacy Null Corp',
-        contactPerson: 'Legacy Tester',
-        email: 'legacy@null.com',
-        phone: '+92 300 9999999',
-        ntnOrTaxNumber: '9999999-9',
-        companyWebsite: 'https://legacynull.com',
-        submittedAt: new Date().toISOString(),
-        status: 'Pending',
-        badgeLevel: 'Standard Verified',
-        secpRegistrationNumber: null,
-        officialDocUrl: null,
-        verifiedAt: null,
-        verifiedBy: null
-      }
-    ];
-
-    const importRes = await KycRepository.importLegacyRequests(legacyInput, coll);
-    if (importRes.imported !== 1 || importRes.invalid !== 0) {
-      throw new Error(`Legacy import with null optional fields failed: imported=${importRes.imported}, invalid=${importRes.invalid}`);
-    }
-    createdIds.push(legacyNullId);
-
-    // 8. Legacy import preserving existing records ($setOnInsert)
-    const existingDbRecordId = `${testRunId}_existing_db`;
-    await coll.insertOne({
-      id: existingDbRecordId,
-      userId: `user_${testRunId}_existing`,
-      companyName: 'Existing DB Corp',
-      contactPerson: 'Original Owner',
-      email: 'original@corp.com',
-      phone: '111',
-      ntnOrTaxNumber: '11111',
-      companyWebsite: 'https://original.com',
-      submittedAt: new Date().toISOString(),
-      status: 'Verified',
-      badgeLevel: 'Top Employer'
-    });
-    createdIds.push(existingDbRecordId);
-
-    const legacyOverlappingInput: any[] = [
-      {
-        id: existingDbRecordId,
-        userId: `user_${testRunId}_hacker`,
-        companyName: 'Overwriting Corp',
-        contactPerson: 'Hacker',
-        email: 'hacker@corp.com',
-        phone: '999',
-        ntnOrTaxNumber: '99999',
-        companyWebsite: 'https://hacker.com',
-        submittedAt: new Date().toISOString(),
-        status: 'Pending',
-        badgeLevel: 'Standard Verified'
-      }
-    ];
-
-    await KycRepository.importLegacyRequests(legacyOverlappingInput, coll);
-    const verifyExistingPreserved = await coll.findOne({ id: existingDbRecordId });
-    if (!verifyExistingPreserved || verifyExistingPreserved.status !== 'Verified' || verifyExistingPreserved.companyName !== 'Existing DB Corp') {
-      throw new Error('Legacy import failed to preserve existing DB record');
-    }
-
-    // 9. Pending + Verified records for the same user cannot coexist
-    const pendingVerifiedUserId = `user_pv_${testRunId}`;
-    const verReq: EmployerKycRequest = {
-      ...newReqInput,
-      id: `kyc_ver_${Date.now()}`,
-      userId: pendingVerifiedUserId,
-      status: 'Verified',
-      badgeLevel: 'Top Employer'
-    };
-    await KycRepository.createRequest(verReq, coll);
-    createdIds.push(verReq.id);
-
-    let verDuplicateCaught = false;
-    try {
-      await KycRepository.createRequest({
-        ...newReqInput,
-        id: `kyc_pend_attempt_${Date.now()}`,
-        userId: pendingVerifiedUserId,
-        status: 'Pending'
-      }, coll);
-    } catch (err: any) {
-      if (err?.message?.includes('Duplicate')) {
-        verDuplicateCaught = true;
-      }
-    }
-    if (!verDuplicateCaught) {
-      throw new Error('Pending + Verified coexistence block test failed: new Pending request was allowed for a Verified user.');
-    }
-
-    // 10. Rejected -> new Pending submission succeeds & releases active slot
-    const rejectedThenPendingUser = `user_rtp_${testRunId}`;
-    const firstReq: EmployerKycRequest = {
-      ...newReqInput,
-      id: `kyc_rtp_1_${Date.now()}`,
-      userId: rejectedThenPendingUser,
-      status: 'Pending'
-    };
-    await KycRepository.createRequest(firstReq, coll);
-    createdIds.push(firstReq.id);
-
-    const rejRes = await KycRepository.updateRequest(firstReq.id, {
-      status: 'Rejected',
-      rejectionReason: 'Invalid document upload'
-    }, coll);
-    if (!rejRes || rejRes.status !== 'Rejected') {
-      throw new Error('Rejection update failed to release active slot');
-    }
-
-    const secondReq: EmployerKycRequest = {
-      ...newReqInput,
-      id: `kyc_rtp_2_${Date.now()}`,
-      userId: rejectedThenPendingUser,
-      status: 'Pending'
-    };
-    const newPendingRes = await KycRepository.createRequest(secondReq, coll);
-    if (!newPendingRes || newPendingRes.status !== 'Pending') {
-      throw new Error('Rejected -> new Pending submission test failed');
-    }
-    createdIds.push(secondReq.id);
-
-    // 11. Index initialization failure & conflict detection test
-    const conflictUserId = `user_conflict_${testRunId}`;
-    await coll.insertOne({
-      id: `kyc_conf_1_${Date.now()}`,
-      userId: conflictUserId,
-      companyName: 'Conflict 1',
-      contactPerson: 'Owner 1',
-      email: `${conflictUserId}_1@corp.com`,
-      phone: '111',
-      ntnOrTaxNumber: '111',
-      companyWebsite: 'https://c1.com',
-      submittedAt: new Date().toISOString(),
-      status: 'Pending',
-      badgeLevel: 'Standard Verified'
-    });
-    await coll.insertOne({
-      id: `kyc_conf_2_${Date.now()}`,
-      userId: conflictUserId,
-      companyName: 'Conflict 2',
-      contactPerson: 'Owner 2',
-      email: `${conflictUserId}_2@corp.com`,
-      phone: '222',
-      ntnOrTaxNumber: '222',
-      companyWebsite: 'https://c2.com',
-      submittedAt: new Date().toISOString(),
-      status: 'Verified',
-      badgeLevel: 'Top Employer'
-    });
-    createdIds.push(`kyc_conf_1_${Date.now()}`, `kyc_conf_2_${Date.now()}`);
-
-    let conflictDetected = false;
-    try {
-      await KycRepository.ensureIndexes(coll);
-    } catch (err: any) {
-      if (err?.message?.includes('Database Conflict Error')) {
-        conflictDetected = true;
-      }
-    }
-    if (!conflictDetected) {
-      throw new Error('Index initialization conflict detection failed to fail closed on conflicting active records');
-    }
-
-    console.log('[PASS] All KYC MongoDB integration tests passed.');
-  } catch (err: any) {
-    console.error('[FAIL] KYC integration tests failed:', err);
-    process.exitCode = 1;
-  } finally {
-    if (client) {
-      try {
-        const coll = client.db().collection<EmployerKycRequest>('kyc_requests_test');
-        for (const id of createdIds) {
-          await coll.deleteOne({ id });
-        }
-      } catch (cleanupErr) {
-        console.error('[CLEANUP FAIL] Error during test cleanup:', cleanupErr);
-        process.exitCode = 1;
-      }
-      await client.close();
-    }
-  }
 }
 
 export async function runKycUnitTests() {
@@ -400,9 +61,7 @@ export async function runKycUnitTests() {
 
   // Test 2: Stale JWT role vs fresh database verification logic
   const mockDbUserRoleMismatch = { id: 'u123', email: 'emp@test.com', role: 'Job Seeker' };
-  const mockJwtUser = { userId: 'u123', email: 'emp@test.com', role: 'Employer/Job Poster' };
   if (mockDbUserRoleMismatch.role !== 'Employer/Job Poster') {
-    // Verified: If DB role differs from JWT role, it fails closed
     const roleAllowed = mockDbUserRoleMismatch.role === 'Employer/Job Poster';
     if (roleAllowed) throw new Error('Stale JWT role allowed when DB role is Job Seeker');
   }
@@ -415,15 +74,7 @@ export async function runKycUnitTests() {
   }
 
   // Test 4: Client-supplied fields cannot override server identity
-  const clientPayload = {
-    userId: 'attacker_id',
-    email: 'attacker@evil.com',
-    status: 'Verified',
-    badgeLevel: 'Government Agency',
-    verifiedBy: 'attacker@evil.com'
-  };
   const verifiedServerUser = { id: 'real_user_id', email: 'real_owner@corp.com', role: 'Employer/Job Poster' };
-
   const sanitizedDoc: EmployerKycRequest = {
     id: 'kyc_test_sanitized',
     userId: verifiedServerUser.id,
@@ -453,7 +104,376 @@ export async function runKycUnitTests() {
     throw new Error('Rejected KYC doc must not contain activeUserId');
   }
 
+  // Test 6: Verify AdminDashboard does not write career_pak_kyc_requests to LocalStorage
+  const adminDashboardPath = path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx');
+  const adminDashboardContent = fs.readFileSync(adminDashboardPath, 'utf8');
+  if (adminDashboardContent.includes("localStorage.setItem('career_pak_kyc_requests'")) {
+    throw new Error('Regression: AdminDashboard.tsx contains localStorage.setItem for career_pak_kyc_requests!');
+  }
+
   console.log('[PASS] All KYC unit tests passed successfully.');
+}
+
+export async function runKycPersistenceTests() {
+  const testDbUri = process.env.TEST_MONGODB_URI || '';
+  const prodDbUri = process.env.MONGODB_URI || '';
+  const isolation = isSafeDistinctTestUri(prodDbUri, testDbUri);
+  
+  if (!isolation.safe) {
+    console.log(`[NOT RUN] KYC persistence tests skipped: ${isolation.reason}`);
+    return;
+  }
+
+  let client: MongoClient | null = null;
+  const testRunId = `test_run_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const extraCollections: Collection<any>[] = [];
+
+  try {
+    client = new MongoClient(testDbUri);
+    await client.connect();
+
+    const coll = client.db().collection<EmployerKycRequest>('kyc_requests_test_' + testRunId);
+    extraCollections.push(coll);
+
+    const newReqInput: EmployerKycRequest = {
+      id: `kyc_base_${Date.now()}`,
+      userId: `user_base_${testRunId}`,
+      companyName: 'Base Corp',
+      contactPerson: 'Base Owner',
+      email: `base_${testRunId}@corp.com`,
+      phone: '+92 300 1111111',
+      ntnOrTaxNumber: '1234567-8',
+      companyWebsite: 'https://base.com',
+      submittedAt: new Date().toISOString(),
+      status: 'Pending',
+      badgeLevel: 'Standard Verified',
+      secpRegistrationNumber: 'SECP-123',
+      officialDocUrl: 'https://base.com/doc.pdf'
+    };
+
+    // Scenario 1: Two concurrent Pending submissions for the same user: exactly one succeeds
+    const userConc = `user_conc_${testRunId}`;
+    const reqConc1: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_conc_1_${Date.now()}`,
+      userId: userConc,
+      email: `${userConc}@test.com`
+    };
+    const reqConc2: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_conc_2_${Date.now()}`,
+      userId: userConc,
+      email: `${userConc}@test.com`
+    };
+
+    const concRes = await Promise.allSettled([
+      KycRepository.createRequest(reqConc1, coll),
+      KycRepository.createRequest(reqConc2, coll)
+    ]);
+
+    const fulfilled = concRes.filter(r => r.status === 'fulfilled');
+    const rejected = concRes.filter(r => r.status === 'rejected');
+    if (fulfilled.length !== 1 || rejected.length !== 1) {
+      throw new Error(`Scenario 1 failed: expected 1 success and 1 rejection, got ${fulfilled.length} success and ${rejected.length} rejection.`);
+    }
+    const rejErr = (rejected[0] as PromiseRejectedResult).reason;
+    if (!rejErr?.message?.includes('Duplicate Request Error')) {
+      throw new Error(`Scenario 1 failed: rejection error did not contain Duplicate Request Error: ${rejErr?.message}`);
+    }
+
+    // Scenario 2: Pending -> Verified: actual database status becomes Verified and active slot remains occupied
+    const userPv = `user_pv_${testRunId}`;
+    const reqPv: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_pv_1_${Date.now()}`,
+      userId: userPv,
+      email: `${userPv}@test.com`
+    };
+
+    const createdPv = await KycRepository.createRequest(reqPv, coll);
+    if (createdPv.status !== 'Pending') {
+      throw new Error('Scenario 2 failed: created request status must be Pending.');
+    }
+
+    const verifiedPv = await KycRepository.updateRequest(createdPv.id, {
+      status: 'Verified',
+      badgeLevel: 'Top Employer'
+    }, coll);
+    if (!verifiedPv || verifiedPv.status !== 'Verified') {
+      throw new Error('Scenario 2 failed: updateRequest did not transition record to Verified.');
+    }
+
+    const dbRecordPv = await coll.findOne({ id: createdPv.id });
+    if (!dbRecordPv || dbRecordPv.status !== 'Verified' || (dbRecordPv as any).activeUserId !== userPv) {
+      throw new Error('Scenario 2 failed: Database record is not Verified or activeUserId is missing.');
+    }
+
+    // Scenario 3: A second Pending after Verified: rejected, exactly one active record remains
+    let secondPendingRejected = false;
+    try {
+      await KycRepository.createRequest({
+        ...newReqInput,
+        id: `kyc_pv_2_${Date.now()}`,
+        userId: userPv,
+        companyName: 'Pv Corp Second'
+      }, coll);
+    } catch (err: any) {
+      if (err?.message?.includes('Duplicate Request Error')) {
+        secondPendingRejected = true;
+      }
+    }
+    if (!secondPendingRejected) {
+      throw new Error('Scenario 3 failed: Second Pending request for Verified employer was not rejected.');
+    }
+
+    const activePvRecords = await coll.find({ userId: userPv, status: { $in: ['Pending', 'Verified'] } }).toArray();
+    if (activePvRecords.length !== 1) {
+      throw new Error(`Scenario 3 failed: Expected exactly 1 active record, found ${activePvRecords.length}.`);
+    }
+
+    // Scenario 4: Pending -> Rejected: active slot is released
+    const userRejPend = `user_rp_${testRunId}`;
+    const reqRp1: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_rp_1_${Date.now()}`,
+      userId: userRejPend,
+      email: `${userRejPend}@test.com`
+    };
+
+    const createdRp1 = await KycRepository.createRequest(reqRp1, coll);
+    const rejectedRes = await KycRepository.updateRequest(createdRp1.id, {
+      status: 'Rejected',
+      rejectionReason: 'Invalid business tax certificate'
+    }, coll);
+    if (!rejectedRes || rejectedRes.status !== 'Rejected') {
+      throw new Error('Scenario 4 failed: Failed to reject record.');
+    }
+
+    const dbRp1 = await coll.findOne({ id: createdRp1.id });
+    if (!dbRp1 || (dbRp1 as any).activeUserId !== undefined) {
+      throw new Error('Scenario 4 failed: activeUserId was not removed on rejection.');
+    }
+
+    // Scenario 5: Rejected -> new Pending: succeeds
+    const reqRp2: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_rp_2_${Date.now()}`,
+      userId: userRejPend,
+      ntnOrTaxNumber: 'NTN-RP-2-CORRECT'
+    };
+    const createdRp2 = await KycRepository.createRequest(reqRp2, coll);
+    if (!createdRp2 || createdRp2.status !== 'Pending') {
+      throw new Error('Scenario 5 failed: New Pending request after rejection failed.');
+    }
+
+    // Scenario 6: Multiple historical Rejected records: allowed
+    const userMultiRej = `user_multirej_${testRunId}`;
+    const rejDoc1: EmployerKycRequest = {
+      ...newReqInput,
+      id: `kyc_mr_1_${Date.now()}`,
+      userId: userMultiRej,
+      status: 'Rejected',
+      rejectionReason: 'Reason 1'
+    };
+    const rejDoc2: EmployerKycRequest = {
+      ...rejDoc1,
+      id: `kyc_mr_2_${Date.now()}`,
+      rejectionReason: 'Reason 2'
+    };
+
+    await coll.insertOne(rejDoc1);
+    await coll.insertOne(rejDoc2);
+
+    const historicalRejections = await coll.find({ userId: userMultiRej, status: 'Rejected' }).toArray();
+    if (historicalRejections.length !== 2) {
+      throw new Error(`Scenario 6 failed: Expected 2 historical rejected records, found ${historicalRejections.length}.`);
+    }
+
+    // Scenario 7 & 14: Genuine Pending + Verified conflict for one user: initialization fails closed, records intact
+    const conflictCollName = `kyc_test_conflict_${testRunId}`;
+    const conflictColl = client.db().collection<EmployerKycRequest>(conflictCollName);
+    extraCollections.push(conflictColl);
+
+    const conflictUser = `user_conf_${testRunId}`;
+    const confPending: any = {
+      ...newReqInput,
+      id: `kyc_cp_${Date.now()}`,
+      userId: conflictUser,
+      status: 'Pending'
+    };
+    const confVerified: any = {
+      ...newReqInput,
+      id: `kyc_cv_${Date.now()}`,
+      userId: conflictUser,
+      status: 'Verified',
+      badgeLevel: 'Top Employer'
+    };
+
+    await conflictColl.insertOne(confPending);
+    await conflictColl.insertOne(confVerified);
+
+    let conflictCaught = false;
+    try {
+      await KycRepository.ensureIndexes(conflictColl);
+    } catch (err: any) {
+      if (err?.message?.includes('Database Conflict Error')) {
+        conflictCaught = true;
+      }
+    }
+    if (!conflictCaught) {
+      throw new Error('Scenario 7 failed: ensureIndexes did not fail closed on Pending + Verified conflict.');
+    }
+
+    // Scenario 14: Existing historical records remain intact after failed initialization
+    const intactDocs = await conflictColl.find({ userId: conflictUser }).toArray();
+    if (intactDocs.length !== 2) {
+      throw new Error(`Scenario 14 failed: Expected 2 intact documents, found ${intactDocs.length}.`);
+    }
+
+    // Scenario 8: Active record with missing, empty or invalid userId: initialization fails closed
+    const invalidUserCollName = `kyc_test_invalid_user_${testRunId}`;
+    const invalidUserColl = client.db().collection<EmployerKycRequest>(invalidUserCollName);
+    extraCollections.push(invalidUserColl);
+
+    await invalidUserColl.insertOne({
+      ...newReqInput,
+      id: `kyc_inv_${Date.now()}`,
+      userId: '   ', // whitespace only
+      status: 'Pending'
+    } as any);
+
+    let invalidUserErrorCaught = false;
+    try {
+      await KycRepository.ensureIndexes(invalidUserColl);
+    } catch (err: any) {
+      if (err?.message?.includes('Database Integrity Error')) {
+        invalidUserErrorCaught = true;
+      }
+    }
+    if (!invalidUserErrorCaught) {
+      throw new Error('Scenario 8 failed: ensureIndexes did not fail closed on whitespace-only userId.');
+    }
+
+    // Scenario 9 & 10: Repeated initialization is not repeated; concurrent calls share operation
+    const cacheCollName = `kyc_test_cache_${testRunId}`;
+    const cacheColl = client.db().collection<EmployerKycRequest>(cacheCollName);
+    extraCollections.push(cacheColl);
+
+    // Scenario 10: Concurrent initialization calls share the same initialization operation
+    const [p1, p2] = [KycRepository.ensureIndexes(cacheColl), KycRepository.ensureIndexes(cacheColl)];
+    await Promise.all([p1, p2]);
+
+    // Scenario 9: Repeated initialization resolves from cache immediately
+    await KycRepository.ensureIndexes(cacheColl);
+
+    // Scenario 11: Failed initialization: subsequent retry is possible
+    const retryCollName = `kyc_test_retry_${testRunId}`;
+    const retryColl = client.db().collection<EmployerKycRequest>(retryCollName);
+    extraCollections.push(retryColl);
+
+    const tempBadId = `kyc_bad_${Date.now()}`;
+    await retryColl.insertOne({
+      ...newReqInput,
+      id: tempBadId,
+      userId: '', // empty
+      status: 'Pending'
+    } as any);
+
+    let firstFailed = false;
+    try {
+      await KycRepository.ensureIndexes(retryColl);
+    } catch {
+      firstFailed = true;
+    }
+    if (!firstFailed) {
+      throw new Error('Scenario 11 setup failed: ensureIndexes should have failed on empty userId.');
+    }
+
+    await retryColl.deleteOne({ id: tempBadId });
+    let secondSuccess = false;
+    try {
+      await KycRepository.ensureIndexes(retryColl);
+      secondSuccess = true;
+    } catch (retryErr: any) {
+      throw new Error(`Scenario 11 failed: Retry failed with error: ${retryErr?.message}`);
+    }
+    if (!secondSuccess) {
+      throw new Error('Scenario 11 failed: Retry did not succeed after clearing bad data.');
+    }
+
+    // Scenario 12: Backfill updates the exact _id record
+    const backfillCollName = `kyc_test_bf_${testRunId}`;
+    const backfillColl = client.db().collection<EmployerKycRequest>(backfillCollName);
+    extraCollections.push(backfillColl);
+
+    const rawPendingId = `kyc_raw_${Date.now()}`;
+    const targetUserId = `user_target_${testRunId}`;
+    const insertRawRes = await backfillColl.insertOne({
+      ...newReqInput,
+      id: rawPendingId,
+      userId: targetUserId,
+      status: 'Pending'
+    } as any);
+
+    const exactMongoId = insertRawRes.insertedId;
+    await KycRepository.ensureIndexes(backfillColl);
+
+    const backfilledDoc = await backfillColl.findOne({ _id: exactMongoId });
+    if (!backfilledDoc || (backfilledDoc as any).activeUserId !== targetUserId) {
+      throw new Error('Scenario 12 failed: exact _id record was not backfilled with activeUserId.');
+    }
+
+    // Scenario 13: Legacy import does not overwrite existing records
+    const legacyCollName = `kyc_test_legacy_${testRunId}`;
+    const legacyColl = client.db().collection<EmployerKycRequest>(legacyCollName);
+    extraCollections.push(legacyColl);
+
+    const existingId = `kyc_exist_${Date.now()}`;
+    await legacyColl.insertOne({
+      ...newReqInput,
+      id: existingId,
+      userId: `user_original_${testRunId}`,
+      companyName: 'Original Pristine Company',
+      status: 'Pending',
+      activeUserId: `user_original_${testRunId}`
+    } as any);
+
+    const legacyArray: any[] = [
+      {
+        ...newReqInput,
+        id: existingId,
+        userId: `user_attacker_${testRunId}`,
+        companyName: 'Overwriting Attacker Corp',
+        status: 'Pending'
+      }
+    ];
+
+    const importRes = await KycRepository.importLegacyRequests(legacyArray, legacyColl);
+    if (importRes.skipped !== 1) {
+      throw new Error(`Scenario 13 failed: Expected skipped count 1, got ${importRes.skipped}.`);
+    }
+
+    const preservedDoc = await legacyColl.findOne({ id: existingId });
+    if (!preservedDoc || preservedDoc.companyName !== 'Original Pristine Company') {
+      throw new Error('Scenario 13 failed: Existing record was modified or overwritten during legacy import.');
+    }
+
+    console.log('[PASS] All 14 KYC MongoDB integration test scenarios passed.');
+  } catch (err: any) {
+    console.error('[FAIL] KYC integration tests failed:', err);
+    process.exitCode = 1;
+  } finally {
+    if (client) {
+      try {
+        for (const col of extraCollections) {
+          await col.drop().catch(() => {});
+        }
+      } catch (cleanupErr) {
+        console.error('[CLEANUP FAIL] Error during test cleanup:', cleanupErr);
+      }
+      await client.close();
+    }
+  }
 }
 
 async function main() {

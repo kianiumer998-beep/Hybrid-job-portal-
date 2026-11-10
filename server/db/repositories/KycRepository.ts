@@ -4,7 +4,38 @@ import { EmployerKycRequest } from '../../../src/types/adminSuite';
 
 const COLLECTION = 'kyc_requests';
 
+const initPromises = new Map<string, Promise<void>>();
+const initCompleted = new Set<string>();
+
+export function getCollectionKey(coll: Collection<any>): string {
+  const dbName = coll.dbName || (coll as any).s?.namespace?.db || 'default';
+  const collName = coll.collectionName || (coll as any).s?.namespace?.collection || 'kyc_requests';
+  return `${dbName}:${collName}`;
+}
+
+async function getCollectionIndexes(coll: Collection<any>): Promise<any[]> {
+  try {
+    return await coll.indexes();
+  } catch (err: any) {
+    if (err && (err.code === 26 || err.codeName === 'NamespaceNotFound')) {
+      return [];
+    }
+    throw err;
+  }
+}
+
 export const KycRepository = {
+  resetIndexInitialization(coll?: Collection<any>): void {
+    if (coll) {
+      const key = getCollectionKey(coll);
+      initPromises.delete(key);
+      initCompleted.delete(key);
+    } else {
+      initPromises.clear();
+      initCompleted.clear();
+    }
+  },
+
   async getCollection(coll?: Collection<EmployerKycRequest>): Promise<Collection<EmployerKycRequest>> {
     if (coll) return coll;
     const db = await getMongoDb();
@@ -15,8 +46,8 @@ export const KycRepository = {
     const dbColl = await this.getCollection(coll);
     const records = await dbColl.find({}).toArray();
     return records.map(r => {
-      const { _id, ...safe } = r as any;
-      return safe;
+      const { _id, activeUserId, ...safe } = r as any;
+      return safe as EmployerKycRequest;
     });
   },
 
@@ -24,69 +55,170 @@ export const KycRepository = {
     const dbColl = await this.getCollection(coll);
     const records = await dbColl.find({ userId }).sort({ submittedAt: -1 }).limit(1).toArray();
     if (!records[0]) return null;
-    const { _id, ...safe } = records[0] as any;
-    return safe;
+    const { _id, activeUserId, ...safe } = records[0] as any;
+    return safe as EmployerKycRequest;
   },
 
-  async ensureIndexes(coll?: Collection<EmployerKycRequest>): Promise<void> {
-    const dbColl = await this.getCollection(coll);
-
-    // 1. Conflict detection: query existing active (Pending or Verified) records
+  async runMigrationAndIndexSetup(dbColl: Collection<EmployerKycRequest>): Promise<void> {
+    // 1. Inspect existing Pending and Verified records
     const activeRecords = await dbColl.find({ status: { $in: ['Pending', 'Verified'] } }).toArray();
-    const activeCounts: Record<string, number> = {};
+
+    // 2 & 3. Validate every active record's userId (fail closed if missing, empty, or whitespace-only)
     for (const rec of activeRecords) {
-      if (rec.userId) {
-        activeCounts[rec.userId] = (activeCounts[rec.userId] || 0) + 1;
+      if (typeof rec.userId !== 'string' || rec.userId.trim() === '') {
+        throw new Error(`Database Integrity Error: Active KYC record with id "${rec.id}" has missing, empty, or whitespace-only userId.`);
       }
     }
 
-    const conflictingUsers = Object.keys(activeCounts).filter(u => activeCounts[u] > 1);
+    // 4 & 5. Detect multiple active records belonging to the same user using Map
+    const activeCounts = new Map<string, number>();
+    for (const rec of activeRecords) {
+      const uId = rec.userId.trim();
+      activeCounts.set(uId, (activeCounts.get(uId) || 0) + 1);
+    }
+
+    const conflictingUsers: string[] = [];
+    for (const [uId, count] of activeCounts.entries()) {
+      if (count > 1) {
+        conflictingUsers.push(uId);
+      }
+    }
+
     if (conflictingUsers.length > 0) {
       const errMsg = `Database Conflict Error: Multiple active (Pending/Verified) KYC records exist for user(s): ${conflictingUsers.join(', ')}. Index initialization failed closed.`;
       console.error('[KycRepository]', errMsg);
       throw new Error(errMsg);
     }
 
-    // 2. Safe Backfill: set activeUserId on existing Pending/Verified docs, unset on Rejected docs
+    // 6, 7, 8 & 9. Backfill activeUserId using exact _id filters and verify results
     const allRecords = await dbColl.find({}).toArray();
     for (const rec of allRecords) {
+      const mongoId = (rec as any)._id;
       if (rec.status === 'Pending' || rec.status === 'Verified') {
-        if ((rec as any).activeUserId !== rec.userId) {
-          await dbColl.updateOne({ id: rec.id }, { $set: { activeUserId: rec.userId } as any });
+        const expectedActive = rec.userId.trim();
+        if ((rec as any).activeUserId !== expectedActive) {
+          const updateRes = await dbColl.updateOne(
+            { _id: mongoId },
+            { $set: { activeUserId: expectedActive } as any }
+          );
+          if (updateRes.matchedCount !== 1) {
+            throw new Error(`Database Migration Error: Failed to match record with _id "${mongoId}" during activeUserId backfill.`);
+          }
         }
       } else if (rec.status === 'Rejected') {
-        if ((rec as any).activeUserId) {
-          await dbColl.updateOne({ id: rec.id }, { $unset: { activeUserId: '' } as any });
+        if ((rec as any).activeUserId !== undefined) {
+          const updateRes = await dbColl.updateOne(
+            { _id: mongoId },
+            { $unset: { activeUserId: '' } as any }
+          );
+          if (updateRes.matchedCount !== 1) {
+            throw new Error(`Database Migration Error: Failed to match record with _id "${mongoId}" during activeUserId cleanup.`);
+          }
         }
       }
     }
 
-    // 3. Drop legacy separate indexes if present
-    try {
-      await dbColl.dropIndex('unique_active_pending_kyc_user');
-    } catch (e) {}
-    try {
-      await dbColl.dropIndex('unique_active_verified_kyc_user');
-    } catch (e) {}
+    // 10 & 11. Create combined unique index and verify actual index definition
+    const targetIndexName = 'unique_combined_active_kyc_user';
+    const existingIndexes = await getCollectionIndexes(dbColl);
+    const foundIndex = existingIndexes.find(idx => idx.name === targetIndexName);
 
-    // 4. Create single combined unique partial index on activeUserId
-    await dbColl.createIndex(
-      { activeUserId: 1 } as any,
-      {
-        unique: true,
-        partialFilterExpression: { activeUserId: { $type: 'string' } },
-        name: 'unique_combined_active_kyc_user'
+    if (foundIndex) {
+      const isKeyMatch = foundIndex.key && (foundIndex.key as any).activeUserId === 1 && Object.keys(foundIndex.key).length === 1;
+      const isUnique = foundIndex.unique === true;
+      const isPartialMatch = foundIndex.partialFilterExpression &&
+        (foundIndex.partialFilterExpression as any).activeUserId &&
+        (foundIndex.partialFilterExpression as any).activeUserId.$type === 'string';
+
+      if (!isKeyMatch || !isUnique || !isPartialMatch) {
+        throw new Error(
+          `Index Conflict Error: Index "${targetIndexName}" already exists with incompatible definition: ${JSON.stringify(foundIndex)}`
+        );
       }
-    );
+    } else {
+      await dbColl.createIndex(
+        { activeUserId: 1 } as any,
+        {
+          unique: true,
+          partialFilterExpression: { activeUserId: { $type: 'string' } },
+          name: targetIndexName
+        }
+      );
+
+      const verifiedIndexes = await getCollectionIndexes(dbColl);
+      const verifiedIndex = verifiedIndexes.find(idx => idx.name === targetIndexName);
+      if (!verifiedIndex) {
+        throw new Error(`Index Verification Error: Failed to find created index "${targetIndexName}".`);
+      }
+      const isKeyMatch = verifiedIndex.key && (verifiedIndex.key as any).activeUserId === 1 && Object.keys(verifiedIndex.key).length === 1;
+      const isUnique = verifiedIndex.unique === true;
+      const isPartialMatch = verifiedIndex.partialFilterExpression &&
+        (verifiedIndex.partialFilterExpression as any).activeUserId &&
+        (verifiedIndex.partialFilterExpression as any).activeUserId.$type === 'string';
+
+      if (!isKeyMatch || !isUnique || !isPartialMatch) {
+        throw new Error(
+          `Index Verification Error: Index "${targetIndexName}" created with incompatible definition: ${JSON.stringify(verifiedIndex)}`
+        );
+      }
+    }
+
+    // 12. Remove obsolete separate Pending/Verified indexes only after successful verification
+    const finalIndexes = await getCollectionIndexes(dbColl);
+    for (const idx of finalIndexes) {
+      if (idx.name === 'unique_active_pending_kyc_user' || idx.name === 'unique_active_verified_kyc_user') {
+        try {
+          await dbColl.dropIndex(idx.name);
+        } catch (dropErr: any) {
+          if (dropErr && dropErr.codeName !== 'IndexNotFound' && dropErr.code !== 27) {
+            throw new Error(`Index Drop Error: Failed to drop obsolete index "${idx.name}": ${dropErr.message}`);
+          }
+        }
+      }
+    }
+  },
+
+  async ensureIndexes(coll?: Collection<EmployerKycRequest>): Promise<void> {
+    const dbColl = await this.getCollection(coll);
+    const key = getCollectionKey(dbColl);
+
+    if (initCompleted.has(key)) {
+      return;
+    }
+
+    const existingPromise = initPromises.get(key);
+    if (existingPromise) {
+      return existingPromise;
+    }
+
+    const initPromise = (async () => {
+      try {
+        await this.runMigrationAndIndexSetup(dbColl);
+        initCompleted.add(key);
+      } catch (err) {
+        throw err;
+      } finally {
+        initPromises.delete(key);
+      }
+    })();
+
+    initPromises.set(key, initPromise);
+    return initPromise;
   },
 
   async createRequest(newReq: EmployerKycRequest, coll?: Collection<EmployerKycRequest>): Promise<EmployerKycRequest> {
     const dbColl = await this.getCollection(coll);
     await this.ensureIndexes(dbColl);
 
-    // 1. Pre-check for existing active ('Pending' or 'Verified') request for this user
+    if (!newReq.userId || typeof newReq.userId !== 'string' || !newReq.userId.trim()) {
+      throw new Error('Validation Error: "userId" is required and must be a non-empty string.');
+    }
+
+    const cleanUserId = newReq.userId.trim();
+
+    // Pre-check for existing active ('Pending' or 'Verified') request for this user
     const existing = await dbColl.findOne({
-      userId: newReq.userId,
+      userId: cleanUserId,
       status: { $in: ['Pending', 'Verified'] }
     });
 
@@ -94,16 +226,19 @@ export const KycRepository = {
       throw new Error('Duplicate Request Error: An active or verified KYC request already exists for this employer.');
     }
 
+    const { activeUserId: _ignoredActive, _id: _ignoredId, ...safeInput } = newReq as any;
+
     const docToInsert: any = {
-      ...newReq,
+      ...safeInput,
+      userId: cleanUserId,
       status: 'Pending',
-      activeUserId: newReq.userId
+      activeUserId: cleanUserId
     };
 
-    // 2. Database-level atomic insertion with single partial unique index protection against race conditions
     try {
       await dbColl.insertOne(docToInsert);
-      return newReq;
+      const { activeUserId: _, _id: __, ...safeResult } = docToInsert;
+      return safeResult as EmployerKycRequest;
     } catch (err: any) {
       if (err && (err.code === 11000 || (err.message && err.message.includes('E11000')))) {
         throw new Error('Duplicate Request Error: An active or verified KYC request already exists for this employer.');
@@ -116,7 +251,9 @@ export const KycRepository = {
     const dbColl = await this.getCollection(coll);
     await this.ensureIndexes(dbColl);
 
-    const payload: any = { ...updateData };
+    const { activeUserId: _ignoredActive, userId: _ignoredUser, id: _ignoredId, _id: _ignoredMongoId, ...safeUpdates } = updateData as any;
+
+    const payload: any = { ...safeUpdates };
     let updateOp: any = { $set: payload };
 
     if (updateData.status === 'Rejected') {
@@ -125,7 +262,7 @@ export const KycRepository = {
         $unset: { activeUserId: '' }
       };
     } else if (updateData.status === 'Verified') {
-      // Pending -> Verified: activeUserId is preserved so the active slot remains occupied
+      // Pending -> Verified: active slot remains occupied with activeUserId
     }
 
     // Atomic update: only allow transition from Pending
@@ -136,7 +273,7 @@ export const KycRepository = {
     );
 
     if (!result) return null;
-    const { _id, ...safe } = result as any;
+    const { _id, activeUserId: _, ...safe } = result as any;
     return safe as EmployerKycRequest;
   },
 
@@ -224,17 +361,42 @@ export const KycRepository = {
           skipped++;
           continue;
         }
-        
-        const result = await dbColl.updateOne(
-          { id: sanitized.id },
-          { $setOnInsert: sanitized },
-          { upsert: true }
-        );
-        
-        if (result.upsertedCount === 1) {
-          imported++;
-        } else {
+
+        const existingById = await dbColl.findOne({ id: sanitized.id });
+        if (existingById) {
           skipped++;
+          continue;
+        }
+
+        if (sanitized.activeUserId) {
+          const existingActive = await dbColl.findOne({
+            userId: sanitized.userId,
+            status: { $in: ['Pending', 'Verified'] }
+          });
+          if (existingActive) {
+            invalid++;
+            continue;
+          }
+        }
+
+        try {
+          const result = await dbColl.updateOne(
+            { id: sanitized.id },
+            { $setOnInsert: sanitized },
+            { upsert: true }
+          );
+          
+          if (result.upsertedCount === 1) {
+            imported++;
+          } else {
+            skipped++;
+          }
+        } catch (insertErr: any) {
+          if (insertErr && (insertErr.code === 11000 || (insertErr.message && insertErr.message.includes('E11000')))) {
+            invalid++;
+          } else {
+            throw insertErr;
+          }
         }
       } catch (err) {
         console.error('[KycRepository] Unexpected error during legacy import loop:', err);

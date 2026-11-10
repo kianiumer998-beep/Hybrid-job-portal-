@@ -105,6 +105,21 @@ export function validateBroadcastPayload(payload: any): { valid: boolean; error?
   };
 }
 
+export interface LegacyImportResult {
+  success: boolean;
+  imported: number;
+  duplicates: number;
+  failed: number;
+  totalProcessed: number;
+  eligibleCount: number;
+  syntheticSkipped: number;
+  importedIds: string[];
+  duplicateIds: string[];
+  failedItems: Array<{ id?: string; title?: string; error: string }>;
+  allEligibleSucceeded: boolean;
+  errors: string[];
+}
+
 export const BroadcastRepository = {
   resetIndexInitialization(coll?: Collection<any>): void {
     if (coll) {
@@ -179,17 +194,9 @@ export const BroadcastRepository = {
       throw new Error(`Validation Error: ${validation.error}`);
     }
 
-    // Determine ID
-    let campaignId = typeof input.id === 'string' && input.id.trim() ? input.id.trim() : '';
-    if (!campaignId) {
-      campaignId = `camp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
-    } else {
-      // Check for duplicate / idempotency
-      const existing = await dbColl.findOne({ id: campaignId } as any);
-      if (existing) {
-        throw new Error(`Duplicate Campaign Error: Campaign with ID "${campaignId}" already exists.`);
-      }
-    }
+    // Fix B: Normal campaign creation generates a new unique campaign ID on the server.
+    // Client-supplied IDs are strictly ignored during normal campaign creation.
+    const campaignId = `camp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
 
     const now = new Date().toISOString();
     // Delivery safety: Newly created campaigns are strictly Draft only.
@@ -211,7 +218,16 @@ export const BroadcastRepository = {
       updatedAt: now
     };
 
-    await dbColl.insertOne(docToInsert as any);
+    try {
+      await dbColl.insertOne(docToInsert as any);
+    } catch (insertErr: any) {
+      if (insertErr?.code === 11000) {
+        const err = new Error(`Duplicate Campaign Error: Campaign with ID "${campaignId}" already exists.`);
+        (err as any).code = 11000;
+        throw err;
+      }
+      throw insertErr;
+    }
 
     const { _id, ...safe } = docToInsert as any;
     return safe as BroadcastCampaign;
@@ -220,7 +236,7 @@ export const BroadcastRepository = {
   async importLegacyCampaigns(
     legacyItems: any[],
     coll?: Collection<BroadcastCampaign>
-  ): Promise<{ imported: number; skipped: number; totalProcessed: number; errors: string[] }> {
+  ): Promise<LegacyImportResult> {
     const dbColl = await this.getCollection(coll);
     await this.ensureIndexes(dbColl);
 
@@ -229,40 +245,64 @@ export const BroadcastRepository = {
     }
 
     let imported = 0;
-    let skipped = 0;
+    let duplicates = 0;
+    let failed = 0;
+    let syntheticSkipped = 0;
+    let eligibleCount = 0;
+    const importedIds: string[] = [];
+    const duplicateIds: string[] = [];
+    const failedItems: Array<{ id?: string; title?: string; error: string }> = [];
     const errors: string[] = [];
 
     for (const item of legacyItems) {
+      const rawId = (item && typeof item === 'object' && item.id != null) ? String(item.id).trim() : '';
+
+      // Rule: Exclude only the already identified synthetic sample IDs ('camp-01', 'camp-02', 'camp-03')
+      if (SYNTHETIC_CAMPAIGN_IDS.includes(rawId as any)) {
+        syntheticSkipped++;
+        continue;
+      }
+
+      // Record is eligible for migration (user-created or historical record)
+      eligibleCount++;
+
       if (!item || typeof item !== 'object') {
-        skipped++;
+        failed++;
+        const msg = 'Legacy campaign record is not a valid object.';
+        failedItems.push({ id: rawId || undefined, error: msg });
+        errors.push(msg);
         continue;
       }
 
-      const itemId = item.id ? String(item.id).trim() : '';
-
-      // Rule: Never import known synthetic initial sample campaigns
-      if (SYNTHETIC_CAMPAIGN_IDS.includes(itemId as any)) {
-        skipped++;
-        continue;
-      }
-
-      // Check if already in database (retry safety / duplicate prevention)
-      if (itemId) {
-        const existing = await dbColl.findOne({ id: itemId } as any);
-        if (existing) {
-          skipped++;
+      // Check if valid historical ID already exists in MongoDB (idempotent duplicate detection)
+      if (rawId) {
+        try {
+          const existing = await dbColl.findOne({ id: rawId } as any);
+          if (existing) {
+            duplicates++;
+            duplicateIds.push(rawId);
+            continue;
+          }
+        } catch (findErr: any) {
+          failed++;
+          const msg = findErr?.message || 'Database error during lookup';
+          failedItems.push({ id: rawId, title: item?.title, error: msg });
+          errors.push(`Lookup error for campaign "${rawId}": ${msg}`);
           continue;
         }
       }
 
       const validation = validateBroadcastPayload(item);
       if (!validation.valid || !validation.clean) {
-        skipped++;
-        errors.push(`Skipped invalid campaign "${item?.title || itemId}": ${validation.error}`);
+        failed++;
+        const msg = validation.error || 'Validation failed';
+        failedItems.push({ id: rawId || undefined, title: item?.title, error: msg });
+        errors.push(`Invalid legacy campaign "${item?.title || rawId || 'unknown'}": ${msg}`);
         continue;
       }
 
-      const cleanId = itemId || `camp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
+      // Fix B: Preserve valid historical IDs only through dedicated legacy import endpoint
+      const cleanId = rawId || `camp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
       const now = new Date().toISOString();
 
       // Delivery safety: Never treat legacy sample 'Sent' records as genuine deliveries.
@@ -280,26 +320,43 @@ export const BroadcastRepository = {
         recipientsCount: validation.clean.recipientsCount ?? 0,
         openRate: 0,
         clickRate: 0,
-        createdAt: item.createdAt || now,
+        createdAt: (typeof item.createdAt === 'string' && item.createdAt.trim()) ? item.createdAt.trim() : now,
         updatedAt: now
       };
 
       try {
         await dbColl.insertOne(docToInsert as any);
         imported++;
+        importedIds.push(cleanId);
       } catch (insertErr: any) {
         if (insertErr?.code === 11000) {
-          skipped++;
+          duplicates++;
+          duplicateIds.push(cleanId);
         } else {
-          errors.push(`Failed to import campaign "${cleanId}": ${insertErr.message}`);
+          failed++;
+          const msg = insertErr?.message || 'Database insert failed';
+          failedItems.push({ id: cleanId, title: docToInsert.title, error: msg });
+          errors.push(`Failed to import campaign "${cleanId}": ${msg}`);
         }
       }
     }
 
+    const allEligibleSucceeded = eligibleCount > 0
+      ? (failed === 0 && (imported + duplicates === eligibleCount))
+      : true;
+
     return {
+      success: allEligibleSucceeded,
       imported,
-      skipped,
+      duplicates,
+      failed,
       totalProcessed: legacyItems.length,
+      eligibleCount,
+      syntheticSkipped,
+      importedIds,
+      duplicateIds,
+      failedItems,
+      allEligibleSucceeded,
       errors
     };
   }

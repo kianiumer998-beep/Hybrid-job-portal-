@@ -757,7 +757,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         try {
           const legacyRaw = localStorage.getItem('career_pak_broadcast_campaigns');
           if (legacyRaw) {
-            const parsed = JSON.parse(legacyRaw);
+            let parsed: any;
+            try {
+              parsed = JSON.parse(legacyRaw);
+            } catch (jsonErr: any) {
+              console.warn('[Broadcast Migration] Malformed legacy JSON in localStorage:', jsonErr);
+              setBroadcastMigrationError('Malformed legacy broadcast data in browser storage. Preserving original data.');
+              return;
+            }
+
             if (Array.isArray(parsed) && parsed.length > 0) {
               // Filter out known synthetic sample campaigns ('camp-01', 'camp-02', 'camp-03')
               const userCreated = parsed.filter(
@@ -766,23 +774,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               if (userCreated.length > 0) {
                 const importRes = await api.broadcasts.importLegacy(userCreated);
-                if (importRes && importRes.success) {
+
+                // Fix A Requirements:
+                // Remove the LocalStorage key ONLY when every eligible campaign is confirmed safely stored or already present in MongoDB.
+                // If even one eligible campaign fails, preserve the original LocalStorage key and all its original data.
+                const isFullyMigrated =
+                  importRes &&
+                  importRes.success === true &&
+                  importRes.allEligibleSucceeded === true &&
+                  importRes.failed === 0 &&
+                  typeof importRes.imported === 'number' &&
+                  typeof importRes.duplicates === 'number' &&
+                  (importRes.imported + importRes.duplicates === userCreated.length);
+
+                if (isFullyMigrated) {
                   localStorage.removeItem('career_pak_broadcast_campaigns');
+                  setBroadcastMigrationError(null);
                   const refreshRes = await api.broadcasts.getAll();
                   if (refreshRes && refreshRes.success && Array.isArray(refreshRes.campaigns)) {
                     setBroadcastCampaigns(refreshRes.campaigns);
                   }
                 } else {
-                  setBroadcastMigrationError(importRes?.message || 'Failed to migrate legacy broadcast campaigns.');
+                  // Partial or failed migration: preserve localStorage, show understandable error, permit retry
+                  const errorDetails = importRes?.errors && importRes.errors.length > 0
+                    ? importRes.errors.join('; ')
+                    : importRes?.message || 'One or more campaigns could not be safely stored.';
+                  setBroadcastMigrationError(`Migration incomplete: ${errorDetails}. Original data preserved in storage.`);
                 }
               } else {
+                // If array only contained synthetic sample campaigns ('camp-01', 'camp-02', 'camp-03')
+                // and 0 user-created campaigns, clean up synthetic localStorage key safely
                 localStorage.removeItem('career_pak_broadcast_campaigns');
               }
             }
           }
         } catch (migErr: any) {
           console.warn('[Broadcast Migration] Error processing legacy data:', migErr);
-          setBroadcastMigrationError(migErr?.message || 'Error checking legacy broadcast campaigns.');
+          setBroadcastMigrationError(migErr?.message || 'Error checking legacy broadcast campaigns. Original data preserved.');
         }
       } else {
         setBroadcastLoadError(res?.message || 'Failed to load broadcast campaigns from database.');
@@ -800,7 +828,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleSaveBroadcastCampaign = async (newCampData: Partial<BroadcastCampaign>) => {
     try {
-      const res = await api.broadcasts.create(newCampData as any);
+      const { id, status, sentAt, openRate, clickRate, ...cleanInput } = newCampData as any;
+      const res = await api.broadcasts.create(cleanInput);
       if (res && res.success && res.campaign) {
         setBroadcastCampaigns(prev => [res.campaign!, ...prev.filter(c => c.id !== res.campaign!.id)]);
         return { success: true, campaign: res.campaign };

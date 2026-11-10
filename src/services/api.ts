@@ -695,7 +695,6 @@ export const api = {
       );
     },
     async create(data: {
-      id?: string;
       title: string;
       channel: string;
       targetAudience: string;
@@ -717,8 +716,15 @@ export const api = {
       return safeFetchJson<{
         success: boolean;
         imported?: number;
-        skipped?: number;
+        duplicates?: number;
+        failed?: number;
         totalProcessed?: number;
+        eligibleCount?: number;
+        syntheticSkipped?: number;
+        importedIds?: string[];
+        duplicateIds?: string[];
+        failedItems?: Array<{ id?: string; title?: string; error: string }>;
+        allEligibleSucceeded?: boolean;
         errors?: string[];
         message?: string;
       }>(`${API_BASE}/broadcasts/import-legacy`, {

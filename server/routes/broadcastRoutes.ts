@@ -27,10 +27,11 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
   }
 
   try {
-    const { title, channel, targetAudience, subject, messageBody, categoryFilter, recipientsCount, id } = req.body;
+    const { title, channel, targetAudience, subject, messageBody, categoryFilter, recipientsCount } = req.body;
 
+    // Fix B: Ignore any client-supplied ID during normal campaign creation.
+    // Server generates unique ID.
     const created = await BroadcastRepository.createCampaign({
-      id,
       title,
       channel,
       targetAudience,
@@ -42,8 +43,8 @@ broadcastRouter.post('/', requireAdminPermission('settings.manage'), async (req,
 
     res.status(201).json({ success: true, campaign: created });
   } catch (err: any) {
-    if (err?.message?.includes('Duplicate Campaign Error')) {
-      return res.status(409).json({ success: false, message: err.message });
+    if (err?.message?.includes('Duplicate Campaign Error') || err?.code === 11000) {
+      return res.status(409).json({ success: false, message: err.message || 'Duplicate campaign ID conflict' });
     }
     if (err?.message?.includes('Validation Error')) {
       return res.status(400).json({ success: false, message: err.message });
@@ -66,7 +67,7 @@ broadcastRouter.post('/import-legacy', requireAdminPermission('settings.manage')
     }
 
     const result = await BroadcastRepository.importLegacyCampaigns(campaigns);
-    res.json({ success: true, ...result });
+    res.json({ ...result });
   } catch (err: any) {
     if (err?.message?.includes('Validation Error')) {
       return res.status(400).json({ success: false, message: err.message });

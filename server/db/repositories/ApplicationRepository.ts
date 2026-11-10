@@ -203,20 +203,5 @@ export class ApplicationRepository {
     Database.saveApplications(apps);
     return apps[idx];
   }
-  /**
-   * Asynchronously deletes an application.
-   */
-  static async deleteAsync(id: string): Promise<boolean> {
-    if (isMongoConfigured()) {
-      const db = await getMongoDb();
-      const coll = db.collection('applications');
-      const res = await coll.deleteOne({ id });
-      return res.deletedCount > 0;
-    }
-    const apps = Database.getApplications();
-    const filtered = apps.filter(a => a.id !== id);
-    Database.saveApplications(filtered);
-    return apps.length !== filtered.length;
-  }
 }
 

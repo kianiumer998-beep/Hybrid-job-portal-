@@ -1024,12 +1024,6 @@ export class JobRepository {
    * Bulk delete jobs by ID array directly from MongoDB.
    */
   static async bulkDelete(ids: string[]): Promise<number> {
-    if (process.env.IS_TEST === 'true' || !isMongoConfigured()) {
-      for (const id of ids) {
-        Database.deleteJob(id);
-      }
-      return ids.length;
-    }
     assertMongoAvailable();
     if (!Array.isArray(ids) || ids.length === 0) return 0;
 

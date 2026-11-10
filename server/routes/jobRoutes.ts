@@ -370,18 +370,22 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
 
       for (const [userId, userJobs] of userJobMap.entries()) {
         try {
+          const user = await UserRepository.getByIdAsync(userId);
+          if (!user) {
+            notificationsSkipped += userJobs.length;
+            continue;
+          }
+
+          const sortedJobIds = Array.from(new Set(userJobs.map(j => j.id))).sort();
+          const hashInput = JSON.stringify(['bulk-delete', userId, sortedJobIds]);
+          const hash = crypto.createHash('sha256').update(hashInput).digest('hex');
+          const stableEventId = `notif-job-bulk-delete-${hash}`;
+
           const titles = userJobs.map(j => `"${j.title}"`).slice(0, 3).join(', ');
           const extra = userJobs.length > 3 ? ` and ${userJobs.length - 3} more` : '';
           const body = userJobs.length === 1
             ? `Your job posting "${userJobs[0].title}" has been removed by administration.`
             : `${userJobs.length} of your job postings (${titles}${extra}) have been removed by administration.`;
-          const sortedJobIds = userJobs.map(j => j.id).sort();
-          const hash = crypto.createHash('sha256')
-            .update('bulk-delete')
-            .update(userId)
-            .update(sortedJobIds.join(','))
-            .digest('hex');
-          const stableEventId = `notif-job-bulk-delete-${hash}`;
 
           await NotificationRepository.createAsync({
             userId,
@@ -391,7 +395,7 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
             channel: 'in-app',
             eventId: stableEventId,
             idempotencyKey: stableEventId,
-            metadata: { userJobCount: userJobs.length, jobIds: userJobs.map(j => j.id) }
+            metadata: { userJobCount: userJobs.length, jobIds: sortedJobIds }
           }, 'System - Job Moderation');
 
           notificationsSent++;
@@ -549,20 +553,23 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
 
       for (const [userId, userJobs] of userJobMap.entries()) {
         try {
+          const user = await UserRepository.getByIdAsync(userId);
+          if (!user) {
+            notificationsSkipped += userJobs.length;
+            continue;
+          }
+
+          const rejectionReason = reason || 'Details did not meet submission criteria.';
+          const sortedJobIds = Array.from(new Set(userJobs.map(j => j.id))).sort();
+          const hashInput = JSON.stringify(['bulk-reject', userId, sortedJobIds, rejectionReason]);
+          const hash = crypto.createHash('sha256').update(hashInput).digest('hex');
+          const stableEventId = `notif-job-bulk-reject-${hash}`;
+
           const titles = userJobs.map(j => `"${j.title}"`).slice(0, 3).join(', ');
           const extra = userJobs.length > 3 ? ` and ${userJobs.length - 3} more` : '';
-          const rejectionReason = reason || 'Details did not meet submission criteria.';
-          const sortedJobIds = userJobs.map(j => j.id).sort();
           const body = userJobs.length === 1
             ? `Your job submission "${userJobs[0].title}" was not approved. Reason: ${rejectionReason}`
             : `${userJobs.length} of your job submissions (${titles}${extra}) were not approved. Reason: ${rejectionReason}`;
-          const hash = crypto.createHash('sha256')
-            .update('bulk-reject')
-            .update(userId)
-            .update(sortedJobIds.join(','))
-            .update(rejectionReason)
-            .digest('hex');
-          const stableEventId = `notif-job-bulk-reject-${hash}`;
 
           await NotificationRepository.createAsync({
             userId,
@@ -572,7 +579,7 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
             channel: 'in-app',
             eventId: stableEventId,
             idempotencyKey: stableEventId,
-            metadata: { userJobCount: userJobs.length, jobIds: userJobs.map(j => j.id), reason: rejectionReason }
+            metadata: { userJobCount: userJobs.length, jobIds: sortedJobIds, reason: rejectionReason }
           }, 'System - Job Moderation');
 
           notificationsSent++;
@@ -1477,20 +1484,23 @@ jobRouter.delete('/:id', requireAdminPermission('jobs.manage'), async (req, res)
       if (!isScraped && st === 'user_posted' && existing.submittedByUserId) {
         try {
           const recipientUserId = String(existing.submittedByUserId);
-          const body = `Your job posting "${existing.title}" has been removed by administration.`;
-          const stableEventId = `notif-job-delete-${id}`;
+          const recipient = await UserRepository.getByIdAsync(recipientUserId);
+          if (recipient) {
+            const body = `Your job posting "${existing.title}" has been removed by administration.`;
+            const stableEventId = `notif-job-delete-${id}`;
 
-          await NotificationRepository.createAsync({
-            userId: recipientUserId,
-            title: 'Job Posting Removed',
-            message: body,
-            type: 'alert',
-            channel: 'in-app',
-            eventId: stableEventId,
-            idempotencyKey: stableEventId,
-            metadata: { jobId: id, jobTitle: existing.title }
-          }, 'System - Job Moderation');
-          notificationSent = true;
+            await NotificationRepository.createAsync({
+              userId: recipientUserId,
+              title: 'Job Posting Removed',
+              message: body,
+              type: 'alert',
+              channel: 'in-app',
+              eventId: stableEventId,
+              idempotencyKey: stableEventId,
+              metadata: { jobId: id, jobTitle: existing.title }
+            }, 'System - Job Moderation');
+            notificationSent = true;
+          }
         } catch (notifErr) {
           console.error(`Failed to dispatch deletion notification for job ${id}:`, notifErr);
         }
@@ -1573,20 +1583,23 @@ jobRouter.delete('/permanent/:id', requireAdminPermission('jobs.manage'), async 
       if (!isScraped && st === 'user_posted' && existing.submittedByUserId) {
         try {
           const recipientUserId = String(existing.submittedByUserId);
-          const body = `Your job posting "${existing.title}" has been permanently removed by administration.`;
-          const stableEventId = `notif-job-perm-delete-${id}`;
+          const recipient = await UserRepository.getByIdAsync(recipientUserId);
+          if (recipient) {
+            const body = `Your job posting "${existing.title}" has been permanently removed by administration.`;
+            const stableEventId = `notif-job-perm-delete-${id}`;
 
-          await NotificationRepository.createAsync({
-            userId: recipientUserId,
-            title: 'Job Posting Removed',
-            message: body,
-            type: 'alert',
-            channel: 'in-app',
-            eventId: stableEventId,
-            idempotencyKey: stableEventId,
-            metadata: { jobId: id, jobTitle: existing.title }
-          }, 'System - Job Moderation');
-          notificationSent = true;
+            await NotificationRepository.createAsync({
+              userId: recipientUserId,
+              title: 'Job Posting Removed',
+              message: body,
+              type: 'alert',
+              channel: 'in-app',
+              eventId: stableEventId,
+              idempotencyKey: stableEventId,
+              metadata: { jobId: id, jobTitle: existing.title }
+            }, 'System - Job Moderation');
+            notificationSent = true;
+          }
         } catch (notifErr) {
           console.error(`Failed to dispatch deletion notification for job ${id}:`, notifErr);
         }

@@ -13,4 +13,5 @@ export * from './CurrencyRepository';
 export * from './KycRepository';
 export * from './SystemSettingsRepository';
 export * from './FeatureFlagsRepository';
+export * from './BroadcastRepository';
 

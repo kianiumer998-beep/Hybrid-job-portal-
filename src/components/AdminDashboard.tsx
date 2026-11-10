@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Job, 
   JobStatus,
@@ -562,13 +562,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [currencyLoadError, setCurrencyLoadError] = useState<string | null>(null);
   const [currencyMigrationError, setCurrencyMigrationError] = useState<string | null>(null);
 
-  const [broadcastCampaigns, setBroadcastCampaigns] = useState<BroadcastCampaign[]>(() => {
-    try {
-      const saved = localStorage.getItem('career_pak_broadcast_campaigns');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_BROADCAST_CAMPAIGNS;
-  });
+  const [isBroadcastLoading, setIsBroadcastLoading] = useState<boolean>(true);
+  const [broadcastLoadError, setBroadcastLoadError] = useState<string | null>(null);
+  const [broadcastMigrationError, setBroadcastMigrationError] = useState<string | null>(null);
+  const [broadcastCampaigns, setBroadcastCampaigns] = useState<BroadcastCampaign[]>([]);
 
   const [commConfig, setCommConfig] = useState<CommunicationProviderConfig>(INITIAL_COMM_CONFIG);
 
@@ -748,11 +745,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return () => { isMounted = false; };
   }, []);
 
-  useEffect(() => {
+  const fetchBroadcastCampaigns = useCallback(async () => {
+    setIsBroadcastLoading(true);
+    setBroadcastLoadError(null);
     try {
-      localStorage.setItem('career_pak_broadcast_campaigns', JSON.stringify(broadcastCampaigns));
-    } catch (e) {}
-  }, [broadcastCampaigns]);
+      const res = await api.broadcasts.getAll();
+      if (res && res.success && Array.isArray(res.campaigns)) {
+        setBroadcastCampaigns(res.campaigns);
+
+        // One-time safe legacy migration check
+        try {
+          const legacyRaw = localStorage.getItem('career_pak_broadcast_campaigns');
+          if (legacyRaw) {
+            const parsed = JSON.parse(legacyRaw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              // Filter out known synthetic sample campaigns ('camp-01', 'camp-02', 'camp-03')
+              const userCreated = parsed.filter(
+                c => c && typeof c === 'object' && !['camp-01', 'camp-02', 'camp-03'].includes(String(c.id).trim())
+              );
+
+              if (userCreated.length > 0) {
+                const importRes = await api.broadcasts.importLegacy(userCreated);
+                if (importRes && importRes.success) {
+                  localStorage.removeItem('career_pak_broadcast_campaigns');
+                  const refreshRes = await api.broadcasts.getAll();
+                  if (refreshRes && refreshRes.success && Array.isArray(refreshRes.campaigns)) {
+                    setBroadcastCampaigns(refreshRes.campaigns);
+                  }
+                } else {
+                  setBroadcastMigrationError(importRes?.message || 'Failed to migrate legacy broadcast campaigns.');
+                }
+              } else {
+                localStorage.removeItem('career_pak_broadcast_campaigns');
+              }
+            }
+          }
+        } catch (migErr: any) {
+          console.warn('[Broadcast Migration] Error processing legacy data:', migErr);
+          setBroadcastMigrationError(migErr?.message || 'Error checking legacy broadcast campaigns.');
+        }
+      } else {
+        setBroadcastLoadError(res?.message || 'Failed to load broadcast campaigns from database.');
+      }
+    } catch (err: any) {
+      setBroadcastLoadError(err?.message || 'Network error while loading broadcast campaigns.');
+    } finally {
+      setIsBroadcastLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBroadcastCampaigns();
+  }, [fetchBroadcastCampaigns]);
+
+  const handleSaveBroadcastCampaign = async (newCampData: Partial<BroadcastCampaign>) => {
+    try {
+      const res = await api.broadcasts.create(newCampData as any);
+      if (res && res.success && res.campaign) {
+        setBroadcastCampaigns(prev => [res.campaign!, ...prev.filter(c => c.id !== res.campaign!.id)]);
+        return { success: true, campaign: res.campaign };
+      }
+      return { success: false, error: res?.message || 'Failed to save broadcast campaign draft.' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error while saving broadcast campaign.' };
+    }
+  };
 
   // WhatsApp Support Configuration State
   const [internalWhatsAppConfig, setInternalWhatsAppConfig] = useState<WhatsAppSupportConfig>(() => {
@@ -3018,7 +3075,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           subscribers={subscribers}
           commConfig={commConfig}
           featureFlags={featureFlags}
-          onSendCampaign={(newCamp) => setBroadcastCampaigns(prev => [newCamp, ...prev])}
+          isLoading={isBroadcastLoading}
+          loadError={broadcastLoadError}
+          migrationError={broadcastMigrationError}
+          onSendCampaign={handleSaveBroadcastCampaign}
+          onRefreshCampaigns={fetchBroadcastCampaigns}
           onUpdateCommConfig={handleUpdateCommConfig}
         />
       )}

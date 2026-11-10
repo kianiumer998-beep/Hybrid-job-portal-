@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Megaphone,
   Mail,
@@ -15,10 +15,12 @@ import {
   Layers,
   Search,
   Filter,
-  Info
+  Info,
+  AlertCircle
 } from 'lucide-react';
 import { Subscriber, UserAccount, AdminFeatureFlags } from '../../types/job';
 import { BroadcastCampaign, CommunicationProviderConfig } from '../../types/adminSuite';
+import { api } from '../../services/api';
 
 interface AdminBroadcastCenterProps {
   campaigns?: BroadcastCampaign[];
@@ -26,8 +28,12 @@ interface AdminBroadcastCenterProps {
   subscribers?: Subscriber[];
   commConfig?: CommunicationProviderConfig;
   featureFlags?: AdminFeatureFlags;
-  onSendCampaign?: (newCampaign: BroadcastCampaign) => void;
+  isLoading?: boolean;
+  loadError?: string | null;
+  migrationError?: string | null;
+  onSendCampaign?: (newCampaign: Partial<BroadcastCampaign>) => Promise<{ success: boolean; campaign?: BroadcastCampaign; error?: string } | boolean | void> | void;
   onUpdateCommConfig?: (updated: CommunicationProviderConfig) => void;
+  onRefreshCampaigns?: () => void;
 }
 
 export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
@@ -36,8 +42,12 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   subscribers = [],
   commConfig,
   featureFlags,
+  isLoading = false,
+  loadError = null,
+  migrationError = null,
   onSendCampaign,
-  onUpdateCommConfig
+  onUpdateCommConfig,
+  onRefreshCampaigns
 }) => {
   const safeCampaigns = Array.isArray(campaigns) ? campaigns : [];
   const safeUsers = Array.isArray(users) ? users : [];
@@ -45,6 +55,11 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
 
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>('compose');
+
+  // Synchronize campaign list whenever prop updates
+  useEffect(() => {
+    setCampaignList(Array.isArray(campaigns) ? campaigns : []);
+  }, [campaigns]);
 
   // Composer state
   const [title, setTitle] = useState('');
@@ -56,6 +71,8 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [messageBody, setMessageBody] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   // Provider Settings state
   const [providerSettings, setProviderSettings] = useState<CommunicationProviderConfig>(
@@ -128,45 +145,72 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
     setChannel(tpl.channel);
     setTargetAudience(tpl.audience);
     setTitle(`Broadcast: ${tpl.subject}`);
+    setFormError(null);
+    setFormSuccess(null);
     setActiveTab('compose');
   };
 
-  const handleDispatchCampaign = (e: React.FormEvent) => {
+  const handleDispatchCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+    setFormSuccess(null);
+
     if (!title.trim() || !messageBody.trim()) {
-      alert('Please provide both campaign title and message content.');
+      setFormError('Please provide both campaign title and message content.');
       return;
     }
 
     setIsSending(true);
-    setTimeout(() => {
-      const newCamp: BroadcastCampaign = {
-        id: `camp-${Date.now().toString(36)}`,
-        title: title.trim(),
-        channel,
-        targetAudience,
-        subject: subject.trim() || title.trim(),
-        messageBody: messageBody.trim(),
-        sentAt: undefined,
-        status: 'Draft',
-        recipientsCount: audienceCount,
-        openRate: 0,
-        clickRate: 0
-      };
 
+    const payload: Partial<BroadcastCampaign> = {
+      title: title.trim(),
+      channel,
+      targetAudience,
+      subject: subject.trim() || title.trim(),
+      messageBody: messageBody.trim(),
+      recipientsCount: audienceCount,
+      categoryFilter: 'All Categories'
+    };
+
+    try {
       if (onSendCampaign) {
-        onSendCampaign(newCamp);
+        const res = await onSendCampaign(payload);
+        if (res && typeof res === 'object' && 'success' in res) {
+          if (res.success && res.campaign) {
+            setCampaignList(prev => [res.campaign!, ...prev.filter(c => c.id !== res.campaign!.id)]);
+            setFormSuccess(`Broadcast Campaign "${res.campaign.title}" has been saved as Draft.`);
+            setTitle('');
+            setSubject('');
+            setMessageBody('');
+            setActiveTab('history');
+          } else {
+            setFormError(res.error || 'Failed to persist broadcast draft to backend.');
+          }
+        } else {
+          // Callback without structured return (handled asynchronously)
+          setTitle('');
+          setSubject('');
+          setMessageBody('');
+          setActiveTab('history');
+        }
+      } else {
+        const res = await api.broadcasts.create(payload as any);
+        if (res && res.success && res.campaign) {
+          setCampaignList(prev => [res.campaign!, ...prev.filter(c => c.id !== res.campaign!.id)]);
+          setFormSuccess(`Broadcast Campaign "${res.campaign.title}" has been saved as Draft.`);
+          setTitle('');
+          setSubject('');
+          setMessageBody('');
+          setActiveTab('history');
+        } else {
+          setFormError(res?.message || 'Failed to save broadcast draft to database.');
+        }
       }
-      setCampaignList([newCamp, ...campaignList]);
+    } catch (err: any) {
+      setFormError(err?.message || 'Unexpected network error while saving broadcast draft.');
+    } finally {
       setIsSending(false);
-      
-      alert(`✅ Broadcast Campaign "${newCamp.title}" has been saved as Draft. Actual delivery via ${newCamp.channel} is under development for future phases.`);
-      
-      setTitle('');
-      setSubject('');
-      setMessageBody('');
-      setActiveTab('history');
-    }, 1000);
+    }
   };
 
   const handleSaveProviders = (e: React.FormEvent) => {
@@ -233,6 +277,20 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
                 🎯 Target Reach: ~{audienceCount} (Estimated Audience Reach)
               </span>
             </div>
+
+            {formError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            {formSuccess && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300 text-xs flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span>{formSuccess}</span>
+              </div>
+            )}
 
             <div className="space-y-3 text-xs">
               <div>
@@ -391,11 +449,60 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               <Clock className="w-4 h-4 text-amber-400" />
               <span>Campaign History & Saved Drafts</span>
             </h3>
-            <span className="text-xs font-mono text-slate-400">{campaignList.length} Total Campaigns</span>
+            <div className="flex items-center space-x-3">
+              <span className="text-xs font-mono text-slate-400">{campaignList.length} Total Campaigns</span>
+              {onRefreshCampaigns && (
+                <button
+                  type="button"
+                  onClick={onRefreshCampaigns}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] font-bold cursor-pointer transition-all"
+                  title="Refresh campaigns from database"
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="divide-y divide-slate-800 text-xs">
-            {campaignList.map((camp) => (
+          {loadError && (
+            <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{loadError}</span>
+              </div>
+              {onRefreshCampaigns && (
+                <button
+                  type="button"
+                  onClick={onRefreshCampaigns}
+                  className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 rounded font-bold cursor-pointer ml-3"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {migrationError && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>⚠️ Legacy Campaign Import: {migrationError}</span>
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="py-12 text-center text-slate-400 space-y-3">
+              <Clock className="w-6 h-6 animate-spin mx-auto text-amber-400" />
+              <p className="text-xs">Loading broadcast campaigns from database...</p>
+            </div>
+          ) : campaignList.length === 0 ? (
+            <div className="py-12 text-center text-slate-500 space-y-2">
+              <Megaphone className="w-8 h-8 mx-auto text-slate-600 opacity-50" />
+              <p className="font-bold text-slate-400 text-sm">No broadcast campaigns saved yet</p>
+              <p className="text-xs text-slate-500">Draft your first multi-channel broadcast campaign in the Compose tab above.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-800 text-xs">
+              {campaignList.map((camp) => (
               <div key={camp.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
@@ -442,6 +549,7 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 

@@ -26,6 +26,7 @@ import { notificationRouter } from './server/routes/notificationRoutes';
 import { currencyRouter } from './server/routes/currencyRoutes';
 import { kycRouter } from './server/routes/kycRoutes';
 import { systemSettingsRouter } from './server/routes/systemSettingsRoutes';
+import { broadcastRouter } from './server/routes/broadcastRoutes';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -159,6 +160,7 @@ async function startServer() {
   app.use('/api/currency', currencyRouter);
   app.use('/api/kyc', kycRouter);
   app.use('/api/settings', systemSettingsRouter);
+  app.use('/api/broadcasts', broadcastRouter);
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

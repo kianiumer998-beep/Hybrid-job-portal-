@@ -1,4 +1,5 @@
 // Centralized Production API Service for Hybrid Job Portal
+import type { BroadcastCampaign } from '../types/adminSuite';
 
 /**
  * Deterministic API base resolution for HybridJobs.
@@ -681,6 +682,49 @@ export const api = {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ requests })
+      });
+    }
+  },
+
+  // --- BROADCAST CAMPAIGNS ---
+  broadcasts: {
+    async getAll() {
+      return safeFetchJson<{ success: boolean; campaigns: BroadcastCampaign[]; message?: string }>(
+        `${API_BASE}/broadcasts`,
+        { headers: getAuthHeader() }
+      );
+    },
+    async create(data: {
+      id?: string;
+      title: string;
+      channel: string;
+      targetAudience: string;
+      categoryFilter?: string;
+      subject: string;
+      messageBody: string;
+      recipientsCount?: number;
+    }) {
+      return safeFetchJson<{ success: boolean; campaign?: BroadcastCampaign; message?: string }>(
+        `${API_BASE}/broadcasts`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify(data)
+        }
+      );
+    },
+    async importLegacy(campaigns: any[]) {
+      return safeFetchJson<{
+        success: boolean;
+        imported?: number;
+        skipped?: number;
+        totalProcessed?: number;
+        errors?: string[];
+        message?: string;
+      }>(`${API_BASE}/broadcasts/import-legacy`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ campaigns })
       });
     }
   },

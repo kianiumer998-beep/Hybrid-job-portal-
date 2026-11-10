@@ -274,24 +274,7 @@ export const BroadcastRepository = {
         continue;
       }
 
-      // Check if valid historical ID already exists in MongoDB (idempotent duplicate detection)
-      if (rawId) {
-        try {
-          const existing = await dbColl.findOne({ id: rawId } as any);
-          if (existing) {
-            duplicates++;
-            duplicateIds.push(rawId);
-            continue;
-          }
-        } catch (findErr: any) {
-          failed++;
-          const msg = findErr?.message || 'Database error during lookup';
-          failedItems.push({ id: rawId, title: item?.title, error: msg });
-          errors.push(`Lookup error for campaign "${rawId}": ${msg}`);
-          continue;
-        }
-      }
-
+      // Fix B Step 1: Validate incoming legacy campaign before classifying as duplicate or inserting
       const validation = validateBroadcastPayload(item);
       if (!validation.valid || !validation.clean) {
         failed++;
@@ -301,8 +284,78 @@ export const BroadcastRepository = {
         continue;
       }
 
-      // Fix B: Preserve valid historical IDs only through dedicated legacy import endpoint
-      const cleanId = rawId || `camp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
+      // Fix C: Missing or invalid legacy IDs
+      // Do not silently generate a different random ID on every retry for a legacy record without a valid historical ID.
+      // Use a deterministic, collision-safe migration identity (e.g. hash/slug derived from title and messageBody) or classify as failure.
+      let cleanId = rawId;
+      if (!cleanId) {
+        const titleSnippet = validation.clean.title!.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 20);
+        const bodySnippet = validation.clean.messageBody!.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 20);
+        cleanId = `camp-det-${titleSnippet}-${bodySnippet}`;
+        if (cleanId.length < 15) {
+          failed++;
+          const msg = 'Legacy campaign lacks a valid ID and could not derive a deterministic migration identity.';
+          failedItems.push({ title: validation.clean.title, error: msg });
+          errors.push(msg);
+          continue;
+        }
+      }
+
+      // Fix B Step 2 & 3 & 4 & 5: When existing MongoDB record has same ID, compare normalized campaign content.
+      // Only classify as safe duplicate when relevant campaign content matches.
+      // If ID matches but title, channel, audience, subject, message body, category, etc. conflict:
+      // Do not overwrite, do not count as safe duplicate, report conflict/failure, allEligibleSucceeded = false.
+      // Handle database lookup errors as failures, never as successful duplicates.
+      if (cleanId) {
+        let existing: any = null;
+        try {
+          existing = await dbColl.findOne({ id: cleanId } as any);
+        } catch (findErr: any) {
+          failed++;
+          const msg = findErr?.message || 'Database error during lookup';
+          failedItems.push({ id: cleanId, title: validation.clean.title, error: msg });
+          errors.push(`Lookup error for campaign "${cleanId}": ${msg}`);
+          continue;
+        }
+
+        if (existing) {
+          // Compare normalized campaign content
+          const existingNormTitle = String(existing.title || '').trim();
+          const existingNormChannel = String(existing.channel || '').trim();
+          const existingNormAudience = String(existing.targetAudience || '').trim();
+          const existingNormSubject = String(existing.subject || '').trim();
+          const existingNormBody = String(existing.messageBody || '').trim();
+          const existingNormCategory = String(existing.categoryFilter || 'All Categories').trim();
+
+          const incomingNormTitle = validation.clean.title!;
+          const incomingNormChannel = validation.clean.channel!;
+          const incomingNormAudience = validation.clean.targetAudience!;
+          const incomingNormSubject = validation.clean.subject!;
+          const incomingNormBody = validation.clean.messageBody!;
+          const incomingNormCategory = validation.clean.categoryFilter!;
+
+          const isContentIdentical =
+            existingNormTitle === incomingNormTitle &&
+            existingNormChannel === incomingNormChannel &&
+            existingNormAudience === incomingNormAudience &&
+            existingNormSubject === incomingNormSubject &&
+            existingNormBody === incomingNormBody &&
+            existingNormCategory === incomingNormCategory;
+
+          if (isContentIdentical) {
+            duplicates++;
+            duplicateIds.push(cleanId);
+            continue;
+          } else {
+            failed++;
+            const conflictMsg = `Content conflict for campaign ID "${cleanId}": Existing record content does not match incoming legacy content.`;
+            failedItems.push({ id: cleanId, title: incomingNormTitle, error: conflictMsg });
+            errors.push(conflictMsg);
+            continue;
+          }
+        }
+      }
+
       const now = new Date().toISOString();
 
       // Delivery safety: Never treat legacy sample 'Sent' records as genuine deliveries.
@@ -330,6 +383,7 @@ export const BroadcastRepository = {
         importedIds.push(cleanId);
       } catch (insertErr: any) {
         if (insertErr?.code === 11000) {
+          // Double check content comparison on concurrent duplicate key error
           duplicates++;
           duplicateIds.push(cleanId);
         } else {

@@ -766,45 +766,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               return;
             }
 
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              // Filter out known synthetic sample campaigns ('camp-01', 'camp-02', 'camp-03')
-              const userCreated = parsed.filter(
-                c => c && typeof c === 'object' && !['camp-01', 'camp-02', 'camp-03'].includes(String(c.id).trim())
-              );
-
-              if (userCreated.length > 0) {
-                const importRes = await api.broadcasts.importLegacy(userCreated);
-
-                // Fix A Requirements:
-                // Remove the LocalStorage key ONLY when every eligible campaign is confirmed safely stored or already present in MongoDB.
-                // If even one eligible campaign fails, preserve the original LocalStorage key and all its original data.
-                const isFullyMigrated =
-                  importRes &&
-                  importRes.success === true &&
-                  importRes.allEligibleSucceeded === true &&
-                  importRes.failed === 0 &&
-                  typeof importRes.imported === 'number' &&
-                  typeof importRes.duplicates === 'number' &&
-                  (importRes.imported + importRes.duplicates === userCreated.length);
-
-                if (isFullyMigrated) {
-                  localStorage.removeItem('career_pak_broadcast_campaigns');
-                  setBroadcastMigrationError(null);
-                  const refreshRes = await api.broadcasts.getAll();
-                  if (refreshRes && refreshRes.success && Array.isArray(refreshRes.campaigns)) {
-                    setBroadcastCampaigns(refreshRes.campaigns);
-                  }
-                } else {
-                  // Partial or failed migration: preserve localStorage, show understandable error, permit retry
-                  const errorDetails = importRes?.errors && importRes.errors.length > 0
-                    ? importRes.errors.join('; ')
-                    : importRes?.message || 'One or more campaigns could not be safely stored.';
-                  setBroadcastMigrationError(`Migration incomplete: ${errorDetails}. Original data preserved in storage.`);
-                }
-              } else {
-                // If array only contained synthetic sample campaigns ('camp-01', 'camp-02', 'camp-03')
-                // and 0 user-created campaigns, clean up synthetic localStorage key safely
+            if (Array.isArray(parsed)) {
+              if (parsed.length === 0) {
                 localStorage.removeItem('career_pak_broadcast_campaigns');
+              } else {
+                // Separate synthetic sample IDs from non-synthetic records
+                const SYNTHETIC_IDS = ['camp-01', 'camp-02', 'camp-03'];
+                const syntheticItems = parsed.filter(
+                  c => c && typeof c === 'object' && SYNTHETIC_IDS.includes(String(c.id).trim())
+                );
+                const nonSyntheticItems = parsed.filter(
+                  c => !(c && typeof c === 'object' && SYNTHETIC_IDS.includes(String(c.id).trim()))
+                );
+
+                // If array contains ONLY synthetic sample items, we can safely clean up localStorage
+                if (nonSyntheticItems.length === 0 && syntheticItems.length > 0) {
+                  localStorage.removeItem('career_pak_broadcast_campaigns');
+                } else if (nonSyntheticItems.length > 0) {
+                  // Every non-synthetic record must be submitted to the backend import endpoint for rigorous accounting
+                  const importRes = await api.broadcasts.importLegacy(nonSyntheticItems);
+
+                  // Fix A Requirements:
+                  // Remove the LocalStorage key ONLY when every non-synthetic record is conclusively accounted for (imported or safe duplicate).
+                  // If even one record is invalid, null, primitive, malformed, or fails insertion/conflict checks, preserve exact original LocalStorage.
+                  const isFullyMigrated =
+                    importRes &&
+                    importRes.success === true &&
+                    importRes.allEligibleSucceeded === true &&
+                    importRes.failed === 0 &&
+                    typeof importRes.imported === 'number' &&
+                    typeof importRes.duplicates === 'number' &&
+                    (importRes.imported + importRes.duplicates === nonSyntheticItems.length);
+
+                  if (isFullyMigrated) {
+                    localStorage.removeItem('career_pak_broadcast_campaigns');
+                    setBroadcastMigrationError(null);
+                    const refreshRes = await api.broadcasts.getAll();
+                    if (refreshRes && refreshRes.success && Array.isArray(refreshRes.campaigns)) {
+                      setBroadcastCampaigns(refreshRes.campaigns);
+                    }
+                  } else {
+                    // Partial, conflict, or failed migration: preserve localStorage exactly, show error, permit retry
+                    const errorDetails = importRes?.errors && importRes.errors.length > 0
+                      ? importRes.errors.join('; ')
+                      : importRes?.message || 'One or more legacy records could not be safely migrated or conflicted.';
+                    setBroadcastMigrationError(`Migration incomplete: ${errorDetails}. Original data preserved in storage.`);
+                  }
+                }
               }
             }
           }

@@ -417,6 +417,65 @@ export async function runBroadcastUnitTests() {
     }
   }
 
+  // Test A.3: 11000 duplicate key error followed by missing record (phantom race) -> failure/conflict
+  {
+    const mockColl = createMockBroadcastCollection([]);
+    mockColl.setSimulateCode11000OnInsert(true);
+
+    const importRes = await BroadcastRepository.importLegacyCampaigns([
+      { id: 'user-id-phantom', ...validPayload, title: 'Phantom Race Item' }
+    ], mockColl);
+
+    if (importRes.failed !== 1 || importRes.duplicates !== 0 || importRes.allEligibleSucceeded) {
+      throw new Error('Test A.3 failed: 11000 followed by missing record must be reported as failure/conflict');
+    }
+  }
+
+  // ---------------------------------------------------------
+  // DETERMINISTIC ID TESTS (Field-by-field variations)
+  // ---------------------------------------------------------
+
+  // Test B.1: Same normalized content produces same ID
+  {
+    const mockColl = createMockBroadcastCollection([]);
+    const item1 = { ...validPayload };
+    const item2 = { ...validPayload };
+
+    const res1 = await BroadcastRepository.importLegacyCampaigns([item1], mockColl);
+    const mockColl2 = createMockBroadcastCollection([]);
+    const res2 = await BroadcastRepository.importLegacyCampaigns([item2], mockColl2);
+
+    if (res1.importedIds[0] !== res2.importedIds[0]) {
+      throw new Error('Test B.1 failed: Same content did not produce same deterministic ID');
+    }
+  }
+
+  // Test B.2: Different fields produce different deterministic IDs
+  {
+    const baseColl = createMockBroadcastCollection([]);
+    const baseRes = await BroadcastRepository.importLegacyCampaigns([{ ...validPayload }], baseColl);
+    const baseId = baseRes.importedIds[0];
+
+    const fieldsToTest = [
+      { key: 'title', val: 'Different Title' },
+      { key: 'channel', val: 'SMS' },
+      { key: 'targetAudience', val: 'All Users' },
+      { key: 'subject', val: 'Different Subject' },
+      { key: 'messageBody', val: 'Different Message Body Content' },
+      { key: 'categoryFilter', val: 'Management' }
+    ];
+
+    for (const testCase of fieldsToTest) {
+      const coll = createMockBroadcastCollection([]);
+      const modifiedPayload = { ...validPayload, [testCase.key]: testCase.val };
+      const res = await BroadcastRepository.importLegacyCampaigns([modifiedPayload], coll);
+      const modId = res.importedIds[0];
+      if (modId === baseId) {
+        throw new Error(`Test B.2 failed: Different ${testCase.key} produced identical deterministic ID`);
+      }
+    }
+  }
+
   // Test B.5: Same missing-ID campaign imported twice → same deterministic ID and one stored record
   {
     const mockColl = createMockBroadcastCollection([]);
@@ -524,13 +583,27 @@ export async function runBroadcastPersistenceTests() {
 
     const result = await BroadcastRepository.importLegacyCampaigns(conflictingImport, coll);
 
-    if (result.failed !== 1 || result.duplicates !== 0 || result.allEligibleSucceeded) {
+    if (result.failed !== 1 || result.duplicates !== 0 || result.allEligibleSucceeded !== false) {
       throw new Error(`Fix C Integration failed: Expected failed=1, duplicates=0, allEligibleSucceeded=false`);
     }
 
     const fetchedDoc = await coll.findOne({ id: historicalId } as any);
-    if (!fetchedDoc || fetchedDoc.title !== 'Original Seeded Title') {
-      throw new Error('Fix C Integration failed: Historical document was modified or overwritten');
+    if (!fetchedDoc) {
+      throw new Error('Fix C Integration failed: Historical document not found after conflicting import');
+    }
+
+    // Compare all original document fields to confirm no fields were modified
+    const fieldsToVerify = ['id', 'title', 'channel', 'targetAudience', 'subject', 'messageBody', 'categoryFilter', 'status', 'recipientsCount', 'openRate', 'clickRate', 'createdAt', 'updatedAt'];
+    for (const f of fieldsToVerify) {
+      if ((fetchedDoc as any)[f] !== (originalHistoricalDoc as any)[f]) {
+        throw new Error(`Fix C Integration failed: Field ${f} was changed from "${(originalHistoricalDoc as any)[f]}" to "${(fetchedDoc as any)[f]}"`);
+      }
+    }
+
+    // Confirm no additional record was inserted
+    const docCount = await coll.countDocuments();
+    if (docCount !== 1) {
+      throw new Error(`Fix C Integration failed: Expected countDocuments() === 1, got ${docCount}`);
     }
 
     console.log('[PASS] Broadcast persistence Fix C MongoDB integration test passed successfully.');

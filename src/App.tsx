@@ -723,6 +723,14 @@ export default function App() {
   const [channelAvailability, setChannelAvailability] = useState<{ email: boolean; whatsapp: boolean }>({ email: false, whatsapp: false });
   const [isChannelStatusLoaded, setIsChannelStatusLoaded] = useState<boolean>(false);
 
+  const handleUpdateChannelAvailability = useCallback((updates: { email?: boolean; whatsapp?: boolean }) => {
+    setChannelAvailability(prev => ({
+      ...prev,
+      ...(typeof updates.email === 'boolean' ? { email: updates.email } : {}),
+      ...(typeof updates.whatsapp === 'boolean' ? { whatsapp: updates.whatsapp } : {})
+    }));
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(whatsAppSupportConfig));
@@ -3221,6 +3229,7 @@ export default function App() {
             paymentTransactions={paymentTransactions}
             onApprovePaymentTransaction={handleApprovePaymentTransaction}
             onRejectPaymentTransaction={handleRejectPaymentTransaction}
+            onUpdateChannelAvailability={handleUpdateChannelAvailability}
           />
         ) : (
           <>
@@ -3565,6 +3574,7 @@ export default function App() {
           setLegalModalTab(tab);
           setLegalModalOpen(true);
         }}
+        whatsappEnabled={channelAvailability.whatsapp}
       />
 
       {/* MODALS */}

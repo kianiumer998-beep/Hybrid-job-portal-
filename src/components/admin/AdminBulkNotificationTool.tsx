@@ -154,8 +154,9 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   featureFlags,
   onBroadcastSent
 }) => {
-  const isEmailEnabled = featureFlags?.enableEmailAlerts !== false;
-  const isWhatsAppEnabled = featureFlags?.enableWhatsAppAlerts !== false;
+  // Fail-closed: explicit true required
+  const isEmailEnabled = featureFlags?.enableEmailAlerts === true;
+  const isWhatsAppEnabled = featureFlags?.enableWhatsAppAlerts === true;
   const isMultiChannelEnabled = isEmailEnabled && isWhatsAppEnabled;
 
   const [history, setHistory] = useState<BulkNotificationBroadcast[]>(() => {

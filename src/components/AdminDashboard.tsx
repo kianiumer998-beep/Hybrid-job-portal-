@@ -220,6 +220,7 @@ interface AdminDashboardProps {
   paymentTransactions?: PaymentTransaction[];
   onApprovePaymentTransaction?: (transactionId: string, note?: string) => Promise<PaymentVerificationResult>;
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => Promise<PaymentVerificationResult>;
+  onUpdateChannelAvailability?: (updates: { email?: boolean; whatsapp?: boolean }) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -299,7 +300,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onReloadSeoConfig,
   paymentTransactions,
   onApprovePaymentTransaction,
-  onRejectPaymentTransaction
+  onRejectPaymentTransaction,
+  onUpdateChannelAvailability
 }) => {
 
 
@@ -1365,8 +1367,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       const res = await api.admin.updateFeatureFlags(updated);
       if (res && res.success === true) {
-        if (flagKey === 'enableEmailAlerts' || flagKey === 'enableWhatsAppAlerts') {
-          api.settings.getCommunication().catch(() => {});
+        if (flagKey === 'enableEmailAlerts') {
+          onUpdateChannelAvailability?.({ email: updated.enableEmailAlerts });
+        } else if (flagKey === 'enableWhatsAppAlerts') {
+          onUpdateChannelAvailability?.({ whatsapp: updated.enableWhatsAppAlerts });
         }
       } else {
         console.error('Backend rejected feature flag update:', res?.message);

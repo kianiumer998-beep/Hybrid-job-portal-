@@ -67,9 +67,9 @@ export const AdminBroadcastCenter: React.FC<AdminBroadcastCenterProps> = ({
   const [campaignList, setCampaignList] = useState<BroadcastCampaign[]>(safeCampaigns);
   const [activeTab, setActiveTab] = useState<'compose' | 'history' | 'templates' | 'providers'>('compose');
 
-  // Channel Gating Statuses
-  const emailEnabled = featureFlags?.enableEmailAlerts !== false;
-  const whatsappEnabled = featureFlags?.enableWhatsAppAlerts !== false;
+  // Channel Gating Statuses (Fail-closed: explicit true required)
+  const emailEnabled = featureFlags?.enableEmailAlerts === true;
+  const whatsappEnabled = featureFlags?.enableWhatsAppAlerts === true;
   const multiChannelEnabled = emailEnabled && whatsappEnabled;
 
   const [channel, setChannel] = useState<'Email' | 'WhatsApp' | 'SMS' | 'Push Notification' | 'Multi-Channel'>('SMS');

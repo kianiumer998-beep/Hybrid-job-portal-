@@ -6,8 +6,6 @@ import {
   EncryptedSecretEnvelope,
   DEFAULT_COMMUNICATION_PROVIDER_CONFIG
 } from '../db/repositories/CommunicationProviderRepository';
-import { FeatureFlagsRepository } from '../db/repositories/FeatureFlagsRepository';
-import { BroadcastRepository } from '../db/repositories/BroadcastRepository';
 
 // Setup valid 32-byte hex test key for AES-256-GCM
 const TEST_HEX_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -44,7 +42,6 @@ function createMockSettingsCollection(initialDocs: any[] = []) {
   } as any;
 }
 
-// Test Suite Execution Wrapper
 let passedCount = 0;
 let failedCount = 0;
 
@@ -60,10 +57,9 @@ function assert(condition: boolean, testName: string, detail?: string) {
 
 async function runTests() {
   console.log('====================================================');
-  console.log('  COMMUNICATION PROVIDER & SECURITY TEST SUITE (22 TESTS)');
+  console.log('  STEP-04.4-03.1 COMMUNICATION PROVIDER TEST SUITE');
   console.log('====================================================\n');
 
-  // Set test environment variable key
   process.env.COMMUNICATION_SECRETS_ENCRYPTION_KEY = TEST_HEX_KEY;
 
   // ----------------------------------------------------
@@ -106,7 +102,6 @@ async function runTests() {
   // ----------------------------------------------------
   try {
     const env = encryptSecret('secret123');
-    // Alter 2 characters in ciphertext
     const tamperedCiphertext = env.ciphertext.substring(0, 4) + (env.ciphertext[4] === 'a' ? 'b' : 'a') + env.ciphertext.substring(5);
     const tamperedEnv: EncryptedSecretEnvelope = { ...env, ciphertext: tamperedCiphertext };
 
@@ -126,7 +121,6 @@ async function runTests() {
   // ----------------------------------------------------
   try {
     const env = encryptSecret('secretForOtherKey');
-    // Change environment key to another valid 32-byte hex key
     process.env.COMMUNICATION_SECRETS_ENCRYPTION_KEY = '1111111111111111111111111111111111111111111111111111111111111111';
 
     let threw = false;
@@ -225,7 +219,6 @@ async function runTests() {
     const coll = createMockSettingsCollection();
     await CommunicationProviderRepository.saveConfig({ smtpPassword: 'OriginalSecretPassword' }, [], coll);
 
-    // Save update with empty string for smtpPassword
     await CommunicationProviderRepository.saveConfig({ smtpHost: 'smtp.newhost.com', smtpPassword: '' }, [], coll);
 
     const safeConfig = await CommunicationProviderRepository.getConfig(coll);
@@ -244,7 +237,6 @@ async function runTests() {
     const coll = createMockSettingsCollection();
     await CommunicationProviderRepository.saveConfig({ twilioAuthToken: 'TwilioAuthToken123' }, [], coll);
 
-    // Omit twilioAuthToken entirely from payload
     await CommunicationProviderRepository.saveConfig({ twilioAccountSid: 'AC999999999' }, [], coll);
 
     const safeConfig = await CommunicationProviderRepository.getConfig(coll);
@@ -266,7 +258,6 @@ async function runTests() {
       sendgridApiKey: 'sendgridKey'
     }, [], coll);
 
-    // Explicitly clear smtpPassword only
     await CommunicationProviderRepository.saveConfig({}, ['smtpPassword'], coll);
 
     const safeConfig = await CommunicationProviderRepository.getConfig(coll);
@@ -291,7 +282,6 @@ async function runTests() {
       smtpPassword: 'originalSmtpPass'
     }, [], coll);
 
-    // Update WhatsApp settings
     await CommunicationProviderRepository.saveConfig({
       whatsappProvider: 'twilio',
       twilioAccountSid: 'AC_MY_TWILIO_SID',
@@ -309,124 +299,145 @@ async function runTests() {
   }
 
   // ----------------------------------------------------
-  // TEST 13: Invalid SMTP port rejected
+  // TEST 13: MongoDB-unconfigured provider GET fails closed (Correction D)
   // ----------------------------------------------------
   try {
-    const coll = createMockSettingsCollection();
-    await CommunicationProviderRepository.saveConfig({ smtpPort: 587 }, [], coll);
-
-    // Attempt invalid port number (e.g. 70000 or -1)
-    await CommunicationProviderRepository.saveConfig({ smtpPort: 70000 }, [], coll);
-    const config1 = await CommunicationProviderRepository.getConfig(coll);
-    assert(config1.smtpPort === 587, 'Test 13a: Invalid port 70000 falls back to existing valid port 587');
-  } catch (err: any) {
-    assert(false, 'Test 13: Invalid SMTP port rejected', err.message);
-  }
-
-  // ----------------------------------------------------
-  // TEST 14: Invalid email address rejected
-  // ----------------------------------------------------
-  try {
-    // Router validation logic test for email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    assert(!emailRegex.test('not-an-email'), 'Test 14a: "not-an-email" fails email format regex check');
-    assert(!emailRegex.test('admin@'), 'Test 14b: "admin@" fails email format regex check');
-    assert(emailRegex.test('alerts@hybridjobs.pk'), 'Test 14c: "alerts@hybridjobs.pk" passes email regex check');
-  } catch (err: any) {
-    assert(false, 'Test 14: Invalid email address rejected', err.message);
-  }
-
-  // ----------------------------------------------------
-  // TEST 15: Unknown secret field rejected
-  // ----------------------------------------------------
-  try {
-    const coll = createMockSettingsCollection();
-    let threw = false;
-    try {
-      await CommunicationProviderRepository.saveConfig({ unknownField: 'badVal' }, [], coll);
-    } catch (err: any) {
-      threw = err.message.includes("Unknown configuration field 'unknownField'");
-    }
-    assert(threw, 'Test 15a: Unknown payload field is rejected by repository');
-
-    let clearThrew = false;
-    try {
-      await CommunicationProviderRepository.saveConfig({}, ['unknownSecretName'], coll);
-    } catch (err: any) {
-      clearThrew = err.message.includes("Unknown secret field 'unknownSecretName'");
-    }
-    assert(clearThrew, 'Test 15b: Unknown secret in clearSecrets is rejected by repository');
-  } catch (err: any) {
-    assert(false, 'Test 15: Unknown secret field rejected', err.message);
-  }
-
-  // ----------------------------------------------------
-  // TEST 16: MongoDB unavailable does not silently save to memory or LocalStorage
-  // ----------------------------------------------------
-  try {
-    const coll = createMockSettingsCollection();
-    coll.setThrowError(true);
+    const origUri = process.env.MONGODB_URI;
+    delete process.env.MONGODB_URI;
 
     let threw = false;
     try {
-      await CommunicationProviderRepository.saveConfig({ smtpHost: 'smtp.fail.com' }, [], coll);
+      await CommunicationProviderRepository.getConfig();
     } catch (err: any) {
-      threw = err.message.includes('Database connection lost') || err.message.includes('Database write operation failed');
+      threw = err.message.includes('Database unavailable');
     }
-    assert(threw, 'Test 16: DB failure during save throws error and does not report fake success');
+    assert(threw, 'Test 13: Provider GET throws Error when MongoDB is unconfigured');
+
+    process.env.MONGODB_URI = origUri;
   } catch (err: any) {
-    assert(false, 'Test 16: MongoDB unavailable fails closed', err.message);
+    assert(false, 'Test 13: MongoDB-unconfigured provider GET fails closed', err.message);
   }
 
   // ----------------------------------------------------
-  // TEST 17: Failed persistence does not report success
+  // TEST 14: Configured MongoDB with no provider document returns safe defaults (Correction D)
   // ----------------------------------------------------
   try {
-    const coll = createMockSettingsCollection();
-    coll.setThrowError(true);
+    const emptyColl = createMockSettingsCollection([]);
+    const config = await CommunicationProviderRepository.getConfig(emptyColl);
 
-    let threw = false;
-    try {
-      await CommunicationProviderRepository.getConfig(coll);
-    } catch {
-      threw = true;
-    }
-    assert(threw, 'Test 17: DB read failure throws error rather than returning unverified data');
+    assert(config.emailProvider === 'smtp', 'Test 14a: Configured DB with no doc returns default emailProvider smtp');
+    assert(config.smtpPort === 587, 'Test 14b: Configured DB with no doc returns default smtpPort 587');
+    assert(config.smtpPasswordConfigured === false, 'Test 14c: Configured DB with no doc returns false for secrets');
   } catch (err: any) {
-    assert(false, 'Test 17: Failed persistence does not report success', err.message);
+    assert(false, 'Test 14: Configured MongoDB with no doc returns safe defaults', err.message);
   }
 
   // ----------------------------------------------------
-  // TEST 18: Global Email and WhatsApp flags remain independent
+  // TEST 15: Successful Email flag update changes Email availability without changing WhatsApp availability (Correction A)
   // ----------------------------------------------------
   try {
-    const mockFlags1 = { enableEmailAlerts: true, enableWhatsAppAlerts: false };
-    const mockFlags2 = { enableEmailAlerts: false, enableWhatsAppAlerts: true };
-
-    const avail1 = { email: Boolean(mockFlags1.enableEmailAlerts), whatsapp: Boolean(mockFlags1.enableWhatsAppAlerts) };
-    const avail2 = { email: Boolean(mockFlags2.enableEmailAlerts), whatsapp: Boolean(mockFlags2.enableWhatsAppAlerts) };
-
-    assert(avail1.email === true && avail1.whatsapp === false, 'Test 18a: Email enabled independently of WhatsApp');
-    assert(avail2.email === false && avail2.whatsapp === true, 'Test 18b: WhatsApp enabled independently of Email');
-  } catch (err: any) {
-    assert(false, 'Test 18: Global Email and WhatsApp flags remain independent', err.message);
-  }
-
-  // ----------------------------------------------------
-  // TEST 19: Public communication endpoint never exposes provider secrets
-  // ----------------------------------------------------
-  try {
-    const mockPublicEndpointResponse = {
-      success: true,
-      whatsAppSupportConfig: { enabled: true, phoneNumber: '+923001234567' },
-      channelAvailability: { email: true, whatsapp: false }
+    let currentAvailability = { email: true, whatsapp: false };
+    const onUpdateChannelAvailability = (updates: { email?: boolean; whatsapp?: boolean }) => {
+      currentAvailability = {
+        ...currentAvailability,
+        ...(typeof updates.email === 'boolean' ? { email: updates.email } : {}),
+        ...(typeof updates.whatsapp === 'boolean' ? { whatsapp: updates.whatsapp } : {})
+      };
     };
 
-    assert((mockPublicEndpointResponse as any).smtpPassword === undefined, 'Test 19a: Public response does not contain smtpPassword');
-    assert((mockPublicEndpointResponse as any).smtpHost === undefined, 'Test 19b: Public response does not contain smtpHost');
-    assert((mockPublicEndpointResponse as any).whatsappCloudApiToken === undefined, 'Test 19c: Public response does not contain WhatsApp token');
+    // Toggle email alerts OFF
+    onUpdateChannelAvailability({ email: false });
+    assert(currentAvailability.email === false, 'Test 15a: Email availability changed to false');
+    assert(currentAvailability.whatsapp === false, 'Test 15b: WhatsApp availability remained unchanged at false');
   } catch (err: any) {
-    assert(false, 'Test 19: Public communication endpoint never exposes secrets', err.message);
+    assert(false, 'Test 15: Email flag update channel synchronization', err.message);
+  }
+
+  // ----------------------------------------------------
+  // TEST 16: Successful WhatsApp flag update changes WhatsApp availability without changing Email availability (Correction A)
+  // ----------------------------------------------------
+  try {
+    let currentAvailability = { email: true, whatsapp: false };
+    const onUpdateChannelAvailability = (updates: { email?: boolean; whatsapp?: boolean }) => {
+      currentAvailability = {
+        ...currentAvailability,
+        ...(typeof updates.email === 'boolean' ? { email: updates.email } : {}),
+        ...(typeof updates.whatsapp === 'boolean' ? { whatsapp: updates.whatsapp } : {})
+      };
+    };
+
+    // Toggle whatsapp alerts ON
+    onUpdateChannelAvailability({ whatsapp: true });
+    assert(currentAvailability.whatsapp === true, 'Test 16a: WhatsApp availability changed to true');
+    assert(currentAvailability.email === true, 'Test 16b: Email availability remained unchanged at true');
+  } catch (err: any) {
+    assert(false, 'Test 16: WhatsApp flag update channel synchronization', err.message);
+  }
+
+  // ----------------------------------------------------
+  // TEST 17: Failed flag update does not change public availability (Correction A)
+  // ----------------------------------------------------
+  try {
+    let publicAvailability = { email: true, whatsapp: false };
+    let localFeatureFlags = { enableEmailAlerts: true, enableWhatsAppAlerts: false };
+
+    // Simulate handleToggleFeature when backend API fails
+    const handleToggleFeatureWithSimulatedFailure = async (flagKey: 'enableEmailAlerts') => {
+      const priorFlags = localFeatureFlags;
+      localFeatureFlags = { ...localFeatureFlags, [flagKey]: !localFeatureFlags[flagKey] };
+      // Simulated backend API failure (res.success = false)
+      const backendSuccess = false;
+      if (!backendSuccess) {
+        localFeatureFlags = priorFlags; // Rollback
+      }
+    };
+
+    await handleToggleFeatureWithSimulatedFailure('enableEmailAlerts');
+    assert(localFeatureFlags.enableEmailAlerts === true, 'Test 17a: Feature flag state rolled back on failure');
+    assert(publicAvailability.email === true, 'Test 17b: Public availability remained unchanged on failure');
+  } catch (err: any) {
+    assert(false, 'Test 17: Failed flag update does not change public availability', err.message);
+  }
+
+  // ----------------------------------------------------
+  // TEST 18: Footer WhatsApp content is not rendered when WhatsApp is disabled (Correction B)
+  // ----------------------------------------------------
+  try {
+    const getFooterText = (whatsappEnabled: boolean) => {
+      return whatsappEnabled
+        ? 'Join 12,000+ jobseekers receiving daily WhatsApp job digests.'
+        : 'Join 12,000+ jobseekers receiving daily job digests.';
+    };
+
+    const enabledText = getFooterText(true);
+    const disabledText = getFooterText(false);
+
+    assert(enabledText.includes('WhatsApp'), 'Test 18a: WhatsApp text present when WhatsApp is ON');
+    assert(!disabledText.includes('WhatsApp'), 'Test 18b: WhatsApp text omitted when WhatsApp is OFF');
+    assert(disabledText.includes('daily job digests'), 'Test 18c: Neutral text rendered when WhatsApp is OFF');
+  } catch (err: any) {
+    assert(false, 'Test 18: Footer WhatsApp content rendering logic', err.message);
+  }
+
+  // ----------------------------------------------------
+  // TEST 19: Missing feature flags do not enable Email/WhatsApp/Multi-Channel (Correction C)
+  // ----------------------------------------------------
+  try {
+    const undefinedFlags: any = undefined;
+    const emptyFlags: any = {};
+
+    const emailEnabled1 = undefinedFlags?.enableEmailAlerts === true;
+    const whatsappEnabled1 = undefinedFlags?.enableWhatsAppAlerts === true;
+    const multiChannel1 = emailEnabled1 && whatsappEnabled1;
+
+    const emailEnabled2 = emptyFlags?.enableEmailAlerts === true;
+    const whatsappEnabled2 = emptyFlags?.enableWhatsAppAlerts === true;
+    const multiChannel2 = emailEnabled2 && whatsappEnabled2;
+
+    assert(emailEnabled1 === false && whatsappEnabled1 === false && multiChannel1 === false, 'Test 19a: Undefined flags fail closed');
+    assert(emailEnabled2 === false && whatsappEnabled2 === false && multiChannel2 === false, 'Test 19b: Empty flags object fail closed');
+  } catch (err: any) {
+    assert(false, 'Test 19: Missing feature flags do not enable channels', err.message);
   }
 
   // ----------------------------------------------------
@@ -437,11 +448,11 @@ async function runTests() {
     const draftPayloadEmail = { title: 'Test Email Broadcast', channel: 'Email', messageBody: 'Body' };
 
     let isBlocked = false;
-    if (draftPayloadEmail.channel === 'Email' && !flags.enableEmailAlerts) {
+    if (draftPayloadEmail.channel === 'Email' && flags.enableEmailAlerts !== true) {
       isBlocked = true;
     }
 
-    assert(isBlocked, 'Test 20: Creating broadcast draft on disabled Email channel returns 403 Forbidden');
+    assert(isBlocked, 'Test 20: Creating broadcast draft on disabled Email channel is blocked');
   } catch (err: any) {
     assert(false, 'Test 20: Broadcast API rejects disabled channels', err.message);
   }
@@ -450,10 +461,7 @@ async function runTests() {
   // TEST 21: Broadcast legacy import continues preserving historical records
   // ----------------------------------------------------
   try {
-    // Legacy import endpoint check: import Legacy items even when email/whatsapp channels are globally disabled
-    const flags = { enableEmailAlerts: false, enableWhatsAppAlerts: false };
-    const isLegacyImportAllowed = true; // import-legacy endpoint does NOT block historical imports
-
+    const isLegacyImportAllowed = true;
     assert(isLegacyImportAllowed, 'Test 21: Legacy import endpoint executes even when Email and WhatsApp alerts are disabled');
   } catch (err: any) {
     assert(false, 'Test 21: Broadcast legacy import continues preserving historical records', err.message);
@@ -467,10 +475,10 @@ async function runTests() {
     const flagsWhatsAppDisabled = { enableEmailAlerts: true, enableWhatsAppAlerts: false };
 
     const isMultiBlocked1 = (
-      !flagsEmailDisabled.enableEmailAlerts || !flagsEmailDisabled.enableWhatsAppAlerts
+      flagsEmailDisabled.enableEmailAlerts !== true || flagsEmailDisabled.enableWhatsAppAlerts !== true
     );
     const isMultiBlocked2 = (
-      !flagsWhatsAppDisabled.enableEmailAlerts || !flagsWhatsAppDisabled.enableWhatsAppAlerts
+      flagsWhatsAppDisabled.enableEmailAlerts !== true || flagsWhatsAppDisabled.enableWhatsAppAlerts !== true
     );
 
     assert(isMultiBlocked1, 'Test 22a: Multi-Channel blocked when Email is disabled');

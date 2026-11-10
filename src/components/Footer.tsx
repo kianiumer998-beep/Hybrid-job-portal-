@@ -5,12 +5,14 @@ interface FooterProps {
   onTriggerAdminClickTrick: () => void;
   onOpenSubscriptionModal: () => void;
   onOpenLegalModal?: (tab: 'disclaimer' | 'privacy' | 'terms' | 'contact') => void;
+  whatsappEnabled?: boolean;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onTriggerAdminClickTrick,
   onOpenSubscriptionModal,
-  onOpenLegalModal
+  onOpenLegalModal,
+  whatsappEnabled = true
 }) => {
   const [clickCount, setClickCount] = useState<number>(0);
   const clickTimeoutRef = useRef<any>(null);
@@ -112,12 +114,16 @@ export const Footer: React.FC<FooterProps> = ({
           {/* Col 4: Newsletter */}
           <div className="space-y-3">
             <h4 className="font-bold text-white uppercase tracking-wider text-[11px]">Get Instant Job Alerts</h4>
-            <p className="text-slate-400 text-xs">Join 12,000+ jobseekers receiving daily WhatsApp job digests.</p>
+            <p className="text-slate-400 text-xs">
+              {whatsappEnabled
+                ? 'Join 12,000+ jobseekers receiving daily WhatsApp job digests.'
+                : 'Join 12,000+ jobseekers receiving daily job digests.'}
+            </p>
             <button
               onClick={onOpenSubscriptionModal}
               className="w-full py-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold text-xs flex items-center justify-center space-x-1.5 transition-all"
             >
-              <MessageSquare className="w-3.5 h-3.5" />
+              {whatsappEnabled ? <MessageSquare className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
               <span>Subscribe to Alerts (PKR 300)</span>
             </button>
           </div>

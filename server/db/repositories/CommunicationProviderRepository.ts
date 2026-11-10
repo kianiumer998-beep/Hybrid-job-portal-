@@ -161,7 +161,7 @@ export function decryptSecret(envelope: EncryptedSecretEnvelope): string {
 export class CommunicationProviderRepository {
   private static async getRawDoc(coll?: Collection<any>): Promise<StoredCommunicationProviderDocument | null> {
     if (!coll && !isMongoConfigured()) {
-      return null;
+      throw new Error('Database unavailable: Cannot fetch provider settings when MongoDB is not configured.');
     }
     const dbColl = coll || (await getMongoDb()).collection(COLLECTION_NAME);
     const doc = await withMongoTimeout(

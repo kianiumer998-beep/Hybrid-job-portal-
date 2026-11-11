@@ -161,13 +161,12 @@ export class SubscriberRepository {
    * Helper: Reconciles subscriber status against authoritative payment transaction if linked.
    * - Compensation/refund checks execute BEFORE successful-status checks.
    * - If transaction is refunded, compensated, compensation-in-progress, or compensation-uncertain, never Active.
-   * - Transaction type validation: only an explicitly present type equal to 'Subscription' (case-insensitive after trim) may activate. Missing, null, empty, or non-Subscription type fails closed.
-   * - Missing transaction and lookup exceptions persist safe Pending status when previously Active.
-   * - Amount parsing ensures finite valid number, rejecting NaN, Infinity, and -Infinity.
+   * - Strict transaction type validation: only explicitly present 'Subscription' type may activate.
+   * - Missing transaction and lookup exceptions persist safe Pending status.
    */
   private static async reconcileSubscriberStatus(sub: StoredSubscriberRecord): Promise<StoredSubscriberRecord> {
     if (!sub || !sub.paymentTransactionId) {
-      // Manually created admin subscriber without paymentTransactionId preserves current status (Rule 14)
+      // Manually created admin subscriber without paymentTransactionId preserves current status (Rule 14 & 26)
       return sub;
     }
 
@@ -220,7 +219,7 @@ export class SubscriberRepository {
       return compensatedReconciled;
     }
 
-    // 2. STRICT TRANSACTION TYPE VALIDATION (Rule 7 & 8: Only explicitly present 'Subscription' type may activate)
+    // 2. STRICT TRANSACTION TYPE VALIDATION (Only explicitly present 'Subscription' type may activate)
     const txType = String(tx.type || '').trim().toLowerCase();
     if (!txType || txType !== 'subscription') {
       const rawTxAmount = Number(tx.amount);
@@ -241,7 +240,7 @@ export class SubscriberRepository {
 
     const txStatus = String(tx.status || '').trim();
 
-    // Safe amount parsing (Rule 16: reject NaN, Infinity, -Infinity)
+    // Safe amount parsing (reject NaN, Infinity, -Infinity)
     const rawTxAmount = Number(tx.amount);
     const validAmount = (typeof rawTxAmount === 'number' && Number.isFinite(rawTxAmount) && rawTxAmount >= 0)
       ? rawTxAmount
@@ -302,18 +301,23 @@ export class SubscriberRepository {
   }
 
   /**
-   * Concurrency-safe persistence helper (Rule 11, 12, 13).
-   * Strengthens MongoDB filter using subscriber ID, original paymentTransactionId, and original state.
-   * Updates only reconciliation-owned fields; never replaces the complete subscriber record.
-   * Does not retry with an unrestricted ID-only update if 0 records match.
+   * Concurrency-safe persistence helper (Fix 1 & Fix 2).
+   * - MongoDB filter checks subscriber ID, original paymentTransactionId, AND original status.
+   * - If any of these values changed after original read, stale reconciliation MUST NOT update.
+   * - Never retry a failed or unmatched update using an ID-only filter.
+   * - On concurrency conflict (matchedCount === 0), throws an explicit error / treats as conflict, NOT successful persistence.
+   * - Propagates database persistence errors to caller instead of swallowing.
    */
   private static async persistReconciledStatus(reconciled: StoredSubscriberRecord, original: StoredSubscriberRecord): Promise<void> {
     if (!reconciled || !reconciled.id) return;
     if (isTest()) {
       const existing = testSubscribers.get(reconciled.id);
       if (existing) {
-        // Concurrency guard: check paymentTransactionId matches original
-        if (existing.paymentTransactionId === original.paymentTransactionId) {
+        // Concurrency guard: check paymentTransactionId AND status match original
+        if (
+          existing.paymentTransactionId === original.paymentTransactionId &&
+          existing.status === original.status
+        ) {
           testSubscribers.set(reconciled.id, {
             ...existing,
             status: reconciled.status,
@@ -322,6 +326,8 @@ export class SubscriberRepository {
             plan: reconciled.plan,
             updatedAt: new Date().toISOString()
           });
+        } else {
+          throw new Error(`Concurrency conflict: Subscriber '${reconciled.id}' status or paymentTransactionId changed concurrently.`);
         }
       }
       return;
@@ -335,7 +341,8 @@ export class SubscriberRepository {
         coll.updateOne(
           {
             id: reconciled.id,
-            paymentTransactionId: original.paymentTransactionId || { $exists: false }
+            paymentTransactionId: original.paymentTransactionId || { $exists: false },
+            status: original.status
           },
           {
             $set: {
@@ -352,11 +359,12 @@ export class SubscriberRepository {
       );
 
       if (res.matchedCount === 0) {
-        console.warn(`[SubscriberRepository] Concurrency Guard: Stale reconciliation skipped for subscriber '${reconciled.id}' due to concurrent changes.`);
+        throw new Error(`Concurrency conflict: Subscriber '${reconciled.id}' state or paymentTransactionId changed concurrently (matchedCount === 0).`);
       }
     } catch (err: any) {
       console.error('[SubscriberRepository] Error persisting reconciled status:', err?.message || err);
-      // Rule 10: Do not silently report persisted correction on update failure; log and handle safely.
+      // Propagate safe error to caller; do NOT report success (Fix 2)
+      throw err;
     }
   }
 
@@ -405,8 +413,14 @@ export class SubscriberRepository {
     // Reconcile each linked record with authoritative payment transactions
     const reconciledList: Subscriber[] = [];
     for (const sub of rawRecords) {
-      const reconciled = await this.reconcileSubscriberStatus(sub);
-      reconciledList.push(this.sanitizeForClient(reconciled));
+      try {
+        const reconciled = await this.reconcileSubscriberStatus(sub);
+        reconciledList.push(this.sanitizeForClient(reconciled));
+      } catch (err: any) {
+        // On transient persistence error during reconciliation, fall back to sanitizing current record without crashing getAll
+        console.warn(`[SubscriberRepository] Reconciliation warning for subscriber '${sub.id}':`, err?.message || err);
+        reconciledList.push(this.sanitizeForClient(sub));
+      }
     }
 
     // Sort by subscribedAt descending
@@ -455,8 +469,13 @@ export class SubscriberRepository {
 
     if (!record || isSyntheticDemoSubscriber(record)) return null;
 
-    const reconciled = await this.reconcileSubscriberStatus(record);
-    return this.sanitizeForClient(reconciled);
+    try {
+      const reconciled = await this.reconcileSubscriberStatus(record);
+      return this.sanitizeForClient(reconciled);
+    } catch (err: any) {
+      console.warn(`[SubscriberRepository] Reconciliation warning for getById '${cleanId}':`, err?.message || err);
+      return this.sanitizeForClient(record);
+    }
   }
 
   /**
@@ -503,8 +522,12 @@ export class SubscriberRepository {
 
     if (!record || isSyntheticDemoSubscriber(record)) return null;
 
-    const reconciled = await this.reconcileSubscriberStatus(record);
-    return this.sanitizeForClient(reconciled);
+    try {
+      const reconciled = await this.reconcileSubscriberStatus(record);
+      return this.sanitizeForClient(reconciled);
+    } catch (err: any) {
+      return this.sanitizeForClient(record);
+    }
   }
 
   /**
@@ -578,7 +601,7 @@ export class SubscriberRepository {
       const matchesEmail = Boolean(txEmail && subEmail && txEmail === subEmail);
       const matchesPhone = Boolean(txPhone && subPhone && txPhone === subPhone);
 
-      // Require both email and phone to match when checking guest identity (prevent email-only or phone-only spoofing)
+      // Require both email and phone to match when checking guest identity
       if (!matchesEmail || !matchesPhone) {
         throw new Error(
           'Guest identity verification failed: Submitted email and phone must both match the payment transaction record.'

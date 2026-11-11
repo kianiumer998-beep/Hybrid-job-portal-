@@ -524,7 +524,7 @@ async function runCustomFormPersistenceTests() {
     }
 
     console.log('==================================================================');
-    console.log('  TEST SUITE RESULT: SUCCESS (All 10 Test Scenarios Passed)     ');
+    console.log('  TEST SUITE RESULT: SUCCESS (10 Passed, 2 Skipped)             ');
     console.log('==================================================================');
   } finally {
     AuditRepository.add = originalAuditAdd;

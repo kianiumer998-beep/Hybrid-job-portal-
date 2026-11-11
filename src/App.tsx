@@ -953,6 +953,23 @@ export default function App() {
   // Admin Custom Registration Form Fields (Authoritative Backend Storage)
   const customFieldsReqSeqRef = useRef<number>(0);
   const customFieldsMutexRef = useRef<Promise<void>>(Promise.resolve());
+  
+  // Serialized serialization mechanism for custom form state operations
+  const withCustomFieldsMutex = async <T,>(operation: () => Promise<T>): Promise<T> => {
+    const previousMutex = customFieldsMutexRef.current;
+    let resolveMutex: () => void = () => {};
+    customFieldsMutexRef.current = new Promise<void>((resolve) => {
+      resolveMutex = resolve;
+    });
+
+    try {
+      await previousMutex;
+      return await operation();
+    } finally {
+      resolveMutex();
+    }
+  };
+
   const customFormFieldsRef = useRef<CustomFormField[]>([
     {
       id: 'cf-cnic',
@@ -1241,23 +1258,38 @@ export default function App() {
     safeLocalStorageSet('hybrid_chat_messages', chatMessages.slice(-50));
   }, [chatMessages]);
 
-  const loadBackendCustomFormFields = useCallback(async () => {
-    // Wait for ongoing updates to finish
-    await customFieldsMutexRef.current;
-    
-    const currentSeq = ++customFieldsReqSeqRef.current;
+  // Serialized serialization mechanism for custom form state operations
+  const withCustomFieldsMutex = async <T,>(operation: () => Promise<T>): Promise<T> => {
+    const previousMutex = customFieldsMutexRef.current;
+    let resolveMutex: () => void = () => {};
+    customFieldsMutexRef.current = new Promise<void>((resolve) => {
+      resolveMutex = resolve;
+    });
+
     try {
-      const res = await api.settings.getCustomFormFields();
-      if (currentSeq !== customFieldsReqSeqRef.current) return false;
-      if (res && res.success && Array.isArray(res.customFormFields)) {
-        customFormFieldsRef.current = res.customFormFields;
-        setCustomFormFields(res.customFormFields);
-        return true;
-      }
-    } catch (err) {
-      console.error('[App] Error loading custom form fields from backend:', err);
+      await previousMutex;
+      return await operation();
+    } finally {
+      resolveMutex();
     }
-    return false;
+  };
+
+  const loadBackendCustomFormFields = useCallback(async () => {
+    return await withCustomFieldsMutex(async () => {
+      const currentSeq = ++customFieldsReqSeqRef.current;
+      try {
+        const res = await api.settings.getCustomFormFields();
+        if (currentSeq !== customFieldsReqSeqRef.current) return false;
+        if (res && res.success && Array.isArray(res.customFormFields)) {
+          customFormFieldsRef.current = res.customFormFields;
+          setCustomFormFields(res.customFormFields);
+          return true;
+        }
+      } catch (err) {
+        console.error('[App] Error loading custom form fields from backend:', err);
+      }
+      return false;
+    });
   }, []);
 
   useEffect(() => {
@@ -1265,35 +1297,34 @@ export default function App() {
   }, [loadBackendCustomFormFields]);
 
   const migrateLegacyCustomFormFields = useCallback(async () => {
-    const payload = decodeStoredAuthTokenPayload();
-    const isAuthorizedAdmin = Boolean(
-      payload &&
-      typeof payload.role === 'string' &&
-      (ADMIN_ROLES as readonly string[]).includes(payload.role)
-    );
-    if (!isAuthorizedAdmin) return;
+    return await withCustomFieldsMutex(async () => {
+      const payload = decodeStoredAuthTokenPayload();
+      const isAuthorizedAdmin = Boolean(
+        payload &&
+        typeof payload.role === 'string' &&
+        (ADMIN_ROLES as readonly string[]).includes(payload.role)
+      );
+      if (!isAuthorizedAdmin) return;
 
-    // Wait for ongoing updates to finish
-    await customFieldsMutexRef.current;
+      const saved = localStorage.getItem('hybrid_custom_form_fields');
+      if (!saved) return;
 
-    const saved = localStorage.getItem('hybrid_custom_form_fields');
-    if (!saved) return;
+      try {
+        const legacyFields = JSON.parse(saved);
+        if (!Array.isArray(legacyFields) || legacyFields.length === 0) return;
 
-    try {
-      const legacyFields = JSON.parse(saved);
-      if (!Array.isArray(legacyFields) || legacyFields.length === 0) return;
+        const currentSeq = ++customFieldsReqSeqRef.current;
+        const res = await api.settings.importLegacyCustomFormFields(legacyFields);
+        if (currentSeq !== customFieldsReqSeqRef.current) return;
 
-      const currentSeq = ++customFieldsReqSeqRef.current;
-      const res = await api.settings.importLegacyCustomFormFields(legacyFields);
-      if (currentSeq !== customFieldsReqSeqRef.current) return;
-
-      if (res && res.success && Array.isArray(res.customFormFields)) {
-        customFormFieldsRef.current = res.customFormFields;
-        setCustomFormFields(res.customFormFields);
+        if (res && res.success && Array.isArray(res.customFormFields)) {
+          customFormFieldsRef.current = res.customFormFields;
+          setCustomFormFields(res.customFormFields);
+        }
+      } catch (err) {
+        console.error('[App] Legacy custom form fields migration error:', err);
       }
-    } catch (err) {
-      console.error('[App] Legacy custom form fields migration error:', err);
-    }
+    });
   }, []);
 
   useEffect(() => {
@@ -2852,15 +2883,7 @@ export default function App() {
   const updateCustomFormFieldsPersisted = async (
     updater: (prev: CustomFormField[]) => CustomFormField[]
   ): Promise<boolean> => {
-    const previousMutex = customFieldsMutexRef.current;
-    let resolveMutex: () => void = () => {};
-    customFieldsMutexRef.current = new Promise<void>((resolve) => {
-      resolveMutex = resolve;
-    });
-
-    try {
-      await previousMutex;
-
+    return await withCustomFieldsMutex(async () => {
       // Always read latest state from customFormFieldsRef after acquiring mutex
       const currentFields = customFormFieldsRef.current;
       const nextFields = updater(currentFields);
@@ -2881,13 +2904,7 @@ export default function App() {
         alert(errorMsg);
         return false;
       }
-    } catch (err: any) {
-      console.error('[App] Error saving custom form fields:', err);
-      alert(err?.message || 'Failed to save custom form fields changes to database.');
-      return false;
-    } finally {
-      resolveMutex();
-    }
+    });
   };
 
   const handleAddCustomField = async (field: CustomFormField): Promise<boolean> => {

@@ -1,5 +1,23 @@
 [
   {
+    "id": "log-1794403505336-6kk8",
+    "timestamp": "2026-11-11T13:25:05.336Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
     "id": "log-1794229947913-bnvo",
     "timestamp": "2026-11-09T13:12:27.913Z",
     "user": "Administrator",

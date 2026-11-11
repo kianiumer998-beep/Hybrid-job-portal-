@@ -979,21 +979,7 @@ export default function App() {
 
   const [subscribers, setSubscribers] = useState<Subscriber[]>(() => {
     const saved = localStorage.getItem('hybrid_subscribers_list');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'sub-1',
-        name: 'Usman Chaudhry',
-        phone: '+92 300 9876543',
-        email: 'usman.c@example.com',
-        plan: 'Pro Alerts',
-        paymentMethod: 'JazzCash',
-        amountPaid: 300,
-        currency: 'PKR',
-        status: 'Active',
-        subscribedAt: new Date().toISOString(),
-        whatsappEnabled: true
-      }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [isSubscribed, setIsSubscribed] = useState<boolean>(() => {
@@ -1261,9 +1247,65 @@ export default function App() {
     safeLocalStorageSet('hybrid_custom_form_fields', customFormFields);
   }, [customFormFields]);
 
+  // Rule 16: Remove normal production subscriber persistence through hybrid_subscribers_list LocalStorage.
+
+  const loadBackendSubscribers = useCallback(async () => {
+    const payload = decodeStoredAuthTokenPayload();
+    const isAuthorizedAdmin = Boolean(
+      payload &&
+      typeof payload.role === 'string' &&
+      (ADMIN_ROLES as readonly string[]).includes(payload.role)
+    );
+    if (!isAuthorizedAdmin) {
+      return false;
+    }
+
+    try {
+      const res = await api.subscribers.getAll();
+      if (res && res.success && Array.isArray(res.subscribers)) {
+        setSubscribers(res.subscribers);
+        return true;
+      }
+    } catch (err) {
+      console.error('[App] Error loading backend subscribers:', err);
+    }
+    return false;
+  }, []);
+
+  const migrateLegacySubscribers = useCallback(async () => {
+    const saved = localStorage.getItem('hybrid_subscribers_list');
+    if (!saved) return;
+    try {
+      const records = JSON.parse(saved);
+      if (!Array.isArray(records) || records.length === 0) return;
+
+      const legitimate = records.filter((r: any) => {
+        if (!r || typeof r !== 'object') return false;
+        const id = String(r.id || '').toLowerCase();
+        if (id === 'sub-1' || id === 'demo' || id.startsWith('demo-') || id.startsWith('sub-demo')) return false;
+        return true;
+      });
+
+      if (legitimate.length === 0) return;
+
+      const res = await api.subscribers.importLegacy(legitimate);
+      if (res && res.success && Array.isArray(res.records)) {
+        setSubscribers(res.records);
+      }
+    } catch (err) {
+      console.error('[App] Legacy subscriber migration error:', err);
+    }
+  }, []);
+
   useEffect(() => {
-    safeLocalStorageSet('hybrid_subscribers_list', subscribers.slice(0, 100));
-  }, [subscribers]);
+    if (showAdminView) {
+      loadBackendSubscribers().then((loadedSuccess) => {
+        if (loadedSuccess) {
+          migrateLegacySubscribers();
+        }
+      });
+    }
+  }, [showAdminView, loadBackendSubscribers, migrateLegacySubscribers]);
 
   useEffect(() => {
     try {
@@ -1596,21 +1638,9 @@ export default function App() {
         // If this is a subscription transaction, activate the corresponding subscriber & user plan
         if (normalized.type === 'Subscription' || res.transaction.type === 'Subscription') {
           const planName = res.transaction.plan || 'Pro Alerts';
-          const subTrxId = res.transaction.transactionId;
           const subEmail = (res.transaction.userEmail || '').toLowerCase();
-          const subPhone = (res.transaction.senderPhoneOrAccount || '').replace(/\D/g, '');
 
-          setSubscribers((prev) =>
-            prev.map((sub) => {
-              const matchTid = Boolean(subTrxId && sub.transactionRef === subTrxId);
-              const matchEmail = Boolean(subEmail && sub.email.toLowerCase() === subEmail);
-              const matchPhone = Boolean(subPhone && sub.phone.replace(/\D/g, '') === subPhone);
-              if (matchTid || matchEmail || matchPhone) {
-                return { ...sub, status: 'Active' };
-              }
-              return sub;
-            })
-          );
+          await loadBackendSubscribers();
 
           if (
             currentUser &&
@@ -1720,20 +1750,9 @@ export default function App() {
           ...prev.filter((t) => String(t.id) !== String(normalized.id))
         ]);
 
-        // If subscription transaction was rejected, update subscriber status
+        // If subscription transaction was rejected, update subscriber status via backend refresh
         if (normalized.type === 'Subscription' || res.transaction.type === 'Subscription') {
-          const subTrxId = res.transaction.transactionId;
-          const subEmail = (res.transaction.userEmail || '').toLowerCase();
-          setSubscribers((prev) =>
-            prev.map((sub) => {
-              const matchTid = Boolean(subTrxId && sub.transactionRef === subTrxId);
-              const matchEmail = Boolean(subEmail && sub.email.toLowerCase() === subEmail);
-              if (matchTid || matchEmail) {
-                return { ...sub, status: 'Expired' };
-              }
-              return sub;
-            })
-          );
+          await loadBackendSubscribers();
         }
 
         // If Job Posting transaction was rejected, update fee log status to Failed
@@ -2141,8 +2160,67 @@ export default function App() {
     }
   };
 
+  const handleAddSubscriber = useCallback(async (newSubData: Partial<Subscriber>) => {
+    try {
+      const res = await api.subscribers.create(newSubData);
+      if (res && res.success && res.subscriber) {
+        setSubscribers((prev) => [res.subscriber!, ...prev.filter((s) => s.id !== res.subscriber!.id)]);
+        await loadBackendSubscribers();
+      } else {
+        alert(res?.message || 'Failed to create subscriber.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Error creating subscriber.');
+    }
+  }, [loadBackendSubscribers]);
+
+  const handleUpdateSubscriber = useCallback(async (updatedSub: Subscriber) => {
+    try {
+      const res = await api.subscribers.update(updatedSub.id, updatedSub);
+      if (res && res.success && res.subscriber) {
+        setSubscribers((prev) => prev.map((s) => (s.id === res.subscriber!.id ? res.subscriber! : s)));
+        await loadBackendSubscribers();
+      } else {
+        alert(res?.message || 'Failed to update subscriber.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Error updating subscriber.');
+    }
+  }, [loadBackendSubscribers]);
+
+  const handleDeleteSubscriber = useCallback(async (subId: string) => {
+    try {
+      const res = await api.subscribers.delete(subId);
+      if (res && res.success) {
+        setSubscribers((prev) => prev.filter((s) => s.id !== subId));
+        await loadBackendSubscribers();
+      } else {
+        alert(res?.message || 'Failed to delete subscriber.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Error deleting subscriber.');
+    }
+  }, [loadBackendSubscribers]);
+
+  const handleBulkDeleteSubscribers = useCallback(async (subIds: string[]) => {
+    try {
+      const res = await api.subscribers.bulkDelete(subIds);
+      if (res && res.success) {
+        setSubscribers((prev) => prev.filter((s) => !subIds.includes(s.id)));
+        await loadBackendSubscribers();
+      } else {
+        alert(res?.message || 'Failed to bulk delete subscribers.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Error bulk deleting subscribers.');
+    }
+  }, [loadBackendSubscribers]);
+
   const handleSubscribeSuccess = (newSub: Subscriber) => {
     setSubscribers((prev) => [newSub, ...prev.filter((s) => s.id !== newSub.id)]);
+    if (showAdminView) {
+      loadBackendSubscribers();
+    }
 
     if (newSub.status === 'Active') {
       setIsSubscribed(true);
@@ -3281,10 +3359,10 @@ export default function App() {
             onBulkUpdateJobs={handleBulkUpdateJobs}
             onBulkApprovePendingJobs={handleBulkApprovePendingJobs}
             onBulkRejectPendingJobs={handleBulkRejectPendingJobs}
-            onAddSubscriber={(newSub) => setSubscribers(prev => [newSub, ...prev.filter(s => s.id !== newSub.id)])}
-            onUpdateSubscriber={(updatedSub) => setSubscribers(prev => prev.map(s => s.id === updatedSub.id ? updatedSub : s))}
-            onDeleteSubscriber={(subId) => setSubscribers(prev => prev.filter(s => s.id !== subId))}
-            onBulkDeleteSubscribers={(subIds) => setSubscribers(prev => prev.filter(s => !subIds.includes(s.id)))}
+            onAddSubscriber={handleAddSubscriber}
+            onUpdateSubscriber={handleUpdateSubscriber}
+            onDeleteSubscriber={handleDeleteSubscriber}
+            onBulkDeleteSubscribers={handleBulkDeleteSubscribers}
             onUpdateUser={(updatedUser) => setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u))}
             onBulkDeleteUsers={(userIds) => setUsers(prev => prev.filter(u => !userIds.includes(u.id)))}
             onDeleteFeeLog={handleDeleteFeeLog}

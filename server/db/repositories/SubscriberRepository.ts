@@ -564,8 +564,9 @@ export class SubscriberRepository {
     guestEmail?: string;
     guestPhone?: string;
     whatsappEnabled?: boolean;
+    senderPhoneOrAccount?: string;
   }): Promise<Subscriber> {
-    const { paymentTransactionId, authUserId, authUserEmail, guestName, guestEmail, guestPhone } = params;
+    const { paymentTransactionId, authUserId, authUserEmail, guestName, guestEmail, guestPhone, senderPhoneOrAccount } = params;
 
     if (!paymentTransactionId || typeof paymentTransactionId !== 'string') {
       throw new Error('Valid paymentTransactionId is required.');
@@ -578,7 +579,7 @@ export class SubscriberRepository {
       }
     }
 
-    // 1. Authoritative transaction lookup (Rule 53)
+    // 1. Authoritative transaction lookup (Rule 53 & 71-72)
     let tx: any = null;
     try {
       tx = await PaymentRepository.getByIdAsync(cleanTxId);
@@ -590,13 +591,13 @@ export class SubscriberRepository {
       throw new Error(`Payment transaction '${cleanTxId}' was not found.`);
     }
 
-    // Verify type is Subscription (Rule 53)
+    // Verify type is Subscription (Rule 71)
     const txType = String(tx.type || '').trim().toLowerCase();
     if (txType !== 'subscription') {
       throw new Error(`Transaction '${cleanTxId}' is not a Subscription transaction (type: ${tx.type}).`);
     }
 
-    // Verify transaction status is Pending (Rule 54)
+    // Verify transaction status is Pending (Rule 72)
     const txStatus = String(tx.status || '').trim();
     if (txStatus !== 'Pending') {
       throw new Error(
@@ -604,7 +605,7 @@ export class SubscriberRepository {
       );
     }
 
-    // Ownership verification (Rule 55-56)
+    // Ownership & Guest verification (Rule 68, 69, 73, 74)
     if (authUserId) {
       const txUserId = String(tx.userId || '');
       const txUserEmail = normalizeEmail(tx.userEmail);
@@ -617,22 +618,30 @@ export class SubscriberRepository {
       }
     } else {
       const txEmail = normalizeEmail(tx.userEmail);
-      const txPhone = normalizePhone(tx.senderPhoneOrAccount);
+      const txSenderPhone = normalizePhone(tx.senderPhoneOrAccount);
       const subEmail = normalizeEmail(guestEmail);
-      const subPhone = normalizePhone(guestPhone);
+      // Compare separate senderPhoneOrAccount against tx.senderPhoneOrAccount
+      const guestSenderPhone = normalizePhone(senderPhoneOrAccount || guestPhone);
 
       const matchesEmail = Boolean(txEmail && subEmail && txEmail === subEmail);
-      const matchesPhone = Boolean(txPhone && subPhone && txPhone === subPhone);
+      const matchesPhone = Boolean(txSenderPhone && guestSenderPhone && txSenderPhone === guestSenderPhone);
 
-      // Require both email and phone to match when checking guest identity
       if (!matchesEmail || !matchesPhone) {
         throw new Error(
-          'Guest identity verification failed: Submitted email and phone must both match the payment transaction record.'
+          'Guest identity verification failed: Submitted email and payment sender phone/account must both match the payment transaction record.'
         );
       }
     }
 
-    // Idempotency: If subscriber already exists with this transaction reference, return it (Rules 59-60)
+    const subId = `sub-${cleanTxId}`;
+
+    // Check if subscriber ID already exists for a DIFFERENT transaction (Rule 79)
+    const existingById = await this.getById(subId);
+    if (existingById && (existingById as any).paymentTransactionId && (existingById as any).paymentTransactionId !== cleanTxId) {
+      throw new Error(`Subscriber ID '${subId}' is already linked to a different transaction.`);
+    }
+
+    // Idempotency: If subscriber already exists with this transaction reference, return it (Rule 76)
     const existing = await this.getByPaymentTransactionId(cleanTxId);
     if (existing) {
       return existing;
@@ -645,10 +654,11 @@ export class SubscriberRepository {
     const authoritativeCurrency = tx.currency || 'PKR';
     const subscriberName = String(guestName || tx.userName || tx.senderName || 'Subscriber').trim();
     const subscriberEmail = String(guestEmail || tx.userEmail || '').trim();
+    // Rule 70: Store the subscriber's actual contact phone in the subscriber "phone" field
     const subscriberPhone = String(guestPhone || tx.senderPhoneOrAccount || '').trim();
 
     const newSubscriber: StoredSubscriberRecord = {
-      id: `sub-${cleanTxId}`,
+      id: subId,
       name: subscriberName,
       email: subscriberEmail,
       phone: subscriberPhone,
@@ -674,7 +684,11 @@ export class SubscriberRepository {
 
     if (isTest()) {
       testSubscribers.set(newSubscriber.id, { ...newSubscriber });
-      return this.sanitizeForClient(newSubscriber);
+      const readBackTest = await this.getById(newSubscriber.id);
+      if (!readBackTest || (readBackTest as any).paymentTransactionId !== cleanTxId) {
+        throw new Error(`Persistence verification failed: Stored subscriber does not match transaction '${cleanTxId}'.`);
+      }
+      return readBackTest;
     }
 
     try {
@@ -692,7 +706,13 @@ export class SubscriberRepository {
       throw new Error(`MongoDB failed to create subscriber record: ${err?.message || err}`);
     }
 
-    return this.sanitizeForClient(newSubscriber);
+    // Rules 77 & 78: Read back stored subscriber and verify paymentTransactionId matches
+    const readBack = await this.getById(newSubscriber.id);
+    if (!readBack || (readBack as any).paymentTransactionId !== cleanTxId) {
+      throw new Error(`Persistence verification failed: Stored subscriber does not match transaction '${cleanTxId}'.`);
+    }
+
+    return readBack;
   }
 
   /**

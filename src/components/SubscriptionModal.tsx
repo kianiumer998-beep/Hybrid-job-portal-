@@ -50,6 +50,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedTx, setSubmittedTx] = useState<any | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [syncError, setSyncError] = useState('');
+  const [isRetryingSync, setIsRetryingSync] = useState(false);
 
   // Dynamic Subscription Packages from Server
   const [packages, setPackages] = useState<any[]>([]);
@@ -91,6 +93,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     let isMounted = true;
     setIsLoadingSettings(true);
     setErrorMessage('');
+    setSyncError('');
     setCustomFieldValues({});
     setSenderName('');
     setSenderPhone('');
@@ -165,9 +168,39 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       ? enabledMethods[0][1]
       : null;
 
+  const handleRetrySync = async () => {
+    const internalTxId = submittedTx?.id;
+    if (!internalTxId) return;
+    setIsRetryingSync(true);
+    setSyncError('');
+    try {
+      const subRes = await api.subscribers.createPending({
+        paymentTransactionId: internalTxId,
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        whatsappEnabled: Boolean(whatsappEnabledGlobal),
+        senderPhoneOrAccount: senderPhone.trim() || undefined
+      });
+
+      if (subRes && subRes.success && subRes.subscriber) {
+        setSyncError('');
+        setIsRetryingSync(false);
+        onSubscribeSuccess(subRes.subscriber);
+      } else {
+        setSyncError(subRes?.message || 'Subscriber synchronization retry failed. Payment remains logged in Pending status.');
+        setIsRetryingSync(false);
+      }
+    } catch (err: any) {
+      setSyncError(err?.message || 'Subscriber synchronization retry error. Payment remains logged in Pending status.');
+      setIsRetryingSync(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setSyncError('');
     if (!plan) {
       setErrorMessage('Please select a valid subscription package.');
       return;
@@ -282,25 +315,37 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       });
 
       if (txRes && txRes.success && txRes.transaction) {
-        // Business rule: All manual payments enter 'Pending' status awaiting administrator verification
-        const newSub: Subscriber = {
-          id: txRes.transaction.id || ('sub-' + Date.now()),
-          name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-          plan,
-          paymentMethod: selectedMethod.name,
-          amountPaid: Number(txRes.transaction.amount) || amountPaid,
-          currency: 'PKR',
-          status: 'Pending', // Pending manual admin verification
-          subscribedAt: new Date().toISOString(),
-          whatsappEnabled: Boolean(whatsappEnabledGlobal),
-          transactionRef: txRes.transaction.transactionId || cleanTrxId
-        };
-
+        const internalTxId = txRes.transaction.id;
         setSubmittedTx(txRes.transaction);
-        setIsSubmitting(false);
-        onSubscribeSuccess(newSub);
+
+        if (!internalTxId) {
+          setSyncError('Payment recorded, but server did not return a valid internal transaction ID.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        try {
+          const subRes = await api.subscribers.createPending({
+            paymentTransactionId: internalTxId,
+            name: name.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+            whatsappEnabled: Boolean(whatsappEnabledGlobal),
+            senderPhoneOrAccount: cleanSenderPhone
+          });
+
+          if (subRes && subRes.success && subRes.subscriber) {
+            setSyncError('');
+            setIsSubmitting(false);
+            onSubscribeSuccess(subRes.subscriber);
+          } else {
+            setSyncError(subRes?.message || 'Payment recorded successfully, but subscriber creation synchronization is pending.');
+            setIsSubmitting(false);
+          }
+        } catch (subErr: any) {
+          setSyncError(subErr?.message || 'Payment recorded successfully, but subscriber creation synchronization failed.');
+          setIsSubmitting(false);
+        }
       } else {
         setErrorMessage(txRes?.message || 'Could not record payment. Please check your details and try again.');
         setIsSubmitting(false);
@@ -361,6 +406,24 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 Thank you, <strong className="text-white">{name}</strong>. Your payment submission for <strong className="text-emerald-400">{planName}</strong> has been securely logged and is pending manual review by an administrator.
               </p>
             </div>
+
+            {syncError && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-300 text-left max-w-md mx-auto space-y-2">
+                <div className="flex items-center space-x-2 font-bold text-amber-400">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Subscriber Record Synchronization Pending</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">{syncError}</p>
+                <button
+                  type="button"
+                  onClick={handleRetrySync}
+                  disabled={isRetryingSync}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isRetryingSync ? 'Retrying Synchronization...' : 'Retry Subscriber Synchronization'}
+                </button>
+              </div>
+            )}
 
             <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 text-xs text-slate-300 text-left space-y-2.5 max-w-md mx-auto">
               <div className="flex justify-between items-center pb-2 border-b border-slate-800">

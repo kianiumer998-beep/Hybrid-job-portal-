@@ -823,6 +823,7 @@ export const api = {
       email?: string;
       phone?: string;
       whatsappEnabled?: boolean;
+      senderPhoneOrAccount?: string;
     }) {
       return safeFetchJson<{ success: boolean; subscriber?: Subscriber; message?: string }>(
         `${API_BASE}/subscribers/pending`,

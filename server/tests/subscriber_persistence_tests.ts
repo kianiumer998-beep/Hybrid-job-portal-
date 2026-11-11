@@ -60,7 +60,7 @@ async function runTestSuite() {
   let httpServer: Server | null = null;
   let serverPort = 0;
   let passCount = 0;
-  const totalTests = 21; // Reconciled test count without fake Test 15
+  const totalTests = 23; // Reconciled test count with guest identity, separate phone, and isolation tests
 
   const originalGetByIdAsync = PaymentRepository.getByIdAsync;
 
@@ -431,7 +431,7 @@ async function runTestSuite() {
     console.log('✓ Test 15 Passed: Manually created admin subscribers without transaction link maintain supported behavior.');
 
     // ----------------------------------------------------
-    // Test 16: Pending Subscription Creation & Guest Identity
+    // Test 16: Guest Identity Verification & Mismatched Sender Phone Rejection
     // ----------------------------------------------------
     (PaymentRepository as any).getByIdAsync = async () => ({
       id: 'tx-pending-sub-999',
@@ -446,23 +446,95 @@ async function runTestSuite() {
       userName: 'Guest User'
     });
 
-    let emailOnlyRejected = false;
+    let mismatchedSenderRejected = false;
     try {
       await SubscriberRepository.createPendingSubscription({
         paymentTransactionId: 'tx-pending-sub-999',
         guestName: 'Guest User',
         guestEmail: 'guest@example.com',
-        guestPhone: '+923009999999'
+        guestPhone: '+923009998888',
+        senderPhoneOrAccount: '+923000000000'
       });
     } catch {
-      emailOnlyRejected = true;
+      mismatchedSenderRejected = true;
     }
-    assert.strictEqual(emailOnlyRejected, true, 'Test 16: Email-only or phone-only matching must be rejected');
+    assert.strictEqual(mismatchedSenderRejected, true, 'Test 16: Mismatched sender phone must be rejected');
     passCount++;
-    console.log('✓ Test 16 Passed: Guest identity verification requires both email and phone match.');
+    console.log('✓ Test 16 Passed: Guest identity verification rejects mismatched payment sender phone.');
 
     // ----------------------------------------------------
-    // Test 17: Delete Subscriber (Non-Destructive)
+    // Test 17: Separate Subscriber Contact Phone & Payment Sender Phone Preservation
+    // ----------------------------------------------------
+    const sepSub = await SubscriberRepository.createPendingSubscription({
+      paymentTransactionId: 'tx-pending-sub-999',
+      guestName: 'Guest User',
+      guestEmail: 'guest@example.com',
+      guestPhone: '+923009998888',
+      senderPhoneOrAccount: '+923001234567'
+    });
+    assert.strictEqual(sepSub.phone, '+923009998888', 'Test 17: Subscriber contact phone must be preserved distinctly from sender phone');
+    passCount++;
+    console.log('✓ Test 17 Passed: Separate subscriber contact phone and payment sender phone preserved correctly.');
+
+    // ----------------------------------------------------
+    // Test 18: Duplicate Pending Creation & Unrelated Subscriber ID Isolation
+    // ----------------------------------------------------
+    const dupSub = await SubscriberRepository.createPendingSubscription({
+      paymentTransactionId: 'tx-pending-sub-999',
+      guestName: 'Guest User',
+      guestEmail: 'guest@example.com',
+      guestPhone: '+923009998888',
+      senderPhoneOrAccount: '+923001234567'
+    });
+    assert.strictEqual(dupSub.id, sepSub.id, 'Test 18: Duplicate pending creation returns existing subscriber idempotently');
+
+    (PaymentRepository as any).getByIdAsync = async (id: string) => {
+      if (id === 'tx-conflict-001') {
+        return {
+          id: 'tx-conflict-001',
+          type: 'Subscription',
+          status: 'Pending',
+          userEmail: 'conflict@example.com',
+          senderPhoneOrAccount: '+923005555555',
+          amount: 1500
+        };
+      }
+      return null;
+    };
+
+    SubscriberRepository.injectTestSubscriber({
+      id: 'sub-tx-conflict-001',
+      name: 'Conflicting Sub',
+      phone: '+923005555555',
+      email: 'conflict@example.com',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      amountPaid: 1500,
+      currency: 'PKR',
+      status: 'Pending',
+      subscribedAt: new Date().toISOString(),
+      paymentTransactionId: 'tx-different-999',
+      whatsappEnabled: true
+    });
+
+    let conflictCaught = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-conflict-001',
+        guestName: 'Conflicting Sub',
+        guestEmail: 'conflict@example.com',
+        guestPhone: '+923005555555',
+        senderPhoneOrAccount: '+923005555555'
+      });
+    } catch {
+      conflictCaught = true;
+    }
+    assert.strictEqual(conflictCaught, true, 'Test 18: Subscriber ID linked to another transaction must fail safely');
+    passCount++;
+    console.log('✓ Test 18 Passed: Duplicate pending creation and unrelated subscriber ID isolation verified.');
+
+    // ----------------------------------------------------
+    // Test 19: Delete Subscriber (Non-Destructive)
     // ----------------------------------------------------
     const subToDelete = await SubscriberRepository.createAdminSubscriber({
       id: 'sub-del-1',
@@ -475,10 +547,10 @@ async function runTestSuite() {
     assert.strictEqual(deletedOk, true);
     assert.strictEqual(await SubscriberRepository.getById('sub-del-1'), null);
     passCount++;
-    console.log('✓ Test 17 Passed: Subscriber deletion verified without altering transactions.');
+    console.log('✓ Test 19 Passed: Subscriber deletion verified without altering transactions.');
 
     // ----------------------------------------------------
-    // Test 18: Legacy Import with Read-Back Verification & Idempotency
+    // Test 20: Legacy Import with Read-Back Verification & Idempotency
     // ----------------------------------------------------
     SubscriberRepository.resetTestStore();
     const legacyRecords = [
@@ -495,10 +567,10 @@ async function runTestSuite() {
     assert.strictEqual(reImportRes.success, true);
     assert.strictEqual(reImportRes.alreadyRepresentedCount, 2);
     passCount++;
-    console.log('✓ Test 18 Passed: Legacy import with read-back verification and idempotency verified.');
+    console.log('✓ Test 20 Passed: Legacy import with read-back verification and idempotency verified.');
 
     // ----------------------------------------------------
-    // Test 19: Authorization & RBAC Checks (HTTP Level)
+    // Test 21: Authorization & RBAC Checks (HTTP Level)
     // ----------------------------------------------------
     let res = await fetch(baseUrl);
     assert.strictEqual(res.status, 401);
@@ -513,10 +585,10 @@ async function runTestSuite() {
     });
     assert.strictEqual(res.status, 200);
     passCount++;
-    console.log('✓ Test 19 Passed: RBAC enforcement verified with HTTP 401 and 403 responses.');
+    console.log('✓ Test 21 Passed: RBAC enforcement verified with HTTP 401 and 403 responses.');
 
     // ----------------------------------------------------
-    // Test 20: HTTP Admin CRUD Operations
+    // Test 22: HTTP Admin CRUD Operations
     // ----------------------------------------------------
     const newHttpSub = {
       id: 'sub-http-01',
@@ -552,10 +624,10 @@ async function runTestSuite() {
     });
     assert.strictEqual(res.status, 200);
     passCount++;
-    console.log('✓ Test 20 Passed: HTTP-level admin CRUD operations fully verified.');
+    console.log('✓ Test 22 Passed: HTTP-level admin CRUD operations fully verified.');
 
     // ----------------------------------------------------
-    // Test 21: Storage Isolation & Protected File Checksum Verification
+    // Test 23: Storage Isolation & Protected File Checksum Verification
     // ----------------------------------------------------
     const postSnapshot = getDataDirectorySnapshot();
     const postMongoHash = getMongodbTsHash();
@@ -565,7 +637,7 @@ async function runTestSuite() {
       assert.strictEqual(postSnapshot.files[key], preSnapshot.files[key], `Data file ${key} must remain byte-for-byte unchanged`);
     }
     passCount++;
-    console.log('✓ Test 21 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
+    console.log('✓ Test 23 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
 
     assert.strictEqual(passCount, totalTests, `All tests must pass successfully (Expected ${totalTests}, got ${passCount})`);
 

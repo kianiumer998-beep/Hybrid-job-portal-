@@ -9,7 +9,7 @@ export const subscriberRouter = Router();
 // ============================================================================
 subscriberRouter.post('/pending', async (req: any, res) => {
   try {
-    const { paymentTransactionId, name, email, phone, whatsappEnabled, status } = req.body || {};
+    const { paymentTransactionId, name, email, phone, whatsappEnabled, status, senderPhoneOrAccount } = req.body || {};
 
     if (!paymentTransactionId || typeof paymentTransactionId !== 'string') {
       return res.status(400).json({
@@ -36,7 +36,8 @@ subscriberRouter.post('/pending', async (req: any, res) => {
       guestName: name,
       guestEmail: email,
       guestPhone: phone,
-      whatsappEnabled: whatsappEnabled !== false
+      whatsappEnabled: whatsappEnabled !== false,
+      senderPhoneOrAccount
     });
 
     return res.status(201).json({

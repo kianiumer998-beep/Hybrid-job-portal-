@@ -2870,24 +2870,30 @@ export default function App() {
     updater: (prev: CustomFormField[]) => CustomFormField[]
   ): Promise<boolean> => {
     return await withCustomFieldsMutex(async () => {
-      // Always read latest state from customFormFieldsRef after acquiring mutex
-      const currentFields = customFormFieldsRef.current;
-      const nextFields = updater(currentFields);
-      const currentSeq = ++customFieldsReqSeqRef.current;
+      try {
+        // Always read latest state from customFormFieldsRef after acquiring mutex
+        const currentFields = customFormFieldsRef.current;
+        const nextFields = updater(currentFields);
+        const currentSeq = ++customFieldsReqSeqRef.current;
 
-      const res = await api.settings.updateCustomFormFields(nextFields);
+        const res = await api.settings.updateCustomFormFields(nextFields);
 
-      if (currentSeq !== customFieldsReqSeqRef.current) {
-        return false;
-      }
+        if (currentSeq !== customFieldsReqSeqRef.current) {
+          return false;
+        }
 
-      if (res && res.success && Array.isArray(res.customFormFields)) {
-        customFormFieldsRef.current = res.customFormFields;
-        setCustomFormFields(res.customFormFields);
-        return true;
-      } else {
-        const errorMsg = res?.message || 'Failed to update custom form fields on database server.';
-        alert(errorMsg);
+        if (res && res.success && Array.isArray(res.customFormFields)) {
+          customFormFieldsRef.current = res.customFormFields;
+          setCustomFormFields(res.customFormFields);
+          return true;
+        } else {
+          const errorMsg = res?.message || 'Failed to update custom form fields on database server.';
+          alert(errorMsg);
+          return false;
+        }
+      } catch (err: any) {
+        console.error('[App] Error persisting custom form fields:', err);
+        alert(err?.message || 'Error communicating with server while saving custom form fields.');
         return false;
       }
     });

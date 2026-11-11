@@ -1255,6 +1255,7 @@ export default function App() {
       (ADMIN_ROLES as readonly string[]).includes(payload.role)
     );
     if (!isAuthorizedAdmin) {
+      subscriberReqSeqRef.current++;
       return false;
     }
 
@@ -1274,6 +1275,19 @@ export default function App() {
   }, []);
 
   const migrateLegacySubscribers = useCallback(async () => {
+    const payload = decodeStoredAuthTokenPayload();
+    const isAuthorizedAdmin = Boolean(
+      payload &&
+      typeof payload.role === 'string' &&
+      (ADMIN_ROLES as readonly string[]).includes(payload.role)
+    );
+    if (!isAuthorizedAdmin) {
+      subscriberReqSeqRef.current++;
+      return;
+    }
+
+    const currentSeq = subscriberReqSeqRef.current;
+
     const saved = localStorage.getItem('hybrid_subscribers_list');
     if (!saved) return;
     try {
@@ -1290,14 +1304,21 @@ export default function App() {
       if (legitimate.length === 0) return;
 
       const res = await api.subscribers.importLegacy(legitimate);
-      const verified = Number(res?.verifiedCount);
-      const imported = Number(res?.importedCount ?? 0);
-      const represented = Number(res?.alreadyRepresentedCount ?? 0);
+
+      if (currentSeq !== subscriberReqSeqRef.current) return;
+
+      const verified = res?.verifiedCount;
+      const imported = res?.importedCount;
+      const represented = res?.alreadyRepresentedCount;
+
+      const isNonNegativeSafeInt = (v: any): v is number =>
+        typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
       const isValidCounts =
-        Number.isSafeInteger(verified) && verified >= 0 &&
-        Number.isSafeInteger(imported) && imported >= 0 &&
-        Number.isSafeInteger(represented) && represented >= 0 &&
-        verified === (imported + represented) &&
+        isNonNegativeSafeInt(verified) &&
+        isNonNegativeSafeInt(imported) &&
+        isNonNegativeSafeInt(represented) &&
+        verified === imported + represented &&
         verified === legitimate.length;
 
       if (res && res.success === true && isValidCounts && Array.isArray(res.records)) {
@@ -1315,6 +1336,8 @@ export default function App() {
           migrateLegacySubscribers();
         }
       });
+    } else {
+      subscriberReqSeqRef.current++;
     }
   }, [showAdminView, loadBackendSubscribers, migrateLegacySubscribers]);
 

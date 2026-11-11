@@ -1279,10 +1279,14 @@ export default function App() {
       const legacy = JSON.parse(saved);
       if (Array.isArray(legacy) && legacy.length > 0) {
         const res = await api.chat.importLegacy(legacy);
-        if (res && res.success) {
-          console.log(`[Chat Migration] Successfully imported ${res.imported} messages.`);
+        // Only clear if all eligible records were processed (imported or correctly skipped/synthetic)
+        const totalProcessed = (res.imported || 0) + (res.skipped || 0);
+        if (res && res.success && totalProcessed === legacy.length) {
+          console.log(`[Chat Migration] Successfully processed all ${legacy.length} messages.`);
           localStorage.removeItem('hybrid_chat_messages');
           loadChatMessages();
+        } else if (res && res.success) {
+          console.warn(`[Chat Migration] Partial success: ${totalProcessed}/${legacy.length} processed. Preserving LocalStorage for retry.`);
         }
       }
     } catch (err) {
@@ -2748,8 +2752,10 @@ export default function App() {
         api.chat.adminSendReply(chatMsg).then(res => {
           if (res?.success) {
             setChatMessages(prev => [...prev, res.message]);
+          } else {
+            console.error('[App] Persistent chat notification failed for job rejection:', res?.message);
           }
-        }).catch(err => console.warn('[App] Failed to send persistent chat notification for job rejection:', err));
+        }).catch(err => console.warn('[App] Error sending persistent chat notification for job rejection:', err));
       }
 
       alert(`Job rejected. Reason notification sent to user chat.`);
@@ -3115,8 +3121,10 @@ export default function App() {
         api.chat.adminSendReply(confirmMsg).then(res => {
           if (res?.success) {
             setChatMessages(prev => [...prev, res.message]);
+          } else {
+            console.error('[App] Persistent chat notification failed for ad submission:', res?.message);
           }
-        }).catch(err => console.warn('[App] Failed to send persistent chat notification for ad submission:', err));
+        }).catch(err => console.warn('[App] Error sending persistent chat notification for ad submission:', err));
 
         return {
           success: true,
@@ -3268,8 +3276,10 @@ export default function App() {
           api.chat.adminSendReply(msg).then(res => {
             if (res?.success) {
               setChatMessages(prev => [...prev, res.message]);
+            } else {
+              console.error('[App] Persistent chat notification failed for ad approval:', res?.message);
             }
-          }).catch(err => console.warn('[App] Failed to send persistent chat notification for ad approval:', err));
+          }).catch(err => console.warn('[App] Error sending persistent chat notification for ad approval:', err));
         }
 
         alert(`Campaign "${adToApprove.title}" has been approved and activated!`);
@@ -3314,8 +3324,10 @@ export default function App() {
           api.chat.adminSendReply(msg).then(res => {
             if (res?.success) {
               setChatMessages(prev => [...prev, res.message]);
+            } else {
+              console.error('[App] Persistent chat notification failed for ad rejection:', res?.message);
             }
-          }).catch(err => console.warn('[App] Failed to send persistent chat notification for ad rejection:', err));
+          }).catch(err => console.warn('[App] Error sending persistent chat notification for ad rejection:', err));
         }
 
         alert(`Campaign "${adToReject.title}" has been rejected.`);

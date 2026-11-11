@@ -52,7 +52,7 @@ export function resetSystemSettingsTestStore(): void {
 export interface CustomFormField {
   id: string;
   label: string;
-  type: 'text' | 'number' | 'select' | 'textarea' | 'checkbox' | 'date';
+  type: 'text' | 'number' | 'select' | 'textarea';
   options?: string[];
   required: boolean;
   active: boolean;
@@ -77,6 +77,26 @@ export const DEFAULT_CUSTOM_FORM_FIELDS: CustomFormField[] = [
 ];
 
 const CUSTOM_FORM_FIELDS_KEY = 'custom_registration_form_fields';
+const VALID_TYPES = new Set(['text', 'number', 'select', 'textarea']);
+
+function isMalformedCustomFieldsArray(arr: any): boolean {
+  if (!Array.isArray(arr)) return true;
+  for (const item of arr) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
+    if (typeof item.id !== 'string' || !item.id.trim()) return true;
+    if (typeof item.label !== 'string' || !item.label.trim()) return true;
+    if (typeof item.type !== 'string' || !VALID_TYPES.has(item.type.trim())) return true;
+    if (typeof item.required !== 'boolean') return true;
+    if (typeof item.active !== 'boolean') return true;
+    if (item.options !== undefined && item.options !== null) {
+      if (!Array.isArray(item.options)) return true;
+      for (const opt of item.options) {
+        if (typeof opt !== 'string') return true;
+      }
+    }
+  }
+  return false;
+}
 
 export class SystemSettingsRepository {
   static async getSetting<T>(key: string, defaultValue: T): Promise<T> {
@@ -151,7 +171,11 @@ export class SystemSettingsRepository {
   static async getCustomFormFields(): Promise<CustomFormField[]> {
     if (isTest() && !isMongoConfigured()) {
       if (testSettings.has(CUSTOM_FORM_FIELDS_KEY)) {
-        return testSettings.get(CUSTOM_FORM_FIELDS_KEY);
+        const stored = testSettings.get(CUSTOM_FORM_FIELDS_KEY);
+        if (isMalformedCustomFieldsArray(stored)) {
+          throw new Error('Database contains malformed custom form fields configuration.');
+        }
+        return stored;
       }
       return DEFAULT_CUSTOM_FORM_FIELDS;
     }
@@ -165,8 +189,11 @@ export class SystemSettingsRepository {
       8000,
       `fetch system setting: ${CUSTOM_FORM_FIELDS_KEY}`
     );
-    if (!doc || !Array.isArray(doc.value)) {
+    if (!doc || doc.value === undefined) {
       return DEFAULT_CUSTOM_FORM_FIELDS;
+    }
+    if (isMalformedCustomFieldsArray(doc.value)) {
+      throw new Error('Database contains malformed custom form fields configuration: stored document failed validation.');
     }
     return doc.value as CustomFormField[];
   }
@@ -174,7 +201,8 @@ export class SystemSettingsRepository {
   static async saveCustomFormFields(fields: CustomFormField[]): Promise<CustomFormField[]> {
     if (isTest() && !isMongoConfigured()) {
       testSettings.set(CUSTOM_FORM_FIELDS_KEY, fields);
-      return fields;
+      const verifiedTest = await this.getCustomFormFields();
+      return verifiedTest;
     }
     if (!isMongoConfigured()) {
       throw new Error('Database unavailable: Cannot persist custom form fields when MongoDB is not configured.');
@@ -197,7 +225,28 @@ export class SystemSettingsRepository {
       `save system setting: ${CUSTOM_FORM_FIELDS_KEY}`
     );
 
+    // Database Readback Verification
     const verified = await this.getCustomFormFields();
+
+    if (verified.length !== fields.length) {
+      throw new Error('Database readback verification failed: field count mismatch after update.');
+    }
+
+    for (let i = 0; i < fields.length; i++) {
+      const req = fields[i];
+      const stored = verified[i];
+      if (
+        stored.id !== req.id ||
+        stored.label !== req.label ||
+        stored.type !== req.type ||
+        stored.required !== req.required ||
+        stored.active !== req.active ||
+        JSON.stringify(stored.options || []) !== JSON.stringify(req.options || [])
+      ) {
+        throw new Error(`Database readback verification failed: field '${req.id}' mismatch after update.`);
+      }
+    }
+
     return verified;
   }
 

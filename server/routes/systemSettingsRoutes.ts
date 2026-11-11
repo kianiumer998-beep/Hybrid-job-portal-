@@ -103,11 +103,15 @@ systemSettingsRouter.put('/communication', requireAdminPermission('settings.mana
 
 // Validation helper for Custom Registration Form Fields
 const ALLOWED_FIELD_KEYS = new Set(['id', 'label', 'type', 'options', 'required', 'active']);
-const SUPPORTED_FIELD_TYPES = new Set(['text', 'number', 'select', 'textarea', 'checkbox', 'date']);
+const SUPPORTED_FIELD_TYPES = new Set(['text', 'number', 'select', 'textarea']);
 
 function validateCustomFormFields(rawFields: any): { valid: boolean; fields: any[]; message?: string } {
   if (!Array.isArray(rawFields)) {
     return { valid: false, fields: [], message: 'Validation Error: customFormFields must be an array.' };
+  }
+
+  if (rawFields.length > 100) {
+    return { valid: false, fields: [], message: 'Validation Error: customFormFields array cannot exceed 100 items.' };
   }
 
   const seenIds = new Set<string>();
@@ -130,6 +134,9 @@ function validateCustomFormFields(rawFields: any): { valid: boolean; fields: any
       return { valid: false, fields: [], message: `Validation Error: Field at index ${i} requires a non-empty string 'id'.` };
     }
     const trimmedId = item.id.trim();
+    if (trimmedId.length > 100) {
+      return { valid: false, fields: [], message: `Validation Error: Field ID '${trimmedId}' exceeds maximum limit of 100 characters.` };
+    }
     if (seenIds.has(trimmedId)) {
       return { valid: false, fields: [], message: `Validation Error: Duplicate field ID '${trimmedId}' detected at index ${i}.` };
     }
@@ -137,6 +144,9 @@ function validateCustomFormFields(rawFields: any): { valid: boolean; fields: any
 
     if (typeof item.label !== 'string' || !item.label.trim()) {
       return { valid: false, fields: [], message: `Validation Error: Field '${trimmedId}' requires a non-empty string 'label'.` };
+    }
+    if (item.label.trim().length > 250) {
+      return { valid: false, fields: [], message: `Validation Error: Field label for '${trimmedId}' exceeds maximum limit of 250 characters.` };
     }
 
     if (typeof item.type !== 'string' || !SUPPORTED_FIELD_TYPES.has(item.type.trim())) {
@@ -151,8 +161,12 @@ function validateCustomFormFields(rawFields: any): { valid: boolean; fields: any
       return { valid: false, fields: [], message: `Validation Error: Field '${trimmedId}' requires a strict boolean value for 'active'.` };
     }
 
+    if (item.options === null) {
+      return { valid: false, fields: [], message: `Validation Error: Field '${trimmedId}' options cannot be null.` };
+    }
+
     let cleanOptions: string[] | undefined = undefined;
-    if (item.options !== undefined && item.options !== null) {
+    if (item.options !== undefined) {
       if (!Array.isArray(item.options)) {
         return { valid: false, fields: [], message: `Validation Error: Field '${trimmedId}' options must be an array of strings.` };
       }
@@ -160,8 +174,12 @@ function validateCustomFormFields(rawFields: any): { valid: boolean; fields: any
         return { valid: false, fields: [], message: `Validation Error: Field '${trimmedId}' options cannot exceed 50 items.` };
       }
       for (let j = 0; j < item.options.length; j++) {
-        if (typeof item.options[j] !== 'string') {
+        const opt = item.options[j];
+        if (typeof opt !== 'string') {
           return { valid: false, fields: [], message: `Validation Error: Option at index ${j} for field '${trimmedId}' must be a string.` };
+        }
+        if (opt.length > 250) {
+          return { valid: false, fields: [], message: `Validation Error: Option at index ${j} for field '${trimmedId}' exceeds maximum limit of 250 characters.` };
         }
       }
       cleanOptions = item.options.map((o: string) => String(o));

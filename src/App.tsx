@@ -953,7 +953,7 @@ export default function App() {
   // Admin Custom Registration Form Fields (Authoritative Backend Storage)
   const customFieldsReqSeqRef = useRef<number>(0);
   const customFieldsMutexRef = useRef<Promise<void>>(Promise.resolve());
-  const [customFormFields, setCustomFormFields] = useState<CustomFormField[]>([
+  const customFormFieldsRef = useRef<CustomFormField[]>([
     {
       id: 'cf-cnic',
       label: 'CNIC / Passport Number',
@@ -970,6 +970,7 @@ export default function App() {
       active: true
     }
   ]);
+  const [customFormFields, setCustomFormFields] = useState<CustomFormField[]>(customFormFieldsRef.current);
 
   const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
   const [savedJobsList, setSavedJobsList] = useState<any[]>([]);
@@ -1246,6 +1247,7 @@ export default function App() {
       const res = await api.settings.getCustomFormFields();
       if (currentSeq !== customFieldsReqSeqRef.current) return false;
       if (res && res.success && Array.isArray(res.customFormFields)) {
+        customFormFieldsRef.current = res.customFormFields;
         setCustomFormFields(res.customFormFields);
         return true;
       }
@@ -1280,6 +1282,7 @@ export default function App() {
       if (currentSeq !== customFieldsReqSeqRef.current) return;
 
       if (res && res.success && Array.isArray(res.customFormFields)) {
+        customFormFieldsRef.current = res.customFormFields;
         setCustomFormFields(res.customFormFields);
       }
     } catch (err) {
@@ -2842,7 +2845,7 @@ export default function App() {
   // Custom Form Fields Handlers (Serialized Mutex & Sequence-Protected Backend Persistence)
   const updateCustomFormFieldsPersisted = async (
     updater: (prev: CustomFormField[]) => CustomFormField[]
-  ) => {
+  ): Promise<boolean> => {
     const previousMutex = customFieldsMutexRef.current;
     let resolveMutex: () => void = () => {};
     customFieldsMutexRef.current = new Promise<void>((resolve) => {
@@ -2851,41 +2854,48 @@ export default function App() {
 
     try {
       await previousMutex;
-      const nextFields = updater(customFormFields);
+
+      // Always read latest state from customFormFieldsRef after acquiring mutex
+      const currentFields = customFormFieldsRef.current;
+      const nextFields = updater(currentFields);
       const currentSeq = ++customFieldsReqSeqRef.current;
 
       const res = await api.settings.updateCustomFormFields(nextFields);
 
       if (currentSeq !== customFieldsReqSeqRef.current) {
-        return;
+        return false;
       }
 
       if (res && res.success && Array.isArray(res.customFormFields)) {
+        customFormFieldsRef.current = res.customFormFields;
         setCustomFormFields(res.customFormFields);
+        return true;
       } else {
         const errorMsg = res?.message || 'Failed to update custom form fields on database server.';
         alert(errorMsg);
+        return false;
       }
     } catch (err: any) {
       console.error('[App] Error saving custom form fields:', err);
       alert(err?.message || 'Failed to save custom form fields changes to database.');
+      return false;
     } finally {
       resolveMutex();
     }
   };
 
-  const handleAddCustomField = async (field: CustomFormField) => {
-    await updateCustomFormFieldsPersisted((prev) => [...prev, field]);
+  const handleAddCustomField = async (field: CustomFormField): Promise<boolean> => {
+    return await updateCustomFormFieldsPersisted((prev) => [...prev, field]);
   };
 
-  const handleToggleCustomField = async (fieldId: string) => {
-    await updateCustomFormFieldsPersisted((prev) =>
+  const handleToggleCustomField = async (fieldId: string): Promise<boolean> => {
+    return await updateCustomFormFieldsPersisted((prev) =>
       prev.map((f) => (f.id === fieldId ? { ...f, active: !f.active } : f))
     );
   };
 
-  const handleDeleteCustomField = async (fieldId: string) => {
-    await updateCustomFormFieldsPersisted((prev) => prev.filter((f) => f.id !== fieldId));
+  const handleDeleteCustomField = async (fieldId: string): Promise<boolean> => {
+    return await updateCustomFormFieldsPersisted((prev) => prev.filter((f) => f.id !== fieldId));
   };
 
   // Self-Serve Ad Campaign Submissions (Authoritative Backend Wallet Payment -> Linked Campaign Creation)

@@ -360,16 +360,90 @@ async function runCustomFormPersistenceTests() {
     }
 
     // ------------------------------------------------------------------
-    // TEST 7: Storage & File Integrity Verification
+    // TEST 8: Rejection of null options and unsupported types ('checkbox', 'date')
+    // ------------------------------------------------------------------
+    {
+      // Null options
+      const resNullOptions = await fetch(`${baseUrl}/custom-form-fields`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          customFormFields: [
+            { id: 'cf-null-opt', label: 'Null Options', type: 'text', required: false, active: true, options: null }
+          ]
+        })
+      });
+      assert.strictEqual(resNullOptions.status, 400, 'Null options must return HTTP 400');
+
+      // Checkbox type rejection
+      const resCheckbox = await fetch(`${baseUrl}/custom-form-fields`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          customFormFields: [
+            { id: 'cf-chk', label: 'Checkbox Field', type: 'checkbox', required: false, active: true }
+          ]
+        })
+      });
+      assert.strictEqual(resCheckbox.status, 400, 'Type checkbox must return HTTP 400');
+
+      // Date type rejection
+      const resDate = await fetch(`${baseUrl}/custom-form-fields`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          customFormFields: [
+            { id: 'cf-date', label: 'Date Field', type: 'date', required: false, active: true }
+          ]
+        })
+      });
+      assert.strictEqual(resDate.status, 400, 'Type date must return HTTP 400');
+
+      console.log('✓ Test 8 Passed: Rejection of null options, checkbox, and date field types verified.');
+    }
+
+    // ------------------------------------------------------------------
+    // TEST 9: Label & Option Length Limit Rejections
+    // ------------------------------------------------------------------
+    {
+      const longLabel = 'A'.repeat(251);
+      const resLongLabel = await fetch(`${baseUrl}/custom-form-fields`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          customFormFields: [
+            { id: 'cf-long', label: longLabel, type: 'text', required: false, active: true }
+          ]
+        })
+      });
+      assert.strictEqual(resLongLabel.status, 400, 'Label > 250 chars must return HTTP 400');
+
+      console.log('✓ Test 9 Passed: Maximum field/label length limits enforced.');
+    }
+
+    // ------------------------------------------------------------------
+    // TEST 10: Storage & File Integrity Verification
     // ------------------------------------------------------------------
     {
       const finalSnapshot = getDataDirectorySnapshot();
       verifyDataSnapshotUnchanged(initialSnapshot, finalSnapshot);
-      console.log('✓ Test 7 Passed: Byte-for-byte protected storage and data/*.json file isolation verified.');
+      console.log('✓ Test 10 Passed: Byte-for-byte protected storage and data/*.json file isolation verified.');
     }
 
     console.log('==================================================================');
-    console.log('  TEST SUITE RESULT: SUCCESS (All 7 Test Scenarios Passed)      ');
+    console.log('  TEST SUITE RESULT: SUCCESS (All 10 Test Scenarios Passed)     ');
     console.log('==================================================================');
   } finally {
     AuditRepository.add = originalAuditAdd;

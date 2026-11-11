@@ -180,9 +180,9 @@ interface AdminDashboardProps {
   onDeleteFeeLog?: (logId: string) => void;
   onBulkDeleteFeeLogs?: (logIds: string[]) => void;
   onSendMessageToUser: (userId: string, userName: string, text: string) => void;
-  onAddCustomField: (field: CustomFormField) => void;
-  onToggleCustomField: (fieldId: string) => void;
-  onDeleteCustomField: (fieldId: string) => void;
+  onAddCustomField: (field: CustomFormField) => Promise<boolean> | boolean | void;
+  onToggleCustomField: (fieldId: string) => Promise<boolean> | boolean | void;
+  onDeleteCustomField: (fieldId: string) => Promise<boolean> | boolean | void;
   onUpdateUserExpiry: (userId: string, newExpiryDate: string) => void;
   onToggleUserPlan: (userId: string) => void;
   onUpdateUserPassword?: (userId: string, newPass: string) => void;
@@ -2358,7 +2358,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Add Custom Form Field
-  const handleCreateCustomField = (e: React.FormEvent) => {
+  const handleCreateCustomField = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fieldLabel.trim()) return;
 
@@ -2371,11 +2371,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       active: true
     };
 
-    onAddCustomField(newField);
-    setFieldLabel('');
-    setFieldOptions('');
-    setFieldRequired(false);
-    alert(`Custom field "${newField.label}" added to User Registration Form!`);
+    const res = await onAddCustomField(newField);
+    if (res !== false) {
+      setFieldLabel('');
+      setFieldOptions('');
+      setFieldRequired(false);
+      alert(`Custom field "${newField.label}" added to User Registration Form!`);
+    }
   };
 
   // Manual Job Creation

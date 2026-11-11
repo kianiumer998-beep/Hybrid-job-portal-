@@ -60,7 +60,7 @@ async function runTestSuite() {
   let httpServer: Server | null = null;
   let serverPort = 0;
   let passCount = 0;
-  const totalTests = 22; // Exact reconciled test count matching suite assertions
+  const totalTests = 21; // Reconciled test count without fake Test 15
 
   const originalGetByIdAsync = PaymentRepository.getByIdAsync;
 
@@ -415,27 +415,7 @@ async function runTestSuite() {
     console.log('✓ Test 14 Passed: Asynchronous race test verified that newer state remains unchanged.');
 
     // ----------------------------------------------------
-    // Test 15: Persistence Failure Error Propagation Test
-    // ----------------------------------------------------
-    const subPersistErr = await SubscriberRepository.createAdminSubscriber({
-      id: 'sub-perr-1',
-      name: 'Persist Err Sub',
-      phone: '+923004446666',
-      status: 'Active',
-      subscribedAt: new Date().toISOString(),
-      paymentTransactionId: 'tx-perr-001'
-    });
-    (PaymentRepository as any).getByIdAsync = async () => ({
-      id: 'tx-perr-001',
-      type: 'Subscription',
-      status: 'Success',
-      amount: 1500
-    });
-    passCount++;
-    console.log('✓ Test 15 Passed: Persistence failure error propagation verified.');
-
-    // ----------------------------------------------------
-    // Test 16: Manually Created Admin Subscriber Without Transaction Link
+    // Test 15: Manually Created Admin Subscriber Without Transaction Link
     // ----------------------------------------------------
     const manualAdminSub = await SubscriberRepository.createAdminSubscriber({
       id: 'sub-manual-01',
@@ -446,12 +426,12 @@ async function runTestSuite() {
       subscribedAt: new Date().toISOString()
     });
     let fetchedManual = await SubscriberRepository.getById('sub-manual-01');
-    assert.strictEqual(fetchedManual?.status, 'Active', 'Test 16: Manually created admin subscriber without transaction link preserves Active status');
+    assert.strictEqual(fetchedManual?.status, 'Active', 'Test 15: Manually created admin subscriber without transaction link preserves Active status');
     passCount++;
-    console.log('✓ Test 16 Passed: Manually created admin subscribers without transaction link maintain supported behavior.');
+    console.log('✓ Test 15 Passed: Manually created admin subscribers without transaction link maintain supported behavior.');
 
     // ----------------------------------------------------
-    // Test 17: Pending Subscription Creation & Guest Identity
+    // Test 16: Pending Subscription Creation & Guest Identity
     // ----------------------------------------------------
     (PaymentRepository as any).getByIdAsync = async () => ({
       id: 'tx-pending-sub-999',
@@ -477,12 +457,12 @@ async function runTestSuite() {
     } catch {
       emailOnlyRejected = true;
     }
-    assert.strictEqual(emailOnlyRejected, true, 'Test 17: Email-only or phone-only matching must be rejected');
+    assert.strictEqual(emailOnlyRejected, true, 'Test 16: Email-only or phone-only matching must be rejected');
     passCount++;
-    console.log('✓ Test 17 Passed: Guest identity verification requires both email and phone match.');
+    console.log('✓ Test 16 Passed: Guest identity verification requires both email and phone match.');
 
     // ----------------------------------------------------
-    // Test 18: Delete Subscriber (Non-Destructive)
+    // Test 17: Delete Subscriber (Non-Destructive)
     // ----------------------------------------------------
     const subToDelete = await SubscriberRepository.createAdminSubscriber({
       id: 'sub-del-1',
@@ -495,10 +475,10 @@ async function runTestSuite() {
     assert.strictEqual(deletedOk, true);
     assert.strictEqual(await SubscriberRepository.getById('sub-del-1'), null);
     passCount++;
-    console.log('✓ Test 18 Passed: Subscriber deletion verified without altering transactions.');
+    console.log('✓ Test 17 Passed: Subscriber deletion verified without altering transactions.');
 
     // ----------------------------------------------------
-    // Test 19: Legacy Import with Read-Back Verification & Idempotency
+    // Test 18: Legacy Import with Read-Back Verification & Idempotency
     // ----------------------------------------------------
     SubscriberRepository.resetTestStore();
     const legacyRecords = [
@@ -515,10 +495,10 @@ async function runTestSuite() {
     assert.strictEqual(reImportRes.success, true);
     assert.strictEqual(reImportRes.alreadyRepresentedCount, 2);
     passCount++;
-    console.log('✓ Test 19 Passed: Legacy import with read-back verification and idempotency verified.');
+    console.log('✓ Test 18 Passed: Legacy import with read-back verification and idempotency verified.');
 
     // ----------------------------------------------------
-    // Test 20: Authorization & RBAC Checks (HTTP Level)
+    // Test 19: Authorization & RBAC Checks (HTTP Level)
     // ----------------------------------------------------
     let res = await fetch(baseUrl);
     assert.strictEqual(res.status, 401);
@@ -533,10 +513,10 @@ async function runTestSuite() {
     });
     assert.strictEqual(res.status, 200);
     passCount++;
-    console.log('✓ Test 20 Passed: RBAC enforcement verified with HTTP 401 and 403 responses.');
+    console.log('✓ Test 19 Passed: RBAC enforcement verified with HTTP 401 and 403 responses.');
 
     // ----------------------------------------------------
-    // Test 21: HTTP Admin CRUD Operations
+    // Test 20: HTTP Admin CRUD Operations
     // ----------------------------------------------------
     const newHttpSub = {
       id: 'sub-http-01',
@@ -572,10 +552,10 @@ async function runTestSuite() {
     });
     assert.strictEqual(res.status, 200);
     passCount++;
-    console.log('✓ Test 21 Passed: HTTP-level admin CRUD operations fully verified.');
+    console.log('✓ Test 20 Passed: HTTP-level admin CRUD operations fully verified.');
 
     // ----------------------------------------------------
-    // Test 22: Storage Isolation & Protected File Checksum Verification
+    // Test 21: Storage Isolation & Protected File Checksum Verification
     // ----------------------------------------------------
     const postSnapshot = getDataDirectorySnapshot();
     const postMongoHash = getMongodbTsHash();
@@ -585,7 +565,7 @@ async function runTestSuite() {
       assert.strictEqual(postSnapshot.files[key], preSnapshot.files[key], `Data file ${key} must remain byte-for-byte unchanged`);
     }
     passCount++;
-    console.log('✓ Test 22 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
+    console.log('✓ Test 21 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
 
     assert.strictEqual(passCount, totalTests, `All tests must pass successfully (Expected ${totalTests}, got ${passCount})`);
 
@@ -596,7 +576,7 @@ async function runTestSuite() {
     console.error('Test Suite Failed with Error:', err);
     process.exit(1);
   } finally {
-    // Rule 18 & Rule 22: Restore every mocked PaymentRepository method in finally blocks, including getByIdAsync
+    // Rule 15: Restore every mocked PaymentRepository method in finally blocks, including getByIdAsync
     PaymentRepository.getByIdAsync = originalGetByIdAsync;
 
     if (httpServer) {

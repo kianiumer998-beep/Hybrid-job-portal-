@@ -1258,21 +1258,7 @@ export default function App() {
     safeLocalStorageSet('hybrid_chat_messages', chatMessages.slice(-50));
   }, [chatMessages]);
 
-  // Serialized serialization mechanism for custom form state operations
-  const withCustomFieldsMutex = async <T,>(operation: () => Promise<T>): Promise<T> => {
-    const previousMutex = customFieldsMutexRef.current;
-    let resolveMutex: () => void = () => {};
-    customFieldsMutexRef.current = new Promise<void>((resolve) => {
-      resolveMutex = resolve;
-    });
 
-    try {
-      await previousMutex;
-      return await operation();
-    } finally {
-      resolveMutex();
-    }
-  };
 
   const loadBackendCustomFormFields = useCallback(async () => {
     return await withCustomFieldsMutex(async () => {

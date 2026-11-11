@@ -146,7 +146,7 @@ export function restoreAndVerifyDescriptors(
   // 1. Remove mock properties that were not present originally
   const currentKeysBefore = Object.getOwnPropertyNames(target);
   for (const key of currentKeysBefore) {
-    if (!(key in originalDescriptors)) {
+    if (!Object.prototype.hasOwnProperty.call(originalDescriptors, key)) {
       try {
         delete target[key];
       } catch (delErr: any) {
@@ -191,7 +191,7 @@ export function restoreAndVerifyDescriptors(
 
   // 4. Verify no extra properties exist
   for (const key of Object.getOwnPropertyNames(target)) {
-    if (!(key in originalDescriptors)) {
+    if (!Object.prototype.hasOwnProperty.call(originalDescriptors, key)) {
       mismatches.push(`Extra property ${targetName}.${key} remains on target after restoration`);
     }
   }
@@ -865,29 +865,53 @@ async function runTests() {
     };
     const dummyDesc = Object.getOwnPropertyDescriptors(dummyTarget);
 
-    // Apply mock overrides on dummy
+    // 15A: Test successful restoration on clean dummy
     dummyTarget.realMethod = () => 'tampered';
     dummyTarget.mockProperty = 'temp_value';
 
-    // Verify restoreAndVerifyDescriptors restores dummy correctly
     const cleanRestore = restoreAndVerifyDescriptors(dummyTarget, dummyDesc, 'DummyTarget');
     assert.strictEqual(cleanRestore.restored, true, 'Clean restore must succeed');
     assert.strictEqual(dummyTarget.realMethod(), 'original', 'Method must be restored');
     assert.strictEqual(dummyTarget.mockProperty, undefined, 'Mock property must be removed');
 
-    // Prove that evaluateSuiteDecision returns isSuccess: false, exitCode: 1 when restorationFailed: true
-    const decisionRestoreFail = evaluateSuiteDecision({
+    // 15B: Actual restoration mismatch test (property cannot be removed / non-configurable mock)
+    const failingTarget: any = {
+      realMethod: () => 'original'
+    };
+    const failingDesc = Object.getOwnPropertyDescriptors(failingTarget);
+
+    // Define a non-configurable mock property that cannot be deleted
+    Object.defineProperty(failingTarget, 'unremovableMock', {
+      value: 'permanent_mock',
+      configurable: false,
+      writable: true,
+      enumerable: true
+    });
+
+    const failedRestore = restoreAndVerifyDescriptors(failingTarget, failingDesc, 'FailingTarget');
+    assert.strictEqual(failedRestore.restored, false, 'restoreAndVerifyDescriptors must return restored=false on actual failure');
+    assert(
+      failedRestore.mismatches.length > 0,
+      'mismatches must contain actual restoration failures'
+    );
+    assert(
+      failedRestore.mismatches.some((m) => m.includes('unremovableMock')),
+      'mismatches must mention unremovableMock property'
+    );
+
+    // Feed the ACTUAL result into evaluateSuiteDecision
+    const decisionActualRestoreFail = evaluateSuiteDecision({
       passCount: 15,
       testCount: 15,
       integrityFailed: false,
-      restorationFailed: true,
+      restorationFailed: !failedRestore.restored,
       suiteError: null
     });
-    assert.strictEqual(decisionRestoreFail.isSuccess, false, 'Restoration failure must not produce SUCCESS');
-    assert.strictEqual(decisionRestoreFail.exitCode, 1, 'Restoration failure must produce non-zero exit code (1)');
-    assert.strictEqual(decisionRestoreFail.summary, 'FAILURE');
+    assert.strictEqual(decisionActualRestoreFail.isSuccess, false, 'Actual restoration failure must not produce SUCCESS');
+    assert.strictEqual(decisionActualRestoreFail.exitCode, 1, 'Actual restoration failure must produce non-zero exit code (1)');
+    assert.strictEqual(decisionActualRestoreFail.summary, 'FAILURE');
     passCount++;
-    console.log('✓ Test 15: Controlled restoration mismatch verified to produce FAILURE and exit code 1.');
+    console.log('✓ Test 15: Actual restoration mismatch correctly returns restored=false, captures failures, and produces FAILURE with exit code 1.');
 
   } catch (err: any) {
     console.error('\n[TEST SCENARIO FAILURE]', err);

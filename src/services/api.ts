@@ -1,5 +1,6 @@
 // Centralized Production API Service for Hybrid Job Portal
 import type { BroadcastCampaign, SafeCommunicationProviderConfig, UpdateCommunicationProviderPayload } from '../types/adminSuite';
+import type { JobPostingFeeLog } from '../types/job';
 
 /**
  * Deterministic API base resolution for HybridJobs.
@@ -755,6 +756,49 @@ export const api = {
         method: 'PATCH',
         headers: getAuthHeader(),
         body: JSON.stringify({ action, note, reason })
+      });
+    }
+  },
+
+  // --- FEE LOGS (DURABLE) ---
+  feeLogs: {
+    async getAll() {
+      return safeFetchJson<{ success: boolean; feeLogs: JobPostingFeeLog[]; message?: string }>(
+        `${API_BASE}/fee-logs`,
+        { headers: getAuthHeader() }
+      );
+    },
+    async delete(id: string) {
+      return safeFetchJson<{ success: boolean; message?: string; archivedId?: string }>(
+        `${API_BASE}/fee-logs/${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+          headers: getAuthHeader()
+        }
+      );
+    },
+    async bulkDelete(logIds: string[]) {
+      return safeFetchJson<{ success: boolean; archivedCount?: number; message?: string }>(
+        `${API_BASE}/fee-logs/bulk-delete`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify({ logIds })
+        }
+      );
+    },
+    async importLegacy(records: any[]) {
+      return safeFetchJson<{
+        success: boolean;
+        importedCount?: number;
+        verifiedCount?: number;
+        skippedCount?: number;
+        records?: JobPostingFeeLog[];
+        message?: string;
+      }>(`${API_BASE}/fee-logs/import-legacy`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ records })
       });
     }
   },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
 import { Filters } from './components/Filters';
@@ -687,21 +687,18 @@ export default function App() {
   });
 
   const [jobPostingFeeLogs, setJobPostingFeeLogs] = useState<JobPostingFeeLog[]>(() => {
-    const saved = localStorage.getItem('hybrid_job_fee_logs');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'log-demo-1',
-        jobTitle: 'Senior Python & Django Developer',
-        userId: 'user-demo-1',
-        userName: 'Ali Raza',
-        userEmail: 'ali.raza@example.com',
-        amount: 1000,
-        currency: 'PKR',
-        paymentMethod: 'JazzCash',
-        dateTime: '2026-07-25 10:15',
-        status: 'Paid'
+    try {
+      const saved = localStorage.getItem('hybrid_job_fee_logs');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (l) => l && l.id !== 'log-demo-1' && !String(l.id).startsWith('log-demo-')
+          );
+        }
       }
-    ];
+    } catch {}
+    return [];
   });
 
   // Persistent WhatsApp Support Configuration State
@@ -1462,6 +1459,90 @@ export default function App() {
     }
   }, [currentUser?.id, isAdminLoggedIn, loadBackendTransactions]);
 
+  const loadBackendFeeLogs = useCallback(async () => {
+    try {
+      const res = await api.feeLogs.getAll();
+      if (res?.success && Array.isArray(res.feeLogs)) {
+        setJobPostingFeeLogs(res.feeLogs);
+        return res.feeLogs;
+      }
+    } catch (err) {
+      console.warn('[App] Failed to load durable fee logs from backend:', err);
+    }
+    return null;
+  }, []);
+
+  const hasAttemptedLegacyImport = useRef(false);
+  useEffect(() => {
+    const runLegacyImportAndLoad = async () => {
+      const adminRoles = ['Super Admin', 'Admin', 'Finance Manager', 'Payment Manager'];
+      const isAuthorizedAdmin = (currentUser && adminRoles.includes(currentUser.role)) || isAdminLoggedIn;
+      if (!isAuthorizedAdmin) return;
+
+      if (!hasAttemptedLegacyImport.current) {
+        hasAttemptedLegacyImport.current = true;
+        try {
+          const localRaw = localStorage.getItem('hybrid_job_fee_logs');
+          if (localRaw) {
+            const parsed = JSON.parse(localRaw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const nonDemo = parsed.filter(
+                (p) => p && p.id !== 'log-demo-1' && !String(p.id).startsWith('log-demo-') && String(p.id) !== 'demo'
+              );
+              if (nonDemo.length > 0) {
+                const importRes = await api.feeLogs.importLegacy(nonDemo);
+                if (importRes?.success && typeof importRes.verifiedCount === 'number') {
+                  localStorage.removeItem('hybrid_job_fee_logs');
+                }
+              } else {
+                localStorage.removeItem('hybrid_job_fee_logs');
+              }
+            }
+          }
+        } catch (importErr) {
+          console.warn('[App] Legacy fee logs import check notice:', importErr);
+        }
+      }
+
+      await loadBackendFeeLogs();
+    };
+
+    runLegacyImportAndLoad();
+  }, [currentUser, isAdminLoggedIn, loadBackendFeeLogs]);
+
+  const handleDeleteFeeLog = async (logId: string) => {
+    try {
+      const res = await api.feeLogs.delete(logId);
+      if (res?.success) {
+        setJobPostingFeeLogs((prev) =>
+          prev.filter((l) => l.id !== logId && l.id !== logId.replace(/^log-/, '') && ('log-' + l.id) !== logId)
+        );
+      } else {
+        alert(res?.message || 'Failed to archive fee log entry.');
+      }
+    } catch (err: any) {
+      console.error('[App] Error archiving fee log:', err);
+      alert(err?.message || 'Failed to archive fee log entry.');
+    }
+  };
+
+  const handleBulkDeleteFeeLogs = async (logIds: string[]) => {
+    try {
+      const res = await api.feeLogs.bulkDelete(logIds);
+      if (res?.success) {
+        const idSet = new Set(logIds);
+        setJobPostingFeeLogs((prev) =>
+          prev.filter((l) => !idSet.has(l.id) && !idSet.has(l.id.replace(/^log-/, '')))
+        );
+      } else {
+        alert(res?.message || 'Failed to bulk archive fee logs.');
+      }
+    } catch (err: any) {
+      console.error('[App] Error bulk archiving fee logs:', err);
+      alert(err?.message || 'Failed to bulk archive fee logs.');
+    }
+  };
+
   const handleApprovePaymentTransaction = async (
     txId: string,
     note?: string
@@ -1538,6 +1619,7 @@ export default function App() {
         }
 
         await loadBackendTransactions(currentUser?.id);
+        await loadBackendFeeLogs();
         await loadBackendJobs();
         return { success: true, transaction: normalized };
       } else {
@@ -1643,6 +1725,7 @@ export default function App() {
         }
 
         await loadBackendTransactions(currentUser?.id);
+        await loadBackendFeeLogs();
         return { success: true, transaction: normalized };
       } else {
         // Attempt safe backend reconciliation refresh
@@ -2088,10 +2171,6 @@ export default function App() {
     localStorage.setItem('hybrid_job_posting_fee', jobPostingFeePkr.toString());
   }, [jobPostingFeePkr]);
 
-  useEffect(() => {
-    localStorage.setItem('hybrid_job_fee_logs', JSON.stringify(jobPostingFeeLogs));
-  }, [jobPostingFeeLogs]);
-
   // Handlers for Admin Subscription Controls
   const handleUpdateUserExpiry = (userId: string, newExpiryDate: string) => {
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, expiryDate: newExpiryDate } : u));
@@ -2313,6 +2392,7 @@ export default function App() {
             ...prev.filter((t) => t.id !== normalizedTx.id)
           ]);
           await loadBackendTransactions(currentUser.id);
+          await loadBackendFeeLogs();
           await loadBackendJobs();
           return { success: true, transaction: normalizedTx, job: createdJob };
         } else {
@@ -3182,8 +3262,8 @@ export default function App() {
             onBulkDeleteSubscribers={(subIds) => setSubscribers(prev => prev.filter(s => !subIds.includes(s.id)))}
             onUpdateUser={(updatedUser) => setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u))}
             onBulkDeleteUsers={(userIds) => setUsers(prev => prev.filter(u => !userIds.includes(u.id)))}
-            onDeleteFeeLog={(logId) => setJobPostingFeeLogs(prev => prev.filter(l => l.id !== logId))}
-            onBulkDeleteFeeLogs={(logIds) => setJobPostingFeeLogs(prev => prev.filter(l => !logIds.includes(l.id)))}
+            onDeleteFeeLog={handleDeleteFeeLog}
+            onBulkDeleteFeeLogs={handleBulkDeleteFeeLogs}
             onExitAdmin={() => {
               try {
                 localStorage.setItem('hybrid_admin_view_preference', 'false');

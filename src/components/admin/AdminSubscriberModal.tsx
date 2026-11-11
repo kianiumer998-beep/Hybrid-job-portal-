@@ -1,13 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Subscriber } from '../../types/job';
-import { X, Save, UserPlus, Phone, Mail, DollarSign, Calendar, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { X, Save, UserPlus, Phone, Mail, DollarSign, Calendar, MessageSquare, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 interface AdminSubscriberModalProps {
   subscriber: Subscriber | null;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (subscriber: Subscriber) => void;
+  onSave: (subscriber: Subscriber) => Promise<void> | void;
 }
+
+const buildDefaultSubscriber = (): Subscriber => ({
+  id: 'sub-' + Date.now(),
+  name: '',
+  email: '',
+  phone: '+92 300 1234567',
+  plan: 'Pro Alerts',
+  paymentMethod: 'Easypaisa',
+  amountPaid: 1500,
+  currency: 'PKR',
+  status: 'Active',
+  subscribedAt: new Date().toISOString().split('T')[0],
+  whatsappEnabled: true
+});
 
 export const AdminSubscriberModal: React.FC<AdminSubscriberModalProps> = ({
   subscriber,
@@ -16,28 +30,47 @@ export const AdminSubscriberModal: React.FC<AdminSubscriberModalProps> = ({
   onSave
 }) => {
   const [formData, setFormData] = useState<Subscriber>(() => {
-    if (subscriber) return { ...subscriber };
-    return {
-      id: 'sub-' + Date.now(),
-      name: '',
-      email: '',
-      phone: '+92 300 1234567',
-      plan: 'Pro Alerts',
-      paymentMethod: 'Easypaisa',
-      amountPaid: 1500,
-      currency: 'PKR',
-      status: 'Active',
-      subscribedAt: new Date().toISOString().split('T')[0],
-      whatsappEnabled: true
-    };
+    return subscriber ? { ...subscriber } : buildDefaultSubscriber();
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  
+  // Track previous modal open state and subscriber identity to avoid overwriting user edits while open
+  const prevOpenRef = useRef(false);
+  const prevSubscriberIdRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (isOpen) {
+      const isNewlyOpened = !prevOpenRef.current;
+      const hasSubscriberChanged = prevSubscriberIdRef.current !== (subscriber ? subscriber.id : null);
+
+      if (isNewlyOpened || hasSubscriberChanged) {
+        setFormData(subscriber ? { ...subscriber } : buildDefaultSubscriber());
+        setErrorMessage('');
+        setIsSubmitting(false);
+      }
+    }
+    prevOpenRef.current = isOpen;
+    prevSubscriberIdRef.current = subscriber ? subscriber.id : null;
+  }, [isOpen, subscriber]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
-    onClose();
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setErrorMessage('');
+
+    try {
+      await onSave(formData);
+      setIsSubmitting(false);
+      onClose();
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setErrorMessage(err?.message || 'Failed to persist subscriber. Please check details and try again.');
+    }
   };
 
   return (
@@ -66,6 +99,13 @@ export const AdminSubscriberModal: React.FC<AdminSubscriberModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+          {errorMessage && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start space-x-2 text-rose-300">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="flex-1 font-medium">{errorMessage}</div>
+            </div>
+          )}
+
           <div className="space-y-1">
             <label className="font-bold text-slate-300">Subscriber Full Name *</label>
             <input
@@ -177,10 +217,20 @@ export const AdminSubscriberModal: React.FC<AdminSubscriberModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-1.5"
+              disabled={isSubmitting}
+              className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center space-x-1.5 transition-all"
             >
-              <Save className="w-4 h-4" />
-              <span>Save Subscriber</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Save Subscriber</span>
+                </>
+              )}
             </button>
           </div>
         </form>

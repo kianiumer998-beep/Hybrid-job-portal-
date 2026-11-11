@@ -29,6 +29,7 @@ import { systemSettingsRouter } from './server/routes/systemSettingsRoutes';
 import { communicationProviderRouter } from './server/routes/communicationProviderRoutes';
 import { broadcastRouter } from './server/routes/broadcastRoutes';
 import { feeLogRouter } from './server/routes/feeLogRoutes';
+import { subscriberRouter } from './server/routes/subscriberRoutes';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -165,6 +166,7 @@ async function startServer() {
   app.use('/api/settings', systemSettingsRouter);
   app.use('/api/broadcasts', broadcastRouter);
   app.use('/api/fee-logs', feeLogRouter);
+  app.use('/api/subscribers', subscriberRouter);
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

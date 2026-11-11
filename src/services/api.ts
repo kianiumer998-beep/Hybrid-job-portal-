@@ -1,6 +1,6 @@
 // Centralized Production API Service for Hybrid Job Portal
 import type { BroadcastCampaign, SafeCommunicationProviderConfig, UpdateCommunicationProviderPayload } from '../types/adminSuite';
-import type { JobPostingFeeLog } from '../types/job';
+import type { JobPostingFeeLog, Subscriber } from '../types/job';
 
 /**
  * Deterministic API base resolution for HybridJobs.
@@ -796,6 +796,93 @@ export const api = {
         records?: JobPostingFeeLog[];
         message?: string;
       }>(`${API_BASE}/fee-logs/import-legacy`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ records })
+      });
+    }
+  },
+
+  // --- SUBSCRIBERS (DURABLE) ---
+  subscribers: {
+    async getAll() {
+      return safeFetchJson<{ success: boolean; subscribers: Subscriber[]; message?: string }>(
+        `${API_BASE}/subscribers`,
+        { headers: getAuthHeader() }
+      );
+    },
+    async getById(id: string) {
+      return safeFetchJson<{ success: boolean; subscriber?: Subscriber; message?: string }>(
+        `${API_BASE}/subscribers/${encodeURIComponent(id)}`,
+        { headers: getAuthHeader() }
+      );
+    },
+    async createPending(data: {
+      paymentTransactionId: string;
+      name?: string;
+      email?: string;
+      phone?: string;
+      whatsappEnabled?: boolean;
+    }) {
+      return safeFetchJson<{ success: boolean; subscriber?: Subscriber; message?: string }>(
+        `${API_BASE}/subscribers/pending`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify(data)
+        }
+      );
+    },
+    async create(subscriber: Partial<Subscriber>) {
+      return safeFetchJson<{ success: boolean; subscriber?: Subscriber; message?: string }>(
+        `${API_BASE}/subscribers`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify(subscriber)
+        }
+      );
+    },
+    async update(id: string, updates: Partial<Subscriber>) {
+      return safeFetchJson<{ success: boolean; subscriber?: Subscriber; message?: string }>(
+        `${API_BASE}/subscribers/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          headers: getAuthHeader(),
+          body: JSON.stringify(updates)
+        }
+      );
+    },
+    async delete(id: string) {
+      return safeFetchJson<{ success: boolean; deletedId?: string; message?: string }>(
+        `${API_BASE}/subscribers/${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+          headers: getAuthHeader()
+        }
+      );
+    },
+    async bulkDelete(subscriberIds: string[]) {
+      return safeFetchJson<{ success: boolean; deletedCount?: number; message?: string }>(
+        `${API_BASE}/subscribers/bulk-delete`,
+        {
+          method: 'POST',
+          headers: getAuthHeader(),
+          body: JSON.stringify({ subscriberIds })
+        }
+      );
+    },
+    async importLegacy(records: any[]) {
+      return safeFetchJson<{
+        success: boolean;
+        importedCount?: number;
+        verifiedCount?: number;
+        alreadyRepresentedCount?: number;
+        skippedCount?: number;
+        records?: Subscriber[];
+        errors?: string[];
+        message?: string;
+      }>(`${API_BASE}/subscribers/import-legacy`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify({ records })

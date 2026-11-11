@@ -58,7 +58,8 @@ export const AdminAnalyticsOverview: React.FC<AdminAnalyticsOverviewProps> = ({
   const safeBatchRuns = Array.isArray(batchRuns) ? batchRuns : [];
 
   const totalFeeLogsPkr = safeFeeLogs.reduce((acc, log) => acc + (log?.amount || 0), 0);
-  const totalSubscribersPkr = safeSubscribers.reduce((acc, s) => acc + (s?.amountPaid || 0), 0);
+  const activeSubscribers = safeSubscribers.filter(s => s && (s.status === 'Active' || s.status === 'Expiring Soon'));
+  const totalSubscribersPkr = activeSubscribers.reduce((acc, s) => acc + (s?.amountPaid || 0), 0);
   const userTransactionsPkr = safeUsers.reduce((acc, u) => {
     return acc + (u?.transactions?.reduce((tAcc, t) => tAcc + (t?.status === 'Success' ? t.amount : 0), 0) || 0);
   }, 0);

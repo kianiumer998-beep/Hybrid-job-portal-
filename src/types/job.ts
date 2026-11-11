@@ -325,6 +325,7 @@ export interface Subscriber {
   categories?: string[];
   proofScreenshotUrl?: string;
   transactionRef?: string;
+  paymentTransactionId?: string;
   notes?: string;
 }
 

@@ -62,7 +62,7 @@ async function runTestSuite() {
   let httpServer: Server | null = null;
   let serverPort = 0;
   let passCount = 0;
-  const totalTests = 13;
+  const totalTests = 16;
 
   try {
     // 0. Setup Express Test Server for HTTP integration tests
@@ -550,9 +550,161 @@ async function runTestSuite() {
     console.log('✓ Test 12 Passed: MongoDB failure produces explicit rejection, no false persistence claim.');
 
     // -------------------------------------------------------------
-    // Test 13: No JSON data modification
+    // Test 13: Failed authoritative transaction lookup causes legacy import to reject and zero records written
     // -------------------------------------------------------------
-    console.log('\n--- 8. Storage Isolation & Checksum Verification ---');
+    console.log('\n--- 8. Authoritative Transaction Lookup Failure Path ---');
+    const originalGetAllAsync = PaymentRepository.getAllAsync;
+    PaymentRepository.getAllAsync = async () => {
+      throw new Error('Simulated database partition error in PaymentRepository.getAllAsync');
+    };
+
+    try {
+      let lookupFailureThrew = false;
+      const unwrittenId = 'unwritten-legacy-fail-lookup-01';
+      try {
+        await FeeLogRepository.importLegacyRecords([
+          {
+            id: unwrittenId,
+            jobTitle: 'Unwritten Job Post After Lookup Failure',
+            userId: 'usr-fail-01',
+            amount: 2500,
+            currency: 'PKR',
+            status: 'Paid',
+            dateTime: '2026-10-20 10:00'
+          }
+        ]);
+      } catch (err: any) {
+        lookupFailureThrew = true;
+        assert(
+          err.message.includes('Authoritative transaction lookup failed'),
+          `Error must state authoritative transaction lookup failure, got: ${err.message}`
+        );
+      }
+      assert.strictEqual(
+        lookupFailureThrew,
+        true,
+        'FeeLogRepository.importLegacyRecords must reject when PaymentRepository.getAllAsync() fails'
+      );
+
+      // Verify that NO records were written to storage
+      PaymentRepository.getAllAsync = originalGetAllAsync;
+      const logsAfterFailedLookup = await FeeLogRepository.getAllFeeLogs();
+      assert(
+        !logsAfterFailedLookup.some((l) => l.id === unwrittenId),
+        'Zero legacy records must be written when authoritative transaction lookup fails'
+      );
+    } finally {
+      PaymentRepository.getAllAsync = originalGetAllAsync;
+    }
+
+    passCount++;
+    console.log('✓ Test 13 Passed: Failed transaction lookup halts legacy import and writes zero records.');
+
+    // -------------------------------------------------------------
+    // Test 14: MongoDB-unavailable production import cannot claim success
+    // -------------------------------------------------------------
+    console.log('\n--- 9. Production Mode Pre-flight MongoDB Rejection ---');
+    const originalIsTestProd = process.env.IS_TEST;
+    try {
+      process.env.IS_TEST = 'false';
+      let prodImportThrew = false;
+      try {
+        await FeeLogRepository.importLegacyRecords([
+          {
+            id: 'legacy-prod-no-mongo-01',
+            jobTitle: 'Production Mode Import Without MongoDB',
+            amount: 1000,
+            currency: 'PKR',
+            status: 'Paid'
+          }
+        ]);
+      } catch (err: any) {
+        prodImportThrew = true;
+        assert(
+          err.message.includes('MongoDB is not configured'),
+          `Production import must explicitly reject with MongoDB is not configured, got: ${err.message}`
+        );
+      }
+      assert.strictEqual(
+        prodImportThrew,
+        true,
+        'Production import without MongoDB configuration must throw explicitly before attempting migration'
+      );
+    } finally {
+      process.env.IS_TEST = originalIsTestProd;
+    }
+
+    passCount++;
+    console.log('✓ Test 14 Passed: Production import rejects without MongoDB; cannot claim false persistence success.');
+
+    // -------------------------------------------------------------
+    // Test 15: Conservative LocalStorage clear verification logic
+    // -------------------------------------------------------------
+    console.log('\n--- 10. LocalStorage Clear Condition Safety ---');
+    function evaluateLocalStorageClearDecision(
+      importRes: any,
+      nonDemoRecords: any[]
+    ): { shouldClear: boolean; reason: string } {
+      if (nonDemoRecords.length === 0) {
+        return { shouldClear: true, reason: 'Only demo records existed' };
+      }
+      const verifiedCount = typeof importRes?.verifiedCount === 'number' ? importRes.verifiedCount : -1;
+      const importedCount = typeof importRes?.importedCount === 'number' ? importRes.importedCount : -2;
+      const alreadyRepresented = importRes?.alreadyRepresentedCount ?? 0;
+      const totalAccounted = verifiedCount + alreadyRepresented;
+
+      const isCompleteAndVerified =
+        importRes?.success === true &&
+        verifiedCount >= 0 &&
+        verifiedCount === importedCount &&
+        totalAccounted >= nonDemoRecords.length;
+
+      return {
+        shouldClear: isCompleteAndVerified,
+        reason: isCompleteAndVerified
+          ? 'Complete and reliable verification'
+          : 'Incomplete or unverified records remaining'
+      };
+    }
+
+    // Scenario A: Incomplete verification (verifiedCount < importedCount or unaccounted records)
+    const partialRes = { success: true, importedCount: 2, verifiedCount: 1, alreadyRepresentedCount: 0 };
+    assert.strictEqual(
+      evaluateLocalStorageClearDecision(partialRes, [{ id: '1' }, { id: '2' }]).shouldClear,
+      false,
+      'LocalStorage must NOT be cleared when verifiedCount < importedCount or unaccounted records remain'
+    );
+
+    // Scenario B: Import failed / error response
+    const failedRes = { success: false, message: 'MongoDB connection error' };
+    assert.strictEqual(
+      evaluateLocalStorageClearDecision(failedRes, [{ id: '1' }]).shouldClear,
+      false,
+      'LocalStorage must NOT be cleared when importRes.success is false'
+    );
+
+    // Scenario C: Complete verification (1 verified in storage + 1 already in transactions = 2 accounted)
+    const completeRes = { success: true, importedCount: 1, verifiedCount: 1, alreadyRepresentedCount: 1 };
+    assert.strictEqual(
+      evaluateLocalStorageClearDecision(completeRes, [{ id: '1' }, { id: '2' }]).shouldClear,
+      true,
+      'LocalStorage may be cleared only when all non-demo records are verified or accounted for'
+    );
+
+    // Scenario D: Only synthetic demo records
+    assert.strictEqual(
+      evaluateLocalStorageClearDecision(null, []).shouldClear,
+      true,
+      'LocalStorage may be cleaned up when only demo records existed'
+    );
+
+    passCount++;
+    console.log('✓ Test 15 Passed: LocalStorage conservative retention logic verified across all failure & partial paths.');
+
+    // -------------------------------------------------------------
+    // Test 16: No JSON data modification
+    // -------------------------------------------------------------
+    console.log('\n--- 11. Storage Isolation & Checksum Verification ---');
     const postSnapshot = getDataDirectorySnapshot();
     const postMongoHash = getMongodbTsHash();
 
@@ -577,7 +729,7 @@ async function runTestSuite() {
     }
 
     passCount++;
-    console.log('✓ Test 13 Passed: Zero modifications to data/*.json and protected server/db/mongodb.ts.');
+    console.log('✓ Test 16 Passed: Zero modifications to data/*.json and protected server/db/mongodb.ts.');
 
     console.log('\n==================================================================');
     console.log(`=== TEST SUITE RESULT: SUCCESS (${passCount}/${totalTests} Passed) ===`);

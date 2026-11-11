@@ -1480,7 +1480,6 @@ export default function App() {
       if (!isAuthorizedAdmin) return;
 
       if (!hasAttemptedLegacyImport.current) {
-        hasAttemptedLegacyImport.current = true;
         try {
           const localRaw = localStorage.getItem('hybrid_job_fee_logs');
           if (localRaw) {
@@ -1491,16 +1490,42 @@ export default function App() {
               );
               if (nonDemo.length > 0) {
                 const importRes = await api.feeLogs.importLegacy(nonDemo);
-                if (importRes?.success && typeof importRes.verifiedCount === 'number') {
+
+                // Complete and reliable verification:
+                // 1. Backend reported success
+                // 2. Verified count is valid and matches imported count
+                // 3. Every legitimate non-demo record is accounted for (verified in storage OR already in transactions)
+                const verifiedCount = typeof importRes?.verifiedCount === 'number' ? importRes.verifiedCount : -1;
+                const importedCount = typeof importRes?.importedCount === 'number' ? importRes.importedCount : -2;
+                const alreadyRepresented = (importRes as any)?.alreadyRepresentedCount ?? 0;
+                const totalAccounted = verifiedCount + alreadyRepresented;
+
+                const isCompleteAndVerified =
+                  importRes?.success === true &&
+                  verifiedCount >= 0 &&
+                  verifiedCount === importedCount &&
+                  totalAccounted >= nonDemo.length;
+
+                if (isCompleteAndVerified) {
                   localStorage.removeItem('hybrid_job_fee_logs');
+                  hasAttemptedLegacyImport.current = true;
+                } else {
+                  console.warn(
+                    '[App] Legacy fee log migration verification incomplete. Retaining original LocalStorage data.',
+                    { totalNonDemo: nonDemo.length, verifiedCount, importedCount, alreadyRepresented }
+                  );
                 }
               } else {
+                // LocalStorage contained only demo records; safe to clean up
                 localStorage.removeItem('hybrid_job_fee_logs');
+                hasAttemptedLegacyImport.current = true;
               }
             }
+          } else {
+            hasAttemptedLegacyImport.current = true;
           }
         } catch (importErr) {
-          console.warn('[App] Legacy fee logs import check notice:', importErr);
+          console.warn('[App] Legacy fee logs import failed. Retaining original LocalStorage data:', importErr);
         }
       }
 

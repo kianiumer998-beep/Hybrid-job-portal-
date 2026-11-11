@@ -412,23 +412,31 @@ export class FeeLogRepository {
     importedCount: number;
     verifiedCount: number;
     skippedCount: number;
+    alreadyRepresentedCount: number;
     records: JobPostingFeeLog[];
   }> {
     if (!Array.isArray(records)) {
       throw new Error('Records must be an array.');
     }
 
+    if (!isTest()) {
+      if (!isMongoConfigured()) {
+        throw new Error('MongoDB is not configured. Cannot perform durable legacy fee logs import.');
+      }
+    }
+
     // 1. Filter out synthetic demo records and invalid records
     const validLegitimateRecords: JobPostingFeeLog[] = [];
-    let skippedCount = 0;
+    let syntheticDemoCount = 0;
+    let invalidCount = 0;
 
     for (const r of records) {
       if (isSyntheticDemoRecord(r)) {
-        skippedCount++;
+        syntheticDemoCount++;
         continue;
       }
       if (!isValidLegacyRecord(r)) {
-        skippedCount++;
+        invalidCount++;
         continue;
       }
       validLegitimateRecords.push({
@@ -445,12 +453,15 @@ export class FeeLogRepository {
       });
     }
 
-    // 2. Fetch existing transactions to avoid duplicating existing transactions
-    let allTransactions: any[] = [];
+    // 2. Fetch authoritative transactions to avoid duplicating existing transactions
+    // Crucial: Do not swallow lookup failures with an assumed empty list.
+    let allTransactions: any[];
     try {
       allTransactions = await PaymentRepository.getAllAsync();
-    } catch {
-      allTransactions = [];
+    } catch (err: any) {
+      throw new Error(
+        `Authoritative transaction lookup failed during legacy fee logs import: ${err?.message || err}`
+      );
     }
 
     const txIdSet = new Set<string>();
@@ -465,20 +476,24 @@ export class FeeLogRepository {
     }
 
     // Filter out records already represented by transaction IDs
+    let alreadyRepresentedCount = 0;
     const toImport = validLegitimateRecords.filter((r) => {
       const rawId = r.id.replace(/^log-/, '');
       if (txIdSet.has(r.id) || txIdSet.has(rawId)) {
-        skippedCount++;
+        alreadyRepresentedCount++;
         return false;
       }
       return true;
     });
 
+    const totalSkipped = syntheticDemoCount + invalidCount + alreadyRepresentedCount;
+
     if (toImport.length === 0) {
       return {
         importedCount: 0,
         verifiedCount: 0,
-        skippedCount,
+        skippedCount: totalSkipped,
+        alreadyRepresentedCount,
         records: []
       };
     }
@@ -507,13 +522,10 @@ export class FeeLogRepository {
       return {
         importedCount: imported,
         verifiedCount: verified,
-        skippedCount,
+        skippedCount: totalSkipped,
+        alreadyRepresentedCount,
         records: verifiedRecords
       };
-    }
-
-    if (!isMongoConfigured()) {
-      throw new Error('MongoDB is not configured. Cannot perform durable legacy fee logs import.');
     }
 
     try {
@@ -557,7 +569,8 @@ export class FeeLogRepository {
       return {
         importedCount: toImport.length,
         verifiedCount: verifiedRecords.length,
-        skippedCount,
+        skippedCount: totalSkipped,
+        alreadyRepresentedCount,
         records: verifiedRecords
       };
     } catch (err: any) {

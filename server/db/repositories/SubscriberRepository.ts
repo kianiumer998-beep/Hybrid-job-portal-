@@ -159,11 +159,16 @@ export class SubscriberRepository {
 
   /**
    * Helper: Reconciles subscriber status against authoritative payment transaction if linked.
-   * If linked payment transaction is missing, unreadable or has an unknown status, do not preserve Active status (fail safely).
+   * - Compensation/refund checks execute BEFORE successful-status checks.
+   * - If transaction is refunded, compensated, compensation-in-progress, or compensation-uncertain, never Active.
+   * - Only verified, canonical successful Subscription transactions can activate a subscriber.
+   * - Missing, unreadable, wrong transaction type, unknown status, or uncertain compensation state $\rightarrow$ fail safely (set to Pending/Expired).
+   * - Amount parsing ensures finite valid number, preventing NaN or Infinity.
+   * - Atomically persists reconciled status when MongoDB is configured.
    */
   private static async reconcileSubscriberStatus(sub: StoredSubscriberRecord): Promise<StoredSubscriberRecord> {
     if (!sub || !sub.paymentTransactionId) {
-      // Manually created admin subscriber with no linked transaction preserves its status (Rule 70)
+      // Manually created admin subscriber without paymentTransactionId preserves current status (Rule 11)
       return sub;
     }
 
@@ -171,72 +176,162 @@ export class SubscriberRepository {
     try {
       tx = await PaymentRepository.getByIdAsync(sub.paymentTransactionId);
     } catch (err: any) {
-      // Missing, unreadable or error in transaction lookup: fail safely, do not preserve Active status
-      return {
+      // Missing or unreadable transaction: fail safely (do not preserve Active)
+      const failedReconciled: StoredSubscriberRecord = {
         ...sub,
         status: sub.status === 'Active' ? 'Pending' : sub.status
       };
+      return failedReconciled;
     }
 
     if (!tx) {
-      // Missing transaction: fail safely, do not preserve Active status
-      return {
+      const missingReconciled: StoredSubscriberRecord = {
         ...sub,
         status: sub.status === 'Active' ? 'Pending' : sub.status
       };
+      return missingReconciled;
+    }
+
+    // 1. COMPENSATION & REFUND CHECKS (Must execute BEFORE successful-status checks - Rule 6)
+    const isCompensatedOrRefunded =
+      PaymentRepository.isTransactionCompensated(tx) ||
+      tx.status === 'Refunded' ||
+      tx.refunded === true;
+
+    const isCompensationPendingOrUncertain =
+      PaymentRepository.isCompensationInProgressOrUncertain(tx);
+
+    if (isCompensatedOrRefunded || isCompensationPendingOrUncertain) {
+      const compensatedReconciled: StoredSubscriberRecord = {
+        ...sub,
+        status: 'Expired',
+        amountPaid: (typeof tx.amount === 'number' && Number.isFinite(tx.amount) && tx.amount >= 0) ? tx.amount : sub.amountPaid,
+        currency: (tx.currency as any) || sub.currency,
+        plan: tx.plan || sub.plan
+      };
+      await this.persistReconciledStatus(compensatedReconciled);
+      return compensatedReconciled;
+    }
+
+    // 2. TRANSACTION TYPE VERIFICATION (Rule 10: Non-Subscription transaction cannot activate)
+    const txType = String(tx.type || '').trim().toLowerCase();
+    if (txType && txType !== 'subscription') {
+      const wrongTypeReconciled: StoredSubscriberRecord = {
+        ...sub,
+        status: sub.status === 'Active' ? 'Pending' : sub.status,
+        amountPaid: (typeof tx.amount === 'number' && Number.isFinite(tx.amount) && tx.amount >= 0) ? tx.amount : sub.amountPaid,
+        currency: (tx.currency as any) || sub.currency,
+        plan: tx.plan || sub.plan
+      };
+      await this.persistReconciledStatus(wrongTypeReconciled);
+      return wrongTypeReconciled;
     }
 
     const txStatus = String(tx.status || '').trim();
 
-    // Accept Active status ONLY when the linked transaction has a verified, explicitly supported successful status
+    // Safe amount parsing (Rule 12: amount must be finite valid number; reject NaN / Infinity)
+    const rawTxAmount = Number(tx.amount);
+    const validAmount = (typeof rawTxAmount === 'number' && Number.isFinite(rawTxAmount) && rawTxAmount >= 0)
+      ? rawTxAmount
+      : sub.amountPaid;
+
+    // 3. SUCCESSFUL STATUS CHECK (Rule 8: Only verified canonical successful Subscription transaction can activate)
     if (txStatus === 'Success' || txStatus === 'Paid' || txStatus === 'Approved') {
-      return {
+      const activeReconciled: StoredSubscriberRecord = {
         ...sub,
         status: sub.status === 'Expiring Soon' ? 'Expiring Soon' : 'Active',
-        amountPaid: Number(tx.amount) ?? sub.amountPaid,
+        amountPaid: validAmount,
         currency: (tx.currency as any) || sub.currency,
         plan: tx.plan || sub.plan
       };
+      await this.persistReconciledStatus(activeReconciled);
+      return activeReconciled;
     }
 
-    // Pending, Verifying, VerificationUncertain must never activate a subscriber
+    // 4. PENDING / VERIFYING CHECKS (Rule 7: Pending, Verifying, VerificationUncertain never activate)
     if (
       txStatus === 'Pending' ||
       txStatus === 'Verifying' ||
       txStatus === 'VerificationUncertain' ||
       txStatus === 'Under Review'
     ) {
-      return {
+      const pendingReconciled: StoredSubscriberRecord = {
         ...sub,
         status: 'Pending',
-        amountPaid: Number(tx.amount) ?? sub.amountPaid,
+        amountPaid: validAmount,
         currency: (tx.currency as any) || sub.currency,
         plan: tx.plan || sub.plan
       };
+      await this.persistReconciledStatus(pendingReconciled);
+      return pendingReconciled;
     }
 
-    // Failed, Rejected, Refunded and Compensated must never remain Active
-    if (
-      txStatus === 'Failed' ||
-      txStatus === 'Rejected' ||
-      txStatus === 'Refunded' ||
-      txStatus === 'Compensated' ||
-      PaymentRepository.isTransactionCompensated(tx)
-    ) {
-      return {
+    // 5. FAILED / REJECTED CHECKS (Rule 8: Failed, Rejected must never remain Active)
+    if (txStatus === 'Failed' || txStatus === 'Rejected') {
+      const failedReconciled: StoredSubscriberRecord = {
         ...sub,
         status: 'Expired',
-        amountPaid: Number(tx.amount) ?? sub.amountPaid,
+        amountPaid: validAmount,
         currency: (tx.currency as any) || sub.currency,
         plan: tx.plan || sub.plan
       };
+      await this.persistReconciledStatus(failedReconciled);
+      return failedReconciled;
     }
 
-    // Unknown status: fail safely, do not preserve Active status
-    return {
+    // 6. UNKNOWN STATUS: Fail safely
+    const unknownReconciled: StoredSubscriberRecord = {
       ...sub,
-      status: sub.status === 'Active' ? 'Pending' : sub.status
+      status: sub.status === 'Active' ? 'Pending' : sub.status,
+      amountPaid: validAmount
     };
+    await this.persistReconciledStatus(unknownReconciled);
+    return unknownReconciled;
+  }
+
+  /**
+   * Atomically and minimally persists reconciled status changes to MongoDB or test store (Rule 13).
+   */
+  private static async persistReconciledStatus(reconciled: StoredSubscriberRecord): Promise<void> {
+    if (!reconciled || !reconciled.id) return;
+    if (isTest()) {
+      const existing = testSubscribers.get(reconciled.id);
+      if (existing) {
+        testSubscribers.set(reconciled.id, {
+          ...existing,
+          status: reconciled.status,
+          amountPaid: reconciled.amountPaid,
+          currency: reconciled.currency,
+          plan: reconciled.plan,
+          updatedAt: new Date().toISOString()
+        });
+      }
+      return;
+    }
+
+    if (!isMongoConfigured()) return;
+
+    try {
+      const coll = await getSubscribersCollection();
+      await withMongoTimeout(
+        coll.updateOne(
+          { id: reconciled.id },
+          {
+            $set: {
+              status: reconciled.status,
+              amountPaid: reconciled.amountPaid,
+              currency: reconciled.currency,
+              plan: reconciled.plan,
+              updatedAt: new Date().toISOString()
+            }
+          }
+        ),
+        5000,
+        'persist reconciled subscriber status'
+      );
+    } catch (err: any) {
+      console.warn('[SubscriberRepository] Notice: Reconciliation persistence warning:', err?.message || err);
+    }
   }
 
   /**
@@ -439,7 +534,6 @@ export class SubscriberRepository {
 
     // Ownership verification (Rule 55-56)
     if (authUserId) {
-      // Authenticated user: must match transaction's user ID or user Email
       const txUserId = String(tx.userId || '');
       const txUserEmail = normalizeEmail(tx.userEmail);
       const isOwner =
@@ -450,7 +544,6 @@ export class SubscriberRepository {
         throw new Error('Access denied: You are not authorized to create a subscriber for another user transaction.');
       }
     } else {
-      // Guest submission: verify submitted contact against transaction's stored details (Rule 56 & Rule 14)
       const txEmail = normalizeEmail(tx.userEmail);
       const txPhone = normalizePhone(tx.senderPhoneOrAccount);
       const subEmail = normalizeEmail(guestEmail);
@@ -459,7 +552,7 @@ export class SubscriberRepository {
       const matchesEmail = Boolean(txEmail && subEmail && txEmail === subEmail);
       const matchesPhone = Boolean(txPhone && subPhone && txPhone === subPhone);
 
-      // Do not allow email-only or phone-only matching to authorize an unrelated subscriber or payment transaction (Rule 14)
+      // Require both email and phone to match when checking guest identity (prevent email-only or phone-only spoofing)
       if (!matchesEmail || !matchesPhone) {
         throw new Error(
           'Guest identity verification failed: Submitted email and phone must both match the payment transaction record.'
@@ -473,8 +566,8 @@ export class SubscriberRepository {
       return existing;
     }
 
-    // Derive authoritative plan, amount, currency, and payment method from transaction (Rule 58)
-    const authoritativeAmount = Number(tx.amount) || 0;
+    const rawTxAmount = Number(tx.amount);
+    const authoritativeAmount = (typeof rawTxAmount === 'number' && Number.isFinite(rawTxAmount) && rawTxAmount >= 0) ? rawTxAmount : 0;
     const authoritativePlan = tx.plan || tx.packageSnapshot?.name || 'Pro Alerts';
     const authoritativeMethod = tx.paymentMethod || 'Manual';
     const authoritativeCurrency = tx.currency || 'PKR';
@@ -493,7 +586,7 @@ export class SubscriberRepository {
       paymentMethod: authoritativeMethod,
       amountPaid: authoritativeAmount,
       currency: authoritativeCurrency as any,
-      status: 'Pending', // Rule 57: Public creation endpoint must never accept arbitrary Active status
+      status: 'Pending',
       subscribedAt: tx.dateTime || tx.createdAt || new Date().toISOString(),
       whatsappEnabled: params.whatsappEnabled !== false,
       transactionRef: tx.transactionId || cleanTxId,
@@ -546,6 +639,9 @@ export class SubscriberRepository {
       throw new Error(`Subscriber with ID '${subId}' already exists.`);
     }
 
+    const rawAmount = Number(data.amountPaid);
+    const validAmount = (typeof rawAmount === 'number' && Number.isFinite(rawAmount) && rawAmount >= 0) ? rawAmount : 0;
+
     const subscriber: StoredSubscriberRecord = {
       id: subId,
       name: String(data.name || '').trim(),
@@ -555,7 +651,7 @@ export class SubscriberRepository {
       normalizedPhone: normalizePhone(data.phone),
       plan: String(data.plan || 'Pro Alerts'),
       paymentMethod: String(data.paymentMethod || 'Manual'),
-      amountPaid: Number(data.amountPaid) || 0,
+      amountPaid: validAmount,
       currency: (data.currency || 'PKR') as any,
       status: (data.status || 'Active') as any,
       subscribedAt: data.subscribedAt || new Date().toISOString(),
@@ -594,7 +690,7 @@ export class SubscriberRepository {
 
   /**
    * Updates an existing subscriber (Admin only).
-   * Uses an explicit allowed-field whitelist and keeps subscriber ID and paymentTransactionId strictly immutable (Rule 9 & Rule 46).
+   * Uses an explicit allowed-field whitelist and keeps subscriber ID and paymentTransactionId strictly immutable (Rule 15).
    */
   static async updateSubscriber(id: string, updates: Partial<Subscriber>): Promise<Subscriber> {
     if (!id || typeof id !== 'string') {
@@ -638,14 +734,19 @@ export class SubscriberRepository {
       throw new Error(`Validation failed: ${validation.errors.join('; ')}`);
     }
 
-    // Explicit allowed-field whitelist (Rule 9)
+    // Explicit allowed-field whitelist (Rule 15)
     const allowedUpdates: Partial<StoredSubscriberRecord> = {};
     if (updates.name !== undefined) allowedUpdates.name = String(updates.name).trim();
     if (updates.phone !== undefined) allowedUpdates.phone = String(updates.phone).trim();
     if (updates.email !== undefined) allowedUpdates.email = String(updates.email || '').trim();
     if (updates.plan !== undefined) allowedUpdates.plan = String(updates.plan);
     if (updates.paymentMethod !== undefined) allowedUpdates.paymentMethod = String(updates.paymentMethod);
-    if (updates.amountPaid !== undefined) allowedUpdates.amountPaid = Number(updates.amountPaid) || 0;
+    if (updates.amountPaid !== undefined) {
+      const rawUpAmount = Number(updates.amountPaid);
+      if (typeof rawUpAmount === 'number' && Number.isFinite(rawUpAmount) && rawUpAmount >= 0) {
+        allowedUpdates.amountPaid = rawUpAmount;
+      }
+    }
     if (updates.currency !== undefined) allowedUpdates.currency = updates.currency;
     if (updates.status !== undefined) allowedUpdates.status = updates.status;
     if (updates.whatsappEnabled !== undefined) allowedUpdates.whatsappEnabled = Boolean(updates.whatsappEnabled);
@@ -655,7 +756,7 @@ export class SubscriberRepository {
     if (updates.notes !== undefined) allowedUpdates.notes = updates.notes ? String(updates.notes) : undefined;
     if (updates.expiryDate !== undefined) allowedUpdates.expiryDate = updates.expiryDate;
 
-    // Keep subscriber ID and paymentTransactionId strictly immutable (Rule 9 & Rule 46)
+    // Keep subscriber ID and paymentTransactionId strictly immutable (Rule 15)
     const updatedRecord: StoredSubscriberRecord = {
       ...existing,
       ...allowedUpdates,
@@ -692,7 +793,7 @@ export class SubscriberRepository {
 
   /**
    * Deletes a single subscriber (Admin only).
-   * CRITICAL: Does NOT delete or alter underlying payment transactions (Rule 15, 117, 139).
+   * CRITICAL: Does NOT delete or alter underlying payment transactions (Rule 15).
    */
   static async deleteSubscriber(id: string): Promise<boolean> {
     if (!id || typeof id !== 'string') {
@@ -727,7 +828,7 @@ export class SubscriberRepository {
 
   /**
    * Bulk-deletes subscribers by ID (Admin only).
-   * CRITICAL: Does NOT delete or alter underlying payment transactions (Rule 15, 117, 139).
+   * CRITICAL: Does NOT delete or alter underlying payment transactions (Rule 15).
    */
   static async bulkDeleteSubscribers(ids: string[]): Promise<number> {
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -766,7 +867,7 @@ export class SubscriberRepository {
   }
 
   /**
-   * Imports legacy LocalStorage records with validation, deduplication and database read-back verification (Rules 10 & 11).
+   * Imports legacy LocalStorage records with validation, deduplication, idempotency, and database read-back verification (Rules 10 & 16).
    */
   static async importLegacySubscribers(records: any[]): Promise<{
     success: boolean;
@@ -797,13 +898,13 @@ export class SubscriberRepository {
     for (let i = 0; i < records.length; i++) {
       const raw = records[i];
 
-      // Exclude hardcoded demo record and synthetic records (Rules 95, 136)
+      // Exclude hardcoded demo record and synthetic records
       if (isSyntheticDemoSubscriber(raw)) {
         skippedCount++;
         continue;
       }
 
-      // Validate legitimate record (Rule 97)
+      // Validate legitimate record
       const validation = validateSubscriberRecord(raw);
       if (!validation.valid) {
         errors.push(`Record index ${i} ('${raw?.id || 'unidentified'}'): ${validation.errors.join('; ')}`);
@@ -812,12 +913,15 @@ export class SubscriberRepository {
 
       const cleanId = String(raw.id).trim();
 
-      // Check if already in storage (idempotent migration)
+      // Check if already in storage (idempotent migration - never overwrite existing legitimate record)
       const existing = await this.getById(cleanId);
       if (existing) {
         alreadyRepresentedCount++;
         continue;
       }
+
+      const rawImpAmount = Number(raw.amountPaid);
+      const validImpAmount = (typeof rawImpAmount === 'number' && Number.isFinite(rawImpAmount) && rawImpAmount >= 0) ? rawImpAmount : 0;
 
       const storedItem: StoredSubscriberRecord = {
         id: cleanId,
@@ -828,7 +932,7 @@ export class SubscriberRepository {
         normalizedPhone: normalizePhone(raw.phone),
         plan: String(raw.plan || 'Pro Alerts'),
         paymentMethod: String(raw.paymentMethod || 'Manual'),
-        amountPaid: Number(raw.amountPaid) || 0,
+        amountPaid: validImpAmount,
         currency: (raw.currency || 'PKR') as any,
         status: (raw.status || 'Active') as any,
         subscribedAt: raw.subscribedAt || new Date().toISOString(),
@@ -848,7 +952,6 @@ export class SubscriberRepository {
       validRecordsToInsert.push(storedItem);
     }
 
-    // If any legitimate record failed validation, do not claim success (Rule 102)
     if (errors.length > 0) {
       return {
         success: false,
@@ -861,7 +964,7 @@ export class SubscriberRepository {
       };
     }
 
-    // 2. Persist new records idempotently (Rule 11: never overwrite existing legitimate subscriber record)
+    // 2. Persist new records idempotently (Rule 16: never overwrite existing legitimate record)
     if (validRecordsToInsert.length > 0) {
       if (isTest()) {
         for (const item of validRecordsToInsert) {

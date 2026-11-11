@@ -977,10 +977,8 @@ export default function App() {
   const [jobAlerts, setJobAlerts] = useState<any[]>([]);
   const [userDocuments, setUserDocuments] = useState<any[]>([]);
 
-  const [subscribers, setSubscribers] = useState<Subscriber[]>(() => {
-    const saved = localStorage.getItem('hybrid_subscribers_list');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const subscriberReqSeqRef = useRef<number>(0);
+  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
 
   const [isSubscribed, setIsSubscribed] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -1260,8 +1258,11 @@ export default function App() {
       return false;
     }
 
+    const currentSeq = ++subscriberReqSeqRef.current;
+
     try {
       const res = await api.subscribers.getAll();
+      if (currentSeq !== subscriberReqSeqRef.current) return false;
       if (res && res.success && Array.isArray(res.subscribers)) {
         setSubscribers(res.subscribers);
         return true;
@@ -1289,7 +1290,17 @@ export default function App() {
       if (legitimate.length === 0) return;
 
       const res = await api.subscribers.importLegacy(legitimate);
-      if (res && res.success && Array.isArray(res.records)) {
+      const verified = Number(res?.verifiedCount);
+      const imported = Number(res?.importedCount ?? 0);
+      const represented = Number(res?.alreadyRepresentedCount ?? 0);
+      const isValidCounts =
+        Number.isSafeInteger(verified) && verified >= 0 &&
+        Number.isSafeInteger(imported) && imported >= 0 &&
+        Number.isSafeInteger(represented) && represented >= 0 &&
+        verified === (imported + represented) &&
+        verified === legitimate.length;
+
+      if (res && res.success === true && isValidCounts && Array.isArray(res.records)) {
         setSubscribers(res.records);
       }
     } catch (err) {

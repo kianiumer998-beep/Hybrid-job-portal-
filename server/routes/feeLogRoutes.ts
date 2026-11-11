@@ -142,17 +142,24 @@ feeLogRouter.post('/import-legacy', requireFeeLogAccess, async (req, res) => {
     const adminUser = (req as any).user?.name || (req as any).user?.email || 'Admin';
     const result = await FeeLogRepository.importLegacyRecords(records, adminUser);
 
-    const alreadyRepresentedCount =
-      typeof result.alreadyRepresentedCount === 'number'
-        ? Math.max(0, result.alreadyRepresentedCount)
-        : 0;
+    const rawAlreadyRepresented = (result as any)?.alreadyRepresentedCount;
+    if (
+      typeof rawAlreadyRepresented !== 'number' ||
+      !Number.isSafeInteger(rawAlreadyRepresented) ||
+      rawAlreadyRepresented < 0
+    ) {
+      return res.status(500).json({
+        success: false,
+        message: 'Invalid alreadyRepresentedCount received from storage repository.'
+      });
+    }
 
     res.json({
       success: true,
       importedCount: result.importedCount,
       verifiedCount: result.verifiedCount,
       skippedCount: result.skippedCount,
-      alreadyRepresentedCount,
+      alreadyRepresentedCount: rawAlreadyRepresented,
       records: result.records
     });
   } catch (err: any) {

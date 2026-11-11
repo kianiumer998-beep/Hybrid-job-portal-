@@ -822,6 +822,83 @@ async function runTestSuite() {
       PaymentRepository.getAllAsync = origGetAllAsyncForHttp;
     }
 
+    // 16E. Strict alreadyRepresentedCount validation tests at HTTP endpoint level
+    const origImportLegacyRecords = FeeLogRepository.importLegacyRecords;
+    try {
+      const invalidCountTestCases = [
+        { label: 'NaN', value: NaN },
+        { label: 'Infinity', value: Infinity },
+        { label: '-Infinity', value: -Infinity },
+        { label: 'Negative count (-1)', value: -1 },
+        { label: 'Fractional count (2.5)', value: 2.5 },
+        { label: 'Missing count (undefined)', value: undefined }
+      ];
+
+      for (const tc of invalidCountTestCases) {
+        FeeLogRepository.importLegacyRecords = async () => ({
+          importedCount: 1,
+          verifiedCount: 1,
+          skippedCount: 0,
+          alreadyRepresentedCount: tc.value as any,
+          records: []
+        });
+
+        const res = await fetch(importEndpointUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${financeAdminToken}`
+          },
+          body: JSON.stringify({
+            records: [{ id: 'test-rec-val-01', jobTitle: 'Test Post', amount: 500, currency: 'PKR', status: 'Paid' }]
+          })
+        });
+
+        assert.strictEqual(
+          res.status,
+          500,
+          `POST /import-legacy must return HTTP 500 when alreadyRepresentedCount is ${tc.label}`
+        );
+        const data = await res.json();
+        assert.strictEqual(
+          data.success,
+          false,
+          `Response success must be false when alreadyRepresentedCount is ${tc.label}`
+        );
+        assert(
+          data.message.includes('Invalid alreadyRepresentedCount'),
+          `Error message must report invalid alreadyRepresentedCount for ${tc.label}, got: ${data.message}`
+        );
+      }
+
+      // Also verify valid integer count returns HTTP 200 with exact integer preserved
+      FeeLogRepository.importLegacyRecords = async () => ({
+        importedCount: 2,
+        verifiedCount: 2,
+        skippedCount: 3,
+        alreadyRepresentedCount: 3,
+        records: []
+      });
+
+      const validRes = await fetch(importEndpointUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${financeAdminToken}`
+        },
+        body: JSON.stringify({
+          records: [{ id: 'test-rec-val-02', jobTitle: 'Test Post 2', amount: 500, currency: 'PKR', status: 'Paid' }]
+        })
+      });
+
+      assert.strictEqual(validRes.status, 200, 'POST /import-legacy must return HTTP 200 for valid integer count');
+      const validData = await validRes.json();
+      assert.strictEqual(validData.success, true);
+      assert.strictEqual(validData.alreadyRepresentedCount, 3);
+    } finally {
+      FeeLogRepository.importLegacyRecords = origImportLegacyRecords;
+    }
+
     passCount++;
     console.log('✓ Test 16 Passed: HTTP-level /import-legacy API response contract fully verified with alreadyRepresentedCount.');
 

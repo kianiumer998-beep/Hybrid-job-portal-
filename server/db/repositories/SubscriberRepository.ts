@@ -159,7 +159,7 @@ export class SubscriberRepository {
 
   /**
    * Helper: Reconciles subscriber status against authoritative payment transaction if linked.
-   * If MongoDB fails during transaction lookup, throws an explicit error (Rule 69).
+   * If linked payment transaction is missing, unreadable or has an unknown status, do not preserve Active status (fail safely).
    */
   private static async reconcileSubscriberStatus(sub: StoredSubscriberRecord): Promise<StoredSubscriberRecord> {
     if (!sub || !sub.paymentTransactionId) {
@@ -171,17 +171,24 @@ export class SubscriberRepository {
     try {
       tx = await PaymentRepository.getByIdAsync(sub.paymentTransactionId);
     } catch (err: any) {
-      // If MongoDB is configured but fails, return explicit error rather than assuming payment success (Rule 69)
-      throw new Error(`Authoritative payment transaction lookup failed: ${err?.message || err}`);
+      // Missing, unreadable or error in transaction lookup: fail safely, do not preserve Active status
+      return {
+        ...sub,
+        status: sub.status === 'Active' ? 'Pending' : sub.status
+      };
     }
 
     if (!tx) {
-      return sub;
+      // Missing transaction: fail safely, do not preserve Active status
+      return {
+        ...sub,
+        status: sub.status === 'Active' ? 'Pending' : sub.status
+      };
     }
 
     const txStatus = String(tx.status || '').trim();
 
-    // Rule 65: A transaction with status "Success" may produce subscriber status "Active"
+    // Accept Active status ONLY when the linked transaction has a verified, explicitly supported successful status
     if (txStatus === 'Success' || txStatus === 'Paid' || txStatus === 'Approved') {
       return {
         ...sub,
@@ -192,7 +199,7 @@ export class SubscriberRepository {
       };
     }
 
-    // Rule 66: "Pending", "Verifying", or "VerificationUncertain" must NEVER produce "Active"
+    // Pending, Verifying, VerificationUncertain must never activate a subscriber
     if (
       txStatus === 'Pending' ||
       txStatus === 'Verifying' ||
@@ -208,7 +215,7 @@ export class SubscriberRepository {
       };
     }
 
-    // Rule 67: "Failed", "Refunded", "Rejected", "Compensated" must not remain Active
+    // Failed, Rejected, Refunded and Compensated must never remain Active
     if (
       txStatus === 'Failed' ||
       txStatus === 'Rejected' ||
@@ -225,7 +232,11 @@ export class SubscriberRepository {
       };
     }
 
-    return sub;
+    // Unknown status: fail safely, do not preserve Active status
+    return {
+      ...sub,
+      status: sub.status === 'Active' ? 'Pending' : sub.status
+    };
   }
 
   /**
@@ -439,7 +450,7 @@ export class SubscriberRepository {
         throw new Error('Access denied: You are not authorized to create a subscriber for another user transaction.');
       }
     } else {
-      // Guest submission: verify submitted contact against transaction's stored details (Rule 56)
+      // Guest submission: verify submitted contact against transaction's stored details (Rule 56 & Rule 14)
       const txEmail = normalizeEmail(tx.userEmail);
       const txPhone = normalizePhone(tx.senderPhoneOrAccount);
       const subEmail = normalizeEmail(guestEmail);
@@ -448,9 +459,10 @@ export class SubscriberRepository {
       const matchesEmail = Boolean(txEmail && subEmail && txEmail === subEmail);
       const matchesPhone = Boolean(txPhone && subPhone && txPhone === subPhone);
 
-      if (!matchesEmail && !matchesPhone) {
+      // Do not allow email-only or phone-only matching to authorize an unrelated subscriber or payment transaction (Rule 14)
+      if (!matchesEmail || !matchesPhone) {
         throw new Error(
-          'Guest identity verification failed: Submitted contact details do not match the transaction record.'
+          'Guest identity verification failed: Submitted email and phone must both match the payment transaction record.'
         );
       }
     }
@@ -582,7 +594,7 @@ export class SubscriberRepository {
 
   /**
    * Updates an existing subscriber (Admin only).
-   * Ensures update operations cannot overwrite immutable identifiers or payment transaction references (Rule 46).
+   * Uses an explicit allowed-field whitelist and keeps subscriber ID and paymentTransactionId strictly immutable (Rule 9 & Rule 46).
    */
   static async updateSubscriber(id: string, updates: Partial<Subscriber>): Promise<Subscriber> {
     if (!id || typeof id !== 'string') {
@@ -626,18 +638,29 @@ export class SubscriberRepository {
       throw new Error(`Validation failed: ${validation.errors.join('; ')}`);
     }
 
-    // Rule 46: Ensure update operations cannot accidentally overwrite immutable identifiers or payment transaction references
-    const {
-      id: _ignoredId,
-      paymentTransactionId: _ignoredPaymentTxId,
-      ...allowedUpdates
-    } = updates as any;
+    // Explicit allowed-field whitelist (Rule 9)
+    const allowedUpdates: Partial<StoredSubscriberRecord> = {};
+    if (updates.name !== undefined) allowedUpdates.name = String(updates.name).trim();
+    if (updates.phone !== undefined) allowedUpdates.phone = String(updates.phone).trim();
+    if (updates.email !== undefined) allowedUpdates.email = String(updates.email || '').trim();
+    if (updates.plan !== undefined) allowedUpdates.plan = String(updates.plan);
+    if (updates.paymentMethod !== undefined) allowedUpdates.paymentMethod = String(updates.paymentMethod);
+    if (updates.amountPaid !== undefined) allowedUpdates.amountPaid = Number(updates.amountPaid) || 0;
+    if (updates.currency !== undefined) allowedUpdates.currency = updates.currency;
+    if (updates.status !== undefined) allowedUpdates.status = updates.status;
+    if (updates.whatsappEnabled !== undefined) allowedUpdates.whatsappEnabled = Boolean(updates.whatsappEnabled);
+    if (updates.emailEnabled !== undefined) allowedUpdates.emailEnabled = Boolean(updates.emailEnabled);
+    if (updates.smsEnabled !== undefined) allowedUpdates.smsEnabled = Boolean(updates.smsEnabled);
+    if (updates.categories !== undefined) allowedUpdates.categories = Array.isArray(updates.categories) ? updates.categories : undefined;
+    if (updates.notes !== undefined) allowedUpdates.notes = updates.notes ? String(updates.notes) : undefined;
+    if (updates.expiryDate !== undefined) allowedUpdates.expiryDate = updates.expiryDate;
 
+    // Keep subscriber ID and paymentTransactionId strictly immutable (Rule 9 & Rule 46)
     const updatedRecord: StoredSubscriberRecord = {
       ...existing,
       ...allowedUpdates,
-      id: existing.id, // Immutable
-      paymentTransactionId: existing.paymentTransactionId, // Immutable
+      id: existing.id,
+      paymentTransactionId: existing.paymentTransactionId,
       normalizedEmail: updates.email !== undefined ? normalizeEmail(updates.email) : existing.normalizedEmail,
       normalizedPhone: updates.phone !== undefined ? normalizePhone(updates.phone) : existing.normalizedPhone,
       updatedAt: new Date().toISOString()
@@ -743,7 +766,7 @@ export class SubscriberRepository {
   }
 
   /**
-   * Imports legacy LocalStorage records with validation, deduplication and verification (Rules 94-104).
+   * Imports legacy LocalStorage records with validation, deduplication and database read-back verification (Rules 10 & 11).
    */
   static async importLegacySubscribers(records: any[]): Promise<{
     success: boolean;
@@ -825,7 +848,7 @@ export class SubscriberRepository {
       validRecordsToInsert.push(storedItem);
     }
 
-    // If any legitimate record failed validation, do not claim complete success (Rule 102)
+    // If any legitimate record failed validation, do not claim success (Rule 102)
     if (errors.length > 0) {
       return {
         success: false,
@@ -838,31 +861,52 @@ export class SubscriberRepository {
       };
     }
 
-    // 2. Persist new records
+    // 2. Persist new records idempotently (Rule 11: never overwrite existing legitimate subscriber record)
     if (validRecordsToInsert.length > 0) {
       if (isTest()) {
         for (const item of validRecordsToInsert) {
-          testSubscribers.set(item.id, { ...item });
-          importedCount++;
+          if (!testSubscribers.has(item.id)) {
+            testSubscribers.set(item.id, { ...item });
+            importedCount++;
+          }
         }
       } else {
         try {
           const coll = await getSubscribersCollection();
           for (const item of validRecordsToInsert) {
-            await withMongoTimeout(
-              coll.updateOne(
-                { id: item.id },
-                { $setOnInsert: item },
-                { upsert: true }
-              ),
-              10000,
-              'insert legacy subscriber'
-            );
-            importedCount++;
+            const existingDoc = await coll.findOne({ id: item.id });
+            if (!existingDoc) {
+              await withMongoTimeout(
+                coll.updateOne(
+                  { id: item.id },
+                  { $setOnInsert: item },
+                  { upsert: true }
+                ),
+                10000,
+                'insert legacy subscriber'
+              );
+              importedCount++;
+            }
           }
         } catch (err: any) {
           throw new Error(`MongoDB failed to persist migrated subscribers: ${err?.message || err}`);
         }
+      }
+    }
+
+    // 3. Read back from database and verify every legitimate expected subscriber ID (Rule 10)
+    for (const item of validRecordsToInsert) {
+      const verifiedRecord = await this.getById(item.id);
+      if (!verifiedRecord) {
+        return {
+          success: false,
+          importedCount: 0,
+          verifiedCount: alreadyRepresentedCount,
+          alreadyRepresentedCount,
+          skippedCount,
+          records: [],
+          errors: [`Migration verification failed: Record '${item.id}' could not be verified via database read-back.`]
+        };
       }
     }
 

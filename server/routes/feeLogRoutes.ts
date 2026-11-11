@@ -142,11 +142,17 @@ feeLogRouter.post('/import-legacy', requireFeeLogAccess, async (req, res) => {
     const adminUser = (req as any).user?.name || (req as any).user?.email || 'Admin';
     const result = await FeeLogRepository.importLegacyRecords(records, adminUser);
 
+    const alreadyRepresentedCount =
+      typeof result.alreadyRepresentedCount === 'number'
+        ? Math.max(0, result.alreadyRepresentedCount)
+        : 0;
+
     res.json({
       success: true,
       importedCount: result.importedCount,
       verifiedCount: result.verifiedCount,
       skippedCount: result.skippedCount,
+      alreadyRepresentedCount,
       records: result.records
     });
   } catch (err: any) {

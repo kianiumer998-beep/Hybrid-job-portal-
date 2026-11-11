@@ -62,7 +62,7 @@ async function runTestSuite() {
   let httpServer: Server | null = null;
   let serverPort = 0;
   let passCount = 0;
-  const totalTests = 16;
+  const totalTests = 17;
 
   try {
     // 0. Setup Express Test Server for HTTP integration tests
@@ -702,9 +702,133 @@ async function runTestSuite() {
     console.log('✓ Test 15 Passed: LocalStorage conservative retention logic verified across all failure & partial paths.');
 
     // -------------------------------------------------------------
-    // Test 16: No JSON data modification
+    // Test 16: HTTP-level /api/fee-logs/import-legacy API response contract verification
     // -------------------------------------------------------------
-    console.log('\n--- 11. Storage Isolation & Checksum Verification ---');
+    console.log('\n--- 11. HTTP API Response Contract: /import-legacy ---');
+    const importEndpointUrl = `${baseUrl}/import-legacy`;
+
+    // 16A. Authorization check: Unauthenticated request must return 401
+    const unauthImportRes = await fetch(importEndpointUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [] })
+    });
+    assert.strictEqual(unauthImportRes.status, 401, 'POST /import-legacy without token must return 401');
+
+    // 16B. Authorization check: Non-admin or unpermitted role must return 403
+    const seekerImportRes = await fetch(importEndpointUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jobSeekerToken}`
+      },
+      body: JSON.stringify({ records: [] })
+    });
+    assert.strictEqual(seekerImportRes.status, 403, 'POST /import-legacy with regular user token must return 403');
+
+    const scraperImportRes = await fetch(importEndpointUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${scraperManagerToken}`
+      },
+      body: JSON.stringify({ records: [] })
+    });
+    assert.strictEqual(scraperImportRes.status, 403, 'POST /import-legacy with Scraper Manager token must return 403');
+
+    // 16C. Successful import contract: Send 1 new record + 1 record that matches an existing transaction (tx-unique-01)
+    const testPayload = [
+      {
+        id: 'legacy-api-contract-new-01',
+        jobTitle: 'Senior Cloud Network Architect',
+        userId: 'usr-api-contract-01',
+        userName: 'Hamza Farooq',
+        userEmail: 'hamza@cloud.pk',
+        amount: 2200,
+        currency: 'PKR',
+        paymentMethod: 'Bank Transfer',
+        status: 'Paid',
+        dateTime: '2026-10-21 14:00'
+      },
+      {
+        id: 'tx-unique-01', // Already exists as a transaction in PaymentRepository!
+        jobTitle: 'Senior Data Engineer (Duplicate)',
+        userId: 'usr-dedup-1',
+        amount: 1000,
+        currency: 'PKR',
+        paymentMethod: 'JazzCash',
+        status: 'Paid'
+      }
+    ];
+
+    const authImportRes = await fetch(importEndpointUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${financeAdminToken}`
+      },
+      body: JSON.stringify({ records: testPayload })
+    });
+
+    assert.strictEqual(authImportRes.status, 200, 'POST /import-legacy with authorized admin must return 200');
+    const authImportData = await authImportRes.json();
+
+    // Verify response structure & fields
+    assert.strictEqual(authImportData.success, true, 'Response success must be true');
+    assert.strictEqual(typeof authImportData.alreadyRepresentedCount, 'number', 'alreadyRepresentedCount must be a number');
+    assert(authImportData.alreadyRepresentedCount >= 0, 'alreadyRepresentedCount must be a non-negative number');
+    assert.strictEqual(authImportData.alreadyRepresentedCount, 1, 'alreadyRepresentedCount must be 1 for the duplicate transaction record');
+    assert.strictEqual(authImportData.importedCount, 1, 'importedCount must be 1 for the new legitimate record');
+    assert.strictEqual(authImportData.verifiedCount, 1, 'verifiedCount must match importedCount');
+    assert.strictEqual(authImportData.skippedCount, 1, 'skippedCount must account for the duplicate record');
+    assert(Array.isArray(authImportData.records), 'records must be an array');
+    assert.strictEqual(authImportData.records.length, 1, 'records must contain the 1 imported record');
+    assert.strictEqual(authImportData.records[0].id, 'legacy-api-contract-new-01');
+
+    // 16D. Failed transaction lookup at HTTP endpoint level returns 500 and does NOT report successful migration
+    const origGetAllAsyncForHttp = PaymentRepository.getAllAsync;
+    PaymentRepository.getAllAsync = async () => {
+      throw new Error('Simulated database partition error during HTTP endpoint test');
+    };
+
+    try {
+      const failedLookupHttpRes = await fetch(importEndpointUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${financeAdminToken}`
+        },
+        body: JSON.stringify({
+          records: [
+            {
+              id: 'should-fail-http-01',
+              jobTitle: 'Should Fail Post',
+              amount: 1000,
+              currency: 'PKR',
+              status: 'Paid'
+            }
+          ]
+        })
+      });
+
+      assert.strictEqual(failedLookupHttpRes.status, 500, 'HTTP endpoint must return 500 when transaction lookup fails');
+      const failedData = await failedLookupHttpRes.json();
+      assert.strictEqual(failedData.success, false, 'Failed lookup must return success=false');
+      assert(
+        failedData.message.includes('Authoritative transaction lookup failed'),
+        `Error message must report transaction lookup failure, got: ${failedData.message}`
+      );
+    } finally {
+      PaymentRepository.getAllAsync = origGetAllAsyncForHttp;
+    }
+
+    passCount++;
+    console.log('✓ Test 16 Passed: HTTP-level /import-legacy API response contract fully verified with alreadyRepresentedCount.');
+
+    // -------------------------------------------------------------
+    // Test 17: No JSON data modification
+    // -------------------------------------------------------------
+    console.log('\n--- 12. Storage Isolation & Checksum Verification ---');
     const postSnapshot = getDataDirectorySnapshot();
     const postMongoHash = getMongodbTsHash();
 
@@ -729,7 +853,7 @@ async function runTestSuite() {
     }
 
     passCount++;
-    console.log('✓ Test 16 Passed: Zero modifications to data/*.json and protected server/db/mongodb.ts.');
+    console.log('✓ Test 17 Passed: Zero modifications to data/*.json and protected server/db/mongodb.ts.');
 
     console.log('\n==================================================================');
     console.log(`=== TEST SUITE RESULT: SUCCESS (${passCount}/${totalTests} Passed) ===`);

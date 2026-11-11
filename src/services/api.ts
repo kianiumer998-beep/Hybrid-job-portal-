@@ -1265,6 +1265,36 @@ export const api = {
         body: JSON.stringify(payload)
       });
     }
+  },
+  chat: {
+    async getMyMessages() {
+      return safeFetchJson(`${API_BASE}/chat`, { headers: getAuthHeader() });
+    },
+    async sendMessage(data: { id?: string; text: string; timestamp?: string; jobTitleRef?: string }) {
+      return safeFetchJson(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async adminGetAllMessages(limit?: number) {
+      const qs = limit ? `?limit=${limit}` : '';
+      return safeFetchJson(`${API_BASE}/chat/admin/all${qs}`, { headers: getAuthHeader() });
+    },
+    async adminSendReply(data: { userId: string; userName?: string; text: string; timestamp?: string; jobTitleRef?: string; id?: string }) {
+      return safeFetchJson(`${API_BASE}/chat/admin/reply`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data)
+      });
+    },
+    async importLegacy(messages: any[]) {
+      return safeFetchJson(`${API_BASE}/chat/import-legacy`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ messages })
+      });
+    }
   }
 };
 

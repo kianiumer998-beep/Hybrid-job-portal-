@@ -935,20 +935,9 @@ export default function App() {
     loadBackendJobs();
   }, [loadBackendJobs]);
 
-  // Chat Messages State
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
-    const saved = localStorage.getItem('hybrid_chat_messages');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'msg-1',
-        userId: 'user-demo-1',
-        userName: 'Ali Raza',
-        senderRole: 'admin',
-        text: 'Welcome to HybridJobs.pk! Feel free to ask if you have any questions about remote job applications.',
-        timestamp: '10:00 AM'
-      }
-    ];
-  });
+  // Chat Messages State (Authoritative Backend Persistence)
+  const chatReqSeqRef = useRef<number>(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Admin Custom Registration Form Fields (Authoritative Backend Storage)
   const customFieldsReqSeqRef = useRef<number>(0);
@@ -1253,10 +1242,59 @@ export default function App() {
     loadBackendAds();
   }, [loadBackendAds, currentUser?.id, currentUser?.role, isAdminLoggedIn]);
 
-  // LocalStorage Persist Effects - Fully guarded with safeLocalStorageSet to prevent QuotaExceeded crashes
+  // Chat Messages Loading & Migration
+  const loadChatMessages = useCallback(async () => {
+    const currentSeq = ++chatReqSeqRef.current;
+    try {
+      let res;
+      if (showAdminView && isAdminLoggedIn) {
+        res = await api.chat.adminGetAllMessages();
+      } else if (currentUser) {
+        res = await api.chat.getMyMessages();
+      } else {
+        setChatMessages([]);
+        return;
+      }
+
+      if (currentSeq !== chatReqSeqRef.current) return;
+
+      if (res && res.success && Array.isArray(res.messages)) {
+        setChatMessages(res.messages);
+      }
+    } catch (err) {
+      console.error('[App] Failed to load chat messages:', err);
+    }
+  }, [currentUser, showAdminView, isAdminLoggedIn]);
+
   useEffect(() => {
-    safeLocalStorageSet('hybrid_chat_messages', chatMessages.slice(-50));
-  }, [chatMessages]);
+    loadChatMessages();
+  }, [loadChatMessages]);
+
+  const migrateLegacyChatMessages = useCallback(async () => {
+    if (!isAdminLoggedIn || !showAdminView) return;
+    const saved = localStorage.getItem('hybrid_chat_messages');
+    if (!saved) return;
+
+    try {
+      const legacy = JSON.parse(saved);
+      if (Array.isArray(legacy) && legacy.length > 0) {
+        const res = await api.chat.importLegacy(legacy);
+        if (res && res.success) {
+          console.log(`[Chat Migration] Successfully imported ${res.imported} messages.`);
+          localStorage.removeItem('hybrid_chat_messages');
+          loadChatMessages();
+        }
+      }
+    } catch (err) {
+      console.error('[Chat Migration] Error migrating messages:', err);
+    }
+  }, [isAdminLoggedIn, showAdminView, loadChatMessages]);
+
+  useEffect(() => {
+    if (isAdminLoggedIn && showAdminView) {
+      migrateLegacyChatMessages();
+    }
+  }, [isAdminLoggedIn, showAdminView, migrateLegacyChatMessages]);
 
 
 
@@ -2697,17 +2735,21 @@ export default function App() {
       await api.jobs.rejectPending(jobId, reason);
       await loadBackendJobs();
 
-      // Push notification message into user's chat thread
+      // Push persistent notification message into user's chat thread
       if (rejectedJob && rejectedJob.submittedByUserId) {
-        const chatMsg: ChatMessage = {
+        const chatMsg = {
           id: 'msg-' + Date.now(),
           userId: rejectedJob.submittedByUserId,
-          userName: 'User',
-          senderRole: 'admin',
+          userName: 'Portal Admin',
+          senderRole: 'admin' as const,
           text: `Update regarding your job "${rejectedJob.title}": Rejected. Reason: ${reason}`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          timestamp: new Date().toISOString()
         };
-        setChatMessages(prev => [...prev, chatMsg]);
+        api.chat.adminSendReply(chatMsg).then(res => {
+          if (res?.success) {
+            setChatMessages(prev => [...prev, res.message]);
+          }
+        }).catch(err => console.warn('[App] Failed to send persistent chat notification for job rejection:', err));
       }
 
       alert(`Job rejected. Reason notification sent to user chat.`);
@@ -2838,31 +2880,65 @@ export default function App() {
     }
   };
 
-  // Two-way User Chat Message sending
-  const handleUserSendMessage = (text: string) => {
-    if (!currentUser) return;
-    const msg: ChatMessage = {
-      id: 'msg-' + Date.now(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      senderRole: 'user',
-      text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    setChatMessages(prev => [...prev, msg]);
+  // Two-way User Chat Message sending (Durable Persistence)
+  const handleUserSendMessage = async (text: string): Promise<boolean> => {
+    if (!currentUser || !text.trim()) return false;
+    
+    const msgId = 'msg-' + Date.now();
+    const timestamp = new Date().toISOString();
+    
+    try {
+      const res = await api.chat.sendMessage({
+        id: msgId,
+        text: text.trim(),
+        timestamp
+      });
+
+      if (res && res.success) {
+        // If we are in user view, we only see our own messages, so we can append
+        if (!showAdminView) {
+          setChatMessages(prev => [...prev, res.message]);
+        }
+        return true;
+      } else {
+        alert(res?.message || 'Failed to send message.');
+        return false;
+      }
+    } catch (err: any) {
+      console.error('[App] User chat send error:', err);
+      alert('Error sending message. Please try again.');
+      return false;
+    }
   };
 
-  // Admin Chat Reply
-  const handleAdminSendMessage = (userId: string, userName: string, text: string) => {
-    const msg: ChatMessage = {
-      id: 'msg-' + Date.now(),
-      userId,
-      userName,
-      senderRole: 'admin',
-      text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    setChatMessages(prev => [...prev, msg]);
+  // Admin Chat Reply (Durable Persistence)
+  const handleAdminSendMessage = async (userId: string, userName: string, text: string): Promise<boolean> => {
+    if (!isAdminLoggedIn || !text.trim()) return false;
+
+    const msgId = 'msg-adm-' + Date.now();
+    const timestamp = new Date().toISOString();
+
+    try {
+      const res = await api.chat.adminSendReply({
+        userId,
+        userName,
+        text: text.trim(),
+        timestamp,
+        id: msgId
+      });
+
+      if (res && res.success) {
+        setChatMessages(prev => [...prev, res.message]);
+        return true;
+      } else {
+        alert(res?.message || 'Failed to send admin reply.');
+        return false;
+      }
+    } catch (err: any) {
+      console.error('[App] Admin chat reply error:', err);
+      alert('Error sending reply. Please try again.');
+      return false;
+    }
   };
 
   // Custom Form Fields Handlers (Serialized Mutex & Sequence-Protected Backend Persistence)
@@ -3027,15 +3103,20 @@ export default function App() {
             ? createdAd.campaignCostPkr
             : authoritativeCost;
 
-        const confirmMsg: ChatMessage = {
+        // System Chat Notification for Ad Submission (Persistent)
+        const confirmMsg = {
           id: 'msg-' + Date.now(),
           userId: currentUser.id,
           userName: 'Portal Admin',
-          senderRole: 'admin',
+          senderRole: 'admin' as const,
           text: `Your campaign "${createdAd.title}" has been submitted for admin approval! Campaign fee paid via wallet: PKR ${finalCost.toLocaleString()} (Ref: ${verifiedTx.transactionId || verifiedTx.id}).`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          timestamp: new Date().toISOString()
         };
-        setChatMessages((prev) => [...prev, confirmMsg]);
+        api.chat.adminSendReply(confirmMsg).then(res => {
+          if (res?.success) {
+            setChatMessages(prev => [...prev, res.message]);
+          }
+        }).catch(err => console.warn('[App] Failed to send persistent chat notification for ad submission:', err));
 
         return {
           success: true,
@@ -3176,15 +3257,19 @@ export default function App() {
         setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
 
         if (adToApprove.submittedByUserId) {
-          const msg: ChatMessage = {
+          const msg = {
             id: 'msg-' + Date.now(),
             userId: adToApprove.submittedByUserId,
             userName: 'Portal Admin',
-            senderRole: 'admin',
+            senderRole: 'admin' as const,
             text: `🎉 Good news! Your campaign "${adToApprove.title}" has been APPROVED by the portal admin and is now LIVE on the platform!`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            timestamp: new Date().toISOString()
           };
-          setChatMessages((prev) => [...prev, msg]);
+          api.chat.adminSendReply(msg).then(res => {
+            if (res?.success) {
+              setChatMessages(prev => [...prev, res.message]);
+            }
+          }).catch(err => console.warn('[App] Failed to send persistent chat notification for ad approval:', err));
         }
 
         alert(`Campaign "${adToApprove.title}" has been approved and activated!`);
@@ -3218,15 +3303,19 @@ export default function App() {
         setAdvertisements((prev) => prev.map((a) => (a.id === adId ? normalized : a)));
 
         if (adToReject.submittedByUserId) {
-          const msg: ChatMessage = {
+          const msg = {
             id: 'msg-' + Date.now(),
             userId: adToReject.submittedByUserId,
             userName: 'Portal Admin',
-            senderRole: 'admin',
+            senderRole: 'admin' as const,
             text: `⚠️ Campaign Update: Your campaign "${adToReject.title}" was not approved. Reason: ${reason}.`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            timestamp: new Date().toISOString()
           };
-          setChatMessages((prev) => [...prev, msg]);
+          api.chat.adminSendReply(msg).then(res => {
+            if (res?.success) {
+              setChatMessages(prev => [...prev, res.message]);
+            }
+          }).catch(err => console.warn('[App] Failed to send persistent chat notification for ad rejection:', err));
         }
 
         alert(`Campaign "${adToReject.title}" has been rejected.`);

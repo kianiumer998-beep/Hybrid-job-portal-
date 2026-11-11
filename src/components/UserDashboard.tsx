@@ -56,7 +56,7 @@ interface UserDashboardProps {
     job: Job,
     feePayment?: FeePaymentData
   ) => Promise<{ success: boolean; transaction?: any; job?: Job; message?: string } | void> | void;
-  onSendMessageToAdmin: (text: string) => void;
+  onSendMessageToAdmin: (text: string) => Promise<boolean> | boolean;
   onUpdateProfile?: (updated: Partial<UserAccount> | UserAccount) => Promise<boolean> | boolean | void;
   onChangePassword?: (currentPass: string, newPass: string) => Promise<{ success: boolean; message?: string } | boolean> | { success: boolean; message?: string } | boolean;
   savedJobsList?: any[];
@@ -1262,11 +1262,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     onLogout();
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
+  const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessageText.trim()) return;
-    onSendMessageToAdmin(newMessageText.trim());
-    setNewMessageText('');
+    const text = newMessageText.trim();
+    if (!text) return;
+    const ok = await onSendMessageToAdmin(text);
+    if (ok !== false) {
+      setNewMessageText('');
+    }
   };
 
   // Filter messages for current user

@@ -30,6 +30,7 @@ import { communicationProviderRouter } from './server/routes/communicationProvid
 import { broadcastRouter } from './server/routes/broadcastRoutes';
 import { feeLogRouter } from './server/routes/feeLogRoutes';
 import { subscriberRouter } from './server/routes/subscriberRoutes';
+import { chatRouter } from './server/routes/chatMessageRoutes';
 import { AdminFeatureFlags } from './src/types/job';
 
 async function startServer() {
@@ -167,6 +168,7 @@ async function startServer() {
   app.use('/api/broadcasts', broadcastRouter);
   app.use('/api/fee-logs', feeLogRouter);
   app.use('/api/subscribers', subscriberRouter);
+  app.use('/api/chat', chatRouter);
 
   // Initialize dynamic interval-aware scraper scheduler
   initScraperScheduler();

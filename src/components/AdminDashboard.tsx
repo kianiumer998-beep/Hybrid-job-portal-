@@ -179,7 +179,7 @@ interface AdminDashboardProps {
   onBulkDeleteUsers?: (userIds: string[]) => void;
   onDeleteFeeLog?: (logId: string) => void;
   onBulkDeleteFeeLogs?: (logIds: string[]) => void;
-  onSendMessageToUser: (userId: string, userName: string, text: string) => void;
+  onSendMessageToUser: (userId: string, userName: string, text: string) => Promise<boolean> | boolean;
   onAddCustomField: (field: CustomFormField) => Promise<boolean> | boolean | void;
   onToggleCustomField: (fieldId: string) => Promise<boolean> | boolean | void;
   onDeleteCustomField: (fieldId: string) => Promise<boolean> | boolean | void;
@@ -2457,15 +2457,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleAdminSendReply = (e: React.FormEvent) => {
+  const handleAdminSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedChatUserId || !adminReplyText.trim()) return;
+    const text = adminReplyText.trim();
+    if (!selectedChatUserId || !text) return;
 
     const targetUser = (users || []).find((u) => u && u.id === selectedChatUserId);
     const userName = targetUser ? targetUser.name : 'User';
 
-    onSendMessageToUser(selectedChatUserId, userName, adminReplyText.trim());
-    setAdminReplyText('');
+    const ok = await onSendMessageToUser(selectedChatUserId, userName, text);
+    if (ok !== false) {
+      setAdminReplyText('');
+    }
   };
 
   // Selected User Chat Messages

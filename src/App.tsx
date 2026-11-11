@@ -950,27 +950,26 @@ export default function App() {
     ];
   });
 
-  // Admin Custom Registration Form Fields
-  const [customFormFields, setCustomFormFields] = useState<CustomFormField[]>(() => {
-    const saved = localStorage.getItem('hybrid_custom_form_fields');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'cf-cnic',
-        label: 'CNIC / Passport Number',
-        type: 'text',
-        required: true,
-        active: true
-      },
-      {
-        id: 'cf-exp',
-        label: 'Years of Professional Experience',
-        type: 'select',
-        options: ['Fresh Graduate', '1-3 Years', '3-5 Years', '5+ Years'],
-        required: false,
-        active: true
-      }
-    ];
-  });
+  // Admin Custom Registration Form Fields (Authoritative Backend Storage)
+  const customFieldsReqSeqRef = useRef<number>(0);
+  const customFieldsMutexRef = useRef<Promise<void>>(Promise.resolve());
+  const [customFormFields, setCustomFormFields] = useState<CustomFormField[]>([
+    {
+      id: 'cf-cnic',
+      label: 'CNIC / Passport Number',
+      type: 'text',
+      required: true,
+      active: true
+    },
+    {
+      id: 'cf-exp',
+      label: 'Years of Professional Experience',
+      type: 'select',
+      options: ['Fresh Graduate', '1-3 Years', '3-5 Years', '5+ Years'],
+      required: false,
+      active: true
+    }
+  ]);
 
   const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
   const [savedJobsList, setSavedJobsList] = useState<any[]>([]);
@@ -1241,9 +1240,58 @@ export default function App() {
     safeLocalStorageSet('hybrid_chat_messages', chatMessages.slice(-50));
   }, [chatMessages]);
 
+  const loadBackendCustomFormFields = useCallback(async () => {
+    const currentSeq = ++customFieldsReqSeqRef.current;
+    try {
+      const res = await api.settings.getCustomFormFields();
+      if (currentSeq !== customFieldsReqSeqRef.current) return false;
+      if (res && res.success && Array.isArray(res.customFormFields)) {
+        setCustomFormFields(res.customFormFields);
+        return true;
+      }
+    } catch (err) {
+      console.error('[App] Error loading custom form fields from backend:', err);
+    }
+    return false;
+  }, []);
+
   useEffect(() => {
-    safeLocalStorageSet('hybrid_custom_form_fields', customFormFields);
-  }, [customFormFields]);
+    loadBackendCustomFormFields();
+  }, [loadBackendCustomFormFields]);
+
+  const migrateLegacyCustomFormFields = useCallback(async () => {
+    const payload = decodeStoredAuthTokenPayload();
+    const isAuthorizedAdmin = Boolean(
+      payload &&
+      typeof payload.role === 'string' &&
+      (ADMIN_ROLES as readonly string[]).includes(payload.role)
+    );
+    if (!isAuthorizedAdmin) return;
+
+    const saved = localStorage.getItem('hybrid_custom_form_fields');
+    if (!saved) return;
+
+    try {
+      const legacyFields = JSON.parse(saved);
+      if (!Array.isArray(legacyFields) || legacyFields.length === 0) return;
+
+      const currentSeq = ++customFieldsReqSeqRef.current;
+      const res = await api.settings.importLegacyCustomFormFields(legacyFields);
+      if (currentSeq !== customFieldsReqSeqRef.current) return;
+
+      if (res && res.success && Array.isArray(res.customFormFields)) {
+        setCustomFormFields(res.customFormFields);
+      }
+    } catch (err) {
+      console.error('[App] Legacy custom form fields migration error:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showAdminView) {
+      migrateLegacyCustomFormFields();
+    }
+  }, [showAdminView, migrateLegacyCustomFormFields]);
 
   // Rule 16: Remove normal production subscriber persistence through hybrid_subscribers_list LocalStorage.
 
@@ -2791,19 +2839,53 @@ export default function App() {
     setChatMessages(prev => [...prev, msg]);
   };
 
-  // Custom Form Fields Handlers
-  const handleAddCustomField = (field: CustomFormField) => {
-    setCustomFormFields(prev => [...prev, field]);
+  // Custom Form Fields Handlers (Serialized Mutex & Sequence-Protected Backend Persistence)
+  const updateCustomFormFieldsPersisted = async (
+    updater: (prev: CustomFormField[]) => CustomFormField[]
+  ) => {
+    const previousMutex = customFieldsMutexRef.current;
+    let resolveMutex: () => void = () => {};
+    customFieldsMutexRef.current = new Promise<void>((resolve) => {
+      resolveMutex = resolve;
+    });
+
+    try {
+      await previousMutex;
+      const nextFields = updater(customFormFields);
+      const currentSeq = ++customFieldsReqSeqRef.current;
+
+      const res = await api.settings.updateCustomFormFields(nextFields);
+
+      if (currentSeq !== customFieldsReqSeqRef.current) {
+        return;
+      }
+
+      if (res && res.success && Array.isArray(res.customFormFields)) {
+        setCustomFormFields(res.customFormFields);
+      } else {
+        const errorMsg = res?.message || 'Failed to update custom form fields on database server.';
+        alert(errorMsg);
+      }
+    } catch (err: any) {
+      console.error('[App] Error saving custom form fields:', err);
+      alert(err?.message || 'Failed to save custom form fields changes to database.');
+    } finally {
+      resolveMutex();
+    }
   };
 
-  const handleToggleCustomField = (fieldId: string) => {
-    setCustomFormFields(prev =>
-      prev.map(f => f.id === fieldId ? { ...f, active: !f.active } : f)
+  const handleAddCustomField = async (field: CustomFormField) => {
+    await updateCustomFormFieldsPersisted((prev) => [...prev, field]);
+  };
+
+  const handleToggleCustomField = async (fieldId: string) => {
+    await updateCustomFormFieldsPersisted((prev) =>
+      prev.map((f) => (f.id === fieldId ? { ...f, active: !f.active } : f))
     );
   };
 
-  const handleDeleteCustomField = (fieldId: string) => {
-    setCustomFormFields(prev => prev.filter(f => f.id !== fieldId));
+  const handleDeleteCustomField = async (fieldId: string) => {
+    await updateCustomFormFieldsPersisted((prev) => prev.filter((f) => f.id !== fieldId));
   };
 
   // Self-Serve Ad Campaign Submissions (Authoritative Backend Wallet Payment -> Linked Campaign Creation)

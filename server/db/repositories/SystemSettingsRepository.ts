@@ -42,8 +42,50 @@ export const DEFAULT_WHATSAPP_SUPPORT_CONFIG: WhatsAppSupportConfig = {
   groupLink: 'https://chat.whatsapp.com/sampleCareerPakCommunity'
 };
 
+const isTest = () => process.env.IS_TEST === 'true';
+const testSettings = new Map<string, any>();
+
+export function resetSystemSettingsTestStore(): void {
+  testSettings.clear();
+}
+
+export interface CustomFormField {
+  id: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'textarea' | 'checkbox' | 'date';
+  options?: string[];
+  required: boolean;
+  active: boolean;
+}
+
+export const DEFAULT_CUSTOM_FORM_FIELDS: CustomFormField[] = [
+  {
+    id: 'cf-cnic',
+    label: 'CNIC / Passport Number',
+    type: 'text',
+    required: true,
+    active: true
+  },
+  {
+    id: 'cf-exp',
+    label: 'Years of Professional Experience',
+    type: 'select',
+    options: ['Fresh Graduate', '1-3 Years', '3-5 Years', '5+ Years'],
+    required: false,
+    active: true
+  }
+];
+
+const CUSTOM_FORM_FIELDS_KEY = 'custom_registration_form_fields';
+
 export class SystemSettingsRepository {
   static async getSetting<T>(key: string, defaultValue: T): Promise<T> {
+    if (isTest() && !isMongoConfigured()) {
+      if (testSettings.has(key)) {
+        return testSettings.get(key) as T;
+      }
+      return defaultValue;
+    }
     if (!isMongoConfigured()) {
       return defaultValue;
     }
@@ -61,6 +103,10 @@ export class SystemSettingsRepository {
   }
 
   static async saveSetting<T>(key: string, value: T): Promise<T> {
+    if (isTest() && !isMongoConfigured()) {
+      testSettings.set(key, value);
+      return value;
+    }
     if (!isMongoConfigured()) {
       throw new Error('Database unavailable: Cannot persist system settings when MongoDB is not configured.');
     }
@@ -100,5 +146,99 @@ export class SystemSettingsRepository {
       ...(config || {})
     };
     return this.saveSetting<WhatsAppSupportConfig>('whats_app_support_config', updated);
+  }
+
+  static async getCustomFormFields(): Promise<CustomFormField[]> {
+    if (isTest() && !isMongoConfigured()) {
+      if (testSettings.has(CUSTOM_FORM_FIELDS_KEY)) {
+        return testSettings.get(CUSTOM_FORM_FIELDS_KEY);
+      }
+      return DEFAULT_CUSTOM_FORM_FIELDS;
+    }
+    if (!isMongoConfigured()) {
+      return DEFAULT_CUSTOM_FORM_FIELDS;
+    }
+    const db = await getMongoDb();
+    const coll = db.collection(COLLECTION_NAME);
+    const doc = await withMongoTimeout(
+      coll.findOne({ key: CUSTOM_FORM_FIELDS_KEY }),
+      8000,
+      `fetch system setting: ${CUSTOM_FORM_FIELDS_KEY}`
+    );
+    if (!doc || !Array.isArray(doc.value)) {
+      return DEFAULT_CUSTOM_FORM_FIELDS;
+    }
+    return doc.value as CustomFormField[];
+  }
+
+  static async saveCustomFormFields(fields: CustomFormField[]): Promise<CustomFormField[]> {
+    if (isTest() && !isMongoConfigured()) {
+      testSettings.set(CUSTOM_FORM_FIELDS_KEY, fields);
+      return fields;
+    }
+    if (!isMongoConfigured()) {
+      throw new Error('Database unavailable: Cannot persist custom form fields when MongoDB is not configured.');
+    }
+    const db = await getMongoDb();
+    const coll = db.collection(COLLECTION_NAME);
+
+    await withMongoTimeout(
+      coll.updateOne(
+        { key: CUSTOM_FORM_FIELDS_KEY },
+        {
+          $set: {
+            value: fields,
+            updatedAt: new Date().toISOString()
+          }
+        },
+        { upsert: true }
+      ),
+      8000,
+      `save system setting: ${CUSTOM_FORM_FIELDS_KEY}`
+    );
+
+    const verified = await this.getCustomFormFields();
+    return verified;
+  }
+
+  static async importCustomFormFieldsIfUnconfigured(fields: CustomFormField[]): Promise<{
+    saved: boolean;
+    fields: CustomFormField[];
+  }> {
+    if (isTest() && !isMongoConfigured()) {
+      if (!testSettings.has(CUSTOM_FORM_FIELDS_KEY)) {
+        testSettings.set(CUSTOM_FORM_FIELDS_KEY, fields);
+        return { saved: true, fields };
+      }
+      return { saved: false, fields: testSettings.get(CUSTOM_FORM_FIELDS_KEY) };
+    }
+    if (!isMongoConfigured()) {
+      throw new Error('Database unavailable: Cannot migrate custom form fields when MongoDB is not configured.');
+    }
+    const db = await getMongoDb();
+    const coll = db.collection(COLLECTION_NAME);
+
+    const res = await withMongoTimeout(
+      coll.updateOne(
+        { key: CUSTOM_FORM_FIELDS_KEY },
+        {
+          $setOnInsert: {
+            key: CUSTOM_FORM_FIELDS_KEY,
+            value: fields,
+            updatedAt: new Date().toISOString()
+          }
+        },
+        { upsert: true }
+      ),
+      8000,
+      `import custom form fields if unconfigured`
+    );
+
+    const isInserted = Boolean(res && res.upsertedCount && res.upsertedCount > 0);
+    const currentFields = await this.getCustomFormFields();
+    return {
+      saved: isInserted,
+      fields: currentFields
+    };
   }
 }

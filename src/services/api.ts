@@ -1,6 +1,6 @@
 // Centralized Production API Service for Hybrid Job Portal
 import type { BroadcastCampaign, SafeCommunicationProviderConfig, UpdateCommunicationProviderPayload } from '../types/adminSuite';
-import type { JobPostingFeeLog, Subscriber } from '../types/job';
+import type { CustomFormField, JobPostingFeeLog, Subscriber } from '../types/job';
 
 /**
  * Deterministic API base resolution for HybridJobs.
@@ -1212,6 +1212,36 @@ export const api = {
         method: 'PUT',
         headers: getAuthHeader(),
         body: JSON.stringify(payload)
+      });
+    },
+    async getCustomFormFields() {
+      return safeFetchJson<{
+        success: boolean;
+        customFormFields?: CustomFormField[];
+        message?: string;
+      }>(`${API_BASE}/settings/custom-form-fields`);
+    },
+    async updateCustomFormFields(customFormFields: CustomFormField[]) {
+      return safeFetchJson<{
+        success: boolean;
+        customFormFields?: CustomFormField[];
+        message?: string;
+      }>(`${API_BASE}/settings/custom-form-fields`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ customFormFields })
+      });
+    },
+    async importLegacyCustomFormFields(customFormFields: CustomFormField[]) {
+      return safeFetchJson<{
+        success: boolean;
+        saved?: boolean;
+        customFormFields?: CustomFormField[];
+        message?: string;
+      }>(`${API_BASE}/settings/custom-form-fields/import-legacy`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ customFormFields })
       });
     }
   },

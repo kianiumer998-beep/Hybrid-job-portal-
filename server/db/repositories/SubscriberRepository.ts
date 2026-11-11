@@ -376,6 +376,28 @@ export class SubscriberRepository {
     return clean as Subscriber;
   }
 
+  private static async getRawById(cleanId: string): Promise<StoredSubscriberRecord | null> {
+    if (isTest()) {
+      return testSubscribers.get(cleanId) || null;
+    }
+    if (!isMongoConfigured()) return null;
+    try {
+      const coll = await getSubscribersCollection();
+      const doc = await withMongoTimeout(
+        coll.findOne({ id: cleanId, isDemo: { $ne: true } }),
+        10000,
+        'fetch raw subscriber by id'
+      );
+      if (doc) {
+        const { _id, ...safe } = doc;
+        return safe as StoredSubscriberRecord;
+      }
+    } catch (err: any) {
+      throw err;
+    }
+    return null;
+  }
+
   /**
    * Retrieves all subscribers.
    */
@@ -417,9 +439,15 @@ export class SubscriberRepository {
         const reconciled = await this.reconcileSubscriberStatus(sub);
         reconciledList.push(this.sanitizeForClient(reconciled));
       } catch (err: any) {
-        // On transient persistence error during reconciliation, fall back to sanitizing current record without crashing getAll
-        console.warn(`[SubscriberRepository] Reconciliation warning for subscriber '${sub.id}':`, err?.message || err);
-        reconciledList.push(this.sanitizeForClient(sub));
+        if (err?.message && (err.message.includes('Concurrency conflict') || err.message.includes('matchedCount === 0'))) {
+          const latest = await this.getRawById(sub.id);
+          if (latest) {
+            reconciledList.push(this.sanitizeForClient(latest));
+            continue;
+          }
+        }
+        // Genuine persistence/database error: propagate safely without swallowing
+        throw err;
       }
     }
 
@@ -446,26 +474,7 @@ export class SubscriberRepository {
       }
     }
 
-    let record: StoredSubscriberRecord | null = null;
-
-    if (isTest()) {
-      record = testSubscribers.get(cleanId) || null;
-    } else {
-      try {
-        const coll = await getSubscribersCollection();
-        const doc = await withMongoTimeout(
-          coll.findOne({ id: cleanId, isDemo: { $ne: true } }),
-          10000,
-          'fetch subscriber by id'
-        );
-        if (doc) {
-          const { _id, ...safe } = doc;
-          record = safe as StoredSubscriberRecord;
-        }
-      } catch (err: any) {
-        throw new Error(`MongoDB subscribers getById failed: ${err?.message || err}`);
-      }
-    }
+    let record: StoredSubscriberRecord | null = await this.getRawById(cleanId);
 
     if (!record || isSyntheticDemoSubscriber(record)) return null;
 
@@ -473,8 +482,15 @@ export class SubscriberRepository {
       const reconciled = await this.reconcileSubscriberStatus(record);
       return this.sanitizeForClient(reconciled);
     } catch (err: any) {
-      console.warn(`[SubscriberRepository] Reconciliation warning for getById '${cleanId}':`, err?.message || err);
-      return this.sanitizeForClient(record);
+      if (err?.message && (err.message.includes('Concurrency conflict') || err.message.includes('matchedCount === 0'))) {
+        const latest = await this.getRawById(cleanId);
+        if (latest) {
+          return this.sanitizeForClient(latest);
+        }
+        throw new Error(`Concurrency conflict and latest record not found for subscriber '${cleanId}'.`);
+      }
+      // Genuine database / persistence error: propagate safely, do NOT swallow
+      throw err;
     }
   }
 
@@ -526,7 +542,14 @@ export class SubscriberRepository {
       const reconciled = await this.reconcileSubscriberStatus(record);
       return this.sanitizeForClient(reconciled);
     } catch (err: any) {
-      return this.sanitizeForClient(record);
+      if (err?.message && (err.message.includes('Concurrency conflict') || err.message.includes('matchedCount === 0'))) {
+        const latest = await this.getRawById(record.id);
+        if (latest) {
+          return this.sanitizeForClient(latest);
+        }
+        throw new Error(`Concurrency conflict and latest record not found for transaction '${cleanTxId}'.`);
+      }
+      throw err;
     }
   }
 

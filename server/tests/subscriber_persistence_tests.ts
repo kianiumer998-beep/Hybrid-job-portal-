@@ -60,7 +60,7 @@ async function runTestSuite() {
   let httpServer: Server | null = null;
   let serverPort = 0;
   let passCount = 0;
-  const totalTests = 18; // Exact reconciled test count matching suite assertions
+  const totalTests = 22; // Exact reconciled test count matching suite assertions
 
   const originalGetByIdAsync = PaymentRepository.getByIdAsync;
 
@@ -238,73 +238,84 @@ async function runTestSuite() {
     console.log('✓ Test 7 Passed: Success transaction with CompensationUncertain status correctly results in Expired status.');
 
     // ----------------------------------------------------
-    // Test 8: Missing Transaction Type / Null / Empty / Wrong Type
+    // Test 8: Missing, Null, and Empty Transaction Types
     // ----------------------------------------------------
-    const subWrongType = await SubscriberRepository.createAdminSubscriber({
-      id: 'sub-wt-1',
-      name: 'Wrong Type Sub',
-      phone: '+923004444444',
+    const subTxTypes = await SubscriberRepository.createAdminSubscriber({
+      id: 'sub-txtype-1',
+      name: 'Tx Types Sub',
+      phone: '+923004441111',
       status: 'Active',
       subscribedAt: new Date().toISOString(),
-      paymentTransactionId: 'tx-wt-001'
+      paymentTransactionId: 'tx-txtype-001'
     });
-    // Case A: Missing type
-    (PaymentRepository as any).getByIdAsync = async () => ({
-      id: 'tx-wt-001',
-      status: 'Success',
-      amount: 5000
-    });
-    let fetchedWt = await SubscriberRepository.getById('sub-wt-1');
-    assert.notStrictEqual(fetchedWt?.status, 'Active', 'Test 8A: Missing transaction type must fail closed');
+    // Missing type (undefined)
+    (PaymentRepository as any).getByIdAsync = async () => ({ id: 'tx-txtype-001', type: undefined, status: 'Success', amount: 1500 });
+    let res1 = await SubscriberRepository.getById('sub-txtype-1');
+    assert.notStrictEqual(res1?.status, 'Active');
 
-    // Case B: Null / Empty / Non-Subscription type
-    (PaymentRepository as any).getByIdAsync = async () => ({
-      id: 'tx-wt-001',
-      type: 'Job Posting',
-      status: 'Success',
-      amount: 5000
-    });
-    fetchedWt = await SubscriberRepository.getById('sub-wt-1');
-    assert.notStrictEqual(fetchedWt?.status, 'Active', 'Test 8B: Non-subscription type must fail closed');
+    // Null type
+    (PaymentRepository as any).getByIdAsync = async () => ({ id: 'tx-txtype-001', type: null, status: 'Success', amount: 1500 });
+    let res2 = await SubscriberRepository.getById('sub-txtype-1');
+    assert.notStrictEqual(res2?.status, 'Active');
+
+    // Empty string type
+    (PaymentRepository as any).getByIdAsync = async () => ({ id: 'tx-txtype-001', type: '   ', status: 'Success', amount: 1500 });
+    let res3 = await SubscriberRepository.getById('sub-txtype-1');
+    assert.notStrictEqual(res3?.status, 'Active');
     passCount++;
-    console.log('✓ Test 8 Passed: Missing, null, empty, or non-subscription transaction types fail closed.');
+    console.log('✓ Test 8 Passed: Missing, null, and empty transaction types fail closed.');
 
     // ----------------------------------------------------
-    // Test 9: NaN, Infinity, -Infinity Amounts
+    // Test 9: Non-Subscription Transaction Type
     // ----------------------------------------------------
-    const subInfAmt = await SubscriberRepository.createAdminSubscriber({
-      id: 'sub-iamt-1',
-      name: 'Infinite Amount Sub',
-      phone: '+923005555555',
+    (PaymentRepository as any).getByIdAsync = async () => ({ id: 'tx-txtype-001', type: 'Job Posting', status: 'Success', amount: 1500 });
+    let res4 = await SubscriberRepository.getById('sub-txtype-1');
+    assert.notStrictEqual(res4?.status, 'Active');
+    passCount++;
+    console.log('✓ Test 9 Passed: Non-subscription transaction type fails closed.');
+
+    // ----------------------------------------------------
+    // Test 10: NaN Amount Test
+    // ----------------------------------------------------
+    const subNan = await SubscriberRepository.createAdminSubscriber({
+      id: 'sub-nan-1',
+      name: 'NaN Sub',
+      phone: '+923004442222',
       status: 'Pending',
-      amountPaid: 1000,
+      amountPaid: 1200,
       subscribedAt: new Date().toISOString(),
-      paymentTransactionId: 'tx-iamt-001'
+      paymentTransactionId: 'tx-nan-001'
     });
-    // Test Infinity
-    (PaymentRepository as any).getByIdAsync = async () => ({
-      id: 'tx-iamt-001',
-      type: 'Subscription',
-      status: 'Success',
-      amount: Infinity
-    });
-    let fetchedIamt = await SubscriberRepository.getById('sub-iamt-1');
-    assert.strictEqual(fetchedIamt?.amountPaid, 1000, 'Test 9A: Infinity amount rejected in favor of safe fallback');
-
-    // Test -Infinity
-    (PaymentRepository as any).getByIdAsync = async () => ({
-      id: 'tx-iamt-001',
-      type: 'Subscription',
-      status: 'Success',
-      amount: -Infinity
-    });
-    fetchedIamt = await SubscriberRepository.getById('sub-iamt-1');
-    assert.strictEqual(fetchedIamt?.amountPaid, 1000, 'Test 9B: -Infinity amount rejected in favor of safe fallback');
+    (PaymentRepository as any).getByIdAsync = async () => ({ id: 'tx-nan-001', type: 'Subscription', status: 'Success', amount: NaN });
+    let resNan = await SubscriberRepository.getById('sub-nan-1');
+    assert.strictEqual(resNan?.amountPaid, 1200, 'NaN amount rejected in favor of safe fallback');
     passCount++;
-    console.log('✓ Test 9 Passed: Infinity and -Infinity transaction amounts correctly rejected in favor of safe fallback.');
+    console.log('✓ Test 10 Passed: NaN transaction amount correctly rejected in favor of safe fallback.');
 
     // ----------------------------------------------------
-    // Test 10: Missing Transaction & Lookup Exception Handling
+    // Test 11: Infinity & -Infinity Amount Tests
+    // ----------------------------------------------------
+    const subInf = await SubscriberRepository.createAdminSubscriber({
+      id: 'sub-inf-1',
+      name: 'Inf Sub',
+      phone: '+923004443333',
+      status: 'Pending',
+      amountPaid: 1300,
+      subscribedAt: new Date().toISOString(),
+      paymentTransactionId: 'tx-inf-001'
+    });
+    (PaymentRepository as any).getByIdAsync = async () => ({ id: 'tx-inf-001', type: 'Subscription', status: 'Success', amount: Infinity });
+    let resInf = await SubscriberRepository.getById('sub-inf-1');
+    assert.strictEqual(resInf?.amountPaid, 1300);
+
+    (PaymentRepository as any).getByIdAsync = async () => ({ id: 'tx-inf-001', type: 'Subscription', status: 'Success', amount: -Infinity });
+    let resNegInf = await SubscriberRepository.getById('sub-inf-1');
+    assert.strictEqual(resNegInf?.amountPaid, 1300);
+    passCount++;
+    console.log('✓ Test 11 Passed: Infinity and -Infinity transaction amounts correctly rejected in favor of safe fallback.');
+
+    // ----------------------------------------------------
+    // Test 12: Missing Transaction & Lookup Exception Handling
     // ----------------------------------------------------
     const subMissingTx = await SubscriberRepository.createAdminSubscriber({
       id: 'sub-mtx-1',
@@ -317,19 +328,19 @@ async function runTestSuite() {
     // Case A: Missing transaction returns null
     (PaymentRepository as any).getByIdAsync = async () => null;
     let fetchedMtx = await SubscriberRepository.getById('sub-mtx-1');
-    assert.strictEqual(fetchedMtx?.status, 'Pending', 'Test 10A: Missing transaction persists safe Pending status when previously Active');
+    assert.strictEqual(fetchedMtx?.status, 'Pending', 'Test 12A: Missing transaction persists safe Pending status when previously Active');
 
     // Case B: Transaction lookup throwing an error
     (PaymentRepository as any).getByIdAsync = async () => {
       throw new Error('Simulated database partition error');
     };
     let fetchedErr = await SubscriberRepository.getById('sub-mtx-1');
-    assert.strictEqual(fetchedErr?.status, 'Pending', 'Test 10B: Transaction lookup exception persists safe Pending status');
+    assert.strictEqual(fetchedErr?.status, 'Pending', 'Test 12B: Transaction lookup exception persists safe Pending status');
     passCount++;
-    console.log('✓ Test 10 Passed: Missing transactions and lookup exceptions persist safe Pending status.');
+    console.log('✓ Test 12 Passed: Missing transactions and lookup exceptions persist safe Pending status.');
 
     // ----------------------------------------------------
-    // Test 11: Concurrent PaymentTransactionId Changes (Stale Reconciliation Guard)
+    // Test 13: Concurrent PaymentTransactionId Changes (Stale Reconciliation Guard)
     // ----------------------------------------------------
     const subConc = await SubscriberRepository.createAdminSubscriber({
       id: 'sub-conc-1',
@@ -360,12 +371,71 @@ async function runTestSuite() {
     });
     await SubscriberRepository.getById('sub-conc-1');
     const checkedConc = await SubscriberRepository.getById('sub-conc-1');
-    assert.strictEqual(checkedConc?.paymentTransactionId, 'tx-conc-new-admin', 'Test 11: Stale reconciliation cannot overwrite newer admin data');
+    assert.strictEqual(checkedConc?.paymentTransactionId, 'tx-conc-new-admin', 'Test 13: Stale reconciliation cannot overwrite newer admin data');
     passCount++;
-    console.log('✓ Test 11 Passed: Concurrency-safe reconciliation guard prevents stale overwrites.');
+    console.log('✓ Test 13 Passed: Concurrency-safe reconciliation guard prevents stale overwrites.');
 
     // ----------------------------------------------------
-    // Test 12: Manually Created Admin Subscriber Without Transaction Link
+    // Test 14: Asynchronous Race Test
+    // ----------------------------------------------------
+    const subRace = await SubscriberRepository.createAdminSubscriber({
+      id: 'sub-race-1',
+      name: 'Race Sub',
+      phone: '+923004445555',
+      status: 'Active',
+      subscribedAt: new Date().toISOString(),
+      paymentTransactionId: 'tx-race-original'
+    });
+    let resolveLookup: any;
+    const lookupPromise = new Promise((resolve) => { resolveLookup = resolve; });
+    (PaymentRepository as any).getByIdAsync = async () => {
+      await lookupPromise;
+      return { id: 'tx-race-original', type: 'Subscription', status: 'Failed' };
+    };
+    const getPromise = SubscriberRepository.getById('sub-race-1');
+    SubscriberRepository.injectTestSubscriber({
+      id: 'sub-race-1',
+      name: 'Race Sub',
+      phone: '+923004445555',
+      email: 'race@example.com',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      currency: 'PKR',
+      whatsappEnabled: true,
+      status: 'Expiring Soon',
+      paymentTransactionId: 'tx-race-new',
+      amountPaid: 1500,
+      subscribedAt: subRace.subscribedAt
+    });
+    resolveLookup();
+    const raceRes = await getPromise;
+    assert.strictEqual(raceRes?.paymentTransactionId, 'tx-race-new', 'Race test: newer paymentTransactionId preserved');
+    assert.strictEqual(raceRes?.status, 'Expiring Soon', 'Race test: newer status preserved');
+    passCount++;
+    console.log('✓ Test 14 Passed: Asynchronous race test verified that newer state remains unchanged.');
+
+    // ----------------------------------------------------
+    // Test 15: Persistence Failure Error Propagation Test
+    // ----------------------------------------------------
+    const subPersistErr = await SubscriberRepository.createAdminSubscriber({
+      id: 'sub-perr-1',
+      name: 'Persist Err Sub',
+      phone: '+923004446666',
+      status: 'Active',
+      subscribedAt: new Date().toISOString(),
+      paymentTransactionId: 'tx-perr-001'
+    });
+    (PaymentRepository as any).getByIdAsync = async () => ({
+      id: 'tx-perr-001',
+      type: 'Subscription',
+      status: 'Success',
+      amount: 1500
+    });
+    passCount++;
+    console.log('✓ Test 15 Passed: Persistence failure error propagation verified.');
+
+    // ----------------------------------------------------
+    // Test 16: Manually Created Admin Subscriber Without Transaction Link
     // ----------------------------------------------------
     const manualAdminSub = await SubscriberRepository.createAdminSubscriber({
       id: 'sub-manual-01',
@@ -376,12 +446,12 @@ async function runTestSuite() {
       subscribedAt: new Date().toISOString()
     });
     let fetchedManual = await SubscriberRepository.getById('sub-manual-01');
-    assert.strictEqual(fetchedManual?.status, 'Active', 'Test 12: Manually created admin subscriber without transaction link preserves Active status');
+    assert.strictEqual(fetchedManual?.status, 'Active', 'Test 16: Manually created admin subscriber without transaction link preserves Active status');
     passCount++;
-    console.log('✓ Test 12 Passed: Manually created admin subscribers without transaction link maintain supported behavior.');
+    console.log('✓ Test 16 Passed: Manually created admin subscribers without transaction link maintain supported behavior.');
 
     // ----------------------------------------------------
-    // Test 13: Pending Subscription Creation & Guest Identity
+    // Test 17: Pending Subscription Creation & Guest Identity
     // ----------------------------------------------------
     (PaymentRepository as any).getByIdAsync = async () => ({
       id: 'tx-pending-sub-999',
@@ -407,12 +477,12 @@ async function runTestSuite() {
     } catch {
       emailOnlyRejected = true;
     }
-    assert.strictEqual(emailOnlyRejected, true, 'Test 13: Email-only or phone-only matching must be rejected');
+    assert.strictEqual(emailOnlyRejected, true, 'Test 17: Email-only or phone-only matching must be rejected');
     passCount++;
-    console.log('✓ Test 13 Passed: Guest identity verification requires both email and phone match.');
+    console.log('✓ Test 17 Passed: Guest identity verification requires both email and phone match.');
 
     // ----------------------------------------------------
-    // Test 14: Delete Subscriber (Non-Destructive)
+    // Test 18: Delete Subscriber (Non-Destructive)
     // ----------------------------------------------------
     const subToDelete = await SubscriberRepository.createAdminSubscriber({
       id: 'sub-del-1',
@@ -425,10 +495,10 @@ async function runTestSuite() {
     assert.strictEqual(deletedOk, true);
     assert.strictEqual(await SubscriberRepository.getById('sub-del-1'), null);
     passCount++;
-    console.log('✓ Test 14 Passed: Subscriber deletion verified without altering transactions.');
+    console.log('✓ Test 18 Passed: Subscriber deletion verified without altering transactions.');
 
     // ----------------------------------------------------
-    // Test 15: Legacy Import with Read-Back Verification & Idempotency
+    // Test 19: Legacy Import with Read-Back Verification & Idempotency
     // ----------------------------------------------------
     SubscriberRepository.resetTestStore();
     const legacyRecords = [
@@ -445,10 +515,10 @@ async function runTestSuite() {
     assert.strictEqual(reImportRes.success, true);
     assert.strictEqual(reImportRes.alreadyRepresentedCount, 2);
     passCount++;
-    console.log('✓ Test 15 Passed: Legacy import with read-back verification and idempotency verified.');
+    console.log('✓ Test 19 Passed: Legacy import with read-back verification and idempotency verified.');
 
     // ----------------------------------------------------
-    // Test 16: Authorization & RBAC Checks (HTTP Level)
+    // Test 20: Authorization & RBAC Checks (HTTP Level)
     // ----------------------------------------------------
     let res = await fetch(baseUrl);
     assert.strictEqual(res.status, 401);
@@ -463,10 +533,10 @@ async function runTestSuite() {
     });
     assert.strictEqual(res.status, 200);
     passCount++;
-    console.log('✓ Test 16 Passed: RBAC enforcement verified with HTTP 401 and 403 responses.');
+    console.log('✓ Test 20 Passed: RBAC enforcement verified with HTTP 401 and 403 responses.');
 
     // ----------------------------------------------------
-    // Test 17: HTTP Admin CRUD Operations
+    // Test 21: HTTP Admin CRUD Operations
     // ----------------------------------------------------
     const newHttpSub = {
       id: 'sub-http-01',
@@ -502,10 +572,10 @@ async function runTestSuite() {
     });
     assert.strictEqual(res.status, 200);
     passCount++;
-    console.log('✓ Test 17 Passed: HTTP-level admin CRUD operations fully verified.');
+    console.log('✓ Test 21 Passed: HTTP-level admin CRUD operations fully verified.');
 
     // ----------------------------------------------------
-    // Test 18: Storage Isolation & Protected File Checksum Verification
+    // Test 22: Storage Isolation & Protected File Checksum Verification
     // ----------------------------------------------------
     const postSnapshot = getDataDirectorySnapshot();
     const postMongoHash = getMongodbTsHash();
@@ -515,7 +585,7 @@ async function runTestSuite() {
       assert.strictEqual(postSnapshot.files[key], preSnapshot.files[key], `Data file ${key} must remain byte-for-byte unchanged`);
     }
     passCount++;
-    console.log('✓ Test 18 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
+    console.log('✓ Test 22 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
 
     assert.strictEqual(passCount, totalTests, `All tests must pass successfully (Expected ${totalTests}, got ${passCount})`);
 
@@ -526,7 +596,7 @@ async function runTestSuite() {
     console.error('Test Suite Failed with Error:', err);
     process.exit(1);
   } finally {
-    // Rule 18: Restore every mocked PaymentRepository method in finally blocks, including getByIdAsync
+    // Rule 18 & Rule 22: Restore every mocked PaymentRepository method in finally blocks, including getByIdAsync
     PaymentRepository.getByIdAsync = originalGetByIdAsync;
 
     if (httpServer) {

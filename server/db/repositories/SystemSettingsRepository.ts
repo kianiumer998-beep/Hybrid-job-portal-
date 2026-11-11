@@ -88,8 +88,8 @@ function isMalformedCustomFieldsArray(arr: any): boolean {
     if (typeof item.type !== 'string' || !VALID_TYPES.has(item.type.trim())) return true;
     if (typeof item.required !== 'boolean') return true;
     if (typeof item.active !== 'boolean') return true;
-    if (item.options !== undefined && item.options !== null) {
-      if (!Array.isArray(item.options)) return true;
+    if (item.options !== undefined) {
+      if (item.options === null || !Array.isArray(item.options)) return true;
       for (const opt of item.options) {
         if (typeof opt !== 'string') return true;
       }

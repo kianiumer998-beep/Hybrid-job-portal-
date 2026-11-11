@@ -1242,6 +1242,9 @@ export default function App() {
   }, [chatMessages]);
 
   const loadBackendCustomFormFields = useCallback(async () => {
+    // Wait for ongoing updates to finish
+    await customFieldsMutexRef.current;
+    
     const currentSeq = ++customFieldsReqSeqRef.current;
     try {
       const res = await api.settings.getCustomFormFields();
@@ -1269,6 +1272,9 @@ export default function App() {
       (ADMIN_ROLES as readonly string[]).includes(payload.role)
     );
     if (!isAuthorizedAdmin) return;
+
+    // Wait for ongoing updates to finish
+    await customFieldsMutexRef.current;
 
     const saved = localStorage.getItem('hybrid_custom_form_fields');
     if (!saved) return;

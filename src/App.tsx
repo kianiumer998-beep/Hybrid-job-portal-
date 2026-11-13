@@ -1279,14 +1279,13 @@ export default function App() {
       const legacy = JSON.parse(saved);
       if (Array.isArray(legacy) && legacy.length > 0) {
         const res = await api.chat.importLegacy(legacy);
-        // Only clear if all eligible records were processed (imported or correctly skipped/synthetic)
-        const totalProcessed = (res.imported || 0) + (res.skipped || 0);
-        if (res && res.success && totalProcessed === legacy.length) {
-          console.log(`[Chat Migration] Successfully processed all ${legacy.length} messages.`);
+        const isCompleteAndVerified = res && res.success === true && res.failed === 0;
+        if (isCompleteAndVerified) {
+          console.log(`[Chat Migration] Successfully verified and imported all legacy messages.`);
           localStorage.removeItem('hybrid_chat_messages');
           loadChatMessages();
-        } else if (res && res.success) {
-          console.warn(`[Chat Migration] Partial success: ${totalProcessed}/${legacy.length} processed. Preserving LocalStorage for retry.`);
+        } else {
+          console.warn(`[Chat Migration] Migration incomplete or partial (failed: ${res?.failed || 0}). Preserving LocalStorage for retry.`);
         }
       }
     } catch (err) {
@@ -2752,13 +2751,14 @@ export default function App() {
         api.chat.adminSendReply(chatMsg).then(res => {
           if (res?.success) {
             setChatMessages(prev => [...prev, res.message]);
+            console.log('[App] Chat notification successfully sent for job rejection.');
           } else {
             console.error('[App] Persistent chat notification failed for job rejection:', res?.message);
           }
         }).catch(err => console.warn('[App] Error sending persistent chat notification for job rejection:', err));
       }
 
-      alert(`Job rejected. Reason notification sent to user chat.`);
+      alert(`Job rejected successfully. Notification dispatch initiated.`);
     } catch (err) {
       console.error('Error rejecting job on backend:', err);
       await loadBackendJobs();

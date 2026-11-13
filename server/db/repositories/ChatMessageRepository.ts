@@ -8,21 +8,33 @@ export class ChatMessageRepository {
   private static collectionName = 'chat_messages';
 
   private static indexesInitialized = false;
+  private static indexInitPromise: Promise<void> | null = null;
+
+  private static async ensureIndexes(): Promise<void> {
+    if (this.indexesInitialized) return;
+    if (!isMongoConfigured()) return;
+
+    if (!this.indexInitPromise) {
+      this.indexInitPromise = (async () => {
+        try {
+          const db: Db = await getMongoDb();
+          const collection = db.collection<ChatMessage>(this.collectionName);
+          await collection.createIndex({ userId: 1, id: 1 }, { unique: true });
+          this.indexesInitialized = true;
+        } catch (err: any) {
+          console.error('[ChatMessageRepository] Index initialization error:', err?.message || err);
+          this.indexInitPromise = null;
+          throw new Error(`Database index initialization failed: unique compound index { userId: 1, id: 1 } could not be established (${err?.message || err})`);
+        }
+      })();
+    }
+    await this.indexInitPromise;
+  }
 
   private static async getCollection(): Promise<Collection<ChatMessage>> {
+    await this.ensureIndexes();
     const db: Db = await getMongoDb();
-    const collection = db.collection<ChatMessage>(this.collectionName);
-    
-    if (!this.indexesInitialized && isMongoConfigured()) {
-      try {
-        await collection.createIndex({ userId: 1, id: 1 }, { unique: true });
-        this.indexesInitialized = true;
-      } catch (err) {
-        console.warn('[ChatMessageRepository] Index creation note:', err);
-      }
-    }
-    
-    return collection;
+    return db.collection<ChatMessage>(this.collectionName);
   }
 
   static async save(message: ChatMessage): Promise<ChatMessage> {

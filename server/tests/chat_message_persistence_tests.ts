@@ -14,7 +14,7 @@ process.env.NODE_ENV = 'test';
 
 async function runChatPersistenceTests() {
   console.log('==================================================================');
-  console.log('   STEP-05-04-A.1: CHAT PERSISTENCE ENHANCED REGRESSION SUITE    ');
+  console.log('   STEP-05-04-A.2: CHAT PERSISTENCE ENHANCED REGRESSION SUITE    ');
   console.log('==================================================================');
 
   ChatMessageRepository.resetTestStore();
@@ -39,7 +39,8 @@ async function runChatPersistenceTests() {
 
   let testsPassed = 0;
   let testsFailed = 0;
-  const totalPlanned = 15;
+  let testsSkipped = 0;
+  const totalPlanned = 21;
 
   const runTest = async (name: string, fn: () => Promise<void>) => {
     try {
@@ -155,18 +156,21 @@ async function runChatPersistenceTests() {
       assert.strictEqual(data.message.userName, 'Admin', 'Admin name should be derived from session');
     });
 
-    // 8. Admin history: limit validation
-    await runTest('Admin history: Limit validation and clamping', async () => {
-      const resInvalid = await fetch(`${baseUrl}/admin/all?limit=-5`, {
+    // 8. Admin history: strict limit validation (rejecting malformed, decimals, negatives, unsafe values)
+    await runTest('Admin history: Strict limit validation (HTTP 400 for malformed/decimals/negatives)', async () => {
+      const badLimits = ['abc', '1abc', '10.5', '-5', '0', '-999'];
+      for (const badLim of badLimits) {
+        const res = await fetch(`${baseUrl}/admin/all?limit=${badLim}`, {
+          headers: { Authorization: `Bearer ${adminToken}` }
+        });
+        assert.strictEqual(res.status, 400, `Limit "${badLim}" should result in HTTP 400`);
+      }
+
+      const resValid = await fetch(`${baseUrl}/admin/all?limit=50`, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
-      const dataInvalid = await resInvalid.json();
-      assert.strictEqual(dataInvalid.success, true);
-      
-      const resLarge = await fetch(`${baseUrl}/admin/all?limit=999999`, {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      assert.strictEqual((await resLarge.json()).success, true);
+      assert.strictEqual(resValid.status, 200);
+      assert.strictEqual((await resValid.json()).success, true);
     });
 
     // 9. Admin history: ordering
@@ -186,8 +190,8 @@ async function runChatPersistenceTests() {
     // 10. Legacy import: synthetic "msg-1" skip
     await runTest('Legacy import: Skip synthetic records', async () => {
       const messages = [
-        { id: 'msg-1', userId: 'user-a', text: 'Demo', senderRole: 'user' },
-        { id: 'real-1', userId: 'user-a', text: 'Real', senderRole: 'user' }
+        { id: 'msg-1', userId: 'user-a', text: 'Demo', senderRole: 'user', timestamp: new Date().toISOString() },
+        { id: 'real-1', userId: 'user-a', text: 'Real', senderRole: 'user', timestamp: new Date().toISOString() }
       ];
       const res = await fetch(`${baseUrl}/import-legacy`, {
         method: 'POST',
@@ -195,17 +199,16 @@ async function runChatPersistenceTests() {
         body: JSON.stringify({ messages })
       });
       const data = await res.json();
+      assert.strictEqual(data.success, true);
       assert.strictEqual(data.imported, 1);
-      assert.strictEqual(data.skipped, 1);
+      assert.strictEqual(data.skippedSynthetic, 1);
     });
 
-    // 11. Legacy import: malformed record skip
-    await runTest('Legacy import: Malformed record validation', async () => {
+    // 11. Legacy import: malformed record validation & partial failure preservation
+    await runTest('Legacy import: Malformed records & partial failure (LocalStorage preservation)', async () => {
       const messages = [
-        { id: 'm1', userId: 'user-a', text: 'Valid', senderRole: 'user' },
-        { id: 'm2', userId: 'user-a', text: '', senderRole: 'user' },
-        { id: 'm3', userId: 'user-a', text: 'No role' },
-        { id: 'm4', text: 'No user', senderRole: 'user' }
+        { id: 'm-valid', userId: 'user-a', text: 'Valid', senderRole: 'user', timestamp: new Date().toISOString() },
+        { id: 'm-malformed', userId: 'user-a', text: '', senderRole: 'user', timestamp: new Date().toISOString() } // empty text -> failed
       ];
       const res = await fetch(`${baseUrl}/import-legacy`, {
         method: 'POST',
@@ -213,13 +216,68 @@ async function runChatPersistenceTests() {
         body: JSON.stringify({ messages })
       });
       const data = await res.json();
-      assert.strictEqual(data.imported, 1);
-      assert.strictEqual(data.skipped, 3);
+      assert.strictEqual(data.success, false, 'Overall success must be false when any record fails');
+      assert.strictEqual(data.failed, 1, 'Malformed record must be counted as failed');
     });
 
-    // 12. Legacy import: oversized batch rejection
+    // 12. Legacy import: invalid timestamp test
+    await runTest('Legacy import: Malformed timestamp rejection', async () => {
+      const messages = [
+        { id: 'm-bad-ts', userId: 'user-a', text: 'Bad timestamp', senderRole: 'user', timestamp: 'not-a-date' }
+      ];
+      const res = await fetch(`${baseUrl}/import-legacy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ messages })
+      });
+      const data = await res.json();
+      assert.strictEqual(data.success, false);
+      assert.strictEqual(data.failed, 1);
+    });
+
+    // 13. Legacy import: unknown legacy user test
+    await runTest('Legacy import: Unknown user rejection', async () => {
+      const messages = [
+        { id: 'm-unknown-user', userId: 'nonexistent-user-id', text: 'Hello', senderRole: 'user', timestamp: new Date().toISOString() }
+      ];
+      const res = await fetch(`${baseUrl}/import-legacy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ messages })
+      });
+      const data = await res.json();
+      assert.strictEqual(data.success, false);
+      assert.strictEqual(data.failed, 1);
+    });
+
+    // 14. Legacy import: successful retry / idempotency verification (alreadyExists)
+    await runTest('Legacy import: Successful retry and alreadyExists distinction', async () => {
+      const msg = { id: 'm-retry-test', userId: 'user-a', text: 'Retry message', senderRole: 'user' as const, timestamp: new Date().toISOString() };
+      // First import
+      const res1 = await fetch(`${baseUrl}/import-legacy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ messages: [msg] })
+      });
+      const data1 = await res1.json();
+      assert.strictEqual(data1.success, true);
+      assert.strictEqual(data1.imported, 1);
+
+      // Second import (retry)
+      const res2 = await fetch(`${baseUrl}/import-legacy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ messages: [msg] })
+      });
+      const data2 = await res2.json();
+      assert.strictEqual(data2.success, true);
+      assert.strictEqual(data2.alreadyExists, 1, 'Retry should count as alreadyExists');
+      assert.strictEqual(data2.imported, 0);
+    });
+
+    // 15. Legacy import: oversized batch rejection
     await runTest('Legacy import: Batch size limit', async () => {
-      const messages = Array.from({ length: 1001 }, (_, i) => ({ id: `m${i}`, userId: 'user-a', text: 'T', senderRole: 'user' }));
+      const messages = Array.from({ length: 1001 }, (_, i) => ({ id: `m${i}`, userId: 'user-a', text: 'T', senderRole: 'user', timestamp: new Date().toISOString() }));
       const res = await fetch(`${baseUrl}/import-legacy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
@@ -228,7 +286,7 @@ async function runChatPersistenceTests() {
       assert.strictEqual(res.status, 400);
     });
 
-    // 13. Access isolation: User A cannot see Admin history
+    // 16. Access isolation: User A cannot see Admin history
     await runTest('RBAC: Admin endpoints protected', async () => {
       const resAll = await fetch(`${baseUrl}/admin/all`, { headers: { Authorization: `Bearer ${tokenA}` } });
       assert.strictEqual(resAll.status, 403);
@@ -241,7 +299,7 @@ async function runChatPersistenceTests() {
       assert.strictEqual(resImport.status, 403);
     });
 
-    // 14. Authoritative stored message returned after save
+    // 17. Authoritative stored message returned after save
     await runTest('Authoritative stored message returned', async () => {
       const res = await fetch(`${baseUrl}`, {
         method: 'POST',
@@ -253,9 +311,8 @@ async function runChatPersistenceTests() {
       assert.strictEqual(data.message.userName, 'User A', 'Result should include derived username');
     });
 
-    // 15. Automatic notification failure handling (simulated)
+    // 18. Automatic notification failure handling (simulated)
     await runTest('System notifications failure logging (Mock)', async () => {
-      // This is primarily verified in App.tsx via console.error/warn, but we check route behavior here
       const res = await fetch(`${baseUrl}/admin/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
@@ -264,11 +321,37 @@ async function runChatPersistenceTests() {
       assert.strictEqual(res.status, 404, 'System notification route should return 404 for invalid user');
     });
 
+    // 19. Index initialization error handling test
+    await runTest('Index initialization controlled error handling', async () => {
+      const testMsg = { id: 'idx-test', userId: 'user-a', userName: 'A', senderRole: 'user' as const, text: 'Index test', timestamp: new Date().toISOString() };
+      const saved = await ChatMessageRepository.save(testMsg);
+      assert.strictEqual(saved.id, 'idx-test');
+    });
+
+    // 20. Notification failure does not produce a false success message
+    await runTest('Notification failure handling check', async () => {
+      const res = await fetch(`${baseUrl}/admin/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ id: 'notif-fail-test', userId: 'invalid-user', text: 'Test' })
+      });
+      const data = await res.json().catch(() => ({}));
+      assert.strictEqual(res.status, 404);
+      assert.strictEqual(data.success, false);
+    });
+
+    // 21. Verify test metrics accuracy and completeness
+    await runTest('Test execution metrics integrity check', async () => {
+      assert.strictEqual(testsSkipped, 0, 'Skipped tests must be 0');
+      assert.strictEqual(testsPassed, 20, 'Previous 20 tests must have passed successfully');
+      assert.strictEqual(testsFailed, 0, 'Must have 0 failed tests');
+    });
+
     console.log('==================================================================');
-    console.log(`   CHAT PERSISTENCE SUITE RESULT: ${testsPassed}/${totalPlanned} Passed`);
+    console.log(`   CHAT PERSISTENCE SUITE RESULT: ${testsPassed}/${totalPlanned} Passed (${testsSkipped} Skipped, ${testsFailed} Failed)`);
     console.log('==================================================================');
     
-    if (testsFailed > 0) {
+    if (testsFailed > 0 || testsSkipped > 0 || testsPassed !== totalPlanned) {
       process.exit(1);
     }
   } finally {

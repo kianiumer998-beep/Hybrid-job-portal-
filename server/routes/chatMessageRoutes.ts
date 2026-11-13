@@ -11,7 +11,6 @@ router.get('/', requireAuth, async (req: any, res) => {
   try {
     const userId = req.user.userId || req.user.id;
     const messages = await ChatMessageRepository.getByUserId(userId);
-    // UI expects chronological order; repository already returns sorted by timestamp.
     res.json({ success: true, messages });
   } catch (err: any) {
     console.error('[Chat API] Error fetching user messages:', err);
@@ -47,7 +46,7 @@ router.post('/', requireAuth, async (req: any, res) => {
       userName: req.user.name || 'Member',
       senderRole: 'user',
       text: text.trim(),
-      timestamp: new Date().toISOString(), // Server-authoritative timestamp
+      timestamp: new Date().toISOString(),
       jobTitleRef: jobTitleRef?.trim() || undefined
     };
 
@@ -62,9 +61,19 @@ router.post('/', requireAuth, async (req: any, res) => {
 // GET /api/chat/admin/all - Admin: Get all conversations
 router.get('/admin/all', requireAdmin, async (req, res) => {
   try {
-    let limit = parseInt(req.query.limit as string) || 2000;
-    if (isNaN(limit) || limit <= 0) limit = 2000;
-    limit = Math.min(limit, 10000); // Guard against excessively large requests
+    let limit = 2000;
+    const rawLimit = req.query.limit;
+    if (rawLimit !== undefined) {
+      const limitStr = String(rawLimit).trim();
+      if (!/^\d+$/.test(limitStr)) {
+        return res.status(400).json({ success: false, message: 'Invalid limit parameter. Must be a positive safe integer.' });
+      }
+      const parsed = Number(limitStr);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid limit parameter. Must be a positive safe integer.' });
+      }
+      limit = Math.min(parsed, 10000);
+    }
 
     const messages = await ChatMessageRepository.getAll(limit);
     res.json({ success: true, messages });
@@ -83,7 +92,6 @@ router.post('/admin/reply', requireAdmin, async (req: any, res) => {
       return res.status(400).json({ success: false, message: 'Target user ID is required for admin reply.' });
     }
 
-    // Verify target user existence
     const targetUser = await UserRepository.getByIdAsync(targetUserId);
     if (!targetUser) {
       return res.status(404).json({ success: false, message: `Target user with ID '${targetUserId}' does not exist.` });
@@ -104,10 +112,10 @@ router.post('/admin/reply', requireAdmin, async (req: any, res) => {
     const adminMessage: ChatMessage = {
       id: id.trim(),
       userId: targetUserId,
-      userName: req.user.name || 'Portal Admin', // Derive from authenticated admin session
+      userName: req.user.name || 'Portal Admin',
       senderRole: 'admin',
       text: text.trim(),
-      timestamp: new Date().toISOString(), // Server-authoritative timestamp
+      timestamp: new Date().toISOString(),
       jobTitleRef: jobTitleRef?.trim() || undefined
     };
 
@@ -133,53 +141,83 @@ router.post('/import-legacy', requireAdmin, async (req, res) => {
 
     const results = {
       imported: 0,
+      alreadyExists: 0,
+      skippedSynthetic: 0,
       skipped: 0,
       failed: 0
     };
 
     for (const msg of messages) {
       try {
-        // Validation: skip synthetic demo message or malformed records
         if (!msg || typeof msg !== 'object') {
-          results.skipped++;
+          results.failed++;
           continue;
         }
-        
+
         if (msg.id === 'msg-1') {
+          results.skippedSynthetic++;
           results.skipped++;
           continue;
         }
 
-        // Deep validation of legacy record
-        const isValid = 
-          typeof msg.id === 'string' && msg.id.length > 0 &&
-          typeof msg.userId === 'string' && msg.userId.length > 0 &&
-          typeof msg.text === 'string' && msg.text.trim().length > 0 &&
-          (msg.senderRole === 'user' || msg.senderRole === 'admin');
-
-        if (!isValid) {
-          results.skipped++;
+        // Validate basic fields
+        if (typeof msg.id !== 'string' || !msg.id.trim() || msg.id.length > 100) {
+          results.failed++;
           continue;
         }
+        if (typeof msg.userId !== 'string' || !msg.userId.trim()) {
+          results.failed++;
+          continue;
+        }
+        if (typeof msg.text !== 'string' || !msg.text.trim() || msg.text.length > 2000) {
+          results.failed++;
+          continue;
+        }
+        if (msg.senderRole !== 'user' && msg.senderRole !== 'admin') {
+          results.failed++;
+          continue;
+        }
+        // Validate timestamp as real valid date
+        if (typeof msg.timestamp !== 'string' || isNaN(Date.parse(msg.timestamp))) {
+          results.failed++;
+          continue;
+        }
+
+        // Verify target user existence
+        const userExists = await UserRepository.getByIdAsync(msg.userId);
+        if (!userExists) {
+          results.failed++;
+          continue;
+        }
+
+        // Check if message already exists for this user
+        const existingMessages = await ChatMessageRepository.getByUserId(msg.userId);
+        const alreadyPresent = existingMessages.some(m => m.id === msg.id.trim());
 
         const normalizedMsg: ChatMessage = {
-          id: msg.id,
-          userId: msg.userId,
-          userName: typeof msg.userName === 'string' ? msg.userName : 'Unknown',
+          id: msg.id.trim(),
+          userId: msg.userId.trim(),
+          userName: typeof msg.userName === 'string' && msg.userName.trim() ? msg.userName.trim() : (userExists.name || 'Member'),
           senderRole: msg.senderRole,
           text: msg.text.trim(),
-          timestamp: typeof msg.timestamp === 'string' ? msg.timestamp : new Date().toISOString(),
-          jobTitleRef: typeof msg.jobTitleRef === 'string' ? msg.jobTitleRef : undefined
+          timestamp: msg.timestamp.trim(),
+          jobTitleRef: typeof msg.jobTitleRef === 'string' && msg.jobTitleRef.trim() ? msg.jobTitleRef.trim() : undefined
         };
 
         await ChatMessageRepository.save(normalizedMsg);
-        results.imported++;
+
+        if (alreadyPresent) {
+          results.alreadyExists++;
+        } else {
+          results.imported++;
+        }
       } catch (err: any) {
         results.failed++;
       }
     }
 
-    res.json({ success: true, ...results });
+    const success = results.failed === 0;
+    res.json({ success, ...results });
   } catch (err: any) {
     console.error('[Chat API] Error importing legacy messages:', err);
     res.status(500).json({ success: false, message: 'Failed to import messages.' });

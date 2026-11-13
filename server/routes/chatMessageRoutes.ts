@@ -47,12 +47,25 @@ router.post('/', requireAuth, async (req: any, res) => {
       senderRole: 'user',
       text: text.trim(),
       timestamp: new Date().toISOString(),
-      jobTitleRef: jobTitleRef?.trim() || undefined
+      jobTitleRef: (typeof jobTitleRef === 'string' && jobTitleRef.trim()) ? jobTitleRef.trim() : undefined
     };
 
-    const saved = await ChatMessageRepository.save(newMessage);
-    res.json({ success: true, message: saved });
+    const saveResult = await ChatMessageRepository.saveWithDetails(newMessage, { ignoreTimestamp: true });
+    if (saveResult.conflict) {
+      return res.status(409).json({
+        success: false,
+        message: 'Message with this ID already exists with conflicting content.'
+      });
+    }
+
+    res.json({ success: true, message: saveResult.message });
   } catch (err: any) {
+    if (err.status === 409 || err.conflict) {
+      return res.status(409).json({
+        success: false,
+        message: err.message || 'Message with this ID already exists with conflicting content.'
+      });
+    }
     console.error('[Chat API] Error saving user message:', err);
     res.status(500).json({ success: false, message: 'Failed to send chat message.' });
   }
@@ -86,11 +99,12 @@ router.get('/admin/all', requireAdmin, async (req, res) => {
 // POST /api/chat/admin/reply - Admin: Send reply to a specific user
 router.post('/admin/reply', requireAdmin, async (req: any, res) => {
   try {
-    const { userId: targetUserId, text, jobTitleRef, id } = req.body;
+    const { userId: rawTargetUserId, text, jobTitleRef, id } = req.body;
 
-    if (!targetUserId || typeof targetUserId !== 'string') {
+    if (typeof rawTargetUserId !== 'string' || !rawTargetUserId.trim()) {
       return res.status(400).json({ success: false, message: 'Target user ID is required for admin reply.' });
     }
+    const targetUserId = rawTargetUserId.trim();
 
     const targetUser = await UserRepository.getByIdAsync(targetUserId);
     if (!targetUser) {
@@ -109,6 +123,10 @@ router.post('/admin/reply', requireAdmin, async (req: any, res) => {
       return res.status(400).json({ success: false, message: 'Message is too long (max 2000 characters).' });
     }
 
+    if (jobTitleRef !== undefined && (typeof jobTitleRef !== 'string' || jobTitleRef.length > 200)) {
+      return res.status(400).json({ success: false, message: 'Invalid jobTitleRef format.' });
+    }
+
     const adminMessage: ChatMessage = {
       id: id.trim(),
       userId: targetUserId,
@@ -116,12 +134,25 @@ router.post('/admin/reply', requireAdmin, async (req: any, res) => {
       senderRole: 'admin',
       text: text.trim(),
       timestamp: new Date().toISOString(),
-      jobTitleRef: jobTitleRef?.trim() || undefined
+      jobTitleRef: (typeof jobTitleRef === 'string' && jobTitleRef.trim()) ? jobTitleRef.trim() : undefined
     };
 
-    const saved = await ChatMessageRepository.save(adminMessage);
-    res.json({ success: true, message: saved });
+    const saveResult = await ChatMessageRepository.saveWithDetails(adminMessage, { ignoreTimestamp: true });
+    if (saveResult.conflict) {
+      return res.status(409).json({
+        success: false,
+        message: 'Message with this ID already exists with conflicting content.'
+      });
+    }
+
+    res.json({ success: true, message: saveResult.message });
   } catch (err: any) {
+    if (err.status === 409 || err.conflict) {
+      return res.status(409).json({
+        success: false,
+        message: err.message || 'Message with this ID already exists with conflicting content.'
+      });
+    }
     console.error('[Chat API] Error saving admin reply:', err);
     res.status(500).json({ success: false, message: 'Failed to send admin reply.' });
   }

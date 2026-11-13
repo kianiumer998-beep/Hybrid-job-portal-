@@ -37,15 +37,21 @@ export class ChatMessageRepository {
     return db.collection<ChatMessage>(this.collectionName);
   }
 
-  private static matchesMigrationFields(stored: ChatMessage, incoming: ChatMessage): boolean {
+  private static matchesMigrationFields(
+    stored: ChatMessage,
+    incoming: ChatMessage,
+    options?: { ignoreTimestamp?: boolean }
+  ): boolean {
     if (stored.userId !== incoming.userId) return false;
     if (stored.id !== incoming.id) return false;
     if (stored.senderRole !== incoming.senderRole) return false;
     if (stored.text !== incoming.text) return false;
 
-    const storedTime = new Date(stored.timestamp).getTime();
-    const incomingTime = new Date(incoming.timestamp).getTime();
-    if (isNaN(storedTime) || isNaN(incomingTime) || storedTime !== incomingTime) return false;
+    if (!options?.ignoreTimestamp) {
+      const storedTime = new Date(stored.timestamp).getTime();
+      const incomingTime = new Date(incoming.timestamp).getTime();
+      if (isNaN(storedTime) || isNaN(incomingTime) || storedTime !== incomingTime) return false;
+    }
 
     const storedUser = (stored.userName || '').trim();
     const incomingUser = (incoming.userName || '').trim();
@@ -58,11 +64,14 @@ export class ChatMessageRepository {
     return true;
   }
 
-  static async saveWithDetails(message: ChatMessage): Promise<{ message: ChatMessage; isNew: boolean; conflict: boolean; existing?: ChatMessage }> {
+  static async saveWithDetails(
+    message: ChatMessage,
+    options?: { ignoreTimestamp?: boolean }
+  ): Promise<{ message: ChatMessage; isNew: boolean; conflict: boolean; existing?: ChatMessage }> {
     if (process.env.IS_TEST === 'true' && !isMongoConfigured()) {
       const existing = testMessages.find(m => m.userId === message.userId && m.id === message.id);
       if (existing) {
-        const match = this.matchesMigrationFields(existing, message);
+        const match = this.matchesMigrationFields(existing, message, options);
         return { message: existing, isNew: false, conflict: !match, existing };
       }
       const cloned = { ...message };
@@ -119,7 +128,7 @@ export class ChatMessageRepository {
     }
 
     // Whenever the operation did NOT insert a new document, compare all migration-relevant fields
-    const match = this.matchesMigrationFields(normalizedStored, message);
+    const match = this.matchesMigrationFields(normalizedStored, message, options);
     if (match) {
       return { message: normalizedStored, isNew: false, conflict: false };
     } else {
@@ -127,8 +136,15 @@ export class ChatMessageRepository {
     }
   }
 
-  static async save(message: ChatMessage): Promise<ChatMessage> {
-    const res = await this.saveWithDetails(message);
+  static async save(message: ChatMessage, options?: { ignoreTimestamp?: boolean }): Promise<ChatMessage> {
+    const res = await this.saveWithDetails(message, options);
+    if (res.conflict) {
+      const err: any = new Error(`Message conflict: message with ID '${message.id}' already exists for user '${message.userId}' with conflicting content.`);
+      err.status = 409;
+      err.conflict = true;
+      err.existing = res.existing;
+      throw err;
+    }
     return res.message;
   }
 

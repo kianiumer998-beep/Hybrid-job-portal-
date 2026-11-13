@@ -223,6 +223,12 @@ interface AdminDashboardProps {
   onUpdateChannelAvailability?: (updates: { email?: boolean; whatsapp?: boolean }) => void;
 }
 
+export function formatChatUserRoleLabel(role?: unknown): string {
+  if (typeof role !== 'string') return 'Member';
+  const firstWord = role.trim().split(/\s+/)[0];
+  return firstWord || 'Member';
+}
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   jobs,
   pendingJobs,
@@ -4560,7 +4566,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="md:col-span-4 border-r border-slate-800 pr-4 space-y-3">
             <h4 className="text-xs font-bold uppercase text-slate-400">Active User Threads</h4>
             <div className="space-y-1">
-              {users.map((u) => (
+              {(users || []).filter(Boolean).map((u) => (
                 <button
                   key={u.id}
                   onClick={() => setSelectedChatUserId(u.id)}
@@ -4571,11 +4577,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }`}
                 >
                   <div>
-                    <div className="font-bold">{u.name}</div>
-                    <div className="text-[10px] opacity-75">{u.email}</div>
+                    <div className="font-bold">{u.name || 'Unnamed User'}</div>
+                    <div className="text-[10px] opacity-75">{u.email || 'No email on file'}</div>
                   </div>
                   <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300">
-                    {u.role.split(' ')[0]}
+                    {formatChatUserRoleLabel(u.role)}
                   </span>
                 </button>
               ))}

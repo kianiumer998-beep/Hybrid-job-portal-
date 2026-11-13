@@ -55,6 +55,39 @@ const isSafeUrl = (url?: string): boolean => {
   return false;
 };
 
+export const safeKycText = (value?: unknown): string => {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+};
+
+export const getKycCompanyInitial = (companyName?: unknown): string => {
+  if (typeof companyName !== 'string') return 'C';
+  const trimmed = companyName.trim();
+  return trimmed ? trimmed.charAt(0).toUpperCase() : 'C';
+};
+
+export const filterEmployerKycRequests = (
+  requests: EmployerKycRequest[] | undefined | null,
+  filterStatus: 'All' | 'Pending' | 'Verified' | 'Rejected',
+  searchQuery?: string | null
+): EmployerKycRequest[] => {
+  const safeRequests = Array.isArray(requests)
+    ? requests.filter((req): req is EmployerKycRequest => Boolean(req))
+    : [];
+  const q = safeKycText(searchQuery);
+  return safeRequests.filter((req) => {
+    if (filterStatus !== 'All' && req.status !== filterStatus) return false;
+    if (q) {
+      return (
+        safeKycText(req.companyName).includes(q) ||
+        safeKycText(req.contactPerson).includes(q) ||
+        safeKycText(req.email).includes(q) ||
+        safeKycText(req.ntnOrTaxNumber).includes(q)
+      );
+    }
+    return true;
+  });
+};
+
 export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
   const [requests, setRequests] = useState<EmployerKycRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,19 +135,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
     loadData();
   }, []);
 
-  const filtered = requests.filter((req) => {
-    if (filterStatus !== 'All' && req.status !== filterStatus) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (
-        req.companyName.toLowerCase().includes(q) ||
-        req.contactPerson.toLowerCase().includes(q) ||
-        req.email.toLowerCase().includes(q) ||
-        req.ntnOrTaxNumber.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const filtered = filterEmployerKycRequests(requests, filterStatus, searchQuery);
 
   const handleApproveKyc = async (req: EmployerKycRequest, badge: 'Standard Verified' | 'Top Employer' | 'Government Agency') => {
     try {
@@ -125,7 +146,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
       if (res.success && res.request) {
         setRequests(requests.map(r => r.id === req.id ? res.request : r));
         setSelectedKyc(null);
-        alert(`✅ Employer "${req.companyName}" has been successfully VERIFIED with ${badge} status!`);
+        alert(`✅ Employer "${req.companyName || 'Employer'}" has been successfully VERIFIED with ${badge} status!`);
       } else {
         alert('Failed to approve: ' + (res?.message || 'Unknown error'));
       }
@@ -143,7 +164,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
       if (res.success && res.request) {
         setRequests(requests.map(r => r.id === req.id ? res.request : r));
         setSelectedKyc(null);
-        alert(`⛔ KYC Request for "${req.companyName}" rejected. Reason logged.`);
+        alert(`⛔ KYC Request for "${req.companyName || 'Employer'}" rejected. Reason logged.`);
       } else {
         alert('Failed to reject: ' + (res?.message || 'Unknown error'));
       }
@@ -228,13 +249,13 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
               <div className="flex items-start space-x-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-500 p-0.5 flex items-center justify-center">
                   <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-base text-cyan-400">
-                    {req.companyName.charAt(0)}
+                    {getKycCompanyInitial(req.companyName)}
                   </div>
                 </div>
 
                 <div>
                   <div className="flex items-center space-x-2">
-                    <h3 className="font-black text-base text-white">{req.companyName}</h3>
+                    <h3 className="font-black text-base text-white">{req.companyName || 'Unnamed Company'}</h3>
                     {req.status === 'Verified' && (
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
                         <CheckCircle2 className="w-3 h-3 text-cyan-400" />
@@ -256,7 +277,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
                   </div>
 
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Contact: <span className="text-slate-200 font-semibold">{req.contactPerson}</span> • {req.email} • {req.phone}
+                    Contact: <span className="text-slate-200 font-semibold">{req.contactPerson || 'N/A'}</span> • {req.email || 'No email'} • {req.phone || 'N/A'}
                   </p>
                 </div>
               </div>
@@ -299,7 +320,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-xs font-mono">
               <div>
                 <span className="text-[10px] text-slate-500 uppercase block font-sans font-bold">NTN / Tax ID</span>
-                <span className="text-amber-400 font-bold">{req.ntnOrTaxNumber}</span>
+                <span className="text-amber-400 font-bold">{req.ntnOrTaxNumber || 'N/A'}</span>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 uppercase block font-sans font-bold">SECP Registration</span>
@@ -323,7 +344,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 uppercase block font-sans font-bold">Submitted At</span>
-                <span className="text-slate-300">{req.submittedAt}</span>
+                <span className="text-slate-300">{req.submittedAt || 'N/A'}</span>
               </div>
             </div>
           </div>
@@ -337,7 +358,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">SECP / NTN Audit Inspection</span>
-                <h3 className="text-lg font-black text-white mt-0.5">{selectedKyc.companyName}</h3>
+                <h3 className="text-lg font-black text-white mt-0.5">{selectedKyc.companyName || 'Unnamed Company'}</h3>
               </div>
               <button
                 onClick={() => setSelectedKyc(null)}

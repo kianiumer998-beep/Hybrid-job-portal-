@@ -43,6 +43,61 @@ interface AdminFeeManagerProps {
   onMakeJobFree?: (jobId: string) => void;
 }
 
+export const normalizeFeeSearchText = (value?: unknown): string => {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+};
+
+export const normalizeFeeEmail = (value?: unknown): string => {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+};
+
+export const isUserEmailExempt = (userEmail: unknown, exemptEmails: unknown[]): boolean => {
+  const normalizedUserEmail = normalizeFeeEmail(userEmail);
+  if (!normalizedUserEmail || !Array.isArray(exemptEmails)) return false;
+  return exemptEmails.some((e) => normalizeFeeEmail(e) === normalizedUserEmail);
+};
+
+export const toggleExemptEmailList = (exemptEmails: unknown[], targetEmail: unknown): string[] => {
+  const cleanList = Array.isArray(exemptEmails)
+    ? exemptEmails.map((e) => normalizeFeeEmail(e)).filter(Boolean)
+    : [];
+  const normalizedTarget = normalizeFeeEmail(targetEmail);
+  if (!normalizedTarget) return cleanList;
+  if (cleanList.includes(normalizedTarget)) {
+    return cleanList.filter((e) => e !== normalizedTarget);
+  }
+  return [...cleanList, normalizedTarget];
+};
+
+export const filterFeeManagerUsers = (
+  users: UserAccount[] | undefined | null,
+  query?: string | null
+): UserAccount[] => {
+  const safeUsers = Array.isArray(users) ? users.filter((u): u is UserAccount => Boolean(u)) : [];
+  const q = normalizeFeeSearchText(query);
+  if (!q) return safeUsers;
+  return safeUsers.filter((u) => {
+    const name = normalizeFeeSearchText(u.name);
+    const email = normalizeFeeSearchText(u.email);
+    const companyName = normalizeFeeSearchText(u.companyName);
+    return name.includes(q) || email.includes(q) || companyName.includes(q);
+  });
+};
+
+export const applyGlobalFreeToggleToCategories = (
+  categories: CategoryPostingFee[],
+  enable: boolean
+): CategoryPostingFee[] => {
+  const safeCategories = Array.isArray(categories) ? categories : [];
+  if (enable) {
+    return safeCategories.map((c) => ({ ...c, isFree: true }));
+  }
+  return safeCategories.map((c) => ({
+    ...c,
+    isFree: c.categoryId === 'cat-govt' || c.categoryId === 'cat-news'
+  }));
+};
+
 export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   landingConfig,
   onUpdateLandingConfig,
@@ -62,10 +117,12 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   const currentGlobalFee = globalPostingFeePkr ?? jobPostingFeePkr ?? 500;
   const [activeSubTab, setActiveSubTab] = useState<'categories' | 'exemptions' | 'global-tiers' | 'job-waivers'>('categories');
   const [categoryFees, setCategoryFees] = useState<CategoryPostingFee[]>(() => {
-    return landingConfig?.categoryPostingFees || DEFAULT_CATEGORY_POSTING_FEES;
+    return Array.isArray(landingConfig?.categoryPostingFees) ? landingConfig.categoryPostingFees : DEFAULT_CATEGORY_POSTING_FEES;
   });
   const [exemptEmails, setExemptEmails] = useState<string[]>(() => {
-    return Array.isArray(landingConfig?.exemptUserEmails) ? landingConfig.exemptUserEmails : [];
+    return Array.isArray(landingConfig?.exemptUserEmails)
+      ? landingConfig.exemptUserEmails.map((e) => normalizeFeeEmail(e)).filter(Boolean)
+      : [];
   });
   const [newExemptEmailInput, setNewExemptEmailInput] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -103,20 +160,18 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
     setCategoryFees((prev) => prev.filter((c) => c.categoryId !== categoryId));
   };
 
-  const handleToggleUserExemption = (email: string) => {
-    if (exemptEmails.includes(email.toLowerCase())) {
-      setExemptEmails(exemptEmails.filter((e) => e.toLowerCase() !== email.toLowerCase()));
-    } else {
-      setExemptEmails([...exemptEmails, email.toLowerCase()]);
-    }
+  const handleToggleUserExemption = (email?: string | null) => {
+    const normalized = normalizeFeeEmail(email);
+    if (!normalized) return;
+    setExemptEmails((prev) => toggleExemptEmailList(prev, normalized));
   };
 
   const handleAddCustomExemptEmail = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newExemptEmailInput.trim() || !newExemptEmailInput.includes('@')) return;
-    const cleanEmail = newExemptEmailInput.trim().toLowerCase();
-    if (!exemptEmails.includes(cleanEmail)) {
-      setExemptEmails([...exemptEmails, cleanEmail]);
+    const cleanEmail = normalizeFeeEmail(newExemptEmailInput);
+    if (!cleanEmail || !cleanEmail.includes('@')) return;
+    if (!isUserEmailExempt(cleanEmail, exemptEmails)) {
+      setExemptEmails((prev) => toggleExemptEmailList(prev, cleanEmail));
     }
     setNewExemptEmailInput('');
   };
@@ -144,22 +199,10 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
         onChangeGlobalPostingFee(500);
       }
     }
-    if (enable) {
-      setCategoryFees((prev) => prev.map((c) => ({ ...c, isFree: true })));
-    } else {
-      setCategoryFees((prev) => prev.map((c) => ({ ...c, isFree: c.categoryId === 'cat-govt' || c.categoryId === 'cat-news' })));
-    }
+    setCategoryFees((prev) => applyGlobalFreeToggleToCategories(prev, enable));
   };
 
-  const filteredUsers = users.filter((u) => {
-    if (!userSearchQuery.trim()) return true;
-    const q = userSearchQuery.toLowerCase();
-    return (
-      u.name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      (u.companyName && u.companyName.toLowerCase().includes(q))
-    );
-  });
+  const filteredUsers = filterFeeManagerUsers(users, userSearchQuery);
 
   return (
     <div className="space-y-6">
@@ -349,7 +392,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
                 <div className="flex items-start justify-between gap-2">
                   <input
                     type="text"
-                    value={cat.categoryName}
+                    value={cat.categoryName || ''}
                     onChange={(e) => handleUpdateCategoryFee(cat.categoryId, { categoryName: e.target.value })}
                     className="bg-transparent text-sm font-black text-white focus:outline-none border-b border-transparent focus:border-amber-500 w-full"
                   />
@@ -513,20 +556,21 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {filteredUsers.map((user) => {
-                    const isExempt = exemptEmails.includes(user.email.toLowerCase());
+                  {filteredUsers.map((user, idx) => {
+                    const normalizedEmail = normalizeFeeEmail(user.email);
+                    const isExempt = isUserEmailExempt(normalizedEmail, exemptEmails);
                     return (
-                      <tr key={user.id} className="hover:bg-slate-800/40 transition-colors">
+                      <tr key={user.id || normalizedEmail || idx} className="hover:bg-slate-800/40 transition-colors">
                         <td className="py-2 px-3">
-                          <div className="font-bold text-white">{user.name}</div>
-                          <div className="text-[11px] text-slate-400 font-mono">{user.email}</div>
+                          <div className="font-bold text-white">{user.name || 'Unnamed User'}</div>
+                          <div className="text-[11px] text-slate-400 font-mono">{user.email || 'No email on file'}</div>
                         </td>
                         <td className="py-2 px-3 text-slate-300">
-                          {user.companyName || user.role}
+                          {user.companyName || user.role || 'Member'}
                         </td>
                         <td className="py-2 px-3">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${user.plan === 'Premium' ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-slate-400'}`}>
-                            {user.plan}
+                            {user.plan || 'Free'}
                           </span>
                         </td>
                         <td className="py-2 px-3">
@@ -540,14 +584,17 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
                         </td>
                         <td className="py-2 px-3 text-right">
                           <button
+                            disabled={!normalizedEmail}
                             onClick={() => handleToggleUserExemption(user.email)}
-                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                              isExempt
-                                ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30'
-                                : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30'
+                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
+                              !normalizedEmail
+                                ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                : isExempt
+                                ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 cursor-pointer'
+                                : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 cursor-pointer'
                             }`}
                           >
-                            {isExempt ? 'Revoke Free' : 'Grant 100% Free'}
+                            {!normalizedEmail ? 'No Email' : isExempt ? 'Revoke Free' : 'Grant 100% Free'}
                           </button>
                         </td>
                       </tr>

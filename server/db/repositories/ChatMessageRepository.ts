@@ -37,24 +37,37 @@ export class ChatMessageRepository {
     return db.collection<ChatMessage>(this.collectionName);
   }
 
+  private static matchesMigrationFields(stored: ChatMessage, incoming: ChatMessage): boolean {
+    if (stored.userId !== incoming.userId) return false;
+    if (stored.id !== incoming.id) return false;
+    if (stored.senderRole !== incoming.senderRole) return false;
+    if (stored.text !== incoming.text) return false;
+
+    const storedTime = new Date(stored.timestamp).getTime();
+    const incomingTime = new Date(incoming.timestamp).getTime();
+    if (isNaN(storedTime) || isNaN(incomingTime) || storedTime !== incomingTime) return false;
+
+    const storedUser = (stored.userName || '').trim();
+    const incomingUser = (incoming.userName || '').trim();
+    if (storedUser !== incomingUser) return false;
+
+    const storedJobRef = stored.jobTitleRef?.trim() || undefined;
+    const incomingJobRef = incoming.jobTitleRef?.trim() || undefined;
+    if (storedJobRef !== incomingJobRef) return false;
+
+    return true;
+  }
+
   static async saveWithDetails(message: ChatMessage): Promise<{ message: ChatMessage; isNew: boolean; conflict: boolean; existing?: ChatMessage }> {
     if (process.env.IS_TEST === 'true' && !isMongoConfigured()) {
       const existing = testMessages.find(m => m.userId === message.userId && m.id === message.id);
       if (existing) {
-        const match = 
-          existing.senderRole === message.senderRole &&
-          existing.text === message.text &&
-          new Date(existing.timestamp).getTime() === new Date(message.timestamp).getTime() &&
-          (existing.userName || '') === (message.userName || '') &&
-          (existing.jobTitleRef || '') === (message.jobTitleRef || '');
-        if (match) {
-          return { message: existing, isNew: false, conflict: false };
-        } else {
-          return { message: existing, isNew: false, conflict: true, existing };
-        }
+        const match = this.matchesMigrationFields(existing, message);
+        return { message: existing, isNew: false, conflict: !match, existing };
       }
-      testMessages.push({ ...message });
-      return { message, isNew: true, conflict: false };
+      const cloned = { ...message };
+      testMessages.push(cloned);
+      return { message: cloned, isNew: true, conflict: false };
     }
 
     if (!isMongoConfigured()) {
@@ -62,20 +75,32 @@ export class ChatMessageRepository {
     }
 
     const collection = await this.getCollection();
-    const existingDoc = await collection.findOne({ userId: message.userId, id: message.id });
+    let isNew = false;
 
-    // User-scoped idempotency: use updateOne with upsert to prevent duplicates for same user
-    await withMongoTimeout(
-      collection.updateOne(
-        { userId: message.userId, id: message.id },
-        { $setOnInsert: message },
-        { upsert: true }
-      ),
-      5000,
-      'SaveChatMessage'
-    );
+    try {
+      // User-scoped idempotency: use updateOne with upsert and $setOnInsert to prevent duplicates for same user
+      const updateResult = await withMongoTimeout(
+        collection.updateOne(
+          { userId: message.userId, id: message.id },
+          { $setOnInsert: message },
+          { upsert: true }
+        ),
+        5000,
+        'SaveChatMessage'
+      );
 
-    // Return authoritative stored document
+      // Determine whether the message was actually inserted using the authoritative MongoDB write result
+      isNew = (updateResult.upsertedCount ?? 0) > 0 || updateResult.upsertedId != null;
+    } catch (err: any) {
+      // Handle MongoDB duplicate-key errors from concurrent upserts safely
+      if (err?.code === 11000 || String(err?.message || '').includes('E11000')) {
+        isNew = false;
+      } else {
+        throw err;
+      }
+    }
+
+    // Always retrieve the final authoritative stored document
     const stored = await withMongoTimeout(
       collection.findOne({ userId: message.userId, id: message.id }),
       2000,
@@ -88,21 +113,17 @@ export class ChatMessageRepository {
 
     const normalizedStored = this.normalize(stored);
 
-    if (existingDoc) {
-      const normalizedExisting = this.normalize(existingDoc);
-      const match = 
-        normalizedExisting.senderRole === message.senderRole &&
-        normalizedExisting.text === message.text &&
-        new Date(normalizedExisting.timestamp).getTime() === new Date(message.timestamp).getTime() &&
-        (normalizedExisting.userName || '') === (message.userName || '') &&
-        (normalizedExisting.jobTitleRef || '') === (message.jobTitleRef || '');
-      if (match) {
-        return { message: normalizedStored, isNew: false, conflict: false };
-      } else {
-        return { message: normalizedStored, isNew: false, conflict: true, existing: normalizedExisting };
-      }
-    } else {
+    // If the operation inserted a new document, it is newly imported
+    if (isNew) {
       return { message: normalizedStored, isNew: true, conflict: false };
+    }
+
+    // Whenever the operation did NOT insert a new document, compare all migration-relevant fields
+    const match = this.matchesMigrationFields(normalizedStored, message);
+    if (match) {
+      return { message: normalizedStored, isNew: false, conflict: false };
+    } else {
+      return { message: normalizedStored, isNew: false, conflict: true, existing: normalizedStored };
     }
   }
 

@@ -37,12 +37,24 @@ export class ChatMessageRepository {
     return db.collection<ChatMessage>(this.collectionName);
   }
 
-  static async save(message: ChatMessage): Promise<ChatMessage> {
+  static async saveWithDetails(message: ChatMessage): Promise<{ message: ChatMessage; isNew: boolean; conflict: boolean; existing?: ChatMessage }> {
     if (process.env.IS_TEST === 'true' && !isMongoConfigured()) {
       const existing = testMessages.find(m => m.userId === message.userId && m.id === message.id);
-      if (existing) return existing;
+      if (existing) {
+        const match = 
+          existing.senderRole === message.senderRole &&
+          existing.text === message.text &&
+          new Date(existing.timestamp).getTime() === new Date(message.timestamp).getTime() &&
+          (existing.userName || '') === (message.userName || '') &&
+          (existing.jobTitleRef || '') === (message.jobTitleRef || '');
+        if (match) {
+          return { message: existing, isNew: false, conflict: false };
+        } else {
+          return { message: existing, isNew: false, conflict: true, existing };
+        }
+      }
       testMessages.push({ ...message });
-      return message;
+      return { message, isNew: true, conflict: false };
     }
 
     if (!isMongoConfigured()) {
@@ -50,7 +62,8 @@ export class ChatMessageRepository {
     }
 
     const collection = await this.getCollection();
-    
+    const existingDoc = await collection.findOne({ userId: message.userId, id: message.id });
+
     // User-scoped idempotency: use updateOne with upsert to prevent duplicates for same user
     await withMongoTimeout(
       collection.updateOne(
@@ -73,7 +86,29 @@ export class ChatMessageRepository {
       throw new Error('Failed to retrieve authoritative chat message after save.');
     }
 
-    return this.normalize(stored);
+    const normalizedStored = this.normalize(stored);
+
+    if (existingDoc) {
+      const normalizedExisting = this.normalize(existingDoc);
+      const match = 
+        normalizedExisting.senderRole === message.senderRole &&
+        normalizedExisting.text === message.text &&
+        new Date(normalizedExisting.timestamp).getTime() === new Date(message.timestamp).getTime() &&
+        (normalizedExisting.userName || '') === (message.userName || '') &&
+        (normalizedExisting.jobTitleRef || '') === (message.jobTitleRef || '');
+      if (match) {
+        return { message: normalizedStored, isNew: false, conflict: false };
+      } else {
+        return { message: normalizedStored, isNew: false, conflict: true, existing: normalizedExisting };
+      }
+    } else {
+      return { message: normalizedStored, isNew: true, conflict: false };
+    }
+  }
+
+  static async save(message: ChatMessage): Promise<ChatMessage> {
+    const res = await this.saveWithDetails(message);
+    return res.message;
   }
 
   static async getByUserId(userId: string): Promise<ChatMessage[]> {

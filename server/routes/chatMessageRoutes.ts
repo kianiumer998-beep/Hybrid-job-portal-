@@ -190,10 +190,6 @@ router.post('/import-legacy', requireAdmin, async (req, res) => {
           continue;
         }
 
-        // Check if message already exists for this user
-        const existingMessages = await ChatMessageRepository.getByUserId(msg.userId);
-        const alreadyPresent = existingMessages.some(m => m.id === msg.id.trim());
-
         const normalizedMsg: ChatMessage = {
           id: msg.id.trim(),
           userId: msg.userId.trim(),
@@ -204,12 +200,14 @@ router.post('/import-legacy', requireAdmin, async (req, res) => {
           jobTitleRef: typeof msg.jobTitleRef === 'string' && msg.jobTitleRef.trim() ? msg.jobTitleRef.trim() : undefined
         };
 
-        await ChatMessageRepository.save(normalizedMsg);
+        const saveResult = await ChatMessageRepository.saveWithDetails(normalizedMsg);
 
-        if (alreadyPresent) {
-          results.alreadyExists++;
-        } else {
+        if (saveResult.conflict) {
+          results.failed++;
+        } else if (saveResult.isNew) {
           results.imported++;
+        } else {
+          results.alreadyExists++;
         }
       } catch (err: any) {
         results.failed++;

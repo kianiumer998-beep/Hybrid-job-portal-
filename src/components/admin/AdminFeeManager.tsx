@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { UserAccount, Job, JobPostingFeeLog, JobPostingPricingConfig } from '../../types/job';
 import { 
   LandingPageConfig, 
@@ -28,7 +28,7 @@ import {
 
 interface AdminFeeManagerProps {
   landingConfig?: LandingPageConfig;
-  onUpdateLandingConfig?: (newConfig: LandingPageConfig) => void;
+  onUpdateLandingConfig?: (newConfig: LandingPageConfig) => Promise<any> | any | void;
   users?: UserAccount[];
   jobs?: Job[];
   pendingJobs?: Job[];
@@ -98,6 +98,49 @@ export const applyGlobalFreeToggleToCategories = (
   }));
 };
 
+export interface FeeSaveExecutionResult {
+  success: boolean;
+  message: string;
+}
+
+export async function executeFeeConfigSave(
+  updatedConfig: LandingPageConfig,
+  onUpdateLandingConfig?: (newConfig: LandingPageConfig) => Promise<any> | any | void
+): Promise<FeeSaveExecutionResult> {
+  if (typeof onUpdateLandingConfig !== 'function') {
+    return {
+      success: false,
+      message: 'Save failed: fee configuration save handler is unavailable.'
+    };
+  }
+
+  try {
+    const result = await onUpdateLandingConfig(updatedConfig);
+    if (
+      result === false ||
+      (result && typeof result === 'object' && 'success' in result && result.success === false)
+    ) {
+      const reason =
+        result && typeof result === 'object' && typeof result.message === 'string' && result.message.trim()
+          ? result.message.trim()
+          : 'The save handler reported a failure.';
+      return {
+        success: false,
+        message: `Save failed: ${reason}`
+      };
+    }
+    return {
+      success: true,
+      message: 'Fee configuration & employer exemptions updated successfully.'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Save failed: ${err?.message || 'Unable to save fee configuration.'}`
+    };
+  }
+}
+
 export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   landingConfig,
   onUpdateLandingConfig,
@@ -128,7 +171,10 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [isFreeAllPostings, setIsFreeAllPostings] = useState<boolean>(false);
   const [globalDiscount, setGlobalDiscount] = useState<number>(0);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
+  const isSavingRef = useRef<boolean>(false);
 
   const handleUpdateCategoryFee = (categoryId: string, updates: Partial<CategoryPostingFee>) => {
     setCategoryFees((prev) =>
@@ -176,18 +222,30 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
     setNewExemptEmailInput('');
   };
 
-  const handleSaveAll = () => {
-    const baseConfig = landingConfig || DEFAULT_LANDING_PAGE_CONFIG;
-    const updatedConfig: LandingPageConfig = {
-      ...baseConfig,
-      categoryPostingFees: categoryFees,
-      exemptUserEmails: exemptEmails
-    };
-    if (onUpdateLandingConfig) {
-      onUpdateLandingConfig(updatedConfig);
+  const handleSaveAll = async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+    setIsSaving(true);
+    setSaveSuccessMsg(null);
+    setSaveErrorMsg(null);
+
+    try {
+      const baseConfig = landingConfig || DEFAULT_LANDING_PAGE_CONFIG;
+      const updatedConfig: LandingPageConfig = {
+        ...baseConfig,
+        categoryPostingFees: categoryFees,
+        exemptUserEmails: exemptEmails
+      };
+      const outcome = await executeFeeConfigSave(updatedConfig, onUpdateLandingConfig);
+      if (outcome.success) {
+        setSaveSuccessMsg(outcome.message);
+      } else {
+        setSaveErrorMsg(outcome.message);
+      }
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
     }
-    setSaveSuccessMsg('Fee configuration & employer exemptions saved successfully!');
-    setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 
   const handleMakeAllFreeToggle = (enable: boolean) => {
@@ -229,18 +287,31 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
 
         <div className="flex items-center space-x-3 shrink-0">
           <button
+            type="button"
+            disabled={isSaving}
             onClick={handleSaveAll}
-            className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center space-x-2 cursor-pointer"
+            className={`px-6 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-xl transition-all flex items-center space-x-2 ${
+              isSaving
+                ? 'bg-slate-700 text-slate-300 cursor-not-allowed opacity-70'
+                : 'bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-slate-950 shadow-amber-500/20 hover:scale-[1.02] active:scale-95 cursor-pointer'
+            }`}
           >
-            <Save className="w-4 h-4 text-slate-950" />
-            <span>Save Fee Configuration</span>
+            <Save className={`w-4 h-4 ${isSaving ? 'text-slate-300' : 'text-slate-950'}`} />
+            <span>{isSaving ? 'Saving...' : 'Save Fee Configuration'}</span>
           </button>
         </div>
       </div>
 
+      {saveErrorMsg && (
+        <div className="p-4 rounded-2xl bg-rose-950/90 border border-rose-500/50 text-rose-300 text-xs font-bold flex items-center space-x-2 animate-in fade-in">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{saveErrorMsg}</span>
+        </div>
+      )}
+
       {saveSuccessMsg && (
         <div className="p-4 rounded-2xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 text-xs font-bold flex items-center space-x-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{saveSuccessMsg}</span>
         </div>
       )}

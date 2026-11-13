@@ -34,6 +34,19 @@ interface AdminAnalyticsOverviewProps {
   ads?: any[];
 }
 
+export const ANALYTICS_SHORTCUT_TAB_IDS = [
+  'fee-logs',
+  'pending',
+  'user-audit',
+  'scraped-history',
+  'currency-forex',
+  'advertisements',
+  'add-job',
+  'broadcast-center',
+  'ai-enhancer',
+  'data-backup'
+] as const;
+
 export const AdminAnalyticsOverview: React.FC<AdminAnalyticsOverviewProps> = ({
   jobs = [],
   pendingJobs = [],
@@ -384,7 +397,7 @@ export const AdminAnalyticsOverview: React.FC<AdminAnalyticsOverviewProps> = ({
             </button>
 
             <button
-              onClick={() => onNavigateTab('broadcast')}
+              onClick={() => onNavigateTab('broadcast-center')}
               className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-indigo-500/50 rounded-xl text-left transition-all cursor-pointer"
             >
               <div className="text-indigo-400 font-black">📢 Broadcast</div>
@@ -392,7 +405,7 @@ export const AdminAnalyticsOverview: React.FC<AdminAnalyticsOverviewProps> = ({
             </button>
 
             <button
-              onClick={() => onNavigateTab('ai-quality')}
+              onClick={() => onNavigateTab('ai-enhancer')}
               className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 rounded-xl text-left transition-all cursor-pointer"
             >
               <div className="text-emerald-400 font-black">✨ AI Audit</div>
@@ -400,7 +413,7 @@ export const AdminAnalyticsOverview: React.FC<AdminAnalyticsOverviewProps> = ({
             </button>
 
             <button
-              onClick={() => onNavigateTab('backup-hub')}
+              onClick={() => onNavigateTab('data-backup')}
               className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/50 rounded-xl text-left transition-all cursor-pointer"
             >
               <div className="text-cyan-400 font-black">💾 Backup</div>

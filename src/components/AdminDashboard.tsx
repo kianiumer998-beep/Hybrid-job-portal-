@@ -208,7 +208,7 @@ interface AdminDashboardProps {
   jobPostingPricing?: JobPostingPricingConfig;
   onChangeJobPostingPricing?: (config: JobPostingPricingConfig) => void;
   landingConfig?: LandingPageConfig;
-  onUpdateLandingConfig?: (config: LandingPageConfig) => void;
+  onUpdateLandingConfig?: (config: LandingPageConfig) => Promise<any> | any | void;
   whatsAppSupportConfig?: WhatsAppSupportConfig;
   onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => Promise<any> | boolean | void;
   siteSeoConfig?: SiteSeoConfig;
@@ -221,6 +221,232 @@ interface AdminDashboardProps {
   onApprovePaymentTransaction?: (transactionId: string, note?: string) => Promise<PaymentVerificationResult>;
   onRejectPaymentTransaction?: (transactionId: string, reason: string) => Promise<PaymentVerificationResult>;
   onUpdateChannelAvailability?: (updates: { email?: boolean; whatsapp?: boolean }) => void;
+}
+
+export type AdminCategory = 'jobs' | 'scraper' | 'ads' | 'payments' | 'users' | 'alerts' | 'settings';
+
+export const ADMIN_TAB_CATEGORIES: Record<string, AdminCategory> = {
+  analytics: 'settings',
+  'landing-customizer': 'ads',
+  'campaign-center': 'ads',
+  'fee-management': 'payments',
+  'payment-proofs': 'payments',
+  'admin-payment-methods': 'payments',
+  'whatsapp-manager': 'alerts',
+  pending: 'jobs',
+  'scraped-history': 'scraper',
+  advertisements: 'ads',
+  'seo-config': 'settings',
+  'currency-forex': 'payments',
+  'broadcast-center': 'alerts',
+  'bulk-notifications': 'alerts',
+  'activity-logs': 'settings',
+  'data-backup': 'settings',
+  'ai-enhancer': 'jobs',
+  'employer-kyc': 'users',
+  'user-audit': 'users',
+  'fee-logs': 'payments',
+  scraper: 'scraper',
+  'url-scraper': 'scraper',
+  'chat-hub': 'users',
+  'form-customizer': 'settings',
+  'pricing-controller': 'payments',
+  'apply-settings': 'settings',
+  'modal-content-manager': 'settings',
+  'job-visibility': 'settings',
+  'add-job': 'jobs',
+  jobs: 'jobs',
+  subscribers: 'users',
+  settings: 'settings',
+  stats: 'settings',
+};
+
+export const ADMIN_ROLE_DEFAULT_PERMS: Record<string, string[]> = {
+  'Super Admin': ['*'],
+  'Admin': ['*'],
+  'Job Moderator': ['jobs.manage', 'applications.manage'],
+  'Scraper Manager': ['scraper.manage'],
+  'Payment Manager': ['payments.manage'],
+  'Finance Manager': ['finance.manage', 'payments.manage'],
+  'SEO Manager': ['seo.manage'],
+  'Advertisement Manager': ['advertisements.manage']
+};
+
+export function checkAdminTabPermission(
+  effectiveAdminRole: string | undefined | null,
+  effectiveAdminPerms: string[] | undefined | null,
+  isVerifiedAdmin: boolean,
+  tabId: string
+): boolean {
+  if (!isVerifiedAdmin || !effectiveAdminRole) return false;
+  if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
+  const perms = Array.isArray(effectiveAdminPerms) ? effectiveAdminPerms : [];
+  const hasPerm = (perm: string) => perms.includes('*') || perms.includes(perm);
+
+  if (['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(tabId)) {
+    return hasPerm('jobs.manage');
+  }
+  if (['scraper', 'url-scraper', 'scraped-history'].includes(tabId)) {
+    return hasPerm('scraper.manage');
+  }
+  if (['campaign-center', 'advertisements', 'landing-customizer'].includes(tabId)) {
+    return hasPerm('advertisements.manage');
+  }
+  if (['admin-payment-methods'].includes(tabId)) {
+    return hasPerm('payments.manage');
+  }
+  if (['payment-proofs', 'fee-logs'].includes(tabId)) {
+    return hasPerm('payments.manage') || hasPerm('finance.manage');
+  }
+  if (['pricing-controller', 'fee-management', 'currency-forex'].includes(tabId)) {
+    return hasPerm('finance.manage');
+  }
+  if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(tabId)) {
+    return hasPerm('users.manage');
+  }
+  if (['seo-config'].includes(tabId)) {
+    return hasPerm('seo.manage');
+  }
+  if (['activity-logs'].includes(tabId)) {
+    return hasPerm('audit.view');
+  }
+  if (
+    [
+      'apply-settings',
+      'modal-content-manager',
+      'job-visibility',
+      'settings',
+      'form-customizer',
+      'data-backup',
+      'analytics',
+      'whatsapp-manager',
+      'broadcast-center',
+      'bulk-notifications'
+    ].includes(tabId)
+  ) {
+    return hasPerm('settings.manage');
+  }
+  return false;
+}
+
+export function navigateWithAdminPermission<T extends string>(params: {
+  targetTab: T;
+  canAccessTab: (tabId: string) => boolean;
+  tabCategories: Record<string, AdminCategory>;
+  onSetTab: (tabId: T) => void;
+  onSetCategory: (category: AdminCategory) => void;
+}): boolean {
+  const { targetTab, canAccessTab, tabCategories, onSetTab, onSetCategory } = params;
+  if (!targetTab || !canAccessTab(targetTab)) {
+    return false;
+  }
+  const mappedCategory = tabCategories[targetTab];
+  if (mappedCategory) {
+    onSetCategory(mappedCategory);
+  }
+  onSetTab(targetTab);
+  return true;
+}
+
+export interface AllModulesMenuItem {
+  id: string;
+  label: string;
+  urdu: string;
+  icon: any;
+  badge?: string;
+}
+
+export interface AllModulesMenuGroup {
+  catKey: AdminCategory;
+  catTitle: string;
+  items: AllModulesMenuItem[];
+}
+
+export function buildAllModulesMenuGroups(counts: {
+  activeJobsCount: number;
+  pendingJobsCount: number;
+  activeAdsCount: number;
+  pendingProofsCount: number;
+  feeLogsCount: number;
+  usersCount: number;
+  kycBadgeText: string;
+  subscribersCount: number;
+  chatMessagesCount: number;
+}): AllModulesMenuGroup[] {
+  return [
+    {
+      catKey: 'jobs',
+      catTitle: '💼 Jobs & Vacancies (ملازمتیں اور پوسٹس)',
+      items: [
+        { id: 'jobs', label: 'Live Listings', urdu: 'لائیو نوکریاں', icon: Briefcase, badge: `${counts.activeJobsCount} Active` },
+        { id: 'pending', label: 'Pending Approvals Queue', urdu: 'منظوری کی منتظر نوکریاں', icon: Clock, badge: `${counts.pendingJobsCount} Pending` },
+        { id: 'add-job', label: 'Post Manual Job', urdu: 'نئی جاب شامل کریں', icon: Plus },
+        { id: 'ai-enhancer', label: 'AI Quality & Spam Guard', urdu: 'کوالٹی اور اسپیم چیکر', icon: Sparkles }
+      ]
+    },
+    {
+      catKey: 'scraper',
+      catTitle: '🤖 Scraper Center (خودکار سکریپر سنٹر)',
+      items: [
+        { id: 'scraper', label: 'Scraper Center', urdu: 'خودکار ویب سکریپر سنٹر', icon: Bot, badge: 'Unified' }
+      ]
+    },
+    {
+      catKey: 'ads',
+      catTitle: '📢 Ads & Campaigns (اشتہارات اور کیمپینز)',
+      items: [
+        { id: 'campaign-center', label: 'Visual Campaign Center', urdu: 'اشتہاری کیمپین کمانڈ سنٹر', icon: Megaphone, badge: `${counts.activeAdsCount} Live` },
+        { id: 'advertisements', label: 'Ad Hub & Banner Slots', urdu: 'اشتہاری بینر سلاٹس', icon: Layers },
+        { id: 'landing-customizer', label: 'Landing Page Customizer', urdu: 'ہوم پیج بینر ڈیزائنر', icon: Edit3 }
+      ]
+    },
+    {
+      catKey: 'payments',
+      catTitle: '💳 Payments, Fees & Durations (ادائیگیاں، فیس اور پیکیجز)',
+      items: [
+        { id: 'pricing-controller', label: 'Universal Pricing Controller', urdu: 'تمام فیسیں اور اشتہارات ریٹ', icon: DollarSign, badge: 'NEW' },
+        { id: 'admin-payment-methods', label: 'EasyPaisa, JazzCash & Durations Setup', urdu: 'ایڈمن کے اکاؤنٹس اور دن (1-دن، 1-ہفتہ، 15-دن، 20-دن)', icon: CreditCard, badge: 'NEW' },
+        { id: 'payment-proofs', label: 'Payment Receipts Verification', urdu: 'رسیدوں کی تصدیق', icon: Receipt, badge: `${counts.pendingProofsCount} Proofs` },
+        { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس اور رعایتیں', icon: DollarSign },
+        { id: 'fee-logs', label: 'Per-Job Fee Transaction Logs', urdu: 'فیس لین دین کا مکمل ریکارڈ', icon: Receipt, badge: `${counts.feeLogsCount} Records` },
+        { id: 'currency-forex', label: 'Multi-Currency & Forex', urdu: 'کرنسی ایکسچینج ریٹس', icon: Coins }
+      ]
+    },
+    {
+      catKey: 'users',
+      catTitle: '👥 Users, KYC & Support (صارفین اور تصدیق)',
+      items: [
+        { id: 'user-audit', label: 'User Directory & Profiles', urdu: 'تمام صارفین کی فہرست', icon: Users, badge: `${counts.usersCount} Users` },
+        { id: 'employer-kyc', label: 'Employer KYC Verification', urdu: 'کمپنی شناختی تصدیق', icon: BadgeCheck, badge: counts.kycBadgeText },
+        { id: 'subscribers', label: 'Paid Subscribers', urdu: 'سبسکرائبرز', icon: DollarSign, badge: `${counts.subscribersCount} Members` },
+        { id: 'chat-hub', label: 'User Support Chat Hub', urdu: 'چیٹ سپورٹ ان باکس', icon: MessageSquare, badge: `${counts.chatMessagesCount} Chats` }
+      ]
+    },
+    {
+      catKey: 'alerts',
+      catTitle: '📣 Alerts & Broadcasts (الرٹس اور پیغامات)',
+      items: [
+        { id: 'whatsapp-manager', label: 'WhatsApp Alerts & Proofs Hub', urdu: 'واٹس ایپ الرٹس مینجر', icon: MessageSquare },
+        { id: 'broadcast-center', label: 'Broadcast Campaigns (Email/SMS)', urdu: 'براڈکاسٹ پیغامات', icon: Send },
+        { id: 'bulk-notifications', label: 'Pro Bulk Notification Tool', urdu: 'بلک نوٹیفکیشنز', icon: Send }
+      ]
+    },
+    {
+      catKey: 'settings',
+      catTitle: '⚙️ Settings, SEO & Vault (سیٹنگز اور گوگل ایس ای او)',
+      items: [
+        { id: 'apply-settings', label: 'Apply Button & Form Flow', urdu: 'اپلائی بٹن اور سوالات', icon: FileText, badge: 'NEW' },
+        { id: 'modal-content-manager', label: 'Modals & Popups Content Manager', urdu: 'پاپ اپس اور موڈالز مینیجر', icon: Sliders, badge: 'NEW' },
+        { id: 'job-visibility', label: 'Job Visibility Manager', urdu: 'ملازمت کی نمائش', icon: ShieldCheck },
+        { id: 'seo-config', label: 'Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او اور میٹا ٹیگز', icon: Globe },
+        { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز اور فیس', icon: Settings },
+        { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم فیلڈز سیٹنگ', icon: Edit3 },
+        { id: 'activity-logs', label: 'Security & Activity Trail', urdu: 'سیکیورٹی لاگز', icon: ShieldCheck },
+        { id: 'data-backup', label: 'Data Vault & CSV Export', urdu: 'ڈیٹا بیک اپ اور ایکسپورٹ', icon: Database },
+        { id: 'analytics', label: 'Executive Analytics & KPIs', urdu: 'اینالیٹکس اور کارکردگی', icon: BarChart3 }
+      ]
+    }
+  ];
 }
 
 export function formatChatUserRoleLabel(role?: unknown): string {
@@ -347,50 +573,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'stats'
   >('analytics');
 
-  type AdminCategory = 'jobs' | 'scraper' | 'ads' | 'payments' | 'users' | 'alerts' | 'settings';
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAllModulesMenu, setShowAllModulesMenu] = useState(false);
   const [moduleSearchQuery, setModuleSearchQuery] = useState('');
   const [seoPreviewJob, setSeoPreviewJob] = useState<Job | null>(null);
 
-  const TAB_CATEGORIES: Record<string, AdminCategory> = {
-    analytics: 'settings',
-    'landing-customizer': 'ads',
-    'campaign-center': 'ads',
-    'fee-management': 'payments',
-    'payment-proofs': 'payments',
-    'admin-payment-methods': 'payments',
-    'whatsapp-manager': 'alerts',
-    pending: 'jobs',
-    'scraped-history': 'scraper',
-    advertisements: 'ads',
-    'seo-config': 'settings',
-    'currency-forex': 'payments',
-    'broadcast-center': 'alerts',
-    'bulk-notifications': 'alerts',
-    'activity-logs': 'settings',
-    'data-backup': 'settings',
-    'ai-enhancer': 'jobs',
-    'employer-kyc': 'users',
-    'user-audit': 'users',
-    'fee-logs': 'payments',
-    scraper: 'scraper',
-    'url-scraper': 'scraper',
-    'chat-hub': 'users',
-    'form-customizer': 'settings',
-    'pricing-controller': 'payments',
-    'apply-settings': 'settings',
-    'job-visibility': 'settings',
-    'add-job': 'jobs',
-    jobs: 'jobs',
-    subscribers: 'users',
-    settings: 'settings',
-    stats: 'settings',
-  };
-
-
-
+  const TAB_CATEGORIES = ADMIN_TAB_CATEGORIES;
 
   // Authenticated Admin Identity & Role Permissions (Verified via /api/auth/me; Backend remains authoritative)
   const [currentAdminUser, setCurrentAdminUser] = useState<{
@@ -404,16 +593,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isVerifyingAdmin, setIsVerifyingAdmin] = useState<boolean>(true);
   const [adminVerifyError, setAdminVerifyError] = useState<string | null>(null);
 
-  const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
-    'Super Admin': ['*'],
-    'Admin': ['*'],
-    'Job Moderator': ['jobs.manage', 'applications.manage'],
-    'Scraper Manager': ['scraper.manage'],
-    'Payment Manager': ['payments.manage'],
-    'Finance Manager': ['finance.manage', 'payments.manage'],
-    'SEO Manager': ['seo.manage'],
-    'Advertisement Manager': ['advertisements.manage']
-  };
+  const ROLE_DEFAULT_PERMS = ADMIN_ROLE_DEFAULT_PERMS;
 
   const ADMIN_ROLES_LIST = Object.keys(ROLE_DEFAULT_PERMS);
   const isVerifiedAdmin = Boolean(
@@ -459,40 +639,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const canAccessAdminTab = (tabId: string): boolean => {
-    if (!isVerifiedAdmin || !effectiveAdminRole) return false;
-    if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
-    if (['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(tabId)) {
-      return hasAdminUiPermission('jobs.manage');
-    }
-    if (['scraper', 'url-scraper', 'scraped-history'].includes(tabId)) {
-      return hasAdminUiPermission('scraper.manage');
-    }
-    if (['campaign-center', 'advertisements', 'landing-customizer'].includes(tabId)) {
-      return hasAdminUiPermission('advertisements.manage');
-    }
-    if (['admin-payment-methods'].includes(tabId)) {
-      return hasAdminUiPermission('payments.manage');
-    }
-    if (['payment-proofs', 'fee-logs'].includes(tabId)) {
-      return hasAdminUiPermission('payments.manage') || hasAdminUiPermission('finance.manage');
-    }
-    if (['pricing-controller', 'fee-management', 'currency-forex'].includes(tabId)) {
-      return hasAdminUiPermission('finance.manage');
-    }
-    if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(tabId)) {
-      return hasAdminUiPermission('users.manage');
-    }
-    if (['seo-config'].includes(tabId)) {
-      return hasAdminUiPermission('seo.manage');
-    }
-    if (['activity-logs'].includes(tabId)) {
-      return hasAdminUiPermission('audit.view');
-    }
-    if (['apply-settings', 'modal-content-manager', 'job-visibility', 'settings', 'form-customizer', 'data-backup', 'analytics', 'whatsapp-manager', 'broadcast-center', 'bulk-notifications'].includes(tabId)) {
-      return hasAdminUiPermission('settings.manage');
-    }
-    return false;
+  const canAccessAdminTab = (tabId: string): boolean =>
+    checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, tabId);
+
+  const handlePermissionAwareNavigateTab = (targetTab: string): boolean => {
+    return navigateWithAdminPermission({
+      targetTab: targetTab as any,
+      canAccessTab: canAccessAdminTab,
+      tabCategories: TAB_CATEGORIES,
+      onSetTab: setAdminTab,
+      onSetCategory: setActiveCategory
+    });
   };
 
   useEffect(() => {
@@ -1084,15 +1241,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Snapshot restore and bulk jobs ingestion handlers
-  const handleRestoreSnapshot = (snapshot: SystemSnapshotPayload) => {
-    if (snapshot.jobs && Array.isArray(snapshot.jobs)) {
-      snapshot.jobs.forEach((j) => onAddJob(j));
-    }
-    if (snapshot.customFormFields) {
-      snapshot.customFormFields.forEach((f) => onAddCustomField(f));
-    }
-    alert('System state restored successfully from Snapshot!');
+  // Snapshot restore is safely disabled until all snapshot categories have verified restore support
+  const handleRestoreSnapshot = (_snapshot: SystemSnapshotPayload) => {
+    console.warn('[AdminDashboard] Full snapshot restore is temporarily disabled until all snapshot categories have a verified restore implementation.');
   };
 
   const handleImportBulkJobs = (importedJobs: Job[]) => {
@@ -2928,69 +3079,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* Modules Grid */}
             <div className="flex-1 overflow-y-auto pr-1 space-y-5">
-              {[
-                {
-                  catTitle: '💼 Jobs & Vacancies (ملازمتیں اور پوسٹس)',
-                  items: [
-                    { id: 'jobs', label: 'Live Listings', urdu: 'لائیو نوکریاں', icon: Briefcase, badge: `${jobs.length} Active` },
-                    { id: 'pending', label: 'Pending Approvals Queue', urdu: 'منظوری کی منتظر نوکریاں', icon: Clock, badge: `${pendingJobs.length} Pending` },
-                    { id: 'add-job', label: 'Post Manual Job', urdu: 'نئی جاب شامل کریں', icon: Plus },
-                    { id: 'ai-enhancer', label: 'AI Quality & Spam Guard', urdu: 'کوالٹی اور اسپیم چیکر', icon: Sparkles }
-                  ]
-                },
-                {
-                  catTitle: '🤖 Scraper Center (خودکار سکریپر سنٹر)',
-                  items: [
-                    { id: 'scraper', label: 'Scraper Center', urdu: 'خودکار ویب سکریپر سنٹر', icon: Bot, badge: 'Unified' }
-                  ]
-                },
-                {
-                  catTitle: '📢 Ads & Campaigns (اشتہارات اور کیمپینز)',
-                  items: [
-                    { id: 'campaign-center', label: 'Visual Campaign Center', urdu: 'اشتہاری کیمپین کمانڈ سنٹر', icon: Megaphone, badge: `${ads.filter(a => a.status === 'active').length} Live` },
-                    { id: 'advertisements', label: 'Ad Hub & Banner Slots', urdu: 'اشتہاری بینر سلاٹس', icon: Layers },
-                    { id: 'landing-customizer', label: 'Landing Page Customizer', urdu: 'ہوم پیج بینر ڈیزائنر', icon: Edit3 }
-                  ]
-                },
-                {
-                  catTitle: '💳 Payments, Fees & Durations (ادائیگیاں، فیس اور پیکیجز)',
-                  items: [
-                    { id: 'admin-payment-methods', label: 'EasyPaisa, JazzCash & Durations Setup', urdu: 'ایڈمن کے اکاؤنٹس اور دن (1-دن، 1-ہفتہ، 15-دن، 20-دن)', icon: CreditCard, badge: 'NEW' },
-                    { id: 'payment-proofs', label: 'Payment Receipts Verification', urdu: 'رسیدوں کی تصدیق', icon: Receipt, badge: `${currentTransactions.filter(t => t.status === 'Pending').length} Proofs` },
-                    { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس اور رعایتیں', icon: DollarSign },
-                    { id: 'fee-logs', label: 'Per-Job Fee Transaction Logs', urdu: 'فیس لین دین کا مکمل ریکارڈ', icon: Receipt, badge: `${jobPostingFeeLogs.length} Records` },
-                    { id: 'currency-forex', label: 'Multi-Currency & Forex', urdu: 'کرنسی ایکسچینج ریٹس', icon: Coins }
-                  ]
-                },
-                {
-                  catTitle: '👥 Users, KYC & Support (صارفین اور تصدیق)',
-                  items: [
-                    { id: 'user-audit', label: 'User Directory & Profiles', urdu: 'تمام صارفین کی فہرست', icon: Users, badge: `${users.length} Users` },
-                    { id: 'employer-kyc', label: 'Employer KYC Verification', urdu: 'کمپنی شناختی تصدیق', icon: BadgeCheck, badge: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : `${kycRequests.filter(r => r.status === 'Pending').length} KYC` },
-                    { id: 'subscribers', label: 'Paid Subscribers', urdu: 'سبسکرائبرز', icon: DollarSign, badge: `${subscribers.length} Members` },
-                    { id: 'chat-hub', label: 'User Support Chat Hub', urdu: 'چیٹ سپورٹ ان باکس', icon: MessageSquare, badge: `${chatMessages.length} Chats` }
-                  ]
-                },
-                {
-                  catTitle: '📣 Alerts & Broadcasts (الرٹس اور پیغامات)',
-                  items: [
-                    { id: 'whatsapp-manager', label: 'WhatsApp Alerts & Proofs Hub', urdu: 'واٹس ایپ الرٹس مینجر', icon: MessageSquare },
-                    { id: 'broadcast-center', label: 'Broadcast Campaigns (Email/SMS)', urdu: 'براڈکاسٹ پیغامات', icon: Send },
-                    { id: 'bulk-notifications', label: 'Pro Bulk Notification Tool', urdu: 'بلک نوٹیفکیشنز', icon: Send }
-                  ]
-                },
-                {
-                  catTitle: '⚙️ Settings, SEO & Vault (سیٹنگز اور گوگل ایس ای او)',
-                  items: [
-                    { id: 'seo-config', label: 'Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او اور میٹا ٹیگز', icon: Globe },
-                    { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز اور فیس', icon: Settings },
-                    { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم فیلڈز سیٹنگ', icon: Edit3 },
-                    { id: 'activity-logs', label: 'Security & Activity Trail', urdu: 'سیکیورٹی لاگز', icon: ShieldCheck },
-                    { id: 'data-backup', label: 'Data Vault & CSV Export', urdu: 'ڈیٹا بیک اپ اور ایکسپورٹ', icon: Database },
-                    { id: 'analytics', label: 'Executive Analytics & KPIs', urdu: 'اینالیٹکس اور کارکردگی', icon: BarChart3 }
-                  ]
-                }
-              ].map((cat, idx) => {
+              {buildAllModulesMenuGroups({
+                activeJobsCount: jobs.length,
+                pendingJobsCount: pendingJobs.length,
+                activeAdsCount: ads.filter(a => a.status === 'active').length,
+                pendingProofsCount: currentTransactions.filter(t => t.status === 'Pending').length,
+                feeLogsCount: jobPostingFeeLogs.length,
+                usersCount: users.length,
+                kycBadgeText: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : `${kycRequests.filter(r => r.status === 'Pending').length} KYC`,
+                subscribersCount: subscribers.length,
+                chatMessagesCount: chatMessages.length
+              }).map((cat, idx) => {
                 const q = moduleSearchQuery.toLowerCase().trim();
                 const filteredItems = cat.items.filter(
                   (it) =>
@@ -3017,12 +3116,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             key={item.id}
                             type="button"
                             onClick={() => {
-                              setAdminTab(item.id as any);
-                              // update category using the centralized mapping
-                              if (TAB_CATEGORIES[item.id]) {
-                                setActiveCategory(TAB_CATEGORIES[item.id]);
+                              if (handlePermissionAwareNavigateTab(item.id)) {
+                                setShowAllModulesMenu(false);
                               }
-                              setShowAllModulesMenu(false);
                             }}
                             className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl border text-left flex items-start space-x-2 sm:space-x-3 transition-all cursor-pointer ${
                               isCurrent
@@ -3166,7 +3262,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           auditLogs={scrapedAuditLogs}
           batchRuns={scraperBatchRuns}
           currencyConfig={currencyConfig}
-          onNavigateTab={(tabId) => setAdminTab(tabId)}
+          onNavigateTab={(tabId) => handlePermissionAwareNavigateTab(tabId)}
         />
       )}
 

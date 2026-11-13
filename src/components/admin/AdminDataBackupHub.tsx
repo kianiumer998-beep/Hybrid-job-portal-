@@ -30,6 +30,81 @@ interface AdminDataBackupHubProps {
   onImportBulkJobs?: (importedJobs: Job[]) => void;
 }
 
+export interface BackupImportProcessResult {
+  status: 'success' | 'rejected' | 'error';
+  kind: 'job-array' | 'full-snapshot' | 'invalid';
+  message: string;
+  importedCount: number;
+}
+
+export function isSystemSnapshotPayload(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const obj = parsed as Record<string, unknown>;
+  return Boolean(
+    obj.snapshotVersion ||
+    (Array.isArray(obj.jobs) &&
+      (Array.isArray(obj.users) ||
+        Array.isArray(obj.subscribers) ||
+        Array.isArray(obj.feeLogs) ||
+        Array.isArray(obj.pendingJobs)))
+  );
+}
+
+export function processBackupImportJson(
+  rawText: string,
+  onImportBulkJobs?: (importedJobs: Job[]) => void
+): BackupImportProcessResult {
+  if (!rawText || !rawText.trim()) {
+    return {
+      status: 'error',
+      kind: 'invalid',
+      message: 'Please paste a valid JSON array of job objects to import.',
+      importedCount: 0
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch (e: any) {
+    return {
+      status: 'error',
+      kind: 'invalid',
+      message: `Invalid JSON formatting: ${e?.message || 'Syntax error'}`,
+      importedCount: 0
+    };
+  }
+
+  if (isSystemSnapshotPayload(parsed)) {
+    return {
+      status: 'rejected',
+      kind: 'full-snapshot',
+      message:
+        'Full snapshot restore is temporarily unavailable and disabled because not all snapshot categories (users, subscribers, payments, audit logs) have a verified restore implementation. To import jobs, provide a JSON array of job objects (`[...]`).',
+      importedCount: 0
+    };
+  }
+
+  if (Array.isArray(parsed)) {
+    if (typeof onImportBulkJobs === 'function') {
+      onImportBulkJobs(parsed as Job[]);
+    }
+    return {
+      status: 'success',
+      kind: 'job-array',
+      message: `✅ Batch of ${parsed.length} jobs imported directly into the live catalog!`,
+      importedCount: parsed.length
+    };
+  }
+
+  return {
+    status: 'error',
+    kind: 'invalid',
+    message: 'Unrecognized format. Please provide a JSON array of job objects (`[ { ... } ]`).',
+    importedCount: 0
+  };
+}
+
 export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
   jobs = [],
   pendingJobs = [],
@@ -41,7 +116,7 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
   batchRuns = [],
   customFormFields = [],
   featureFlags = {} as any,
-  onRestoreSnapshot = (_snapshot: SystemSnapshotPayload) => {},
+  onRestoreSnapshot: _onRestoreSnapshot,
   onImportBulkJobs = (_importedJobs: Job[]) => {}
 }) => {
   const safeJobs = Array.isArray(jobs) ? jobs : [];
@@ -57,6 +132,7 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'snapshot' | 'csv-export' | 'bulk-import'>('snapshot');
   const [importJsonText, setImportJsonText] = useState('');
   const [importStatusMessage, setImportStatusMessage] = useState<string | null>(null);
+  const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
 
   // 1-Click Full Platform Snapshot JSON Download
   const handleDownloadFullSnapshot = () => {
@@ -157,28 +233,16 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
     downloadCsv(`careerpak_financial_revenue_ledger_${new Date().toISOString().substring(0, 10)}.csv`, headers, rows);
   };
 
-  // Bulk CSV/JSON Importer Handler
+  // Bulk JSON Importer Handler (job-array only; full snapshot restore safely disabled)
   const handleParseAndImport = () => {
-    if (!importJsonText.trim()) {
-      alert('Please paste a valid JSON array of jobs or system snapshot.');
-      return;
-    }
+    setImportStatusMessage(null);
+    setImportErrorMessage(null);
 
-    try {
-      const parsed = JSON.parse(importJsonText);
-      if (parsed.snapshotVersion && Array.isArray(parsed.jobs)) {
-        // Full Snapshot Restore
-        onRestoreSnapshot(parsed);
-        setImportStatusMessage(`✅ Full Snapshot successfully restored with ${parsed.jobs.length} jobs and ${parsed.users?.length || 0} users!`);
-      } else if (Array.isArray(parsed)) {
-        // Array of Jobs
-        onImportBulkJobs(parsed);
-        setImportStatusMessage(`✅ Batch of ${parsed.length} jobs imported directly into the live catalog!`);
-      } else {
-        alert('Unrecognized format. Please provide an array of job objects or a full system snapshot.');
-      }
-    } catch (e: any) {
-      alert('Invalid JSON formatting: ' + e.message);
+    const result = processBackupImportJson(importJsonText, onImportBulkJobs);
+    if (result.status === 'success') {
+      setImportStatusMessage(result.message);
+    } else {
+      setImportErrorMessage(result.message);
     }
   };
 
@@ -253,44 +317,46 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
             </button>
           </div>
 
-          {/* Snapshot Restore Box */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl flex flex-col justify-between">
+          {/* Snapshot Restore Box (Temporarily Unavailable) */}
+          <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-6 space-y-4 shadow-xl flex flex-col justify-between">
             <div className="space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
-                <Upload className="w-6 h-6" />
+              <div className="flex items-center justify-between gap-2">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <span className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+                  Temporarily Unavailable
+                </span>
               </div>
-              <h3 className="text-lg font-black text-white">Restore from Backup Snapshot</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Restore the entire website catalog and user database from a previously downloaded JSON snapshot file.
+              <h3 className="text-lg font-black text-white">Restore from Backup Snapshot (Disabled)</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Complete portal snapshot restore is temporarily unavailable and disabled because not all snapshot categories (users, subscribers, payment records, audit logs, and feature flags) have a verified restore implementation.
               </p>
 
+              <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/20 text-[11px] text-amber-300 leading-relaxed">
+                Use <strong>Bulk Job Importer</strong> if you need to import an array of job listings (`[...]`). Full system snapshots remain export-only to prevent partial or misleading restores.
+              </div>
+
               <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1">Upload .json Snapshot File</label>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">Upload .json Snapshot File (Disabled)</label>
                 <input
                   type="file"
                   accept=".json"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onload = (event) => {
-                        const content = event.target?.result as string;
-                        setImportJsonText(content);
-                      };
-                      reader.readAsText(file);
-                    }
-                  }}
-                  className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-amber-400 hover:file:bg-slate-700 cursor-pointer"
+                  disabled
+                  aria-disabled="true"
+                  className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-slate-500 opacity-50 cursor-not-allowed"
                 />
               </div>
             </div>
 
             <button
-              onClick={handleParseAndImport}
-              className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 cursor-pointer transition-all active:scale-95"
+              type="button"
+              disabled
+              aria-disabled="true"
+              className="w-full py-3.5 bg-slate-800 text-slate-500 font-black text-xs rounded-xl border border-slate-700 flex items-center justify-center space-x-2 opacity-60 cursor-not-allowed"
             >
               <Upload className="w-4 h-4" />
-              <span>Restore Portal Snapshot</span>
+              <span>Full Snapshot Restore Temporarily Unavailable</span>
             </button>
           </div>
 
@@ -407,6 +473,12 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
               Load Sample Template
             </button>
           </div>
+
+          {importErrorMessage && (
+            <div className="p-3.5 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 font-bold text-xs">
+              {importErrorMessage}
+            </div>
+          )}
 
           {importStatusMessage && (
             <div className="p-3.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs">

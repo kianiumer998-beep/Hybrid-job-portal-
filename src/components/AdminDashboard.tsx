@@ -4550,6 +4550,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             setIsPdfScraperModalOpen(true);
           }}
           onOpenBatchIngestModal={() => setIsBatchIngestModalOpen(true)}
+          canDeleteScrapedJobs={hasAdminUiPermission('jobs.manage')}
         />
       )}
 

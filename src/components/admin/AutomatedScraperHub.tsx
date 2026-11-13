@@ -425,6 +425,7 @@ interface AutomatedScraperHubProps {
   setScrapedAuditLogs?: React.Dispatch<React.SetStateAction<ScrapedJobAuditEntry[]>>;
   onOpenPdfParser?: (source?: any) => void;
   onOpenBatchIngestModal?: () => void;
+  canDeleteScrapedJobs?: boolean;
 }
 
 export type ScraperStep = 'overview' | 'sources' | 'run' | 'history' | 'review' | 'settings';
@@ -446,7 +447,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   onRejectJob,
   onOverrideDuplicatesToLive,
   onOpenPdfParser,
-  onOpenBatchIngestModal
+  onOpenBatchIngestModal,
+  canDeleteScrapedJobs = false
 }) => {
   // Navigation: Step 1 through Step 6
   const [activeStep, setActiveStep] = useState<ScraperStep>('overview');
@@ -1843,7 +1845,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   };
 
   const handleConfirmDeleteReviewJob = async () => {
-    if (!confirmDeleteReviewJob || deletingReviewJobId || isProcessingReview) return;
+    if (canDeleteScrapedJobs !== true || !confirmDeleteReviewJob || deletingReviewJobId || isProcessingReview) return;
     const jobToDelete = confirmDeleteReviewJob;
     setDeletingReviewJobId(jobToDelete.id);
     setIsProcessingReview(true);
@@ -4221,16 +4223,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                             <span>Overwrite Original</span>
                           </button>
 
-                          <button
-                            type="button"
-                            disabled={isProcessingReview || deletingReviewJobId === job.id}
-                            onClick={() => setConfirmDeleteReviewJob(job)}
-                            className="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Delete this duplicate job"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>{deletingReviewJobId === job.id ? 'Deleting...' : 'Delete'}</span>
-                          </button>
+                          {canDeleteScrapedJobs === true && (
+                            <button
+                              type="button"
+                              disabled={isProcessingReview || deletingReviewJobId === job.id}
+                              onClick={() => setConfirmDeleteReviewJob(job)}
+                              className="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Delete this duplicate job"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>{deletingReviewJobId === job.id ? 'Deleting...' : 'Delete'}</span>
+                            </button>
+                          )}
                         </>
                       ) : (
                         <>
@@ -4265,16 +4269,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                             <span>Approve to Live</span>
                           </button>
 
-                          <button
-                            type="button"
-                            disabled={isProcessingReview || deletingReviewJobId === job.id}
-                            onClick={() => setConfirmDeleteReviewJob(job)}
-                            className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Delete this scraped job"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>{deletingReviewJobId === job.id ? 'Deleting...' : 'Delete'}</span>
-                          </button>
+                          {canDeleteScrapedJobs === true && (
+                            <button
+                              type="button"
+                              disabled={isProcessingReview || deletingReviewJobId === job.id}
+                              onClick={() => setConfirmDeleteReviewJob(job)}
+                              className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Delete this scraped job"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{deletingReviewJobId === job.id ? 'Deleting...' : 'Delete'}</span>
+                            </button>
+                          )}
                         </>
                       )}
 
@@ -5473,7 +5479,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       {/* ============================================================= */}
       {/* MODAL: CONFIRM SINGLE SCRAPED JOB DELETE                      */}
       {/* ============================================================= */}
-      {confirmDeleteReviewJob && (
+      {canDeleteScrapedJobs === true && confirmDeleteReviewJob && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-start space-x-3">

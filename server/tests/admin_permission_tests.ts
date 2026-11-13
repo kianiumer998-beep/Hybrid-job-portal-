@@ -637,6 +637,16 @@ async function runAdminPermissionTests() {
       assert.strictEqual(scraperHubSrc.includes('api.jobs.delete(jobToDelete.id)'), true, 'Scraper delete must reuse api.jobs.delete');
       assert.strictEqual(scraperHubSrc.includes('confirmDeleteReviewJob'), true, 'Scraper delete must require confirmation modal');
       assert.strictEqual(scraperHubSrc.includes('deletingReviewJobId'), true, 'Scraper delete must lock against repeated clicks');
+      assert.strictEqual(/interface AutomatedScraperHubProps[\s\S]*canDeleteScrapedJobs\?:\s*boolean/.test(scraperHubSrc), true, 'AutomatedScraperHubProps must declare boolean canDeleteScrapedJobs');
+      assert.strictEqual(scraperHubSrc.includes('canDeleteScrapedJobs === true &&'), true, 'Scraper delete buttons and modal must be conditional on canDeleteScrapedJobs === true');
+      assert.strictEqual(adminDashSrc.includes("canDeleteScrapedJobs={hasAdminUiPermission('jobs.manage')}"), true, "AdminDashboard must pass canDeleteScrapedJobs={hasAdminUiPermission('jobs.manage')} to AutomatedScraperHub");
+      assert.strictEqual(
+        Array.isArray(DEFAULT_ROLE_PERMISSIONS['Scraper Manager']) &&
+        !DEFAULT_ROLE_PERMISSIONS['Scraper Manager'].includes('jobs.manage') &&
+        DEFAULT_ROLE_PERMISSIONS['Scraper Manager'].includes('scraper.manage'),
+        true,
+        'Scraper Manager must keep scraper.manage and never receive jobs.manage'
+      );
     });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

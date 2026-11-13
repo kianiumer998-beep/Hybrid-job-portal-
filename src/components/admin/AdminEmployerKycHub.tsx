@@ -65,14 +65,53 @@ export const getKycCompanyInitial = (companyName?: unknown): string => {
   return trimmed ? trimmed.charAt(0).toUpperCase() : 'C';
 };
 
+export const isValidKycRecord = (req: unknown): req is EmployerKycRequest => {
+  return Boolean(req && typeof req === 'object' && !Array.isArray(req));
+};
+
+export const getSafeKycRequests = (
+  requests: Array<EmployerKycRequest | null | undefined> | undefined | null
+): EmployerKycRequest[] => {
+  if (!Array.isArray(requests)) return [];
+  return requests.filter(isValidKycRecord);
+};
+
+export const getKycStatusCounts = (
+  requests: Array<EmployerKycRequest | null | undefined> | undefined | null
+): { total: number; pending: number; verified: number; rejected: number } => {
+  const safeRequests = getSafeKycRequests(requests);
+  let pending = 0;
+  let verified = 0;
+  let rejected = 0;
+  for (const req of safeRequests) {
+    if (req.status === 'Pending') pending++;
+    else if (req.status === 'Verified') verified++;
+    else if (req.status === 'Rejected') rejected++;
+  }
+  return {
+    total: safeRequests.length,
+    pending,
+    verified,
+    rejected
+  };
+};
+
+export const applyKycRequestUpdate = (
+  requests: Array<EmployerKycRequest | null | undefined> | undefined | null,
+  targetId: string,
+  updatedRequest: EmployerKycRequest
+): EmployerKycRequest[] => {
+  const safeRequests = getSafeKycRequests(requests);
+  if (!targetId || !isValidKycRecord(updatedRequest)) return safeRequests;
+  return safeRequests.map((r) => (r.id === targetId ? updatedRequest : r));
+};
+
 export const filterEmployerKycRequests = (
-  requests: EmployerKycRequest[] | undefined | null,
+  requests: Array<EmployerKycRequest | null | undefined> | undefined | null,
   filterStatus: 'All' | 'Pending' | 'Verified' | 'Rejected',
   searchQuery?: string | null
 ): EmployerKycRequest[] => {
-  const safeRequests = Array.isArray(requests)
-    ? requests.filter((req): req is EmployerKycRequest => Boolean(req))
-    : [];
+  const safeRequests = getSafeKycRequests(requests);
   const q = safeKycText(searchQuery);
   return safeRequests.filter((req) => {
     if (filterStatus !== 'All' && req.status !== filterStatus) return false;
@@ -122,7 +161,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
         
         const res = await api.kyc.getAll();
         if (res.success && Array.isArray(res.requests)) {
-          setRequests(res.requests);
+          setRequests(getSafeKycRequests(res.requests));
         } else {
           setError(res?.message || 'Failed to load requests');
         }
@@ -135,16 +174,18 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
     loadData();
   }, []);
 
+  const kycCounts = getKycStatusCounts(requests);
   const filtered = filterEmployerKycRequests(requests, filterStatus, searchQuery);
 
   const handleApproveKyc = async (req: EmployerKycRequest, badge: 'Standard Verified' | 'Top Employer' | 'Government Agency') => {
+    if (!isValidKycRecord(req) || !req.id) return;
     try {
       const res = await api.kyc.updateRequest(req.id, {
         status: 'Verified',
         badgeLevel: badge
       });
       if (res.success && res.request) {
-        setRequests(requests.map(r => r.id === req.id ? res.request : r));
+        setRequests((prev) => applyKycRequestUpdate(prev, req.id, res.request));
         setSelectedKyc(null);
         alert(`✅ Employer "${req.companyName || 'Employer'}" has been successfully VERIFIED with ${badge} status!`);
       } else {
@@ -156,13 +197,14 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
   };
 
   const handleRejectKyc = async (req: EmployerKycRequest, reason: string) => {
+    if (!isValidKycRecord(req) || !req.id) return;
     try {
       const res = await api.kyc.updateRequest(req.id, {
         status: 'Rejected',
         rejectionReason: reason
       });
       if (res.success && res.request) {
-        setRequests(requests.map(r => r.id === req.id ? res.request : r));
+        setRequests((prev) => applyKycRequestUpdate(prev, req.id, res.request));
         setSelectedKyc(null);
         alert(`⛔ KYC Request for "${req.companyName || 'Employer'}" rejected. Reason logged.`);
       } else {
@@ -209,7 +251,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              {st} {st === 'Pending' && `(${requests.filter(r => r.status === 'Pending').length})`}
+              {st} {st === 'Pending' && `(${kycCounts.pending})`}
             </button>
           ))}
         </div>
@@ -230,19 +272,19 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
 
         <div className="flex items-center space-x-2 text-xs font-bold">
           <span className="px-3 py-1 bg-slate-900 border border-slate-800 rounded-xl text-slate-300">
-            Total Requests: <span className="text-white font-mono">{requests.length}</span>
+            Total Requests: <span className="text-white font-mono">{kycCounts.total}</span>
           </span>
           <span className="px-3 py-1 bg-slate-900 border border-slate-800 rounded-xl text-emerald-400">
-            Verified Badges: <span className="font-mono">{requests.filter(r => r.status === 'Verified').length}</span>
+            Verified Badges: <span className="font-mono">{kycCounts.verified}</span>
           </span>
         </div>
       </div>
 
       {/* REQUESTS LIST */}
       <div className="grid grid-cols-1 gap-4">
-        {filtered.map((req) => (
+        {filtered.map((req, idx) => (
           <div
-            key={req.id}
+            key={req.id || `kyc-row-${idx}`}
             className="bg-slate-900 border border-slate-800 hover:border-cyan-500/40 transition-all rounded-2xl p-5 shadow-xl space-y-4"
           >
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
@@ -259,7 +301,7 @@ export const AdminEmployerKycHub: React.FC<AdminEmployerKycHubProps> = () => {
                     {req.status === 'Verified' && (
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center space-x-1">
                         <CheckCircle2 className="w-3 h-3 text-cyan-400" />
-                        <span>{req.badgeLevel}</span>
+                        <span>{req.badgeLevel || 'Verified'}</span>
                       </span>
                     )}
                     {req.status === 'Pending' && (

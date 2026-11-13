@@ -18,8 +18,12 @@ import {
   applyGlobalFreeToggleToCategories
 } from '../../src/components/admin/AdminFeeManager';
 import {
+  AdminEmployerKycHub,
   safeKycText,
   getKycCompanyInitial,
+  getSafeKycRequests,
+  getKycStatusCounts,
+  applyKycRequestUpdate,
   filterEmployerKycRequests
 } from '../../src/components/admin/AdminEmployerKycHub';
 import { DEFAULT_CATEGORY_POSTING_FEES } from '../../src/types/landing';
@@ -252,6 +256,74 @@ function runSuite() {
 
     const pendingMiss = filterEmployerKycRequests(legacyKycRecords, 'Rejected', 'anything');
     assert.strictEqual(pendingMiss.length, 0);
+  });
+
+  runTest('KYC Hub: getSafeKycRequests excludes null, undefined, and non-object entries from response array without rewriting incomplete records', () => {
+    const dirtyResponse = [
+      null,
+      legacyKycRecords[0],
+      undefined,
+      [] as any,
+      'invalid-string' as any,
+      legacyKycRecords[1],
+      legacyKycRecords[2]
+    ];
+    const safe = getSafeKycRequests(dirtyResponse);
+    assert.strictEqual(safe.length, 3);
+    assert.strictEqual(safe[0].id, 'kyc-complete-1');
+    assert.strictEqual(safe[1].id, 'kyc-legacy-incomplete-2');
+    assert.strictEqual(safe[2].id, 'kyc-legacy-partial-3');
+    assert.strictEqual(getSafeKycRequests(undefined).length, 0);
+    assert.strictEqual(getSafeKycRequests(null).length, 0);
+  });
+
+  runTest('KYC Hub: Pending and Verified counters handle null entries and incomplete records safely', () => {
+    const mixedWithStatusEdgeCases = [
+      null,
+      undefined,
+      legacyKycRecords[0], // Pending
+      legacyKycRecords[1], // Pending (incomplete fields)
+      legacyKycRecords[2], // Verified
+      { id: 'kyc-no-status-4', companyName: 'Legacy Draft' } as any,
+      { id: 'kyc-rejected-5', status: 'Rejected' } as any
+    ];
+    const countsResult = getKycStatusCounts(mixedWithStatusEdgeCases);
+    assert.strictEqual(countsResult.total, 5);
+    assert.strictEqual(countsResult.pending, 2);
+    assert.strictEqual(countsResult.verified, 1);
+    assert.strictEqual(countsResult.rejected, 1);
+  });
+
+  runTest('KYC Hub: search, filtering, and approve/reject state updates work cleanly with valid records mixed with null entries', () => {
+    const mixed = [null, legacyKycRecords[0], undefined, legacyKycRecords[1], legacyKycRecords[2]];
+    const approvedRecord: EmployerKycRequest = {
+      ...legacyKycRecords[0],
+      status: 'Verified',
+      badgeLevel: 'Top Employer'
+    };
+    const afterApprove = applyKycRequestUpdate(mixed, 'kyc-complete-1', approvedRecord);
+    assert.strictEqual(afterApprove.length, 3);
+    assert.strictEqual(afterApprove[0].status, 'Verified');
+    assert.strictEqual(afterApprove[0].badgeLevel, 'Top Employer');
+    assert.strictEqual(getKycStatusCounts(afterApprove).pending, 1);
+    assert.strictEqual(getKycStatusCounts(afterApprove).verified, 2);
+
+    const rejectedRecord: EmployerKycRequest = {
+      ...legacyKycRecords[1],
+      status: 'Rejected',
+      rejectionReason: 'Incomplete tax ID'
+    };
+    const afterReject = applyKycRequestUpdate([...afterApprove, null], 'kyc-legacy-incomplete-2', rejectedRecord);
+    assert.strictEqual(afterReject.length, 3);
+    assert.strictEqual(getKycStatusCounts(afterReject).pending, 0);
+    assert.strictEqual(getKycStatusCounts(afterReject).rejected, 1);
+    assert.strictEqual(filterEmployerKycRequests(afterReject, 'Verified', 'lahore').length, 1);
+    assert.strictEqual(filterEmployerKycRequests(afterReject, 'Rejected', '').length, 1);
+  });
+
+  runTest('KYC Hub: SSR render path initializes cleanly without crashing', () => {
+    const html = renderToStaticMarkup(React.createElement(AdminEmployerKycHub));
+    assert.ok(html.length > 0);
   });
 
   console.log('------------------------------------------------------------------');

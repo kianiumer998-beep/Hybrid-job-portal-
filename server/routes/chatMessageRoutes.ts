@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireAdmin } from '../auth/authManager';
+import { requireAuth, requireAdminPermission } from '../auth/authManager';
 import { ChatMessageRepository } from '../db/repositories/ChatMessageRepository';
 import { UserRepository } from '../db/repositories/UserRepository';
 import { ChatMessage } from '../../src/types/job';
@@ -72,7 +72,7 @@ router.post('/', requireAuth, async (req: any, res) => {
 });
 
 // GET /api/chat/admin/all - Admin: Get all conversations
-router.get('/admin/all', requireAdmin, async (req, res) => {
+router.get('/admin/all', requireAdminPermission('users.manage'), async (req, res) => {
   try {
     let limit = 2000;
     const rawLimit = req.query.limit;
@@ -97,7 +97,7 @@ router.get('/admin/all', requireAdmin, async (req, res) => {
 });
 
 // POST /api/chat/admin/reply - Admin: Send reply to a specific user
-router.post('/admin/reply', requireAdmin, async (req: any, res) => {
+router.post('/admin/reply', requireAdminPermission('users.manage'), async (req: any, res) => {
   try {
     const { userId: rawTargetUserId, text, jobTitleRef, id } = req.body;
 
@@ -159,7 +159,7 @@ router.post('/admin/reply', requireAdmin, async (req: any, res) => {
 });
 
 // POST /api/chat/import-legacy - Admin: Bulk import legacy messages
-router.post('/import-legacy', requireAdmin, async (req, res) => {
+router.post('/import-legacy', requireAdminPermission('users.manage'), async (req, res) => {
   try {
     const { messages } = req.body;
     if (!Array.isArray(messages)) {

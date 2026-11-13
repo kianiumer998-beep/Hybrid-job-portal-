@@ -386,7 +386,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
 
 
-  // Authenticated Admin Identity & Role Permissions (UX Guard - Backend remains authoritative)
+  // Authenticated Admin Identity & Role Permissions (Verified via /api/auth/me; Backend remains authoritative)
   const [currentAdminUser, setCurrentAdminUser] = useState<{
     id?: string;
     userId?: string;
@@ -394,29 +394,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     email?: string;
     role?: string;
     permissions?: string[];
-  } | null>(() => {
-    try {
-      const token = localStorage.getItem('hybrid_auth_token');
-      if (!token) return null;
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-      const payload = JSON.parse(atob(padded));
-      if (!payload || typeof payload !== 'object') return null;
-      if (typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now()) return null;
-      return {
-        id: payload.userId || payload.id,
-        userId: payload.userId || payload.id,
-        name: payload.name,
-        email: payload.email,
-        role: payload.role,
-        permissions: payload.permissions
-      };
-    } catch {
-      return null;
-    }
-  });
+  } | null>(null);
+  const [isVerifyingAdmin, setIsVerifyingAdmin] = useState<boolean>(true);
+  const [adminVerifyError, setAdminVerifyError] = useState<string | null>(null);
 
   const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
     'Super Admin': ['*'],
@@ -429,19 +409,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'Advertisement Manager': ['advertisements.manage']
   };
 
-  const effectiveAdminRole = currentAdminUser?.role || 'Super Admin';
-  const effectiveAdminPerms = ROLE_DEFAULT_PERMS[effectiveAdminRole] || currentAdminUser?.permissions || [];
+  const ADMIN_ROLES_LIST = Object.keys(ROLE_DEFAULT_PERMS);
+  const isVerifiedAdmin = Boolean(
+    !isVerifyingAdmin &&
+    currentAdminUser?.role &&
+    ADMIN_ROLES_LIST.includes(currentAdminUser.role)
+  );
+  const effectiveAdminRole = isVerifiedAdmin ? (currentAdminUser?.role || '') : '';
+  const effectiveAdminPerms = isVerifiedAdmin
+    ? (ROLE_DEFAULT_PERMS[effectiveAdminRole] || currentAdminUser?.permissions || [])
+    : [];
 
   const hasAdminUiPermission = (perm: string): boolean => {
+    if (!isVerifiedAdmin || !effectiveAdminRole) return false;
     if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
     return effectiveAdminPerms.includes('*') || effectiveAdminPerms.includes(perm);
   };
 
   const canAccessAdminCategory = (cat: AdminCategory): boolean => {
+    if (!isVerifiedAdmin || !effectiveAdminRole) return false;
     if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
     switch (cat) {
       case 'jobs':
-        return hasAdminUiPermission('jobs.manage') || hasAdminUiPermission('applications.manage');
+        return hasAdminUiPermission('jobs.manage');
       case 'scraper':
         return hasAdminUiPermission('scraper.manage');
       case 'ads':
@@ -451,7 +441,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       case 'users':
         return hasAdminUiPermission('users.manage');
       case 'alerts':
-        return hasAdminUiPermission('settings.manage') || hasAdminUiPermission('users.manage');
+        return hasAdminUiPermission('settings.manage');
       case 'settings':
         return (
           hasAdminUiPermission('seo.manage') ||
@@ -464,9 +454,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const canAccessAdminTab = (tabId: string): boolean => {
+    if (!isVerifiedAdmin || !effectiveAdminRole) return false;
     if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
     if (['jobs', 'pending', 'add-job', 'ai-enhancer'].includes(tabId)) {
-      return hasAdminUiPermission('jobs.manage') || hasAdminUiPermission('applications.manage');
+      return hasAdminUiPermission('jobs.manage');
     }
     if (['scraper', 'url-scraper', 'scraped-history'].includes(tabId)) {
       return hasAdminUiPermission('scraper.manage');
@@ -474,10 +465,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (['campaign-center', 'advertisements', 'landing-customizer'].includes(tabId)) {
       return hasAdminUiPermission('advertisements.manage');
     }
+    if (['admin-payment-methods'].includes(tabId)) {
+      return hasAdminUiPermission('payments.manage');
+    }
     if (['payment-proofs', 'fee-logs'].includes(tabId)) {
       return hasAdminUiPermission('payments.manage') || hasAdminUiPermission('finance.manage');
     }
-    if (['pricing-controller', 'admin-payment-methods', 'fee-management', 'currency-forex'].includes(tabId)) {
+    if (['pricing-controller', 'fee-management', 'currency-forex'].includes(tabId)) {
       return hasAdminUiPermission('finance.manage');
     }
     if (['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'].includes(tabId)) {
@@ -496,16 +490,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   useEffect(() => {
+    let isMounted = true;
+    setIsVerifyingAdmin(true);
+    setAdminVerifyError(null);
     api.auth.me()
       .then((res: any) => {
-        if (res?.success && res.user) {
+        if (!isMounted) return;
+        if (res?.success && res.user && ADMIN_ROLES_LIST.includes(res.user.role)) {
           setCurrentAdminUser(res.user);
+          setAdminVerifyError(null);
+        } else {
+          setCurrentAdminUser(null);
+          setAdminVerifyError(res?.message || 'Administrative session could not be verified.');
         }
       })
-      .catch(() => {});
+      .catch((err: any) => {
+        if (!isMounted) return;
+        setCurrentAdminUser(null);
+        setAdminVerifyError(err?.message || 'Failed to verify administrative session.');
+      })
+      .finally(() => {
+        if (isMounted) setIsVerifyingAdmin(false);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
+    if (!isVerifiedAdmin) return;
     if (hasAdminUiPermission('users.manage') && onUpdateUser) {
       api.users.getAll()
         .then((res: any) => {
@@ -519,9 +532,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         })
         .catch(() => {});
     }
-  }, [effectiveAdminRole]);
+  }, [isVerifiedAdmin, effectiveAdminRole]);
 
   useEffect(() => {
+    if (!isVerifiedAdmin) return;
     if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return;
     if (!canAccessAdminCategory(activeCategory) || !canAccessAdminTab(adminTab)) {
       if (hasAdminUiPermission('jobs.manage')) {
@@ -533,9 +547,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       } else if (hasAdminUiPermission('advertisements.manage')) {
         setActiveCategory('ads');
         setAdminTab('campaign-center');
-      } else if (hasAdminUiPermission('finance.manage') || hasAdminUiPermission('payments.manage')) {
+      } else if (hasAdminUiPermission('payments.manage') || hasAdminUiPermission('finance.manage')) {
         setActiveCategory('payments');
-        setAdminTab('payment-proofs');
+        setAdminTab(hasAdminUiPermission('payments.manage') ? 'admin-payment-methods' : 'pricing-controller');
       } else if (hasAdminUiPermission('seo.manage')) {
         setActiveCategory('settings');
         setAdminTab('seo-config');
@@ -545,9 +559,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       } else if (hasAdminUiPermission('audit.view')) {
         setActiveCategory('settings');
         setAdminTab('activity-logs');
+      } else if (hasAdminUiPermission('settings.manage')) {
+        setActiveCategory('settings');
+        setAdminTab('settings');
       }
     }
-  }, [effectiveAdminRole]);
+  }, [isVerifiedAdmin, effectiveAdminRole, activeCategory, adminTab]);
 
   // International Admin Suite States
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(INITIAL_SITE_SEO_CONFIG);
@@ -2474,6 +2491,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Selected User Chat Messages
   const selectedUserMessages = chatMessages.filter((m) => m.userId === selectedChatUserId);
 
+  if (isVerifyingAdmin) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+            <RefreshCw className="w-6 h-6 animate-spin" />
+          </div>
+          <h2 className="text-lg font-black text-white">Verifying Administrative Session...</h2>
+          <p className="text-xs text-slate-400">
+            Checking your administrative identity and permissions with the server before displaying controls.
+          </p>
+          <div>
+            <button
+              type="button"
+              onClick={onExitAdmin}
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+            >
+              Exit Admin
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isVerifiedAdmin) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16">
+        <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-8 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h2 className="text-lg font-black text-white">Administrative Access Denied</h2>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            {adminVerifyError || 'Your session could not be verified as an authorized administrator.'}
+          </p>
+          <div>
+            <button
+              type="button"
+              onClick={onExitAdmin}
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black cursor-pointer"
+            >
+              Return to Portal
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-8 space-y-2.5 sm:space-y-6">
       
@@ -2539,7 +2606,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     if (cat.id === 'jobs') setAdminTab('jobs');
                     else if (cat.id === 'scraper') setAdminTab('scraper');
                     else if (cat.id === 'ads') setAdminTab('campaign-center');
-                    else if (cat.id === 'payments') setAdminTab(hasAdminUiPermission('finance.manage') ? 'admin-payment-methods' : 'payment-proofs');
+                    else if (cat.id === 'payments') setAdminTab(hasAdminUiPermission('payments.manage') ? 'admin-payment-methods' : hasAdminUiPermission('finance.manage') ? 'pricing-controller' : 'payment-proofs');
                     else if (cat.id === 'users') setAdminTab('user-audit');
                     else if (cat.id === 'alerts') setAdminTab('whatsapp-manager');
                     else if (cat.id === 'settings') setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
@@ -2593,7 +2660,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 { id: 'pending', label: `Pending Approvals (${pendingJobs.length})`, urdu: 'زیرِ التواء منظوری', icon: Clock, badge: pendingJobs.length > 0 ? pendingJobs.length : undefined },
                 { id: 'add-job', label: 'Post Manual Job', urdu: 'نئی جاب', icon: Plus },
                 { id: 'ai-enhancer', label: 'AI Quality & Spam Filter', urdu: 'کوالٹی فلٹر', icon: Sparkles }
-              ].map((t) => {
+              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
@@ -2646,7 +2713,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 { id: 'campaign-center', label: `Campaign Center (${ads.filter(a => a.status === 'active').length} Live)`, urdu: 'اشتہاری کیمپینز', icon: Megaphone },
                 { id: 'advertisements', label: 'Ad Hub & Banner Slots', urdu: 'بینر سلاٹس', icon: Layers },
                 { id: 'landing-customizer', label: 'Landing Page Customizer', urdu: 'ہوم پیج بینرز', icon: Edit3 }
-              ].map((t) => {
+              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
@@ -2715,7 +2782,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 { id: 'employer-kyc', label: `Employer KYC Verification ${kycLoading ? '(Loading...)' : kycError ? '(Error loading)' : `(${kycRequests.filter(r => r.status === 'Pending').length})`}`, urdu: 'شناختی تصدیق', icon: BadgeCheck },
                 { id: 'subscribers', label: `Paid Subscribers (${subscribers.length})`, urdu: 'سبسکرائبرز', icon: DollarSign },
                 { id: 'chat-hub', label: `User Support Chat Hub (${chatMessages.length})`, urdu: 'چیٹ ان باکس', icon: MessageSquare }
-              ].map((t) => {
+              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
@@ -2745,7 +2812,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 { id: 'whatsapp-manager', label: '💬 WhatsApp Support & Alerts Hub', urdu: 'واٹس ایپ الرٹس', icon: MessageSquare },
                 { id: 'broadcast-center', label: '📣 Email & WhatsApp Broadcasts', urdu: 'براڈکاسٹ میسجز', icon: Send },
                 { id: 'bulk-notifications', label: '🚀 Pro Bulk Notification Tool', urdu: 'بلک نوٹیفکیشنز', icon: Send }
-              ].map((t) => {
+              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
                 const Icon = t.icon;
                 return (
                   <button

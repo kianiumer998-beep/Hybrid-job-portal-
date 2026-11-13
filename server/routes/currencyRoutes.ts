@@ -24,7 +24,7 @@ currencyRouter.get(['/', '/config'], async (req, res) => {
 });
 
 // PUT /api/currency/config (or /api/currency)
-currencyRouter.put(['/', '/config'], requireAdminPermission('settings.manage'), async (req, res) => {
+currencyRouter.put(['/', '/config'], requireAdminPermission('finance.manage'), async (req, res) => {
   try {
     const savedConfig = await CurrencyRepository.saveConfig(req.body);
 

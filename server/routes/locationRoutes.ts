@@ -17,7 +17,7 @@ locationRouter.get('/', async (req, res) => {
 });
 
 // 2. Admin: Add a new city with province
-locationRouter.post('/cities', requireAdminPermission('jobs.manage'), async (req, res) => {
+locationRouter.post('/cities', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const { provinceName, cityName, districts } = req.body;
     if (!cityName || !cityName.trim()) {
@@ -48,7 +48,7 @@ locationRouter.post('/cities', requireAdminPermission('jobs.manage'), async (req
 });
 
 // 3. Admin: Check city usage in existing jobs (for pre-edit warning)
-locationRouter.get('/cities/:cityName/usage', requireAdminPermission('jobs.manage'), async (req, res) => {
+locationRouter.get('/cities/:cityName/usage', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const rawCity = req.params.cityName;
     const usage = await LocationRepository.checkCityUsage(rawCity);
@@ -60,7 +60,7 @@ locationRouter.get('/cities/:cityName/usage', requireAdminPermission('jobs.manag
 });
 
 // 4. Admin: Edit city name and/or province mapping
-locationRouter.put('/cities/:cityName', requireAdminPermission('jobs.manage'), async (req, res) => {
+locationRouter.put('/cities/:cityName', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const oldCityName = req.params.cityName;
     const { newCityName, targetProvince, districts } = req.body;
@@ -99,7 +99,7 @@ locationRouter.put('/cities/:cityName', requireAdminPermission('jobs.manage'), a
 });
 
 // 5. Admin: Delete city from master catalog (preserves historical job records)
-locationRouter.delete('/cities/:cityName', requireAdminPermission('jobs.manage'), async (req, res) => {
+locationRouter.delete('/cities/:cityName', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const cityName = req.params.cityName;
     const result = await LocationRepository.deleteCity(cityName);
@@ -123,7 +123,7 @@ locationRouter.delete('/cities/:cityName', requireAdminPermission('jobs.manage')
 });
 
 // 6. Admin: Add new province
-locationRouter.post('/provinces', requireAdminPermission('jobs.manage'), async (req, res) => {
+locationRouter.post('/provinces', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const { provinceName } = req.body;
     if (!provinceName || !provinceName.trim()) {

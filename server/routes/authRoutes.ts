@@ -559,82 +559,39 @@ authRouter.patch('/users/:id/role', requireAdminPermission('users.manage'), asyn
       return res.status(400).json({ success: false, message: `Invalid role '${newRole}'.` });
     }
 
-    const actorId = req.user?.userId || req.user?.id;
-    const actor = actorId ? await UserRepository.getByIdAsync(actorId) : null;
-    const actorRole = actor?.role || req.user?.role;
-
-    // Only Super Admin or Admin may assign administrative roles
-    if (actorRole !== 'Super Admin' && actorRole !== 'Admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied: Only Super Admin or Admin may manage user roles.'
-      });
-    }
-
-    // Prevent a user from changing their own role (prevents self-elevation and accidental self-demotion)
-    if (String(targetUserId) === String(actorId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Action blocked: You cannot change your own administrative role.'
-      });
-    }
-
-    const targetUser = await UserRepository.getByIdAsync(targetUserId);
-    if (!targetUser) {
-      return res.status(404).json({ success: false, message: 'Target user not found.' });
-    }
-
-    const oldRole = targetUser.role || 'Job Seeker';
-
-    // Only an existing Super Admin can assign the Super Admin role or modify an existing Super Admin
-    if (newRole === 'Super Admin' && actorRole !== 'Super Admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied: Only an existing Super Admin can assign the Super Admin role.'
-      });
-    }
-
-    if (oldRole === 'Super Admin' && actorRole !== 'Super Admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied: Only a Super Admin can modify another Super Admin account.'
-      });
-    }
-
-    // Prevent changing the last/only Super Admin into a lower role
-    if (oldRole === 'Super Admin' && newRole !== 'Super Admin') {
-      const allUsers = await UserRepository.getAllAsync();
-      const superAdminCount = allUsers.filter(u => u && u.role === 'Super Admin').length;
-      if (superAdminCount <= 1) {
-        return res.status(400).json({
-          success: false,
-          message: 'Action blocked: Cannot demote the last remaining Super Admin account.'
-        });
-      }
-    }
-
+    const actorId = (req.user?.userId || req.user?.id || '').toString().trim();
     const updatedPermissions = getPermissionsForRole(newRole);
 
-    const updatedUser = await UserRepository.updateAsync(targetUser.id, {
-      role: newRole,
-      permissions: updatedPermissions
+    const mutation = await UserRepository.updateRoleWithLastSuperAdminGuard({
+      targetUserId,
+      newRole,
+      actorId,
+      actorRoleFallback: req.user?.role,
+      newPermissions: updatedPermissions
     });
 
-    if (!updatedUser) {
-      return res.status(500).json({ success: false, message: 'Failed to update user role.' });
+    if (!mutation.ok || !mutation.user) {
+      return res.status(mutation.status).json({
+        success: false,
+        message: mutation.message
+      });
     }
 
+    const updatedUser = mutation.user;
+    const oldRole = mutation.oldRole || 'Job Seeker';
+    const actorRole = mutation.actorRole || req.user?.role;
+
     AuditRepository.add({
-      user: actor?.name || req.user?.name || req.user?.email || 'Administrator',
+      user: mutation.actor?.name || req.user?.name || req.user?.email || 'Administrator',
       role: actorRole,
       action: 'User Role Updated',
-      target: `${targetUser.email} (${oldRole} -> ${newRole})`,
+      target: `${updatedUser.email} (${oldRole} -> ${newRole})`,
       status: 'Success',
       metadata: {
         actorId,
         actorRole,
-        targetUserId: targetUser.id,
-        targetUserEmail: targetUser.email,
+        targetUserId: updatedUser.id,
+        targetUserEmail: updatedUser.email,
         oldRole,
         newRole,
         permissions: updatedPermissions

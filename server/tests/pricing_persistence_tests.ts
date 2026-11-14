@@ -17,8 +17,7 @@ import { pricingRouter } from '../routes/pricingRoutes';
 import { authMiddleware, createToken } from '../auth/authManager';
 import {
   resolveRestoredStandardFee,
-  executeCompleteFeeConfigSave,
-  applyGlobalFreeToggleToCategories
+  executeCompleteFeeConfigSave
 } from '../../src/components/admin/AdminFeeManager';
 import { DEFAULT_LANDING_PAGE_CONFIG, DEFAULT_CATEGORY_POSTING_FEES } from '../../src/types/landing';
 import { DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG, DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../../src/types/job';

@@ -14,8 +14,7 @@ import {
   normalizeFeeEmail,
   isUserEmailExempt,
   toggleExemptEmailList,
-  filterFeeManagerUsers,
-  applyGlobalFreeToggleToCategories
+  filterFeeManagerUsers
 } from '../../src/components/admin/AdminFeeManager';
 import {
   AdminEmployerKycHub,
@@ -156,22 +155,7 @@ function runSuite() {
     assert.deepStrictEqual(afterRevoke, ['new@employer.pk']);
   });
 
-  runTest('Fee Manager: 100% Free toggle preserves existing category fees & cat-govt/cat-news defaults', () => {
-    const enabled = applyGlobalFreeToggleToCategories(DEFAULT_CATEGORY_POSTING_FEES, true);
-    assert.ok(enabled.length === DEFAULT_CATEGORY_POSTING_FEES.length);
-    assert.ok(enabled.every((c) => c.isFree === true));
 
-    const disabled = applyGlobalFreeToggleToCategories(enabled, false);
-    for (const cat of disabled) {
-      const original = DEFAULT_CATEGORY_POSTING_FEES.find((o) => o.categoryId === cat.categoryId)!;
-      assert.strictEqual(cat.feePkr, original.feePkr);
-      if (cat.categoryId === 'cat-govt' || cat.categoryId === 'cat-news') {
-        assert.strictEqual(cat.isFree, true);
-      } else {
-        assert.strictEqual(cat.isFree, false);
-      }
-    }
-  });
 
   runTest('Fee Manager: SSR component render succeeds with incomplete legacy user & landingConfig records', () => {
     const html = renderToStaticMarkup(

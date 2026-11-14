@@ -93,19 +93,7 @@ export const filterFeeManagerUsers = (
   });
 };
 
-export const applyGlobalFreeToggleToCategories = (
-  categories: CategoryPostingFee[],
-  enable: boolean
-): CategoryPostingFee[] => {
-  const safeCategories = Array.isArray(categories) ? categories : [];
-  if (enable) {
-    return safeCategories.map((c) => ({ ...c, isFree: true }));
-  }
-  return safeCategories.map((c) => ({
-    ...c,
-    isFree: c.categoryId === 'cat-govt' || c.categoryId === 'cat-news'
-  }));
-};
+
 
 export interface FeeSaveExecutionResult {
   success: boolean;

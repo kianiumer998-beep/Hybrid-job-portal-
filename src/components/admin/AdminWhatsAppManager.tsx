@@ -117,6 +117,7 @@ export function syncWhatsAppFormWithConfig(
 }
 
 const fallbackMigrationInFlightMap = new WeakMap<{ current: boolean }, { current: boolean }>();
+const fallbackSavingConfigMap = new WeakMap<{ current: boolean }, { current: boolean }>();
 
 function getFallbackMigrationInFlightRef(hasAttemptedMigrationRef: { current: boolean }): { current: boolean } {
   let ref = fallbackMigrationInFlightMap.get(hasAttemptedMigrationRef);
@@ -127,11 +128,21 @@ function getFallbackMigrationInFlightRef(hasAttemptedMigrationRef: { current: bo
   return ref;
 }
 
+function getFallbackSavingConfigRef(hasAttemptedMigrationRef: { current: boolean }): { current: boolean } {
+  let ref = fallbackSavingConfigMap.get(hasAttemptedMigrationRef);
+  if (!ref) {
+    ref = { current: false };
+    fallbackSavingConfigMap.set(hasAttemptedMigrationRef, ref);
+  }
+  return ref;
+}
+
 export async function runLegacyGroupMigration(params: {
   config?: WhatsAppSupportConfig | null;
   hasAttemptedMigrationRef: { current: boolean };
   isRestoringDefaultsRef?: { current: boolean };
   migrationInFlightRef?: { current: boolean };
+  isSavingConfigRef?: { current: boolean };
   onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
   setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
   onMigrationStart?: () => void;
@@ -144,6 +155,7 @@ export async function runLegacyGroupMigration(params: {
     hasAttemptedMigrationRef,
     isRestoringDefaultsRef,
     migrationInFlightRef,
+    isSavingConfigRef,
     onUpdateConfig,
     setFormData,
     onMigrationStart,
@@ -153,11 +165,14 @@ export async function runLegacyGroupMigration(params: {
   } = params;
 
   const fallbackInFlightRef = getFallbackMigrationInFlightRef(hasAttemptedMigrationRef);
+  const fallbackSavingRef = getFallbackSavingConfigRef(hasAttemptedMigrationRef);
   const activeInFlightRef = migrationInFlightRef || fallbackInFlightRef;
 
   if (
     hasAttemptedMigrationRef.current ||
     isRestoringDefaultsRef?.current ||
+    isSavingConfigRef?.current ||
+    fallbackSavingRef.current ||
     activeInFlightRef.current ||
     fallbackInFlightRef.current
   ) {
@@ -240,6 +255,7 @@ export async function executeRestoreWhatsAppDefaults(params: {
   hasAttemptedMigrationRef: { current: boolean };
   isRestoringDefaultsRef: { current: boolean };
   migrationInFlightRef?: { current: boolean };
+  isSavingConfigRef?: { current: boolean };
   setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
   setSaveError: React.Dispatch<React.SetStateAction<string | null>>;
   setIsSaving: React.Dispatch<React.SetStateAction<boolean>>;
@@ -254,6 +270,7 @@ export async function executeRestoreWhatsAppDefaults(params: {
     hasAttemptedMigrationRef,
     isRestoringDefaultsRef,
     migrationInFlightRef,
+    isSavingConfigRef,
     setFormData,
     setSaveError,
     setIsSaving,
@@ -266,6 +283,15 @@ export async function executeRestoreWhatsAppDefaults(params: {
 
   // Mutual exclusion & duplicate-restore guard before mutating state or calling backend
   if (isRestoringDefaultsRef.current) {
+    return false;
+  }
+
+  const fallbackSavingRef = getFallbackSavingConfigRef(hasAttemptedMigrationRef);
+  if (isSavingConfigRef?.current || fallbackSavingRef.current) {
+    const busySaveMsg =
+      'Cannot restore defaults while WhatsApp configuration is being saved. Please wait for it to finish and try again.';
+    setSaveError(busySaveMsg);
+    onRestoreFailure?.(busySaveMsg);
     return false;
   }
 
@@ -316,6 +342,147 @@ export async function executeRestoreWhatsAppDefaults(params: {
   }
 }
 
+export async function executeSaveWhatsAppConfig(params: {
+  formData: WhatsAppSupportConfig;
+  onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
+  hasAttemptedMigrationRef: { current: boolean };
+  isRestoringDefaultsRef: { current: boolean };
+  migrationInFlightRef?: { current: boolean };
+  isSavingConfigRef: { current: boolean };
+  setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
+  setSaveError: React.Dispatch<React.SetStateAction<string | null>>;
+  setIsSaving: React.Dispatch<React.SetStateAction<boolean>>;
+  setSavedSuccess: React.Dispatch<React.SetStateAction<boolean>>;
+  onSaveSuccess?: () => void;
+}): Promise<boolean> {
+  const {
+    formData,
+    onUpdateConfig,
+    hasAttemptedMigrationRef,
+    isRestoringDefaultsRef,
+    migrationInFlightRef,
+    isSavingConfigRef,
+    setFormData,
+    setSaveError,
+    setIsSaving,
+    setSavedSuccess,
+    onSaveSuccess
+  } = params;
+
+  const fallbackSavingRef = getFallbackSavingConfigRef(hasAttemptedMigrationRef);
+  const fallbackMigrationRef = getFallbackMigrationInFlightRef(hasAttemptedMigrationRef);
+
+  // Synchronous defensive concurrency & mutual exclusion guards before mutating state or calling backend
+  if (isSavingConfigRef.current || fallbackSavingRef.current) {
+    return false;
+  }
+
+  if (migrationInFlightRef?.current || fallbackMigrationRef.current) {
+    setSaveError(
+      'Cannot save WhatsApp configuration while legacy WhatsApp group link migration is in progress. Please wait for it to finish and try again.'
+    );
+    return false;
+  }
+
+  if (isRestoringDefaultsRef.current) {
+    setSaveError(
+      'Cannot save WhatsApp configuration while Restore Defaults is in progress. Please wait for it to finish and try again.'
+    );
+    return false;
+  }
+
+  isSavingConfigRef.current = true;
+  fallbackSavingRef.current = true;
+  setSaveError(null);
+  setSavedSuccess(false);
+  setIsSaving(true);
+  try {
+    const trimmedPhone = (formData.phoneNumber || '').trim();
+    if (trimmedPhone && isSampleWhatsAppPhone(trimmedPhone)) {
+      setSaveError(
+        'Validation Error: Placeholder or sample WhatsApp phone numbers are not allowed. Please enter your official WhatsApp business number.'
+      );
+      return false;
+    }
+
+    if (formData.enabled && !isValidWhatsAppPhone(trimmedPhone)) {
+      setSaveError(
+        'Validation Error: Please enter a valid international WhatsApp phone number (8-15 digits with country code) before enabling the widget.'
+      );
+      return false;
+    }
+
+    if (!formData.enabled && trimmedPhone && !isValidWhatsAppPhone(trimmedPhone)) {
+      setSaveError(
+        'Validation Error: Please enter a valid international WhatsApp phone number (8-15 digits with country code) or clear the field while disabled.'
+      );
+      return false;
+    }
+
+    const trimmedLink = (formData.groupLink || '').trim();
+    if (trimmedLink) {
+      if (isSampleWhatsAppGroupLink(trimmedLink)) {
+        setSaveError('Validation Error: Sample WhatsApp group invite links are not allowed.');
+        return false;
+      }
+      if (!isValidWhatsAppGroupLink(trimmedLink)) {
+        setSaveError(
+          'Validation Error: Please enter a valid HTTPS WhatsApp group invite link using hostname chat.whatsapp.com (e.g., https://chat.whatsapp.com/yourGroupCode).'
+        );
+        return false;
+      }
+    }
+
+    const normalizedPayload: WhatsAppSupportConfig = {
+      ...formData,
+      phoneNumber: trimmedPhone ? normalizeWhatsAppPhone(trimmedPhone) : '',
+      groupLink: trimmedLink
+    };
+
+    const result = await Promise.resolve(onUpdateConfig(normalizedPayload));
+    const isSaveSuccess = Boolean(
+      result === true || (result && typeof result === 'object' && result.success === true)
+    );
+    if (!isSaveSuccess) {
+      setSaveError(
+        (result && typeof result === 'object' && typeof result.message === 'string' && result.message) ||
+          'Failed to save WhatsApp support configuration to server. Form values retained.'
+      );
+      return false;
+    }
+
+    // If user saved successfully, clear legacy LocalStorage only after confirmed backend success
+    try {
+      localStorage.removeItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
+    } catch {}
+    hasAttemptedMigrationRef.current = true;
+    onSaveSuccess?.();
+
+    // Use authoritative server state returned by MongoDB if available
+    if (result && typeof result === 'object') {
+      const updatedCfg = result.whatsAppSupportConfig || result;
+      if (updatedCfg && typeof updatedCfg === 'object') {
+        setFormData(prev => ({
+          ...DEFAULT_WHATSAPP_CONFIG,
+          ...prev,
+          ...updatedCfg
+        }));
+      }
+    }
+
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 3000);
+    return true;
+  } catch (err: any) {
+    setSaveError(err?.message || 'Error saving WhatsApp configuration to server.');
+    return false;
+  } finally {
+    isSavingConfigRef.current = false;
+    fallbackSavingRef.current = false;
+    setIsSaving(false);
+  }
+}
+
 export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   config,
   onUpdateConfig,
@@ -341,6 +508,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   );
   const isRestoringDefaultsRef = useRef(false);
   const migrationInFlightRef = useRef(initialMigrationStatus === 'in_flight');
+  const isSavingConfigRef = useRef(false);
 
   const executeControlledLegacyMigration = () =>
     runLegacyGroupMigration({
@@ -348,6 +516,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       hasAttemptedMigrationRef,
       isRestoringDefaultsRef,
       migrationInFlightRef,
+      isSavingConfigRef,
       onUpdateConfig,
       setFormData,
       onMigrationStart: () => {
@@ -401,88 +570,22 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
 
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    setSaveError(null);
-    setIsSaving(true);
-    try {
-      const trimmedPhone = (formData.phoneNumber || '').trim();
-      if (trimmedPhone && isSampleWhatsAppPhone(trimmedPhone)) {
-        setSaveError('Validation Error: Placeholder or sample WhatsApp phone numbers are not allowed. Please enter your official WhatsApp business number.');
-        setIsSaving(false);
-        return;
+    await executeSaveWhatsAppConfig({
+      formData,
+      onUpdateConfig,
+      hasAttemptedMigrationRef,
+      isRestoringDefaultsRef,
+      migrationInFlightRef,
+      isSavingConfigRef,
+      setFormData,
+      setSaveError,
+      setIsSaving,
+      setSavedSuccess,
+      onSaveSuccess: () => {
+        setMigrationError(null);
+        setMigrationStatus('succeeded');
       }
-
-      if (formData.enabled && !isValidWhatsAppPhone(trimmedPhone)) {
-        setSaveError('Validation Error: Please enter a valid international WhatsApp phone number (8-15 digits with country code) before enabling the widget.');
-        setIsSaving(false);
-        return;
-      }
-
-      if (!formData.enabled && trimmedPhone && !isValidWhatsAppPhone(trimmedPhone)) {
-        setSaveError('Validation Error: Please enter a valid international WhatsApp phone number (8-15 digits with country code) or clear the field while disabled.');
-        setIsSaving(false);
-        return;
-      }
-
-      const trimmedLink = (formData.groupLink || '').trim();
-      if (trimmedLink) {
-        if (isSampleWhatsAppGroupLink(trimmedLink)) {
-          setSaveError('Validation Error: Sample WhatsApp group invite links are not allowed.');
-          setIsSaving(false);
-          return;
-        }
-        if (!isValidWhatsAppGroupLink(trimmedLink)) {
-          setSaveError('Validation Error: Please enter a valid HTTPS WhatsApp group invite link using hostname chat.whatsapp.com (e.g., https://chat.whatsapp.com/yourGroupCode).');
-          setIsSaving(false);
-          return;
-        }
-      }
-
-      const normalizedPayload: WhatsAppSupportConfig = {
-        ...formData,
-        phoneNumber: trimmedPhone ? normalizeWhatsAppPhone(trimmedPhone) : '',
-        groupLink: trimmedLink
-      };
-
-      const result = await onUpdateConfig(normalizedPayload);
-      const isSaveSuccess = Boolean(
-        result === true || (result && typeof result === 'object' && result.success === true)
-      );
-      if (!isSaveSuccess) {
-        setSaveError(
-          (result && typeof result === 'object' && result.message) ||
-            'Failed to save WhatsApp support configuration to server. Form values retained.'
-        );
-        setIsSaving(false);
-        return;
-      }
-
-      // If user saved successfully, clear legacy LocalStorage on confirmed save
-      try {
-        localStorage.removeItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
-      } catch {}
-      hasAttemptedMigrationRef.current = true;
-      setMigrationError(null);
-      setMigrationStatus('succeeded');
-
-      // Use authoritative server state returned by MongoDB if available
-      if (result && typeof result === 'object') {
-        const updatedCfg = result.whatsAppSupportConfig || result;
-        if (updatedCfg && typeof updatedCfg === 'object') {
-          setFormData(prev => ({
-            ...DEFAULT_WHATSAPP_CONFIG,
-            ...prev,
-            ...updatedCfg
-          }));
-        }
-      }
-
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
-    } catch (err: any) {
-      setSaveError(err?.message || 'Error saving WhatsApp configuration to server.');
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   const handleRestoreDefaults = async () => {
@@ -491,6 +594,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       hasAttemptedMigrationRef,
       isRestoringDefaultsRef,
       migrationInFlightRef,
+      isSavingConfigRef,
       setFormData,
       setSaveError,
       setIsSaving,

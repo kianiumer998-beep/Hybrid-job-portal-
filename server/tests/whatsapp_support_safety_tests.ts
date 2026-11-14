@@ -37,6 +37,7 @@ import {
   syncWhatsAppFormWithConfig,
   runLegacyGroupMigration,
   executeRestoreWhatsAppDefaults,
+  executeSaveWhatsAppConfig,
   canShowLegacyMigrationRetry,
   getStoredValidLegacyGroupLink,
   LegacyMigrationStatus
@@ -1519,7 +1520,406 @@ async function runTests() {
       }
     });
 
-    await runTest('23. Protected files (server/db/mongodb.ts & data/*.json) remain byte-for-byte unchanged', () => {
+    await runTest('23. Save & Apply is blocked while Migration or Restore Defaults is active without mutating backend/LocalStorage, and retry stays available after failed migration', async () => {
+      resetSystemSettingsTestStore();
+      const legacyLink = 'https://chat.whatsapp.com/LegacySaveBlocked23';
+      const customLink = 'https://chat.whatsapp.com/AdminTypedSave23';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        // Part A: Save blocked during active Migration
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        const hasAttemptedMigrationRef = { current: false };
+        const isRestoringDefaultsRef = { current: false };
+        const migrationInFlightRef = { current: false };
+        const isSavingConfigRef = { current: false };
+
+        let formData = {
+          ...DEFAULT_WHATSAPP_CONFIG,
+          enabled: true,
+          phoneNumber: '923118889900',
+          groupLink: customLink
+        };
+        const setFormData: any = (u: any) => { formData = typeof u === 'function' ? u(formData) : u; };
+        let saveError: string | null = null;
+        let isSaving = false;
+        let savedSuccess = false;
+        let migrationStatus: LegacyMigrationStatus = 'idle';
+
+        let resolvePendingMigration!: (val: any) => void;
+        let backendCalls = 0;
+        const onUpdateConfig = (payload: any) => {
+          backendCalls++;
+          if (backendCalls === 1) {
+            return new Promise((resolve) => {
+              resolvePendingMigration = resolve;
+            });
+          }
+          return fetch(baseUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+            body: JSON.stringify({ whatsAppSupportConfig: payload })
+          }).then(r => r.json());
+        };
+
+        const pendingMigration = runLegacyGroupMigration({
+          config: DEFAULT_WHATSAPP_CONFIG,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          isSavingConfigRef,
+          onUpdateConfig,
+          setFormData,
+          onMigrationStart: () => { migrationStatus = 'in_flight'; },
+          onMigrationSuccess: () => { migrationStatus = 'succeeded'; },
+          onMigrationFailure: () => { migrationStatus = 'failed'; },
+          onMigrationFinish: () => { if (migrationStatus === 'in_flight') migrationStatus = 'idle'; }
+        });
+        await Promise.resolve();
+        assert.strictEqual(migrationInFlightRef.current, true);
+
+        const blockedSaveDuringMigration = await executeSaveWhatsAppConfig({
+          formData,
+          onUpdateConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          isSavingConfigRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+        });
+
+        assert.strictEqual(blockedSaveDuringMigration, false, 'Save must be blocked while migration is active');
+        assert.ok(saveError && String(saveError).toLowerCase().includes('migration'));
+        assert.strictEqual(backendCalls, 1, 'Blocked Save must not call backend');
+        assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink, 'Blocked Save must not mutate LocalStorage');
+        assert.strictEqual(hasAttemptedMigrationRef.current, false);
+        assert.strictEqual(formData.groupLink, customLink);
+        assert.strictEqual(savedSuccess, false);
+        assert.strictEqual(isSaving, false);
+        assert.strictEqual(isSavingConfigRef.current, false);
+
+        // Fail migration -> lock releases, retry becomes available again and succeeds
+        resolvePendingMigration({ success: false });
+        assert.strictEqual(await pendingMigration, false);
+        assert.strictEqual(migrationInFlightRef.current, false);
+        assert.strictEqual(
+          canShowLegacyMigrationRetry({
+            config: DEFAULT_WHATSAPP_CONFIG,
+            legacyLink: getStoredValidLegacyGroupLink(),
+            migrationStatus,
+            hasAttemptedMigration: hasAttemptedMigrationRef.current
+          }),
+          true,
+          'Retry must become available again after failed migration'
+        );
+
+        // Part B: Save blocked during active Restore Defaults
+        let resolvePendingRestore!: (val: any) => void;
+        let restoreBackendCalls = 0;
+        const slowRestore = () => {
+          restoreBackendCalls++;
+          return new Promise((resolve) => {
+            resolvePendingRestore = resolve;
+          });
+        };
+
+        const rHasAttemptedRef = { current: false };
+        const rIsRestoringRef = { current: false };
+        const rMigrationInFlightRef = { current: false };
+        const rIsSavingConfigRef = { current: false };
+        let rFormData = { ...formData };
+        let rSaveError: string | null = null;
+        let rSavedSuccess = false;
+        let rIsSaving = false;
+
+        const pendingRestore = executeRestoreWhatsAppDefaults({
+          onUpdateConfig: slowRestore,
+          hasAttemptedMigrationRef: rHasAttemptedRef,
+          isRestoringDefaultsRef: rIsRestoringRef,
+          migrationInFlightRef: rMigrationInFlightRef,
+          isSavingConfigRef: rIsSavingConfigRef,
+          setFormData: (u: any) => { rFormData = typeof u === 'function' ? u(rFormData) : u; },
+          setSaveError: (v: any) => { rSaveError = typeof v === 'function' ? v(rSaveError) : v; },
+          setIsSaving: (v: any) => { rIsSaving = typeof v === 'function' ? v(rIsSaving) : v; },
+          setSavedSuccess: (v: any) => { rSavedSuccess = typeof v === 'function' ? v(rSavedSuccess) : v; }
+        });
+        await Promise.resolve();
+        assert.strictEqual(rIsRestoringRef.current, true);
+
+        const blockedSaveDuringRestore = await executeSaveWhatsAppConfig({
+          formData: rFormData,
+          onUpdateConfig: slowRestore,
+          hasAttemptedMigrationRef: rHasAttemptedRef,
+          isRestoringDefaultsRef: rIsRestoringRef,
+          migrationInFlightRef: rMigrationInFlightRef,
+          isSavingConfigRef: rIsSavingConfigRef,
+          setFormData: (u: any) => { rFormData = typeof u === 'function' ? u(rFormData) : u; },
+          setSaveError: (v: any) => { rSaveError = typeof v === 'function' ? v(rSaveError) : v; },
+          setIsSaving: (v: any) => { rIsSaving = typeof v === 'function' ? v(rIsSaving) : v; },
+          setSavedSuccess: (v: any) => { rSavedSuccess = typeof v === 'function' ? v(rSavedSuccess) : v; }
+        });
+
+        assert.strictEqual(blockedSaveDuringRestore, false, 'Save must be blocked while Restore Defaults is active');
+        assert.ok(rSaveError && String(rSaveError).toLowerCase().includes('restore defaults'));
+        assert.strictEqual(restoreBackendCalls, 1, 'Blocked Save during restore must not call backend');
+        assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink);
+        assert.strictEqual(rHasAttemptedRef.current, false);
+        assert.strictEqual(rFormData.groupLink, customLink);
+        assert.strictEqual(rSavedSuccess, false);
+        assert.strictEqual(rIsSavingConfigRef.current, false);
+
+        resolvePendingRestore({ success: false });
+        assert.strictEqual(await pendingRestore, false);
+        assert.strictEqual(rIsRestoringRef.current, false);
+        assert.strictEqual(rIsSaving, false);
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('24. Duplicate simultaneous Save requests are blocked, and active Save blocks both Migration and Restore Defaults', async () => {
+      const legacyLink = 'https://chat.whatsapp.com/LegacyDuringSave24';
+      const saveGroupLink = 'https://chat.whatsapp.com/SavedGroup24';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        const hasAttemptedMigrationRef = { current: false };
+        const isRestoringDefaultsRef = { current: false };
+        const migrationInFlightRef = { current: false };
+        const isSavingConfigRef = { current: false };
+
+        let formData = {
+          ...DEFAULT_WHATSAPP_CONFIG,
+          enabled: true,
+          phoneNumber: '923118889900',
+          groupLink: saveGroupLink
+        };
+        const setFormData: any = (u: any) => { formData = typeof u === 'function' ? u(formData) : u; };
+        let saveError: string | null = null;
+        let isSaving = false;
+        let savedSuccess = false;
+
+        let resolvePendingSave!: (val: any) => void;
+        let saveCalls = 0;
+        const slowSaveUpdate = (payload: any) => {
+          saveCalls++;
+          return new Promise((resolve) => {
+            resolvePendingSave = resolve;
+          });
+        };
+
+        const pSave1 = executeSaveWhatsAppConfig({
+          formData,
+          onUpdateConfig: slowSaveUpdate,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          isSavingConfigRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+        });
+        await Promise.resolve();
+        assert.strictEqual(isSavingConfigRef.current, true);
+        assert.strictEqual(saveCalls, 1);
+
+        // 1. Duplicate simultaneous Save request must be blocked
+        const pSave2 = await executeSaveWhatsAppConfig({
+          formData,
+          onUpdateConfig: slowSaveUpdate,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          isSavingConfigRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+        });
+        assert.strictEqual(pSave2, false, 'Simultaneous duplicate Save must be blocked');
+
+        // 2. Migration must be blocked while Save is active
+        const blockedMigrationDuringSave = await runLegacyGroupMigration({
+          config: DEFAULT_WHATSAPP_CONFIG,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          isSavingConfigRef,
+          onUpdateConfig: slowSaveUpdate,
+          setFormData
+        });
+        assert.strictEqual(blockedMigrationDuringSave, false, 'Migration must be blocked while Save is in flight');
+
+        // 3. Restore Defaults must be blocked while Save is active (both explicit ref and WeakMap fallback)
+        const blockedRestoreExplicit = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig: slowSaveUpdate,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          isSavingConfigRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+        });
+        assert.strictEqual(blockedRestoreExplicit, false, 'Restore Defaults must be blocked while Save is in flight');
+        assert.ok(saveError && String(saveError).toLowerCase().includes('saved'));
+
+        const blockedRestoreFallback = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig: slowSaveUpdate,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          setFormData,
+          setSaveError: () => {},
+          setIsSaving: () => {},
+          setSavedSuccess: () => {}
+        });
+        assert.strictEqual(blockedRestoreFallback, false, 'Restore Defaults without explicit isSavingConfigRef must also be blocked');
+
+        assert.strictEqual(saveCalls, 1, 'No blocked concurrent operation may call backend');
+        assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink, 'LocalStorage must not mutate while Save is pending/blocked');
+        assert.strictEqual(hasAttemptedMigrationRef.current, false);
+        assert.strictEqual(savedSuccess, false);
+
+        resolvePendingSave({ success: true, whatsAppSupportConfig: formData });
+        assert.strictEqual(await pSave1, true);
+        assert.strictEqual(isSavingConfigRef.current, false, 'Save lock must release after completion');
+        assert.strictEqual(isSaving, false);
+        assert.strictEqual(savedSuccess, true);
+        assert.strictEqual(memStorage.has(LEGACY_WHATSAPP_GROUP_LINK_KEY), false);
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('25. Failed, malformed, rejected, and successful Saves all release locks cleanly in finally', async () => {
+      resetSystemSettingsTestStore();
+      const legacyLink = 'https://chat.whatsapp.com/LegacySaveLockRelease25';
+      const typedLink = 'https://chat.whatsapp.com/ValidTypedLink25';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        const failureBehaviors: Array<() => Promise<any>> = [
+          async () => false,
+          async () => ({ success: false, message: 'Server declined save' }),
+          async () => undefined,
+          async () => ({ ok: true }),
+          async () => { throw new Error('Network connection dropped'); }
+        ];
+
+        for (const runFailBackend of failureBehaviors) {
+          memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+          const hasAttemptedMigrationRef = { current: false };
+          const isRestoringDefaultsRef = { current: false };
+          const migrationInFlightRef = { current: false };
+          const isSavingConfigRef = { current: false };
+
+          let formData = {
+            ...DEFAULT_WHATSAPP_CONFIG,
+            enabled: true,
+            phoneNumber: '923118889900',
+            groupLink: typedLink
+          };
+          let saveError: string | null = null;
+          let isSaving = false;
+          let savedSuccess = false;
+
+          const ok = await executeSaveWhatsAppConfig({
+            formData,
+            onUpdateConfig: runFailBackend,
+            hasAttemptedMigrationRef,
+            isRestoringDefaultsRef,
+            migrationInFlightRef,
+            isSavingConfigRef,
+            setFormData: (u: any) => { formData = typeof u === 'function' ? u(formData) : u; },
+            setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+            setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+            setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+          });
+
+          assert.strictEqual(ok, false);
+          assert.strictEqual(isSavingConfigRef.current, false, 'Lock must be released on failed/rejected save');
+          assert.strictEqual(isSaving, false);
+          assert.strictEqual(savedSuccess, false);
+          assert.ok(saveError && saveError.length > 0);
+          assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink, 'Failed/rejected save must keep legacy key');
+          assert.strictEqual(hasAttemptedMigrationRef.current, false);
+          assert.strictEqual(formData.groupLink, typedLink);
+
+          // Subsequent valid Save must work cleanly once lock is released
+          const retrySaveOk = await executeSaveWhatsAppConfig({
+            formData,
+            onUpdateConfig: async (payload) => {
+              const putRes = await fetch(baseUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+                body: JSON.stringify({ whatsAppSupportConfig: payload })
+              });
+              return putRes.json();
+            },
+            hasAttemptedMigrationRef,
+            isRestoringDefaultsRef,
+            migrationInFlightRef,
+            isSavingConfigRef,
+            setFormData: (u: any) => { formData = typeof u === 'function' ? u(formData) : u; },
+            setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+            setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+            setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+          });
+
+          assert.strictEqual(retrySaveOk, true);
+          assert.strictEqual(isSavingConfigRef.current, false, 'Lock must be released after successful save');
+          assert.strictEqual(isSaving, false);
+          assert.strictEqual(savedSuccess, true);
+          assert.strictEqual(saveError, null);
+          assert.strictEqual(hasAttemptedMigrationRef.current, true);
+          assert.strictEqual(memStorage.has(LEGACY_WHATSAPP_GROUP_LINK_KEY), false);
+          assert.strictEqual(formData.groupLink, typedLink);
+        }
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('26. Protected files (server/db/mongodb.ts & data/*.json) remain byte-for-byte unchanged', () => {
       assert.strictEqual(getFileSha256('server/db/mongodb.ts'), preMongoHash);
       const postData = getDataSnapshot();
       assert.deepStrictEqual(Object.keys(postData).sort(), Object.keys(preData).sort());

@@ -1,5 +1,23 @@
 [
   {
+    "id": "log-1794663501317-8blx",
+    "timestamp": "2026-11-14T13:38:21.317Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
     "id": "log-1794663037353-tas5",
     "timestamp": "2026-11-14T13:30:37.353Z",
     "user": "Administrator",

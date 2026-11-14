@@ -30,7 +30,14 @@ import {
   buildWhatsAppChatUrl,
   sanitizeWhatsAppConfig
 } from '../../src/components/WhatsAppStickyButton';
-import { AdminWhatsAppManager } from '../../src/components/admin/AdminWhatsAppManager';
+import {
+  AdminWhatsAppManager,
+  LEGACY_WHATSAPP_GROUP_LINK_KEY,
+  resolveInitialWhatsAppFormData,
+  syncWhatsAppFormWithConfig,
+  runLegacyGroupMigration,
+  executeRestoreWhatsAppDefaults
+} from '../../src/components/admin/AdminWhatsAppManager';
 
 function getDataSnapshot(): Record<string, string> {
   const dataDir = path.resolve(process.cwd(), 'data');
@@ -485,7 +492,300 @@ async function runTests() {
       assert.strictEqual(data.channelAvailability.whatsapp, true);
     });
 
-    await runTest('14. Protected files (server/db/mongodb.ts & data/*.json) remain byte-for-byte unchanged', () => {
+    await runTest('14. Restore Defaults clears legacy LocalStorage and prevents re-import on prop updates or remount', async () => {
+      const mongoLink = 'https://chat.whatsapp.com/MongoActiveInvite1';
+      const legacyLink = 'https://chat.whatsapp.com/LegacyStoredInvite2';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => {
+          memStorage.set(k, String(v));
+        },
+        removeItem: (k: string) => {
+          memStorage.delete(k);
+        }
+      };
+
+      try {
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        let currentMongoConfig = {
+          ...DEFAULT_WHATSAPP_CONFIG,
+          enabled: true,
+          phoneNumber: '923118889900',
+          groupLink: mongoLink
+        };
+
+        let formData = resolveInitialWhatsAppFormData(currentMongoConfig);
+        assert.strictEqual(formData.groupLink, mongoLink, 'MongoDB groupLink must take priority on initial load');
+
+        const setFormData: any = (updater: any) => {
+          formData = typeof updater === 'function' ? updater(formData) : updater;
+        };
+        let saveError: string | null = null;
+        let isSaving = false;
+        let savedSuccess = false;
+        const hasAttemptedMigrationRef = { current: false };
+        const isRestoringDefaultsRef = { current: false };
+
+        let updateCalls: any[] = [];
+        const onUpdateConfig = async (payload: any) => {
+          updateCalls.push(payload);
+          const putRes = await fetch(baseUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+            body: JSON.stringify({ whatsAppSupportConfig: payload })
+          });
+          const data = await putRes.json();
+          if (putRes.ok && data?.success) {
+            currentMongoConfig = data.whatsAppSupportConfig;
+            // Simulate immediate parent prop sync during await
+            formData = syncWhatsAppFormWithConfig(formData, currentMongoConfig, hasAttemptedMigrationRef.current);
+            await runLegacyGroupMigration({
+              config: currentMongoConfig,
+              hasAttemptedMigrationRef,
+              isRestoringDefaultsRef,
+              onUpdateConfig,
+              setFormData
+            });
+          }
+          return data;
+        };
+
+        // Initial migration effect must NOT overwrite existing MongoDB group link
+        const migratedInitial = await runLegacyGroupMigration({
+          config: currentMongoConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          onUpdateConfig,
+          setFormData
+        });
+        assert.strictEqual(migratedInitial, false);
+        assert.strictEqual(updateCalls.length, 0);
+        assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink);
+
+        // Admin restores defaults
+        const restored = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+        });
+
+        assert.strictEqual(restored, true);
+        assert.strictEqual(saveError, null);
+        assert.strictEqual(isSaving, false);
+        assert.strictEqual(savedSuccess, true);
+        assert.strictEqual(updateCalls.length, 1, 'Only the Restore Defaults PUT should execute');
+        assert.strictEqual(memStorage.has(LEGACY_WHATSAPP_GROUP_LINK_KEY), false, 'Legacy LocalStorage key must be cleared');
+        assert.strictEqual(hasAttemptedMigrationRef.current, true);
+        assert.deepStrictEqual(formData, DEFAULT_WHATSAPP_CONFIG);
+        assert.strictEqual(currentMongoConfig.enabled, false);
+        assert.strictEqual(currentMongoConfig.phoneNumber, '');
+        assert.strictEqual(currentMongoConfig.groupLink, '');
+
+        // Subsequent prop updates must NOT re-import legacy link
+        formData = syncWhatsAppFormWithConfig(formData, currentMongoConfig, hasAttemptedMigrationRef.current);
+        const migratedAfterUpdate = await runLegacyGroupMigration({
+          config: currentMongoConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          onUpdateConfig,
+          setFormData
+        });
+        assert.strictEqual(migratedAfterUpdate, false);
+        assert.strictEqual(updateCalls.length, 1);
+
+        // Component remount after restore must remain blank & disabled
+        const remountHasAttempted = { current: false };
+        const remountIsRestoring = { current: false };
+        let remountFormData = resolveInitialWhatsAppFormData(currentMongoConfig);
+        const migratedOnRemount = await runLegacyGroupMigration({
+          config: currentMongoConfig,
+          hasAttemptedMigrationRef: remountHasAttempted,
+          isRestoringDefaultsRef: remountIsRestoring,
+          onUpdateConfig,
+          setFormData: (u: any) => {
+            remountFormData = typeof u === 'function' ? u(remountFormData) : u;
+          }
+        });
+        assert.strictEqual(migratedOnRemount, false);
+        assert.strictEqual(remountFormData.enabled, false);
+        assert.strictEqual(remountFormData.phoneNumber, '');
+        assert.strictEqual(remountFormData.groupLink, '');
+        assert.strictEqual(updateCalls.length, 1);
+
+        const remountHtml = renderToStaticMarkup(
+          React.createElement(AdminWhatsAppManager, {
+            config: currentMongoConfig,
+            onUpdateConfig: async () => true
+          })
+        );
+        assert.strictEqual(remountHtml.includes(legacyLink), false);
+        assert.strictEqual(remountHtml.includes(mongoLink), false);
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('15. Failed Restore Defaults retains legacy LocalStorage, preserves form values, and keeps migration uncompleted', async () => {
+      const legacyLink = 'https://chat.whatsapp.com/LegacyRetainedOnFailure';
+      const activeMongoLink = 'https://chat.whatsapp.com/ActiveMongoOnFailure';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        const initialConfig = {
+          ...DEFAULT_WHATSAPP_CONFIG,
+          enabled: true,
+          phoneNumber: '923118889900',
+          groupLink: activeMongoLink
+        };
+
+        for (const failMode of ['false_response', 'rejected_promise'] as const) {
+          let formData = resolveInitialWhatsAppFormData(initialConfig);
+          let saveError: string | null = null;
+          let isSaving = false;
+          let savedSuccess = false;
+          const hasAttemptedMigrationRef = { current: false };
+          const isRestoringDefaultsRef = { current: false };
+
+          const ok = await executeRestoreWhatsAppDefaults({
+            onUpdateConfig: async () => {
+              if (failMode === 'rejected_promise') {
+                throw new Error('Simulated backend outage');
+              }
+              return { success: false };
+            },
+            hasAttemptedMigrationRef,
+            isRestoringDefaultsRef,
+            setFormData: (u: any) => { formData = typeof u === 'function' ? u(formData) : u; },
+            setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+            setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+            setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+          });
+
+          assert.strictEqual(ok, false);
+          assert.strictEqual(savedSuccess, false);
+          assert.strictEqual(isSaving, false);
+          assert.strictEqual(isRestoringDefaultsRef.current, false);
+          assert.ok(saveError && saveError.length > 0, `${failMode} must populate saveError`);
+          assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink, `${failMode} must retain legacy LocalStorage`);
+          assert.strictEqual(hasAttemptedMigrationRef.current, false, `${failMode} must not mark migration completed`);
+          assert.strictEqual(formData.groupLink, activeMongoLink, `${failMode} must preserve form groupLink`);
+          assert.strictEqual(formData.phoneNumber, '923118889900', `${failMode} must preserve form phoneNumber`);
+        }
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('16. Normal legacy migration still works when unconfigured and admin can save a new valid group link after restore', async () => {
+      resetSystemSettingsTestStore();
+      const legacyLink = 'https://chat.whatsapp.com/LegacyValidMigrate2026';
+      const newLinkAfterRestore = 'https://chat.whatsapp.com/BrandNewGroupInvite2026';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        let formData = resolveInitialWhatsAppFormData(DEFAULT_WHATSAPP_CONFIG);
+        assert.strictEqual(formData.groupLink, legacyLink);
+
+        const hasAttemptedMigrationRef = { current: false };
+        const isRestoringDefaultsRef = { current: false };
+        const onUpdateConfig = async (payload: any) => {
+          const putRes = await fetch(baseUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+            body: JSON.stringify({ whatsAppSupportConfig: payload })
+          });
+          return putRes.json();
+        };
+
+        const migrated = await runLegacyGroupMigration({
+          config: DEFAULT_WHATSAPP_CONFIG,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          onUpdateConfig,
+          setFormData: (u: any) => { formData = typeof u === 'function' ? u(formData) : u; }
+        });
+        assert.strictEqual(migrated, true, 'Normal legacy migration should succeed when MongoDB has no group link');
+        assert.strictEqual(memStorage.has(LEGACY_WHATSAPP_GROUP_LINK_KEY), false, 'Legacy key cleared after confirmed migration');
+        assert.strictEqual(formData.groupLink, legacyLink);
+
+        // Now restore defaults and then save a new valid group link
+        const restored = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          setFormData: (u: any) => { formData = typeof u === 'function' ? u(formData) : u; },
+          setSaveError: () => {},
+          setIsSaving: () => {},
+          setSavedSuccess: () => {}
+        });
+        assert.strictEqual(restored, true);
+        assert.strictEqual(formData.groupLink, '');
+
+        const saveNewRes = await fetch(baseUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+          body: JSON.stringify({
+            whatsAppSupportConfig: {
+              ...formData,
+              enabled: true,
+              phoneNumber: '923118889900',
+              groupLink: newLinkAfterRestore
+            }
+          })
+        });
+        assert.strictEqual(saveNewRes.status, 200);
+        const saveNewData = await saveNewRes.json();
+        assert.strictEqual(saveNewData.whatsAppSupportConfig.groupLink, newLinkAfterRestore);
+        assert.strictEqual(saveNewData.whatsAppSupportConfig.enabled, true);
+
+        const postSaveHtml = renderToStaticMarkup(
+          React.createElement(AdminWhatsAppManager, {
+            config: saveNewData.whatsAppSupportConfig,
+            onUpdateConfig: async () => true
+          })
+        );
+        assert.ok(postSaveHtml.includes(newLinkAfterRestore));
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('17. Protected files (server/db/mongodb.ts & data/*.json) remain byte-for-byte unchanged', () => {
       assert.strictEqual(getFileSha256('server/db/mongodb.ts'), preMongoHash);
       const postData = getDataSnapshot();
       assert.deepStrictEqual(Object.keys(postData).sort(), Object.keys(preData).sort());

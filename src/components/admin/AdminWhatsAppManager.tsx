@@ -40,32 +40,176 @@ const isRealWhatsAppGroupLink = (link?: string | null): boolean => {
   return isValidWhatsAppGroupLink(link);
 };
 
+export const LEGACY_WHATSAPP_GROUP_LINK_KEY = 'hybrid_whatsapp_group_link';
+
+export function resolveInitialWhatsAppFormData(
+  config?: Partial<WhatsAppSupportConfig> | null
+): WhatsAppSupportConfig {
+  let resolvedGroupLink = isRealWhatsAppGroupLink(config?.groupLink) ? config!.groupLink!.trim() : '';
+  if (!resolvedGroupLink) {
+    try {
+      const legacy = localStorage.getItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
+      if (isRealWhatsAppGroupLink(legacy)) {
+        resolvedGroupLink = legacy!.trim();
+      }
+    } catch {}
+  }
+  const safePhone = isSampleWhatsAppPhone(config?.phoneNumber)
+    ? ''
+    : (config?.phoneNumber || '');
+  return {
+    ...DEFAULT_WHATSAPP_CONFIG,
+    ...(config || {}),
+    phoneNumber: safePhone,
+    enabled: Boolean(config?.enabled && isValidWhatsAppPhone(safePhone)),
+    groupLink: resolvedGroupLink
+  };
+}
+
+export function syncWhatsAppFormWithConfig(
+  prev: WhatsAppSupportConfig,
+  config: WhatsAppSupportConfig,
+  hasAttemptedMigration: boolean
+): WhatsAppSupportConfig {
+  const resolvedPhone = isSampleWhatsAppPhone(config.phoneNumber)
+    ? ''
+    : (config.phoneNumber || '');
+  const resolvedLink = isRealWhatsAppGroupLink(config.groupLink)
+    ? config.groupLink!.trim()
+    : (isRealWhatsAppGroupLink(prev.groupLink) && hasAttemptedMigration
+        ? prev.groupLink!
+        : '');
+  return {
+    ...DEFAULT_WHATSAPP_CONFIG,
+    ...prev,
+    ...config,
+    phoneNumber: resolvedPhone,
+    enabled: Boolean(config.enabled && isValidWhatsAppPhone(resolvedPhone)),
+    groupLink: resolvedLink
+  };
+}
+
+export async function runLegacyGroupMigration(params: {
+  config?: WhatsAppSupportConfig | null;
+  hasAttemptedMigrationRef: { current: boolean };
+  isRestoringDefaultsRef?: { current: boolean };
+  onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
+  setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
+}): Promise<boolean> {
+  const { config, hasAttemptedMigrationRef, isRestoringDefaultsRef, onUpdateConfig, setFormData } = params;
+  if (hasAttemptedMigrationRef.current || isRestoringDefaultsRef?.current) return false;
+
+  // Rule 1 & 3: Existing MongoDB saved Group Link must always take priority over legacy LocalStorage
+  if (isRealWhatsAppGroupLink(config?.groupLink)) {
+    return false;
+  }
+
+  let legacyLink: string | null = null;
+  try {
+    legacyLink = localStorage.getItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
+  } catch {}
+
+  // Rule 2 & 7: If MongoDB has no saved Group Link and a valid legacy LocalStorage value exists (not placeholder), migrate it to MongoDB
+  if (isRealWhatsAppGroupLink(legacyLink)) {
+    hasAttemptedMigrationRef.current = true;
+    const validLink = legacyLink!.trim();
+    const sanitizedPhone = normalizeWhatsAppPhone(config?.phoneNumber);
+    const payload: WhatsAppSupportConfig = {
+      ...DEFAULT_WHATSAPP_CONFIG,
+      ...(config || {}),
+      phoneNumber: sanitizedPhone,
+      enabled: Boolean(config?.enabled && sanitizedPhone),
+      groupLink: validLink
+    };
+
+    try {
+      const res = await Promise.resolve(onUpdateConfig(payload));
+      // Rule 5: Treat migration as successful only when the backend explicitly confirms success.
+      // Do not delete legacy LocalStorage on undefined, malformed, or unsuccessful responses.
+      const isSuccess = Boolean(
+        res === true || (res && typeof res === 'object' && res.success === true)
+      );
+      if (isSuccess) {
+        try {
+          localStorage.removeItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
+        } catch {}
+        setFormData(prev => ({
+          ...prev,
+          groupLink: validLink,
+          ...(res?.whatsAppSupportConfig || {})
+        }));
+        return true;
+      } else {
+        // Rule 6: Retain legacy value and report failure safely if migration fails
+        console.warn('[AdminWhatsAppManager] Backend did not confirm group link migration. Legacy LocalStorage value retained.');
+        return false;
+      }
+    } catch (err: any) {
+      // Rule 6: Retain legacy value and report failure safely if migration fails
+      console.warn('[AdminWhatsAppManager] Failed to migrate legacy Group Link to MongoDB:', err);
+      return false;
+    }
+  }
+
+  return false;
+}
+
+export async function executeRestoreWhatsAppDefaults(params: {
+  onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
+  hasAttemptedMigrationRef: { current: boolean };
+  isRestoringDefaultsRef: { current: boolean };
+  setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
+  setSaveError: React.Dispatch<React.SetStateAction<string | null>>;
+  setIsSaving: React.Dispatch<React.SetStateAction<boolean>>;
+  setSavedSuccess: React.Dispatch<React.SetStateAction<boolean>>;
+}): Promise<boolean> {
+  const {
+    onUpdateConfig,
+    hasAttemptedMigrationRef,
+    isRestoringDefaultsRef,
+    setFormData,
+    setSaveError,
+    setIsSaving,
+    setSavedSuccess
+  } = params;
+
+  setSaveError(null);
+  setIsSaving(true);
+  isRestoringDefaultsRef.current = true;
+  try {
+    const result = await onUpdateConfig(DEFAULT_WHATSAPP_CONFIG);
+    const isRestoreSuccess = Boolean(
+      result === true || (result && typeof result === 'object' && result.success === true)
+    );
+    if (!isRestoreSuccess) {
+      setSaveError('Failed to restore defaults on server. Form values retained.');
+      return false;
+    }
+    try {
+      localStorage.removeItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
+    } catch {}
+    hasAttemptedMigrationRef.current = true;
+    setFormData({ ...DEFAULT_WHATSAPP_CONFIG });
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 3000);
+    return true;
+  } catch (err: any) {
+    setSaveError(err?.message || 'Error resetting WhatsApp configuration.');
+    return false;
+  } finally {
+    isRestoringDefaultsRef.current = false;
+    setIsSaving(false);
+  }
+}
+
 export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   config,
   onUpdateConfig,
   subscribersCount = 0
 }) => {
-  const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => {
-    let resolvedGroupLink = isRealWhatsAppGroupLink(config?.groupLink) ? config!.groupLink!.trim() : '';
-    if (!resolvedGroupLink) {
-      try {
-        const legacy = localStorage.getItem('hybrid_whatsapp_group_link');
-        if (isRealWhatsAppGroupLink(legacy)) {
-          resolvedGroupLink = legacy!.trim();
-        }
-      } catch {}
-    }
-    const safePhone = isSampleWhatsAppPhone(config?.phoneNumber)
-      ? ''
-      : (config?.phoneNumber || '');
-    return {
-      ...DEFAULT_WHATSAPP_CONFIG,
-      ...(config || {}),
-      phoneNumber: safePhone,
-      enabled: Boolean(config?.enabled && isValidWhatsAppPhone(safePhone)),
-      groupLink: resolvedGroupLink
-    };
-  });
+  const [formData, setFormData] = useState<WhatsAppSupportConfig>(() =>
+    resolveInitialWhatsAppFormData(config)
+  );
 
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -74,83 +218,25 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   );
 
   const hasAttemptedMigrationRef = useRef(false);
+  const isRestoringDefaultsRef = useRef(false);
 
   // Safe migration of legacy LocalStorage group link to MongoDB
   useEffect(() => {
-    if (hasAttemptedMigrationRef.current) return;
-
-    // Rule 1 & 3: Existing MongoDB saved Group Link must always take priority over legacy LocalStorage
-    if (isRealWhatsAppGroupLink(config?.groupLink)) {
-      return;
-    }
-
-    let legacyLink: string | null = null;
-    try {
-      legacyLink = localStorage.getItem('hybrid_whatsapp_group_link');
-    } catch {}
-
-    // Rule 2 & 7: If MongoDB has no saved Group Link and a valid legacy LocalStorage value exists (not placeholder), migrate it to MongoDB
-    if (isRealWhatsAppGroupLink(legacyLink)) {
-      hasAttemptedMigrationRef.current = true;
-      const validLink = legacyLink!.trim();
-      const sanitizedPhone = normalizeWhatsAppPhone(config?.phoneNumber);
-      const payload: WhatsAppSupportConfig = {
-        ...DEFAULT_WHATSAPP_CONFIG,
-        ...(config || {}),
-        phoneNumber: sanitizedPhone,
-        enabled: Boolean(config?.enabled && sanitizedPhone),
-        groupLink: validLink
-      };
-
-      Promise.resolve(onUpdateConfig(payload))
-        .then((res: any) => {
-          // Rule 5: Treat migration as successful only when the backend explicitly confirms success.
-          // Do not delete legacy LocalStorage on undefined, malformed, or unsuccessful responses.
-          const isSuccess = Boolean(
-            res === true || (res && typeof res === 'object' && res.success === true)
-          );
-          if (isSuccess) {
-            try {
-              localStorage.removeItem('hybrid_whatsapp_group_link');
-            } catch {}
-            setFormData(prev => ({
-              ...prev,
-              groupLink: validLink,
-              ...(res?.whatsAppSupportConfig || {})
-            }));
-          } else {
-            // Rule 6: Retain legacy value and report failure safely if migration fails
-            console.warn('[AdminWhatsAppManager] Backend did not confirm group link migration. Legacy LocalStorage value retained.');
-          }
-        })
-        .catch((err: any) => {
-          // Rule 6: Retain legacy value and report failure safely if migration fails
-          console.warn('[AdminWhatsAppManager] Failed to migrate legacy Group Link to MongoDB:', err);
-        });
-    }
+    void runLegacyGroupMigration({
+      config,
+      hasAttemptedMigrationRef,
+      isRestoringDefaultsRef,
+      onUpdateConfig,
+      setFormData
+    });
   }, [config, onUpdateConfig]);
 
   // Keep local state in sync if parent config prop updates
   useEffect(() => {
     if (config) {
-      setFormData(prev => {
-        const resolvedPhone = isSampleWhatsAppPhone(config.phoneNumber)
-          ? ''
-          : (config.phoneNumber || '');
-        const resolvedLink = isRealWhatsAppGroupLink(config.groupLink)
-          ? config.groupLink!.trim()
-          : (isRealWhatsAppGroupLink(prev.groupLink) && hasAttemptedMigrationRef.current
-              ? prev.groupLink!
-              : '');
-        return {
-          ...DEFAULT_WHATSAPP_CONFIG,
-          ...prev,
-          ...config,
-          phoneNumber: resolvedPhone,
-          enabled: Boolean(config.enabled && isValidWhatsAppPhone(resolvedPhone)),
-          groupLink: resolvedLink
-        };
-      });
+      setFormData(prev =>
+        syncWhatsAppFormWithConfig(prev, config, hasAttemptedMigrationRef.current)
+      );
     }
   }, [config]);
 
@@ -221,7 +307,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
 
       // If user saved successfully, clear legacy LocalStorage on confirmed save
       try {
-        localStorage.removeItem('hybrid_whatsapp_group_link');
+        localStorage.removeItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
       } catch {}
 
       // Use authoritative server state returned by MongoDB if available
@@ -246,26 +332,15 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   };
 
   const handleRestoreDefaults = async () => {
-    setSaveError(null);
-    setIsSaving(true);
-    try {
-      const result = await onUpdateConfig(DEFAULT_WHATSAPP_CONFIG);
-      const isRestoreSuccess = Boolean(
-        result === true || (result && typeof result === 'object' && result.success === true)
-      );
-      if (!isRestoreSuccess) {
-        setSaveError('Failed to restore defaults on server. Form values retained.');
-        setIsSaving(false);
-        return;
-      }
-      setFormData(DEFAULT_WHATSAPP_CONFIG);
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
-    } catch (err: any) {
-      setSaveError(err?.message || 'Error resetting WhatsApp configuration.');
-    } finally {
-      setIsSaving(false);
-    }
+    await executeRestoreWhatsAppDefaults({
+      onUpdateConfig,
+      hasAttemptedMigrationRef,
+      isRestoringDefaultsRef,
+      setFormData,
+      setSaveError,
+      setIsSaving,
+      setSavedSuccess
+    });
   };
 
   const handleCopyLink = (text: string) => {

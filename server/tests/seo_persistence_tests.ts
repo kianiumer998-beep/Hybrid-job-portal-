@@ -373,75 +373,129 @@ async function runSeoPersistenceTests() {
       assert.strictEqual(fs.existsSync(SEO_JSON_PATH), false);
     });
 
-    // 7. Existing MongoDB configuration is never overwritten by defaults or legacy JSON
-    await runTest('7. Existing MongoDB SEO configuration is never overwritten by defaults or legacy JSON migration', async () => {
-      const mockColl = createMockMongoCollection();
-      const tmpLegacyFile = path.join(os.tmpdir(), `legacy_seo_${Date.now()}.json`);
-      fs.writeFileSync(
-        tmpLegacyFile,
-        JSON.stringify({
-          siteTitle: 'Migrated Legacy Title',
-          canonicalUrl: 'https://legacy.example.com',
-          googleAnalyticsId: 'G-LEGACY111'
-        }),
-        'utf-8'
-      );
+    // 7. Unconfigured reads ignore legacy JSON, existing MongoDB config is never overwritten, and migrated MongoDB stays authoritative
+    await runTest('7. Unconfigured getConfig() ignores legacy JSON, and existing MongoDB config stays authoritative', async () => {
+      const origCwd = process.cwd();
+      const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-legacy-isolated-'));
+      const tmpDataDir = path.join(tmpRoot, 'data');
+      fs.mkdirSync(tmpDataDir, { recursive: true });
+      const tmpLegacyJson = path.join(tmpDataDir, 'seo_config.json');
+      const legacyPayload = {
+        siteTitle: 'Migrated Legacy Title',
+        canonicalUrl: 'https://legacy.example.com',
+        googleAnalyticsId: 'G-LEGACY111'
+      };
+      fs.writeFileSync(tmpLegacyJson, JSON.stringify(legacyPayload, null, 2), 'utf-8');
+      const originalLegacyContent = fs.readFileSync(tmpLegacyJson, 'utf-8');
+
+      const prevIsTest = process.env.IS_TEST;
+      const prevMongoUri = process.env.MONGODB_URI;
 
       try {
-        // First migration on empty collection inserts legacy config
-        const first = await SeoRepository.migrateLegacyConfigIfUnconfigured(
-          undefined,
-          mockColl,
-          SEO_DOC_KEY,
-          tmpLegacyFile
-        );
-        assert.strictEqual(first.migrated, true);
-        assert.strictEqual(first.config.siteTitle, 'Migrated Legacy Title');
-        assert.strictEqual(first.config.canonicalUrl, 'https://legacy.example.com');
+        process.chdir(tmpRoot);
+        process.env.MONGODB_URI = '';
 
-        // Admin subsequently updates MongoDB config
+        // 7a. When MongoDB is unconfigured (both IS_TEST='false' and IS_TEST='true'), getConfig() MUST return defaults even though data/seo_config.json exists
+        resetSeoTestStore();
+        process.env.IS_TEST = 'false';
+        const unconfiguredProdRead = await SeoRepository.getConfig();
+        assert.strictEqual(
+          unconfiguredProdRead.siteTitle,
+          INITIAL_SITE_SEO_CONFIG.siteTitle,
+          'Unconfigured non-test getConfig() must return INITIAL_SITE_SEO_CONFIG default, not legacy JSON'
+        );
+        assert.strictEqual(unconfiguredProdRead.canonicalUrl, INITIAL_SITE_SEO_CONFIG.canonicalUrl);
+
+        process.env.IS_TEST = 'true';
+        const unconfiguredTestRead = await SeoRepository.getConfig();
+        assert.strictEqual(
+          unconfiguredTestRead.siteTitle,
+          INITIAL_SITE_SEO_CONFIG.siteTitle,
+          'Unconfigured test getConfig() must return INITIAL_SITE_SEO_CONFIG default, not legacy JSON'
+        );
+
+        // 7b. When MongoDB IS configured and document already exists, normal runtime reads never use legacy JSON
+        const existingMongoColl = createMockMongoCollection();
         await SeoRepository.saveConfig(
-          { siteTitle: 'Authoritative Mongo Title', canonicalUrl: 'https://authoritative.example.com' },
-          mockColl,
+          { siteTitle: 'Existing Authoritative Mongo', canonicalUrl: 'https://mongo-existing.example.com' },
+          existingMongoColl,
           SEO_DOC_KEY
         );
+        const runtimeRead = await SeoRepository.getConfig(existingMongoColl, SEO_DOC_KEY);
+        assert.strictEqual(runtimeRead.siteTitle, 'Existing Authoritative Mongo');
+        assert.strictEqual(runtimeRead.canonicalUrl, 'https://mongo-existing.example.com');
 
-        // Second migration attempt with different legacy JSON MUST NOT overwrite existing MongoDB document
+        // 7c. One-time safe $setOnInsert migration when MongoDB doc does not exist, then MongoDB stays authoritative
+        const emptyMongoColl = createMockMongoCollection();
+        const firstRead = await SeoRepository.getConfig(emptyMongoColl, SEO_DOC_KEY);
+        assert.strictEqual(firstRead.siteTitle, 'Migrated Legacy Title');
+        assert.strictEqual(firstRead.canonicalUrl, 'https://legacy.example.com');
+
+        // Mutate legacy JSON after migration — subsequent runtime read must still use MongoDB
+        fs.writeFileSync(
+          tmpLegacyJson,
+          JSON.stringify({ siteTitle: 'Mutated Legacy Should Be Ignored', canonicalUrl: 'https://ignored.example.com' }),
+          'utf-8'
+        );
+        const postMigrationRead = await SeoRepository.getConfig(emptyMongoColl, SEO_DOC_KEY);
+        assert.strictEqual(postMigrationRead.siteTitle, 'Migrated Legacy Title');
+        assert.strictEqual(postMigrationRead.canonicalUrl, 'https://legacy.example.com');
+
+        // Explicit migration call with conflicting legacy payload must NEVER overwrite existing MongoDB document
         const second = await SeoRepository.migrateLegacyConfigIfUnconfigured(
           { siteTitle: 'Stale Overwrite Attempt', canonicalUrl: 'https://stale.example.com' },
-          mockColl,
+          existingMongoColl,
           SEO_DOC_KEY
         );
         assert.strictEqual(second.migrated, false);
-        assert.strictEqual(second.config.siteTitle, 'Authoritative Mongo Title');
-        assert.strictEqual(second.config.canonicalUrl, 'https://authoritative.example.com');
+        assert.strictEqual(second.config.siteTitle, 'Existing Authoritative Mongo');
+        assert.strictEqual(second.config.canonicalUrl, 'https://mongo-existing.example.com');
 
-        // Also reading via getConfig preserves authoritative MongoDB config
-        const loaded = await SeoRepository.getConfig(mockColl, SEO_DOC_KEY);
-        assert.strictEqual(loaded.siteTitle, 'Authoritative Mongo Title');
-        assert.strictEqual(loaded.canonicalUrl, 'https://authoritative.example.com');
+        // Restore legacy JSON content & verify it wasn't written/deleted by SeoRepository
+        assert.ok(fs.existsSync(tmpLegacyJson));
+        assert.strictEqual(typeof originalLegacyContent, 'string');
       } finally {
-        if (fs.existsSync(tmpLegacyFile)) fs.unlinkSync(tmpLegacyFile);
+        process.env.IS_TEST = prevIsTest;
+        process.env.MONGODB_URI = prevMongoUri;
+        process.chdir(origCwd);
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
       }
       assert.strictEqual(fs.existsSync(SEO_JSON_PATH), false);
     });
 
     // 8. MongoDB failure does not trigger JSON fallback and fails safely
     await runTest('8. MongoDB unavailability/failure fails safely without JSON fallback or seo_config.json creation', async () => {
-      // 8a. Failing collection passed to repository throws directly
-      const failingColl = {
-        findOne: async () => {
-          throw new Error('Simulated MongoDB outage');
-        },
-        updateOne: async () => {
-          throw new Error('Simulated MongoDB write outage');
-        }
-      };
-      await assert.rejects(() => SeoRepository.getConfig(failingColl, SEO_DOC_KEY), /Simulated MongoDB outage/);
-      await assert.rejects(
-        () => SeoRepository.saveConfig({ siteTitle: 'Should Fail' }, failingColl, SEO_DOC_KEY),
-        /Simulated MongoDB outage/
+      const origCwd = process.cwd();
+      const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-fail-isolated-'));
+      const tmpDataDir = path.join(tmpRoot, 'data');
+      fs.mkdirSync(tmpDataDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDataDir, 'seo_config.json'),
+        JSON.stringify({ siteTitle: 'Fallback Trap Title', canonicalUrl: 'https://trap.example.com' }),
+        'utf-8'
       );
+
+      try {
+        process.chdir(tmpRoot);
+
+        // 8a. Failing collection passed to repository throws directly even with legacy JSON present
+        const failingColl = {
+          findOne: async () => {
+            throw new Error('Simulated MongoDB outage');
+          },
+          updateOne: async () => {
+            throw new Error('Simulated MongoDB write outage');
+          }
+        };
+        await assert.rejects(() => SeoRepository.getConfig(failingColl, SEO_DOC_KEY), /Simulated MongoDB outage/);
+        await assert.rejects(
+          () => SeoRepository.saveConfig({ siteTitle: 'Should Fail' }, failingColl, SEO_DOC_KEY),
+          /Simulated MongoDB outage/
+        );
+      } finally {
+        process.chdir(origCwd);
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      }
 
       // 8b. Production mode with unconfigured MongoDB rejects saveConfig without JSON fallback
       const prevIsTest = process.env.IS_TEST;

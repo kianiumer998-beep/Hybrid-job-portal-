@@ -155,10 +155,6 @@ export class SeoRepository {
     }
 
     if (!overrideCollection && !isMongoConfigured()) {
-      const legacy = readLegacyJsonReadOnly();
-      if (legacy) {
-        return normalizeSeoConfig(legacy);
-      }
       return cloneDefaultSeoConfig();
     }
 

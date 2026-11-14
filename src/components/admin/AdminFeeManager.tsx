@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { UserAccount, Job, JobPostingFeeLog, JobPostingPricingConfig } from '../../types/job';
 import { 
   LandingPageConfig, 
@@ -8,27 +8,36 @@ import {
 } from '../../types/landing';
 import { 
   DollarSign, 
-  Sparkles, 
   CheckCircle2, 
   ShieldCheck, 
   Users, 
-  Percent, 
   Plus, 
   Trash2, 
   Search, 
-  UserCheck, 
-  UserX, 
   Gift, 
   Save, 
-  RotateCcw, 
+  RefreshCw,
   Tag, 
-  Briefcase,
   AlertCircle
 } from 'lucide-react';
+
+export interface CompleteFeeConfigSavePayload {
+  standardFeePkr: number;
+  globalDiscount: number;
+  isFreeAllPostings: boolean;
+  categoryPostingFees: CategoryPostingFee[];
+  exemptUserEmails: string[];
+  landingPageConfig?: LandingPageConfig;
+}
 
 interface AdminFeeManagerProps {
   landingConfig?: LandingPageConfig;
   onUpdateLandingConfig?: (newConfig: LandingPageConfig) => Promise<any> | any | void;
+  onSaveCompleteFeeConfig?: (payload: CompleteFeeConfigSavePayload) => Promise<any> | any | void;
+  isPricingLoading?: boolean;
+  pricingLoadError?: string | null;
+  isPricingReady?: boolean;
+  onReloadPricingConfig?: () => Promise<void> | void;
   users?: UserAccount[];
   jobs?: Job[];
   pendingJobs?: Job[];
@@ -141,40 +150,156 @@ export async function executeFeeConfigSave(
   }
 }
 
+export const resolveAuthoritativeStandardFee = (
+  postingPricing?: JobPostingPricingConfig,
+  globalPostingFeePkr?: number,
+  jobPostingFeePkr?: number
+): number => {
+  if (typeof postingPricing?.standardFeePkr === 'number' && Number.isFinite(postingPricing.standardFeePkr)) {
+    return Math.max(0, postingPricing.standardFeePkr);
+  }
+  if (typeof globalPostingFeePkr === 'number' && Number.isFinite(globalPostingFeePkr)) {
+    return Math.max(0, globalPostingFeePkr);
+  }
+  if (typeof jobPostingFeePkr === 'number' && Number.isFinite(jobPostingFeePkr)) {
+    return Math.max(0, jobPostingFeePkr);
+  }
+  return 0;
+};
+
+export const resolveRestoredStandardFee = (
+  currentStandardFee: number,
+  configuredStandardFee?: number
+): number => {
+  if (typeof configuredStandardFee === 'number' && Number.isFinite(configuredStandardFee) && configuredStandardFee >= 0) {
+    return configuredStandardFee;
+  }
+  if (typeof currentStandardFee === 'number' && Number.isFinite(currentStandardFee) && currentStandardFee >= 0) {
+    return currentStandardFee;
+  }
+  return 0;
+};
+
+export const resolveAuthoritativeCategories = (
+  postingPricing?: JobPostingPricingConfig,
+  landingConfig?: LandingPageConfig
+): CategoryPostingFee[] => {
+  if (Array.isArray(postingPricing?.categoryPostingFees)) {
+    return postingPricing.categoryPostingFees;
+  }
+  if (Array.isArray(landingConfig?.categoryPostingFees)) {
+    return landingConfig.categoryPostingFees;
+  }
+  return DEFAULT_CATEGORY_POSTING_FEES;
+};
+
+export const resolveAuthoritativeExemptEmails = (
+  postingPricing?: JobPostingPricingConfig,
+  landingConfig?: LandingPageConfig
+): string[] => {
+  const source = Array.isArray(postingPricing?.exemptUserEmails)
+    ? postingPricing.exemptUserEmails
+    : Array.isArray(landingConfig?.exemptUserEmails)
+    ? landingConfig.exemptUserEmails
+    : [];
+  return Array.from(new Set(source.map((e) => normalizeFeeEmail(e)).filter(Boolean)));
+};
+
+export async function executeCompleteFeeConfigSave(
+  payload: CompleteFeeConfigSavePayload,
+  onSaveCompleteFeeConfig?: (payload: CompleteFeeConfigSavePayload) => Promise<any> | any | void
+): Promise<FeeSaveExecutionResult> {
+  if (typeof onSaveCompleteFeeConfig !== 'function') {
+    return {
+      success: false,
+      message: 'Save failed: fee configuration save handler is unavailable.'
+    };
+  }
+
+  try {
+    const result = await onSaveCompleteFeeConfig(payload);
+    if (
+      result === false ||
+      (result && typeof result === 'object' && 'success' in result && result.success === false)
+    ) {
+      const reason =
+        result && typeof result === 'object' && typeof result.message === 'string' && result.message.trim()
+          ? result.message.trim()
+          : 'The save handler reported a failure.';
+      return {
+        success: false,
+        message: `Save failed: ${reason}`
+      };
+    }
+    return {
+      success: true,
+      message:
+        result && typeof result === 'object' && typeof result.message === 'string' && result.message.trim()
+          ? result.message.trim()
+          : 'Fee configuration & employer exemptions updated successfully.'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Save failed: ${err?.message || 'Unable to save fee configuration.'}`
+    };
+  }
+}
+
 export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
   landingConfig,
   onUpdateLandingConfig,
+  onSaveCompleteFeeConfig,
+  isPricingLoading = false,
+  pricingLoadError = null,
+  isPricingReady = true,
+  onReloadPricingConfig,
   users = [],
   jobs = [],
   pendingJobs = [],
-  feeLogs = [],
   jobPostingFeePkr,
   globalPostingFeePkr,
   onChangeGlobalPostingFee,
   postingPricing,
-  onChangePostingPricing,
-  onUpdateUser,
   onBulkEndUnpaidMemberships,
   onMakeJobFree
 }) => {
-  const currentGlobalFee = globalPostingFeePkr ?? jobPostingFeePkr ?? 500;
+  const initialFee = resolveAuthoritativeStandardFee(postingPricing, globalPostingFeePkr, jobPostingFeePkr);
   const [activeSubTab, setActiveSubTab] = useState<'categories' | 'exemptions' | 'global-tiers' | 'job-waivers'>('categories');
-  const [categoryFees, setCategoryFees] = useState<CategoryPostingFee[]>(() => {
-    return Array.isArray(landingConfig?.categoryPostingFees) ? landingConfig.categoryPostingFees : DEFAULT_CATEGORY_POSTING_FEES;
-  });
-  const [exemptEmails, setExemptEmails] = useState<string[]>(() => {
-    return Array.isArray(landingConfig?.exemptUserEmails)
-      ? landingConfig.exemptUserEmails.map((e) => normalizeFeeEmail(e)).filter(Boolean)
-      : [];
-  });
+  const [standardFeeDraft, setStandardFeeDraft] = useState<number>(initialFee);
+  const configuredStandardFeeRef = useRef<number>(initialFee);
+  const [categoryFees, setCategoryFees] = useState<CategoryPostingFee[]>(() =>
+    resolveAuthoritativeCategories(postingPricing, landingConfig)
+  );
+  const [exemptEmails, setExemptEmails] = useState<string[]>(() =>
+    resolveAuthoritativeExemptEmails(postingPricing, landingConfig)
+  );
   const [newExemptEmailInput, setNewExemptEmailInput] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [isFreeAllPostings, setIsFreeAllPostings] = useState<boolean>(false);
-  const [globalDiscount, setGlobalDiscount] = useState<number>(0);
+  const [isFreeAllPostings, setIsFreeAllPostings] = useState<boolean>(() =>
+    Boolean(postingPricing?.isFreeAllPostings)
+  );
+  const [globalDiscount, setGlobalDiscount] = useState<number>(() =>
+    Math.min(100, Math.max(0, Number(postingPricing?.globalDiscount ?? 0) || 0))
+  );
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
   const isSavingRef = useRef<boolean>(false);
+
+  // Sync draft state whenever authoritative backend pricing props hydrate or update
+  useEffect(() => {
+    const resolvedFee = resolveAuthoritativeStandardFee(postingPricing, globalPostingFeePkr, jobPostingFeePkr);
+    const resolvedFreeAll = Boolean(postingPricing?.isFreeAllPostings);
+    setStandardFeeDraft(resolvedFee);
+    if (resolvedFee > 0 || !resolvedFreeAll) {
+      configuredStandardFeeRef.current = resolvedFee;
+    }
+    setIsFreeAllPostings(resolvedFreeAll);
+    setGlobalDiscount(Math.min(100, Math.max(0, Number(postingPricing?.globalDiscount ?? 0) || 0)));
+    setCategoryFees(resolveAuthoritativeCategories(postingPricing, landingConfig));
+    setExemptEmails(resolveAuthoritativeExemptEmails(postingPricing, landingConfig));
+  }, [postingPricing, landingConfig, globalPostingFeePkr, jobPostingFeePkr]);
 
   const handleUpdateCategoryFee = (categoryId: string, updates: Partial<CategoryPostingFee>) => {
     setCategoryFees((prev) =>
@@ -195,7 +320,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
     const newCategory: CategoryPostingFee = {
       categoryId: newId,
       categoryName: 'New Custom Job Category',
-      feePkr: 500,
+      feePkr: Math.max(0, Number(standardFeeDraft) || 0),
       isFree: false,
       discountPercent: 0
     };
@@ -222,21 +347,60 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
     setNewExemptEmailInput('');
   };
 
+  const handleStandardFeeInputChange = (rawValue: string) => {
+    const parsed = Number(rawValue);
+    const nextFee = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    setStandardFeeDraft(nextFee);
+    configuredStandardFeeRef.current = nextFee;
+    if (onChangeGlobalPostingFee) {
+      onChangeGlobalPostingFee(nextFee);
+    }
+  };
+
   const handleSaveAll = async () => {
     if (isSavingRef.current) return;
+    if (!isPricingReady || isPricingLoading || pricingLoadError) {
+      setSaveErrorMsg(
+        pricingLoadError ||
+          'Cannot save: authoritative pricing configuration has not finished loading from the server.'
+      );
+      return;
+    }
+
     isSavingRef.current = true;
     setIsSaving(true);
     setSaveSuccessMsg(null);
     setSaveErrorMsg(null);
 
     try {
+      const cleanExempt = Array.from(new Set(exemptEmails.map((e) => normalizeFeeEmail(e)).filter(Boolean)));
       const baseConfig = landingConfig || DEFAULT_LANDING_PAGE_CONFIG;
       const updatedConfig: LandingPageConfig = {
         ...baseConfig,
         categoryPostingFees: categoryFees,
-        exemptUserEmails: exemptEmails
+        exemptUserEmails: cleanExempt
       };
-      const outcome = await executeFeeConfigSave(updatedConfig, onUpdateLandingConfig);
+
+      const persistedStandardFee =
+        isFreeAllPostings && standardFeeDraft === 0 && configuredStandardFeeRef.current > 0
+          ? configuredStandardFeeRef.current
+          : Math.max(0, Number(standardFeeDraft) || 0);
+
+      const outcome =
+        typeof onSaveCompleteFeeConfig === 'function'
+          ? await executeCompleteFeeConfigSave(
+              {
+                standardFeePkr: persistedStandardFee,
+                globalDiscount: Math.min(100, Math.max(0, Number(globalDiscount) || 0)),
+                isFreeAllPostings: Boolean(isFreeAllPostings),
+                categoryPostingFees: categoryFees,
+                exemptUserEmails: cleanExempt,
+                landingPageConfig: updatedConfig
+              },
+              onSaveCompleteFeeConfig
+            )
+          : await executeFeeConfigSave(updatedConfig, onUpdateLandingConfig);
+
       if (outcome.success) {
         setSaveSuccessMsg(outcome.message);
       } else {
@@ -250,11 +414,15 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
 
   const handleMakeAllFreeToggle = (enable: boolean) => {
     setIsFreeAllPostings(enable);
-    if (onChangeGlobalPostingFee) {
-      if (enable) {
-        onChangeGlobalPostingFee(0);
-      } else {
-        onChangeGlobalPostingFee(500);
+    if (enable) {
+      if (standardFeeDraft > 0) {
+        configuredStandardFeeRef.current = standardFeeDraft;
+      }
+    } else {
+      const restored = resolveRestoredStandardFee(standardFeeDraft, configuredStandardFeeRef.current);
+      setStandardFeeDraft(restored);
+      if (onChangeGlobalPostingFee) {
+        onChangeGlobalPostingFee(restored);
       }
     }
     setCategoryFees((prev) => applyGlobalFreeToggleToCategories(prev, enable));
@@ -288,10 +456,10 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
         <div className="flex items-center space-x-3 shrink-0">
           <button
             type="button"
-            disabled={isSaving}
+            disabled={isSaving || isPricingLoading || !isPricingReady || Boolean(pricingLoadError)}
             onClick={handleSaveAll}
             className={`px-6 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-xl transition-all flex items-center space-x-2 ${
-              isSaving
+              isSaving || isPricingLoading || !isPricingReady || Boolean(pricingLoadError)
                 ? 'bg-slate-700 text-slate-300 cursor-not-allowed opacity-70'
                 : 'bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-slate-950 shadow-amber-500/20 hover:scale-[1.02] active:scale-95 cursor-pointer'
             }`}
@@ -301,6 +469,31 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
           </button>
         </div>
       </div>
+
+      {isPricingLoading && (
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-700 text-slate-300 text-xs font-bold flex items-center space-x-2">
+          <RefreshCw className="w-4 h-4 animate-spin text-amber-400 shrink-0" />
+          <span>Loading authoritative pricing configuration from server...</span>
+        </div>
+      )}
+
+      {pricingLoadError && (
+        <div className="p-4 rounded-2xl bg-rose-950/90 border border-rose-500/50 text-rose-200 text-xs font-bold flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>Unable to load authoritative pricing: {pricingLoadError}</span>
+          </div>
+          {onReloadPricingConfig && (
+            <button
+              type="button"
+              onClick={() => onReloadPricingConfig()}
+              className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-100 text-xs font-bold cursor-pointer shrink-0"
+            >
+              Retry Load
+            </button>
+          )}
+        </div>
+      )}
 
       {saveErrorMsg && (
         <div className="p-4 rounded-2xl bg-rose-950/90 border border-rose-500/50 text-rose-300 text-xs font-bold flex items-center space-x-2 animate-in fade-in">
@@ -336,6 +529,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
 
           <div className="flex items-center space-x-2">
             <button
+              type="button"
               onClick={() => handleMakeAllFreeToggle(true)}
               className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
                 isFreeAllPostings
@@ -346,6 +540,7 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
               🎉 Enable 100% Free All
             </button>
             <button
+              type="button"
               onClick={() => handleMakeAllFreeToggle(false)}
               className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
                 !isFreeAllPostings
@@ -362,7 +557,9 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black uppercase tracking-wider text-slate-400">Global Base Posting Fee</span>
-            <span className="text-xs font-mono font-bold text-amber-400">{currentGlobalFee} PKR</span>
+            <span className="text-xs font-mono font-bold text-amber-400">
+              {isFreeAllPostings ? `0 PKR (Configured: ${standardFeeDraft} PKR)` : `${standardFeeDraft} PKR`}
+            </span>
           </div>
           <h4 className="text-base font-black text-white">Default Standard Rate</h4>
           <div className="flex items-center space-x-3">
@@ -370,8 +567,8 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
               type="number"
               min="0"
               step="50"
-              value={currentGlobalFee}
-              onChange={(e) => onChangeGlobalPostingFee && onChangeGlobalPostingFee(Math.max(0, Number(e.target.value)))}
+              value={standardFeeDraft}
+              onChange={(e) => handleStandardFeeInputChange(e.target.value)}
               className="w-full px-4 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-amber-500"
             />
             <span className="text-xs font-bold text-slate-400">PKR</span>

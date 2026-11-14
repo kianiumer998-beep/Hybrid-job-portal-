@@ -10,6 +10,7 @@ import { CvBuilder } from './components/CvBuilder';
 import { CvPaywallModal } from './components/CvPaywallModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminDashboard } from './components/AdminDashboard';
+import { CompleteFeeConfigSavePayload } from './components/admin/AdminFeeManager';
 import { AuthModal } from './components/AuthModal';
 import { UserDashboard } from './components/UserDashboard';
 import { Footer } from './components/Footer';
@@ -54,6 +55,7 @@ import { INITIAL_SITE_SEO_CONFIG } from './data/mockAdminSuiteData';
 import { 
   LandingPageConfig, 
   DEFAULT_LANDING_PAGE_CONFIG, 
+  DEFAULT_CATEGORY_POSTING_FEES,
   CountryOption, 
   SUPPORTED_COUNTRIES 
 } from './types/landing';
@@ -383,20 +385,8 @@ export default function App() {
     }
   });
 
-  // Dynamic Landing Page Builder Configuration State
-  const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(() => {
-    try {
-      const saved = localStorage.getItem('hybrid_landing_page_config');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return DEFAULT_LANDING_PAGE_CONFIG;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('hybrid_landing_page_config', JSON.stringify(landingConfig));
-    } catch (e) {}
-  }, [landingConfig]);
+  // Dynamic Landing Page Builder Configuration State (Authoritative Backend /api/pricing)
+  const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(DEFAULT_LANDING_PAGE_CONFIG);
 
   // Global SEO & Announcement State (Synchronized with Backend & Admin Suite)
   const [siteSeoConfig, setSiteSeoConfig] = useState<SiteSeoConfig>(() => {
@@ -562,59 +552,140 @@ export default function App() {
     DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG
   );
 
+  // Per-Job Posting Fee & Priority Placement Pricing Configuration State (Authoritative Backend /api/pricing)
+  const [jobPostingFeePkr, setJobPostingFeePkr] = useState<number>(DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr);
+  const [jobPostingPricing, setJobPostingPricing] = useState<JobPostingPricingConfig>(DEFAULT_JOB_POSTING_PRICING_CONFIG);
+
+  const [isPricingLoading, setIsPricingLoading] = useState<boolean>(true);
+  const [pricingLoadError, setPricingLoadError] = useState<string | null>(null);
+  const [isPricingReady, setIsPricingReady] = useState<boolean>(false);
+
+  const applyAuthoritativePricing = useCallback((pricingData: any) => {
+    if (!pricingData || typeof pricingData !== 'object') return;
+
+    if (pricingData.adPricingConfig) {
+      setPricingConfig({
+        ...DEFAULT_AD_PRICING_CONFIG,
+        ...pricingData.adPricingConfig,
+        placementMultipliers: {
+          ...DEFAULT_AD_PRICING_CONFIG.placementMultipliers,
+          ...(pricingData.adPricingConfig.placementMultipliers || {})
+        },
+        pageMultipliers: {
+          ...DEFAULT_AD_PRICING_CONFIG.pageMultipliers,
+          ...(pricingData.adPricingConfig.pageMultipliers || {})
+        }
+      });
+    }
+
+    if (pricingData.campaignCustomizationConfig) {
+      setCampaignConfig({
+        ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+        ...pricingData.campaignCustomizationConfig,
+        portalPages: Array.isArray(pricingData.campaignCustomizationConfig.portalPages)
+          ? pricingData.campaignCustomizationConfig.portalPages
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
+        durationPresets: Array.isArray(pricingData.campaignCustomizationConfig.durationPresets)
+          ? pricingData.campaignCustomizationConfig.durationPresets
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
+        placementOptions: Array.isArray(pricingData.campaignCustomizationConfig.placementOptions)
+          ? pricingData.campaignCustomizationConfig.placementOptions
+          : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
+      });
+    }
+
+    const jpRaw = pricingData.jobPosting && typeof pricingData.jobPosting === 'object' ? pricingData.jobPosting : {};
+    const lpRaw = pricingData.landingPageConfig && typeof pricingData.landingPageConfig === 'object' ? pricingData.landingPageConfig : {};
+
+    const syncedCategoryFees = Array.isArray(jpRaw.categoryPostingFees)
+      ? jpRaw.categoryPostingFees
+      : Array.isArray(lpRaw.categoryPostingFees)
+      ? lpRaw.categoryPostingFees
+      : DEFAULT_CATEGORY_POSTING_FEES;
+
+    const rawExemptEmails = Array.isArray(jpRaw.exemptUserEmails)
+      ? jpRaw.exemptUserEmails
+      : Array.isArray(lpRaw.exemptUserEmails)
+      ? lpRaw.exemptUserEmails
+      : [];
+    const syncedExemptEmails = Array.from(
+      new Set(
+        rawExemptEmails
+          .map((e: any) => (typeof e === 'string' ? e.trim().toLowerCase() : ''))
+          .filter(Boolean)
+      )
+    );
+
+    const syncedFreeAll =
+      typeof jpRaw.isFreeAllPostings === 'boolean'
+        ? jpRaw.isFreeAllPostings
+        : Boolean(lpRaw.isFreeAllPostings);
+
+    const syncedGlobalDiscount =
+      typeof jpRaw.globalDiscount === 'number' && !Number.isNaN(jpRaw.globalDiscount)
+        ? jpRaw.globalDiscount
+        : typeof lpRaw.globalDiscount === 'number' && !Number.isNaN(lpRaw.globalDiscount)
+        ? lpRaw.globalDiscount
+        : 0;
+
+    const mergedJobPosting: JobPostingPricingConfig = {
+      ...DEFAULT_JOB_POSTING_PRICING_CONFIG,
+      ...jpRaw,
+      categoryPostingFees: syncedCategoryFees,
+      exemptUserEmails: syncedExemptEmails,
+      isFreeAllPostings: syncedFreeAll,
+      globalDiscount: syncedGlobalDiscount
+    };
+
+    setJobPostingPricing(mergedJobPosting);
+    setJobPostingFeePkr(
+      typeof mergedJobPosting.standardFeePkr === 'number' && !Number.isNaN(mergedJobPosting.standardFeePkr)
+        ? mergedJobPosting.standardFeePkr
+        : DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr
+    );
+
+    setLandingConfig({
+      ...DEFAULT_LANDING_PAGE_CONFIG,
+      ...lpRaw,
+      categoryPostingFees: syncedCategoryFees,
+      exemptUserEmails: syncedExemptEmails,
+      isFreeAllPostings: syncedFreeAll,
+      globalDiscount: syncedGlobalDiscount
+    });
+
+    if (Array.isArray(pricingData.subscriptionPackages)) {
+      setSubscriptionPackages(pricingData.subscriptionPackages.filter((p: any) => p.enabled));
+    }
+  }, []);
+
   const loadBackendPricingConfig = useCallback(async () => {
+    setIsPricingLoading(true);
+    setPricingLoadError(null);
     try {
       const res = await api.pricing.get();
       if (res && res.success && res.pricing) {
-        if (res.pricing.adPricingConfig) {
-          setPricingConfig({
-            ...DEFAULT_AD_PRICING_CONFIG,
-            ...res.pricing.adPricingConfig,
-            placementMultipliers: {
-              ...DEFAULT_AD_PRICING_CONFIG.placementMultipliers,
-              ...(res.pricing.adPricingConfig.placementMultipliers || {})
-            },
-            pageMultipliers: {
-              ...DEFAULT_AD_PRICING_CONFIG.pageMultipliers,
-              ...(res.pricing.adPricingConfig.pageMultipliers || {})
-            }
-          });
-        }
-        if (res.pricing.campaignCustomizationConfig) {
-          setCampaignConfig({
-            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
-            ...res.pricing.campaignCustomizationConfig,
-            portalPages: Array.isArray(res.pricing.campaignCustomizationConfig.portalPages)
-              ? res.pricing.campaignCustomizationConfig.portalPages
-              : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages,
-            durationPresets: Array.isArray(res.pricing.campaignCustomizationConfig.durationPresets)
-              ? res.pricing.campaignCustomizationConfig.durationPresets
-              : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets,
-            placementOptions: Array.isArray(res.pricing.campaignCustomizationConfig.placementOptions)
-              ? res.pricing.campaignCustomizationConfig.placementOptions
-              : DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions
-          });
-        }
-        if (res.pricing.landingPageConfig) {
-          setLandingConfig({
-            ...DEFAULT_LANDING_PAGE_CONFIG,
-            ...res.pricing.landingPageConfig
-          });
-        }
-        if (Array.isArray(res.pricing.subscriptionPackages)) {
-          setSubscriptionPackages(res.pricing.subscriptionPackages.filter((p: any) => p.enabled));
-        }
+        applyAuthoritativePricing(res.pricing);
+        setIsPricingReady(true);
         try {
           localStorage.removeItem('hybrid_ad_pricing_config');
           localStorage.removeItem('hybrid_campaign_customization_config');
           localStorage.removeItem('hybrid_landing_page_config');
           localStorage.removeItem('hybrid_monthly_fee');
+          localStorage.removeItem('hybrid_job_posting_fee');
+          localStorage.removeItem('hybrid_job_posting_pricing');
         } catch {}
+      } else {
+        setPricingLoadError(res?.message || 'Failed to load authoritative pricing configuration from server.');
+        setIsPricingReady(false);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[App] Failed to load pricing configuration from backend /api/pricing:', err);
+      setPricingLoadError(err?.message || 'Failed to load authoritative pricing configuration from server.');
+      setIsPricingReady(false);
+    } finally {
+      setIsPricingLoading(false);
     }
-  }, []);
+  }, [applyAuthoritativePricing]);
 
   useEffect(() => {
     loadBackendPricingConfig();
@@ -628,19 +699,8 @@ export default function App() {
       if (!res || !res.success) {
         throw new Error(res?.message || 'Failed to update ad pricing configuration');
       }
-      if (res.pricing?.adPricingConfig) {
-        setPricingConfig({
-          ...DEFAULT_AD_PRICING_CONFIG,
-          ...res.pricing.adPricingConfig,
-          placementMultipliers: {
-            ...DEFAULT_AD_PRICING_CONFIG.placementMultipliers,
-            ...(res.pricing.adPricingConfig.placementMultipliers || {})
-          },
-          pageMultipliers: {
-            ...DEFAULT_AD_PRICING_CONFIG.pageMultipliers,
-            ...(res.pricing.adPricingConfig.pageMultipliers || {})
-          }
-        });
+      if (res.pricing) {
+        applyAuthoritativePricing(res.pricing);
       }
       return res;
     } catch (err) {
@@ -648,7 +708,7 @@ export default function App() {
       setPricingConfig(previous);
       throw err;
     }
-  }, [pricingConfig]);
+  }, [pricingConfig, applyAuthoritativePricing]);
 
   const handleUpdateCampaignConfig = useCallback(
     async (nextCampaignConfig: CampaignCustomizationConfig) => {
@@ -659,11 +719,8 @@ export default function App() {
         if (!res || !res.success) {
           throw new Error(res?.message || 'Failed to update campaign configuration');
         }
-        if (res.pricing?.campaignCustomizationConfig) {
-          setCampaignConfig({
-            ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
-            ...res.pricing.campaignCustomizationConfig
-          });
+        if (res.pricing) {
+          applyAuthoritativePricing(res.pricing);
         }
         return res;
       } catch (err) {
@@ -672,7 +729,7 @@ export default function App() {
         throw err;
       }
     },
-    [campaignConfig]
+    [campaignConfig, applyAuthoritativePricing]
   );
   
   const handleUpdateLandingConfig = useCallback(async (nextLandingConfig: LandingPageConfig) => {
@@ -683,11 +740,8 @@ export default function App() {
       if (!res || !res.success) {
         throw new Error(res?.message || 'Failed to update landing page configuration');
       }
-      if (res.pricing?.landingPageConfig) {
-        setLandingConfig({
-          ...DEFAULT_LANDING_PAGE_CONFIG,
-          ...res.pricing.landingPageConfig
-        });
+      if (res.pricing) {
+        applyAuthoritativePricing(res.pricing);
       }
       return res;
     } catch (err) {
@@ -695,7 +749,82 @@ export default function App() {
       setLandingConfig(previous);
       throw err;
     }
-  }, [landingConfig]);
+  }, [landingConfig, applyAuthoritativePricing]);
+
+  const handleSaveJobPostingPricing = useCallback(async (nextConfig: JobPostingPricingConfig) => {
+    if (!isPricingReady) {
+      return {
+        success: false,
+        message: 'Pricing configuration has not finished loading from the server. Retry before saving.'
+      };
+    }
+    try {
+      const res = await api.pricing.update({ jobPosting: nextConfig });
+      if (!res || !res.success) {
+        return {
+          success: false,
+          message: res?.message || 'Failed to save job posting pricing configuration.'
+        };
+      }
+      if (res.pricing) {
+        applyAuthoritativePricing(res.pricing);
+      }
+      return { success: true, pricing: res.pricing };
+    } catch (err: any) {
+      console.error('[App] Failed to persist jobPosting pricing:', err);
+      return {
+        success: false,
+        message: err?.message || 'Network or server error while saving job posting pricing.'
+      };
+    }
+  }, [isPricingReady, applyAuthoritativePricing]);
+
+  const handleSaveFeeManagementConfig = useCallback(async (payload: CompleteFeeConfigSavePayload) => {
+    if (!isPricingReady) {
+      return {
+        success: false,
+        message: 'Pricing configuration has not finished loading from the server. Retry before saving.'
+      };
+    }
+    const baseLanding = payload.landingPageConfig || landingConfig || DEFAULT_LANDING_PAGE_CONFIG;
+    const nextJobPosting: JobPostingPricingConfig = {
+      ...jobPostingPricing,
+      standardFeePkr: payload.standardFeePkr,
+      globalDiscount: payload.globalDiscount,
+      isFreeAllPostings: payload.isFreeAllPostings,
+      categoryPostingFees: payload.categoryPostingFees,
+      exemptUserEmails: payload.exemptUserEmails
+    };
+    const nextLandingConfig: LandingPageConfig = {
+      ...baseLanding,
+      isFreeAllPostings: payload.isFreeAllPostings,
+      globalDiscount: payload.globalDiscount,
+      categoryPostingFees: payload.categoryPostingFees,
+      exemptUserEmails: payload.exemptUserEmails
+    };
+    try {
+      const res = await api.pricing.update({
+        jobPosting: nextJobPosting,
+        landingPageConfig: nextLandingConfig
+      });
+      if (!res || !res.success) {
+        return {
+          success: false,
+          message: res?.message || 'Failed to persist fee management configuration.'
+        };
+      }
+      if (res.pricing) {
+        applyAuthoritativePricing(res.pricing);
+      }
+      return { success: true, pricing: res.pricing };
+    } catch (err: any) {
+      console.error('[App] Failed to persist fee management configuration:', err);
+      return {
+        success: false,
+        message: err?.message || 'Network or server error while saving fee management configuration.'
+      };
+    }
+  }, [isPricingReady, landingConfig, jobPostingPricing, applyAuthoritativePricing]);
 
   const handleUpdateSeoConfig = useCallback(async (newCfg: SiteSeoConfig) => {
     if (!isSeoConfigReady) {
@@ -911,12 +1040,6 @@ export default function App() {
 
   // User Accounts Directory State (No localStorage password or profile authority)
   const [users, setUsers] = useState<UserAccount[]>([]);
-
-  // Per-Job Posting Fee Configuration & Log Sheet
-  const [jobPostingFeePkr, setJobPostingFeePkr] = useState<number>(() => {
-    const saved = localStorage.getItem('hybrid_job_posting_fee');
-    return saved ? Number(saved) : 1000;
-  });
 
   const [jobPostingFeeLogs, setJobPostingFeeLogs] = useState<JobPostingFeeLog[]>(() => {
     try {
@@ -1226,21 +1349,6 @@ export default function App() {
     }
     return false;
   });
-
-  // Job Posting & Priority Placement Pricing Configuration State
-  const [jobPostingPricing, setJobPostingPricing] = useState<JobPostingPricingConfig>(() => {
-    try {
-      const saved = localStorage.getItem('hybrid_job_posting_pricing');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return DEFAULT_JOB_POSTING_PRICING_CONFIG;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('hybrid_job_posting_pricing', JSON.stringify(jobPostingPricing));
-    } catch (e) {}
-  }, [jobPostingPricing]);
 
   // All Job Applications State (Loaded from /api/applications for authenticated users)
   const [allApplications, setAllApplications] = useState<JobApplication[]>([]);
@@ -2651,10 +2759,6 @@ export default function App() {
     setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
   };
 
-  useEffect(() => {
-    localStorage.setItem('hybrid_job_posting_fee', jobPostingFeePkr.toString());
-  }, [jobPostingFeePkr]);
-
   const applyAuthoritativeUserUpdate = useCallback((rawUser: any): UserAccount => {
     const authoritativeUser = sanitizeBackendUser(rawUser);
     setUsers(prev => prev.map(u => String(u.id) === String(authoritativeUser.id) ? { ...u, ...authoritativeUser } : u));
@@ -3975,8 +4079,15 @@ export default function App() {
             onRejectAd={handleRejectAd}
             jobPostingPricing={jobPostingPricing}
             onChangeJobPostingPricing={setJobPostingPricing}
+            onSaveJobPostingPricing={handleSaveJobPostingPricing}
             landingConfig={landingConfig}
             onUpdateLandingConfig={handleUpdateLandingConfig}
+            onSaveCompleteFeeConfig={handleSaveFeeManagementConfig}
+            onSyncAuthoritativePricing={applyAuthoritativePricing}
+            isPricingLoading={isPricingLoading}
+            pricingLoadError={pricingLoadError}
+            isPricingReady={isPricingReady}
+            onReloadPricingConfig={loadBackendPricingConfig}
             whatsAppSupportConfig={whatsAppSupportConfig}
             onUpdateWhatsAppConfig={async (newCfg) => {
               try {

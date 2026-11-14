@@ -443,6 +443,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [calculatedPostingFee, setCalculatedPostingFee] = useState<number | null>(null);
   const [isCalculatingFee, setIsCalculatingFee] = useState<boolean>(false);
   const [calculationError, setCalculationError] = useState<string | null>(null);
+  const [tierCalculatedFees, setTierCalculatedFees] = useState<
+    Partial<Record<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle', number>>
+  >({});
+  const [isCalculatingTierFees, setIsCalculatingTierFees] = useState<boolean>(false);
   const [paymentMethod, setPaymentMethod] = useState<string>('');
   const [jobFeeTid, setJobFeeTid] = useState<string>('');
   const [jobFeeSenderName, setJobFeeSenderName] = useState<string>('');
@@ -773,48 +777,49 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     }
   };
 
-  // Pricing calculation helper
-  const computeJobPostingCost = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): number => {
-    const jpAny = jobPostingPricing as any;
-    // 1. VIP Employer Exemption Check
-    const exemptEmails: string[] = (jpAny?.exemptUserEmails || []).map((e: any) => String(e || '').toLowerCase().trim());
-    if (currentUser?.email && exemptEmails.includes(currentUser.email.toLowerCase().trim())) {
-      return 0;
-    }
-    // 2. Master Free Mode Check
-    if (jpAny?.isFreeAllPostings) {
-      return 0;
-    }
-    // 3. Category Pricing Check
-    let baseStandardFee = jobPostingPricing?.standardFeePkr ?? jobPostingFeePkr ?? 1000;
-    if (jpAny?.categoryPostingFees && jobCategory) {
-      const matchCat = jpAny.categoryPostingFees.find(
-        (c: any) =>
-          String(c.categoryId || '').toLowerCase() === jobCategory.toLowerCase() ||
-          String(c.categoryName || '').toLowerCase() === jobCategory.toLowerCase()
-      );
-      if (matchCat) {
-        if (matchCat.isFree) baseStandardFee = 0;
-        else if (typeof matchCat.feePkr === 'number') baseStandardFee = matchCat.feePkr;
+  // Authoritative Server-Side Pricing Calculation for All Tiers & Selected Tier
+  useEffect(() => {
+    let active = true;
+    const allTiers: Array<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'> = [
+      'standard',
+      'urgent',
+      'featured_top',
+      'future_job',
+      'vip_bundle'
+    ];
+    setIsCalculatingTierFees(true);
+
+    Promise.all(
+      allTiers.map(async (tier) => {
+        try {
+          const res = await api.pricing.calculateJob({
+            priorityTier: tier,
+            jobCategory,
+            userEmail: currentUser?.email,
+            userId: currentUser?.id
+          });
+          if (res && res.success && res.calculation && typeof res.calculation.finalPrice === 'number') {
+            return [tier, res.calculation.finalPrice] as const;
+          }
+        } catch {}
+        return [tier, undefined] as const;
+      })
+    ).then((entries) => {
+      if (!active) return;
+      const nextMap: Partial<Record<'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle', number>> = {};
+      for (const [tier, price] of entries) {
+        if (typeof price === 'number') {
+          nextMap[tier] = price;
+        }
       }
-    }
-    if (tier === 'vip_bundle') {
-      return jobPostingPricing?.vipBundleFeePkr ?? 2500;
-    }
-    if (tier === 'featured_top') {
-      return baseStandardFee + (jobPostingPricing?.featuredTopFeePkr ?? 1500);
-    }
-    if (tier === 'urgent') {
-      return baseStandardFee + (jobPostingPricing?.urgentFeePkr ?? 500);
-    }
-    if (tier === 'future_job') {
-      return baseStandardFee + (jobPostingPricing?.futureJobFeePkr ?? 800);
-    }
-    if (jobPostingPricing?.freePostingAllowed && baseStandardFee === 0) {
-      return 0;
-    }
-    return baseStandardFee;
-  };
+      setTierCalculatedFees(nextMap);
+      setIsCalculatingTierFees(false);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [jobCategory, currentUser?.email, currentUser?.id, jobPostingPricing]);
 
   useEffect(() => {
     let active = true;
@@ -831,7 +836,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       if (!active) return;
       setIsCalculatingFee(false);
       if (res && res.success && res.calculation && typeof res.calculation.finalPrice === 'number') {
-        setCalculatedPostingFee(res.calculation.finalPrice);
+        const finalPrice = res.calculation.finalPrice;
+        setCalculatedPostingFee(finalPrice);
+        setTierCalculatedFees((prev) => ({ ...prev, [priorityTier]: finalPrice }));
       } else {
         setCalculationError('Calculation unavailable');
       }
@@ -844,7 +851,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     return () => {
       active = false;
     };
-  }, [priorityTier, jobCategory, currentUser?.email, currentUser?.id]);
+  }, [priorityTier, jobCategory, currentUser?.email, currentUser?.id, jobPostingPricing]);
+
+  const formatServerTierFee = (tier: 'standard' | 'urgent' | 'featured_top' | 'future_job' | 'vip_bundle'): string => {
+    const val = tier === priorityTier && calculatedPostingFee !== null ? calculatedPostingFee : tierCalculatedFees[tier];
+    if (typeof val === 'number') {
+      return val === 0 ? 'Free' : `PKR ${val.toLocaleString()}`;
+    }
+    if (isCalculatingTierFees || (tier === priorityTier && isCalculatingFee)) {
+      return 'Calculating...';
+    }
+    return 'Unavailable';
+  };
 
   const currentTotalFee = calculatedPostingFee;
 
@@ -2842,11 +2860,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 Post corporate openings, public sector government positions, or newspaper classified clipping ads.
               </p>
             </div>
-            {jobPostingFeePkr > 0 && (
-              <span className="text-[11px] sm:text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full self-start sm:self-auto">
-                Posting Fee: PKR {jobPostingFeePkr.toLocaleString()}
-              </span>
-            )}
+            <span className="text-[11px] sm:text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full self-start sm:self-auto">
+              {isCalculatingFee
+                ? 'Calculating Fee...'
+                : calculationError || calculatedPostingFee === null
+                ? 'Fee Unavailable'
+                : calculatedPostingFee === 0
+                ? 'Posting Fee: FREE'
+                : `Posting Fee: PKR ${calculatedPostingFee.toLocaleString()}`}
+            </span>
           </div>
 
           {/* SECTION 1: SECTOR & CATEGORY SELECTION - 2x2 on Mobile */}
@@ -3339,7 +3361,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           <span>Standard Listing</span>
                         </span>
                         <span className="font-mono font-bold text-slate-300">
-                          {computeJobPostingCost('standard') === 0 ? 'Free' : `PKR ${computeJobPostingCost('standard').toLocaleString()}`}
+                          {formatServerTierFee('standard')}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 leading-snug">
@@ -3373,7 +3395,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           <span>{jobPostingPricing.urgentBadgeText || '🔥 Urgent Hiring'}</span>
                         </span>
                         <span className="font-mono font-bold text-rose-300">
-                          PKR {computeJobPostingCost('urgent').toLocaleString()}
+                          {formatServerTierFee('urgent')}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 leading-snug">
@@ -3407,7 +3429,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           <span>{jobPostingPricing.featuredBadgeText || '⭐ Pinned Top & Featured'}</span>
                         </span>
                         <span className="font-mono font-bold text-amber-300">
-                          PKR {computeJobPostingCost('featured_top').toLocaleString()}
+                          {formatServerTierFee('featured_top')}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 leading-snug">
@@ -3441,7 +3463,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           <span>{jobPostingPricing.futureBadgeText || '🚀 Advance Intake'}</span>
                         </span>
                         <span className="font-mono font-bold text-cyan-300">
-                          PKR {computeJobPostingCost('future_job').toLocaleString()}
+                          {formatServerTierFee('future_job')}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 leading-snug">
@@ -3475,7 +3497,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           <span>{jobPostingPricing.vipBadgeText || '👑 VIP All-in-One Power Bundle'}</span>
                         </span>
                         <span className="font-mono font-bold text-purple-300">
-                          PKR {computeJobPostingCost('vip_bundle').toLocaleString()}
+                          {formatServerTierFee('vip_bundle')}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 leading-snug">

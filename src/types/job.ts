@@ -1,3 +1,5 @@
+import { CategoryPostingFee, DEFAULT_CATEGORY_POSTING_FEES } from './landing';
+
 export type JobType = 'Remote' | 'Hybrid' | 'On-site';
 export type Region = 'Global' | 'US' | 'UK' | 'Pakistan' | 'UAE' | 'Saudi Arabia' | 'Canada' | 'Europe' | 'Australia';
 export type Currency = 'USD' | 'PKR' | 'GBP' | 'EUR' | 'CAD' | 'AUD' | 'AED' | 'SAR';
@@ -621,6 +623,13 @@ export interface JobPostingPricingConfig {
 
   // STEP66-B.1: Universal Priority Placement Slots Config
   homepagePrioritySlotConfig?: HomepagePrioritySlotConfig;
+
+  // Dynamic Fee & Exemption Fields synced from Authoritative Backend Pricing
+  categoryPostingFees?: CategoryPostingFee[];
+  exemptUserEmails?: string[];
+  isFreeAllPostings?: boolean;
+  globalDiscount?: number;
+  extraWeekRate?: number;
 }
 
 export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
@@ -653,7 +662,12 @@ export const DEFAULT_JOB_POSTING_PRICING_CONFIG: JobPostingPricingConfig = {
   futureJobDescription: 'Accepts advance candidate pre-registrations with countdown.',
   vipBundleDescription: 'Full package: Top Pinned #1 + Urgent Badge + Gold Highlighting.',
 
-  homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
+  homepagePrioritySlotConfig: DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
+  categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES,
+  exemptUserEmails: [],
+  isFreeAllPostings: false,
+  globalDiscount: 0,
+  extraWeekRate: 500
 };
 
 

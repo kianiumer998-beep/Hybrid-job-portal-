@@ -12,7 +12,7 @@ locationRouter.get('/', async (req, res) => {
     res.json({ success: true, locations });
   } catch (err: any) {
     console.error('Error fetching locations:', err);
-    res.status(500).json({ success: false, message: 'Failed to fetch location catalog.' });
+    res.status(500).json({ success: false, message: err?.message || 'Failed to fetch location catalog.' });
   }
 });
 
@@ -32,13 +32,17 @@ locationRouter.post('/cities', requireAdminPermission('settings.manage'), async 
       return res.status(400).json(result);
     }
 
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: (req as any).user?.role || 'Admin',
-      action: 'Location City Added',
-      target: `${cityName.trim()} (${provinceName.trim()})`,
-      status: 'Success'
-    });
+    try {
+      AuditRepository.add({
+        user: (req as any).user?.name || 'Administrator',
+        role: (req as any).user?.role || 'Admin',
+        action: 'Location City Added',
+        target: `${cityName.trim()} (${provinceName.trim()})`,
+        status: 'Success'
+      });
+    } catch (auditErr) {
+      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
+    }
 
     res.status(201).json(result);
   } catch (err: any) {
@@ -55,7 +59,7 @@ locationRouter.get('/cities/:cityName/usage', requireAdminPermission('settings.m
     res.json({ success: true, cityName: rawCity, ...usage });
   } catch (err: any) {
     console.error('Error checking city usage:', err);
-    res.status(500).json({ success: false, message: 'Error checking city usage.' });
+    res.status(500).json({ success: false, message: err?.message || 'Error checking city usage.' });
   }
 });
 
@@ -83,13 +87,17 @@ locationRouter.put('/cities/:cityName', requireAdminPermission('settings.manage'
       return res.status(400).json(result);
     }
 
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: (req as any).user?.role || 'Admin',
-      action: 'Location City Updated',
-      target: `${oldCityName} -> ${newCityName.trim()} in ${targetProvince.trim()}`,
-      status: 'Success'
-    });
+    try {
+      AuditRepository.add({
+        user: (req as any).user?.name || 'Administrator',
+        role: (req as any).user?.role || 'Admin',
+        action: 'Location City Updated',
+        target: `${oldCityName} -> ${newCityName.trim()} in ${targetProvince.trim()}`,
+        status: 'Success'
+      });
+    } catch (auditErr) {
+      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
+    }
 
     res.json(result);
   } catch (err: any) {
@@ -107,13 +115,17 @@ locationRouter.delete('/cities/:cityName', requireAdminPermission('settings.mana
       return res.status(404).json(result);
     }
 
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: (req as any).user?.role || 'Admin',
-      action: 'Location City Deleted',
-      target: cityName,
-      status: 'Success'
-    });
+    try {
+      AuditRepository.add({
+        user: (req as any).user?.name || 'Administrator',
+        role: (req as any).user?.role || 'Admin',
+        action: 'Location City Deleted',
+        target: cityName,
+        status: 'Success'
+      });
+    } catch (auditErr) {
+      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
+    }
 
     res.json(result);
   } catch (err: any) {
@@ -135,13 +147,17 @@ locationRouter.post('/provinces', requireAdminPermission('settings.manage'), asy
       return res.status(400).json(result);
     }
 
-    AuditRepository.add({
-      user: (req as any).user?.name || 'Administrator',
-      role: (req as any).user?.role || 'Admin',
-      action: 'Location Province Added',
-      target: provinceName.trim(),
-      status: 'Success'
-    });
+    try {
+      AuditRepository.add({
+        user: (req as any).user?.name || 'Administrator',
+        role: (req as any).user?.role || 'Admin',
+        action: 'Location Province Added',
+        target: provinceName.trim(),
+        status: 'Success'
+      });
+    } catch (auditErr) {
+      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
+    }
 
     res.status(201).json(result);
   } catch (err: any) {

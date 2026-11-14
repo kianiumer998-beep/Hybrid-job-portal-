@@ -14,10 +14,18 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 
-export const AdminPricingController: React.FC = () => {
+interface AdminPricingControllerProps {
+  onPricingSaved?: (authoritativePricing: any) => void;
+}
+
+export const AdminPricingController: React.FC<AdminPricingControllerProps> = ({
+  onPricingSaved
+}) => {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [pricing, setPricing] = useState<any>({
     jobPosting: {
       standardFeePkr: 1000,
@@ -75,20 +83,24 @@ export const AdminPricingController: React.FC = () => {
 
   const loadPricing = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await api.pricing.get();
-      if (data.success && data.pricing) {
+      if (data && data.success && data.pricing) {
         setPricing(data.pricing);
+      } else {
+        setLoadError(data?.message || 'Failed to load authoritative pricing configuration.');
       }
       const priorityRes = await api.jobs.getPriority();
-      if (priorityRes.success && priorityRes.tierCounts) {
+      if (priorityRes && priorityRes.success && priorityRes.tierCounts) {
         setPriorityMetrics({
           tierCounts: priorityRes.tierCounts,
           slotLimits: priorityRes.slotLimits || { vip: 2, pinned: 2, featured: 4, urgent: 4 }
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load pricing:', err);
+      setLoadError(err?.message || 'Unable to load authoritative pricing configuration.');
     } finally {
       setLoading(false);
     }
@@ -120,15 +132,28 @@ export const AdminPricingController: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (loadError) {
+      setSaveError('Cannot save while pricing failed to load. Please reload first.');
+      return;
+    }
     setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
     try {
       const res = await api.pricing.update(pricing);
-      if (res.success) {
+      if (res && res.success) {
+        if (res.pricing) {
+          setPricing(res.pricing);
+          onPricingSaved?.(res.pricing);
+        }
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        setSaveError(res?.message || 'Failed to save pricing configuration.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save pricing:', err);
+      setSaveError(err?.message || 'Error saving pricing configuration.');
     } finally {
       setSaving(false);
     }
@@ -178,14 +203,41 @@ export const AdminPricingController: React.FC = () => {
           )}
           <button
             onClick={handleSave}
-            disabled={saving}
-            className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/20 active:scale-95 transition-all"
+            disabled={saving || Boolean(loadError)}
+            className={`flex items-center space-x-2 px-5 py-2.5 rounded-xl font-black text-sm shadow-lg transition-all ${
+              saving || loadError
+                ? 'bg-slate-700 text-slate-300 cursor-not-allowed opacity-70'
+                : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20 active:scale-95 cursor-pointer'
+            }`}
           >
             {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             <span>Save All Changes</span>
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-2xl bg-rose-950/90 border border-rose-500/50 text-rose-200 text-xs font-bold flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{loadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadPricing}
+            className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-100 text-xs font-bold cursor-pointer shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-4 rounded-2xl bg-rose-950/90 border border-rose-500/50 text-rose-200 text-xs font-bold flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      )}
 
       {/* Grid of Pricing Sections */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

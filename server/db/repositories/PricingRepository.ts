@@ -12,7 +12,14 @@ import {
   resolveCampaignDuration,
   getPlacementDisplayName
 } from '../../../src/types/ad';
-import { DEFAULT_CATEGORY_POSTING_FEES } from '../../../src/types/landing';
+import {
+  DEFAULT_CATEGORY_POSTING_FEES,
+  DEFAULT_LANDING_PAGE_CONFIG
+} from '../../../src/types/landing';
+import {
+  DEFAULT_JOB_POSTING_PRICING_CONFIG,
+  DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG
+} from '../../../src/types/job';
 import { getMongoDb, isMongoConfigured, withMongoTimeout } from '../mongodb';
 
 export interface JobPriceCalculationRequest {
@@ -75,42 +82,322 @@ function sanitizeSlotLimit(tierCfg: any, defaultMax: number): { enabled: boolean
   };
 }
 
+function normalizeExemptEmailsList(list: any): string[] {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const norm = item.trim().toLowerCase();
+    if (!norm || seen.has(norm)) continue;
+    seen.add(norm);
+    cleaned.push(norm);
+  }
+  return cleaned;
+}
+
+function sanitizeCategoryList(list: any[]): any[] {
+  const seen = new Set<string>();
+  const cleaned: any[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const categoryId = String(item.categoryId || '').trim();
+    if (!categoryId || seen.has(categoryId)) continue;
+    seen.add(categoryId);
+    cleaned.push({
+      categoryId,
+      categoryName: typeof item.categoryName === 'string' ? item.categoryName : categoryId,
+      feePkr: Math.max(0, Number(item.feePkr ?? 0) || 0),
+      isFree: Boolean(item.isFree),
+      discountPercent: Math.min(100, Math.max(0, Number(item.discountPercent ?? 0) || 0))
+    });
+  }
+  return cleaned;
+}
+
+function buildAuthoritativeDefaults(): any {
+  return {
+    currency: 'PKR',
+    jobPosting: {
+      ...DEFAULT_JOB_POSTING_PRICING_CONFIG,
+      homepagePrioritySlotConfig: {
+        ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG,
+        vip: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.vip },
+        pinned: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.pinned },
+        featured: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.featured },
+        urgent: { ...DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG.urgent }
+      },
+      categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES.map((c) => ({ ...c })),
+      exemptUserEmails: [],
+      isFreeAllPostings: false,
+      globalDiscount: 0,
+      extraWeekRate: 500
+    },
+    landingPageConfig: {
+      ...DEFAULT_LANDING_PAGE_CONFIG,
+      hero: { ...DEFAULT_LANDING_PAGE_CONFIG.hero },
+      sections: DEFAULT_LANDING_PAGE_CONFIG.sections.map((s) => ({ ...s })),
+      customCards: DEFAULT_LANDING_PAGE_CONFIG.customCards.map((c) => ({ ...c })),
+      categoryPostingFees: DEFAULT_CATEGORY_POSTING_FEES.map((c) => ({ ...c })),
+      exemptUserIds: [],
+      exemptUserEmails: [],
+      jobCardDesign: {
+        ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign,
+        theme: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.theme },
+        visibility: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.visibility },
+        labels: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.labels },
+        limits: { ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.limits }
+      }
+    },
+    advertisements: {
+      bannerPerDayPkr: 1500,
+      topBannerPerDayPkr: 3000,
+      popupPerDayPkr: 4500,
+      feedAdPerDayPkr: 2000,
+      featuredEmployerPerMonthPkr: 25000,
+      allowDiscounts: true,
+      defaultDiscountPercent: 10,
+      minCampaignDurationDays: 3,
+      maxCampaignDurationDays: 90
+    },
+    subscriptions: {
+      freeTierPrice: 0,
+      proMonthlyPkr: 1200,
+      vipMonthlyPkr: 3000,
+      govtAlertsWeeklyPkr: 400
+    },
+    subscriptionPackages: [],
+    cvBuilder: {
+      standardPdfExportPkr: 0,
+      premiumAiOptimizerPkr: 500,
+      unlimitedTemplatesPkr: 1000
+    },
+    addons: {
+      highlightColor: 1000,
+      whatsappBlast: 3000,
+      socialShare: 2000,
+      extraWeekRate: 500
+    },
+    adPricingConfig: {
+      ...DEFAULT_AD_PRICING_CONFIG,
+      placementMultipliers: { ...DEFAULT_AD_PRICING_CONFIG.placementMultipliers },
+      pageMultipliers: { ...DEFAULT_AD_PRICING_CONFIG.pageMultipliers }
+    },
+    campaignCustomizationConfig: {
+      ...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG,
+      portalPages: [...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.portalPages],
+      durationPresets: [...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.durationPresets],
+      placementOptions: [...DEFAULT_CAMPAIGN_CUSTOMIZATION_CONFIG.placementOptions]
+    }
+  };
+}
+
+function deepMergePricing(base: any, incoming: any): any {
+  const src = incoming && typeof incoming === 'object' ? incoming : {};
+  const syncedCategories = Array.isArray(src.jobPosting?.categoryPostingFees)
+    ? sanitizeCategoryList(src.jobPosting.categoryPostingFees)
+    : Array.isArray(src.landingPageConfig?.categoryPostingFees)
+    ? sanitizeCategoryList(src.landingPageConfig.categoryPostingFees)
+    : Array.isArray(base.jobPosting?.categoryPostingFees)
+    ? sanitizeCategoryList(base.jobPosting.categoryPostingFees)
+    : DEFAULT_CATEGORY_POSTING_FEES.map((c) => ({ ...c }));
+
+  const syncedExemptEmails = Array.isArray(src.jobPosting?.exemptUserEmails)
+    ? normalizeExemptEmailsList(src.jobPosting.exemptUserEmails)
+    : Array.isArray(src.landingPageConfig?.exemptUserEmails)
+    ? normalizeExemptEmailsList(src.landingPageConfig.exemptUserEmails)
+    : normalizeExemptEmailsList(base.jobPosting?.exemptUserEmails || base.landingPageConfig?.exemptUserEmails);
+
+  const srcSlot = src.jobPosting?.homepagePrioritySlotConfig || {};
+  const baseSlot = base.jobPosting?.homepagePrioritySlotConfig || DEFAULT_HOMEPAGE_PRIORITY_SLOT_CONFIG;
+
+  const srcLanding = src.landingPageConfig || {};
+  const baseLanding = base.landingPageConfig || DEFAULT_LANDING_PAGE_CONFIG;
+
+  return {
+    ...base,
+    ...src,
+    currency: src.currency || base.currency || 'PKR',
+    jobPosting: {
+      ...(base.jobPosting || {}),
+      ...(src.jobPosting || {}),
+      standardFeePkr: src.jobPosting?.standardFeePkr ?? base.jobPosting?.standardFeePkr ?? 1000,
+      urgentFeePkr: src.jobPosting?.urgentFeePkr ?? base.jobPosting?.urgentFeePkr ?? 500,
+      featuredTopFeePkr: src.jobPosting?.featuredTopFeePkr ?? base.jobPosting?.featuredTopFeePkr ?? 1500,
+      futureJobFeePkr: src.jobPosting?.futureJobFeePkr ?? base.jobPosting?.futureJobFeePkr ?? 800,
+      vipBundleFeePkr: src.jobPosting?.vipBundleFeePkr ?? base.jobPosting?.vipBundleFeePkr ?? 2500,
+      isFreeAllPostings:
+        src.jobPosting?.isFreeAllPostings !== undefined
+          ? Boolean(src.jobPosting.isFreeAllPostings)
+          : Boolean(base.jobPosting?.isFreeAllPostings),
+      globalDiscount:
+        src.jobPosting?.globalDiscount !== undefined
+          ? Math.min(100, Math.max(0, Number(src.jobPosting.globalDiscount) || 0))
+          : Number(base.jobPosting?.globalDiscount ?? 0),
+      extraWeekRate: src.jobPosting?.extraWeekRate ?? base.jobPosting?.extraWeekRate ?? 500,
+      categoryPostingFees: syncedCategories,
+      exemptUserEmails: syncedExemptEmails,
+      homepagePrioritySlotConfig: {
+        ...baseSlot,
+        ...srcSlot,
+        enabled: srcSlot.enabled !== undefined ? srcSlot.enabled !== false : baseSlot.enabled !== false,
+        vip: { ...(baseSlot.vip || { enabled: true, maxSlots: 2 }), ...(srcSlot.vip || {}) },
+        pinned: { ...(baseSlot.pinned || { enabled: true, maxSlots: 2 }), ...(srcSlot.pinned || {}) },
+        featured: { ...(baseSlot.featured || { enabled: true, maxSlots: 4 }), ...(srcSlot.featured || {}) },
+        urgent: { ...(baseSlot.urgent || { enabled: true, maxSlots: 4 }), ...(srcSlot.urgent || {}) }
+      }
+    },
+    landingPageConfig: {
+      ...baseLanding,
+      ...srcLanding,
+      hero: {
+        ...(baseLanding.hero || {}),
+        ...(srcLanding.hero || {})
+      },
+      sections: Array.isArray(srcLanding.sections)
+        ? srcLanding.sections
+        : (baseLanding.sections || []),
+      customCards: Array.isArray(srcLanding.customCards)
+        ? srcLanding.customCards
+        : (baseLanding.customCards || []),
+      jobCardDesign: {
+        ...(baseLanding.jobCardDesign || {}),
+        ...(srcLanding.jobCardDesign || {}),
+        theme: {
+          ...(baseLanding.jobCardDesign?.theme || {}),
+          ...(srcLanding.jobCardDesign?.theme || {})
+        },
+        visibility: {
+          ...(baseLanding.jobCardDesign?.visibility || {}),
+          ...(srcLanding.jobCardDesign?.visibility || {})
+        },
+        labels: {
+          ...(baseLanding.jobCardDesign?.labels || {}),
+          ...(srcLanding.jobCardDesign?.labels || {})
+        },
+        limits: {
+          ...(baseLanding.jobCardDesign?.limits || {}),
+          ...(srcLanding.jobCardDesign?.limits || {})
+        }
+      },
+      categoryPostingFees: syncedCategories,
+      exemptUserEmails: syncedExemptEmails
+    },
+    subscriptionPackages: Array.isArray(src.subscriptionPackages)
+      ? src.subscriptionPackages
+      : (base.subscriptionPackages || []),
+    adPricingConfig: {
+      ...(base.adPricingConfig || {}),
+      ...(src.adPricingConfig || {}),
+      placementMultipliers: {
+        ...(base.adPricingConfig?.placementMultipliers || {}),
+        ...(src.adPricingConfig?.placementMultipliers || {})
+      },
+      pageMultipliers: {
+        ...(base.adPricingConfig?.pageMultipliers || {}),
+        ...(src.adPricingConfig?.pageMultipliers || {})
+      }
+    },
+    campaignCustomizationConfig: {
+      ...(base.campaignCustomizationConfig || {}),
+      ...(src.campaignCustomizationConfig || {}),
+      portalPages: Array.isArray(src.campaignCustomizationConfig?.portalPages)
+        ? src.campaignCustomizationConfig.portalPages
+        : (base.campaignCustomizationConfig?.portalPages || []),
+      durationPresets: Array.isArray(src.campaignCustomizationConfig?.durationPresets)
+        ? src.campaignCustomizationConfig.durationPresets
+        : (base.campaignCustomizationConfig?.durationPresets || []),
+      placementOptions: Array.isArray(src.campaignCustomizationConfig?.placementOptions)
+        ? src.campaignCustomizationConfig.placementOptions
+        : (base.campaignCustomizationConfig?.placementOptions || [])
+    },
+    addons: {
+      ...(base.addons || {}),
+      ...(src.addons || {})
+    },
+    cvBuilder: {
+      ...(base.cvBuilder || {}),
+      ...(src.cvBuilder || {})
+    },
+    advertisements: {
+      ...(base.advertisements || {}),
+      ...(src.advertisements || {})
+    },
+    subscriptions: {
+      ...(base.subscriptions || {}),
+      ...(src.subscriptions || {})
+    }
+  };
+}
+
+const JOB_SECTOR_ALIAS_TO_CAT_ID: Record<string, string> = {
+  'private corporate': 'cat-corp',
+  'corporate / private': 'cat-corp',
+  'government sector': 'cat-govt',
+  'government / fpsc': 'cat-govt',
+  'newspaper classified': 'cat-news',
+  'newspaper clipping': 'cat-news',
+  'international remote': 'cat-remote',
+  'global remote': 'cat-remote'
+};
+
 export class PricingRepository {
+  private static mockCollection: any = null;
+
+  /**
+   * Test-only helper to exercise MongoDB query/update/failure behavior without mutating a live database.
+   * Strictly rejected outside test mode (IS_TEST !== 'true').
+   */
+  static setMockCollection(coll: any): void {
+    if (coll !== null && process.env.IS_TEST !== 'true') {
+      throw new Error('Security violation: Mock collection injection is strictly prohibited outside test mode (IS_TEST !== true).');
+    }
+    PricingRepository.mockCollection = coll;
+  }
+
+  private static useMongoBackend(): boolean {
+    return isMongoConfigured() || (process.env.IS_TEST === 'true' && PricingRepository.mockCollection !== null);
+  }
+
+  private static async getCollection(): Promise<any> {
+    if (process.env.IS_TEST === 'true' && PricingRepository.mockCollection !== null) {
+      return PricingRepository.mockCollection;
+    }
+    const db = await getMongoDb();
+    return db.collection('payment_settings');
+  }
+
   /**
    * Retrieves complete authoritative pricing configuration.
    * Single source of truth is MongoDB payment_settings collection (key: 'authoritative_pricing_config').
+   * Fails closed whenever MongoDB is configured and unavailable.
    */
   static async get(): Promise<any> {
-    if (isMongoConfigured()) {
+    if (PricingRepository.useMongoBackend()) {
       try {
-        const db = await getMongoDb();
-        const coll = db.collection('payment_settings');
-        const doc = await withMongoTimeout(
+        const coll = await PricingRepository.getCollection();
+        const doc = await withMongoTimeout<any>(
           coll.findOne({ key: 'authoritative_pricing_config' }),
           10000,
           'fetch authoritative pricing config'
         );
         if (doc && doc.settings) {
           return {
-            ...Database.getPricing(),
-            ...doc.settings,
+            ...deepMergePricing(buildAuthoritativeDefaults(), doc.settings),
             isPersistedToMongo: true
           };
         }
         return {
-          ...Database.getPricing(),
+          ...deepMergePricing(buildAuthoritativeDefaults(), PricingRepository.mockCollection ? {} : Database.getPricing()),
           isPersistedToMongo: false,
           isFirstRun: true
         };
       } catch (err: any) {
         console.warn('[PricingRepository] MongoDB fetch failed:', err.message);
-        if (process.env.IS_TEST === 'true') {
-          return Database.getPricing();
-        }
         throw new Error(`Authoritative configuration database is unavailable: ${err.message}`);
       }
     }
-    return Database.getPricing();
+    return deepMergePricing(buildAuthoritativeDefaults(), Database.getPricing());
   }
 
   /**
@@ -157,6 +444,13 @@ export class PricingRepository {
       }
     }
 
+    if (updates.landingPageConfig && Array.isArray(updates.landingPageConfig.categoryPostingFees)) {
+      for (const cat of updates.landingPageConfig.categoryPostingFees) {
+        if (cat.feePkr !== undefined) validateNonNegativeNumber(cat.feePkr, `landingPageConfig.categoryPostingFees.${cat.categoryId || 'unknown'}.feePkr`);
+        if (cat.discountPercent !== undefined) validateNonNegativeNumber(cat.discountPercent, `landingPageConfig.categoryPostingFees.${cat.categoryId || 'unknown'}.discountPercent`, 100);
+      }
+    }
+
     if (Array.isArray(updates.subscriptionPackages)) {
       for (const pkg of updates.subscriptionPackages) {
         if (!pkg.id || typeof pkg.id !== 'string') {
@@ -172,7 +466,6 @@ export class PricingRepository {
       }
     }
 
-    // Restore numerical validation for addons
     if (updates.addons) {
       if (updates.addons.highlightColor !== undefined) validateNonNegativeNumber(updates.addons.highlightColor, 'addons.highlightColor');
       if (updates.addons.whatsappBlast !== undefined) validateNonNegativeNumber(updates.addons.whatsappBlast, 'addons.whatsappBlast');
@@ -180,139 +473,96 @@ export class PricingRepository {
       if (updates.addons.extraWeekRate !== undefined) validateNonNegativeNumber(updates.addons.extraWeekRate, 'addons.extraWeekRate');
     }
 
-    // Restore numerical validation for cvBuilder
     if (updates.cvBuilder) {
       if (updates.cvBuilder.standardPdfExportPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.standardPdfExportPkr, 'cvBuilder.standardPdfExportPkr');
       if (updates.cvBuilder.premiumAiOptimizerPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.premiumAiOptimizerPkr, 'cvBuilder.premiumAiOptimizerPkr');
       if (updates.cvBuilder.unlimitedTemplatesPkr !== undefined) validateNonNegativeNumber(updates.cvBuilder.unlimitedTemplatesPkr, 'cvBuilder.unlimitedTemplatesPkr');
     }
 
-    // Deterministic category fees resolution & merge with jobPosting precedence over landingPageConfig
-    const landingCats = Array.isArray(updates?.landingPageConfig?.categoryPostingFees)
-      ? updates.landingPageConfig.categoryPostingFees
-      : (Array.isArray(current.landingPageConfig?.categoryPostingFees)
-        ? current.landingPageConfig.categoryPostingFees
-        : DEFAULT_CATEGORY_POSTING_FEES);
+    // Category fees update precedence without resurrecting deleted entries from stale current fields
+    const hasJobCatsUpdate = Array.isArray(updates?.jobPosting?.categoryPostingFees);
+    const hasLandingCatsUpdate = Array.isArray(updates?.landingPageConfig?.categoryPostingFees);
+    let resolvedCategoryPostingFees: any[];
 
-    const jobCats = Array.isArray(updates?.jobPosting?.categoryPostingFees)
-      ? updates.jobPosting.categoryPostingFees
-      : (Array.isArray(current.jobPosting?.categoryPostingFees)
-        ? current.jobPosting.categoryPostingFees
-        : landingCats);
-
-    const categoryMap = new Map<string, any>();
-    if (Array.isArray(landingCats)) {
-      for (const c of landingCats) {
+    if (hasJobCatsUpdate && hasLandingCatsUpdate) {
+      const catMap = new Map<string, any>();
+      for (const c of updates.landingPageConfig.categoryPostingFees) {
+        if (c && c.categoryId) catMap.set(c.categoryId, { ...c });
+      }
+      for (const c of updates.jobPosting.categoryPostingFees) {
         if (c && c.categoryId) {
-          categoryMap.set(c.categoryId, c);
+          catMap.set(c.categoryId, { ...(catMap.get(c.categoryId) || {}), ...c });
         }
       }
+      resolvedCategoryPostingFees = sanitizeCategoryList(Array.from(catMap.values()));
+    } else if (hasJobCatsUpdate) {
+      resolvedCategoryPostingFees = sanitizeCategoryList(updates.jobPosting.categoryPostingFees);
+    } else if (hasLandingCatsUpdate) {
+      resolvedCategoryPostingFees = sanitizeCategoryList(updates.landingPageConfig.categoryPostingFees);
+    } else if (Array.isArray(current.jobPosting?.categoryPostingFees)) {
+      resolvedCategoryPostingFees = sanitizeCategoryList(current.jobPosting.categoryPostingFees);
+    } else if (Array.isArray(current.landingPageConfig?.categoryPostingFees)) {
+      resolvedCategoryPostingFees = sanitizeCategoryList(current.landingPageConfig.categoryPostingFees);
+    } else {
+      resolvedCategoryPostingFees = DEFAULT_CATEGORY_POSTING_FEES.map((c) => ({ ...c }));
     }
-    if (Array.isArray(jobCats)) {
-      for (const c of jobCats) {
-        if (c && c.categoryId) {
-          categoryMap.set(c.categoryId, {
-            ...(categoryMap.get(c.categoryId) || {}),
-            ...c
-          });
-        }
-      }
-    }
-    const mergedCategoryPostingFees = Array.from(categoryMap.values());
 
-    const mergedExemptUserEmails = Array.isArray(updates?.jobPosting?.exemptUserEmails)
+    const rawExemptUserEmails = Array.isArray(updates?.jobPosting?.exemptUserEmails)
       ? updates.jobPosting.exemptUserEmails
-      : (Array.isArray(updates?.exemptUserEmails)
-        ? updates.exemptUserEmails
-        : (Array.isArray(updates?.landingPageConfig?.exemptUserEmails)
-          ? updates.landingPageConfig.exemptUserEmails
-          : (current.jobPosting?.exemptUserEmails || current.landingPageConfig?.exemptUserEmails || [])));
+      : Array.isArray(updates?.exemptUserEmails)
+      ? updates.exemptUserEmails
+      : Array.isArray(updates?.landingPageConfig?.exemptUserEmails)
+      ? updates.landingPageConfig.exemptUserEmails
+      : current.jobPosting?.exemptUserEmails || current.landingPageConfig?.exemptUserEmails || [];
+    const mergedExemptUserEmails = normalizeExemptEmailsList(rawExemptUserEmails);
 
-    const updated = {
-      ...current,
+    const resolvedIsFreeAllPostings =
+      updates?.jobPosting?.isFreeAllPostings !== undefined
+        ? Boolean(updates.jobPosting.isFreeAllPostings)
+        : Boolean(current.jobPosting?.isFreeAllPostings);
+
+    const resolvedGlobalDiscount =
+      updates?.jobPosting?.globalDiscount !== undefined
+        ? Math.min(100, Math.max(0, Number(updates.jobPosting.globalDiscount) || 0))
+        : Number(current.jobPosting?.globalDiscount ?? 0);
+
+    const mergedRaw = deepMergePricing(current, {
       ...updates,
       currency: updates?.currency || current.currency || 'PKR',
       jobPosting: {
         ...(current.jobPosting || {}),
         ...(updates?.jobPosting || {}),
-        categoryPostingFees: mergedCategoryPostingFees,
-        exemptUserEmails: mergedExemptUserEmails,
-        homepagePrioritySlotConfig: updates?.jobPosting?.homepagePrioritySlotConfig
-          ? updates.jobPosting.homepagePrioritySlotConfig
-          : (current.jobPosting?.homepagePrioritySlotConfig || {
-              enabled: true,
-              vip: { enabled: true, maxSlots: 2 },
-              pinned: { enabled: true, maxSlots: 2 },
-              featured: { enabled: true, maxSlots: 4 },
-              urgent: { enabled: true, maxSlots: 4 }
-            })
+        isFreeAllPostings: resolvedIsFreeAllPostings,
+        globalDiscount: resolvedGlobalDiscount,
+        categoryPostingFees: resolvedCategoryPostingFees,
+        exemptUserEmails: mergedExemptUserEmails
       },
       landingPageConfig: {
         ...(current.landingPageConfig || {}),
         ...(updates?.landingPageConfig || {}),
-        categoryPostingFees: mergedCategoryPostingFees,
+        categoryPostingFees: resolvedCategoryPostingFees,
         exemptUserEmails: mergedExemptUserEmails
-      },
-      subscriptionPackages: Array.isArray(updates?.subscriptionPackages)
-        ? updates.subscriptionPackages
-        : (current.subscriptionPackages || []),
-      adPricingConfig: {
-        ...(current.adPricingConfig || {}),
-        ...(updates?.adPricingConfig || {}),
-        placementMultipliers: {
-          ...(current.adPricingConfig?.placementMultipliers || {}),
-          ...(updates?.adPricingConfig?.placementMultipliers || {})
-        },
-        pageMultipliers: {
-          ...(current.adPricingConfig?.pageMultipliers || {}),
-          ...(updates?.adPricingConfig?.pageMultipliers || {})
-        }
-      },
-      campaignCustomizationConfig: {
-        ...(current.campaignCustomizationConfig || {}),
-        ...(updates?.campaignCustomizationConfig || {}),
-        portalPages: Array.isArray(updates?.campaignCustomizationConfig?.portalPages)
-          ? updates.campaignCustomizationConfig.portalPages
-          : (current.campaignCustomizationConfig?.portalPages || []),
-        durationPresets: Array.isArray(updates?.campaignCustomizationConfig?.durationPresets)
-          ? updates.campaignCustomizationConfig.durationPresets
-          : (current.campaignCustomizationConfig?.durationPresets || []),
-        placementOptions: Array.isArray(updates?.campaignCustomizationConfig?.placementOptions)
-          ? updates.campaignCustomizationConfig.placementOptions
-          : (current.campaignCustomizationConfig?.placementOptions || [])
-      },
-      addons: {
-        ...(current.addons || {}),
-        ...(updates?.addons || {})
-      },
-      cvBuilder: {
-        ...(current.cvBuilder || {}),
-        ...(updates?.cvBuilder || {})
-      },
-      advertisements: {
-        ...(current.advertisements || {}),
-        ...(updates?.advertisements || {})
-      },
-      subscriptions: {
-        ...(current.subscriptions || {}),
-        ...(updates?.subscriptions || {})
-      },
+      }
+    });
+
+    const updated = {
+      ...mergedRaw,
       updatedAt: new Date().toISOString()
     };
+    delete updated.isFirstRun;
 
-    if (isMongoConfigured()) {
+    if (PricingRepository.useMongoBackend()) {
       try {
-        const db = await getMongoDb();
-        const coll = db.collection('payment_settings');
-        const result = await withMongoTimeout(
+        const coll = await PricingRepository.getCollection();
+        const result = await withMongoTimeout<any>(
           coll.updateOne(
             { key: 'authoritative_pricing_config' },
-            { 
-              $set: { 
+            {
+              $set: {
                 key: 'authoritative_pricing_config',
                 settings: updated,
                 updatedAt: updated.updatedAt
-              } 
+              }
             },
             { upsert: true }
           ),
@@ -322,13 +572,17 @@ export class PricingRepository {
         if (result && result.acknowledged === false) {
           throw new Error('Write not acknowledged by MongoDB');
         }
+        updated.isPersistedToMongo = true;
       } catch (err: any) {
         console.error('[PricingRepository] Failed to persist pricing to MongoDB:', err.message);
         throw new Error(`Durable persistence failed: ${err.message}`);
       }
     }
 
-    Database.savePricing(updated);
+    // Do not write local JSON when running under isolated test mock collection
+    if (!(process.env.IS_TEST === 'true' && PricingRepository.mockCollection !== null)) {
+      Database.savePricing(updated);
+    }
     return updated;
   }
 
@@ -352,7 +606,9 @@ export class PricingRepository {
     const exemptEmails: string[] = [
       ...(pricing.jobPosting?.exemptUserEmails || []),
       ...(pricing.landingPageConfig?.exemptUserEmails || [])
-    ].map((e: string) => String(e || '').toLowerCase().trim());
+    ]
+      .map((e: string) => String(e || '').toLowerCase().trim())
+      .filter(Boolean);
 
     const userEmailClean = req.userEmail ? String(req.userEmail).toLowerCase().trim() : '';
     if (userEmailClean && exemptEmails.includes(userEmailClean)) {
@@ -371,12 +627,18 @@ export class PricingRepository {
     // 2. Master Free Mode Check
     const isMasterFree = Boolean(pricing.jobPosting?.isFreeAllPostings);
 
-    // 3. Category Pricing Resolution with consistent precedence
-    const rawCategoryFees = [
-      ...(pricing.jobPosting?.categoryPostingFees || []),
-      ...(pricing.landingPageConfig?.categoryPostingFees || []),
-      ...DEFAULT_CATEGORY_POSTING_FEES
-    ];
+    // 3. Category Pricing Resolution without resurrecting deleted categories
+    const hasConfiguredCategories =
+      Array.isArray(pricing.jobPosting?.categoryPostingFees) ||
+      Array.isArray(pricing.landingPageConfig?.categoryPostingFees);
+
+    const rawCategoryFees = hasConfiguredCategories
+      ? [
+          ...(Array.isArray(pricing.jobPosting?.categoryPostingFees) ? pricing.jobPosting.categoryPostingFees : []),
+          ...(Array.isArray(pricing.landingPageConfig?.categoryPostingFees) ? pricing.landingPageConfig.categoryPostingFees : [])
+        ]
+      : DEFAULT_CATEGORY_POSTING_FEES;
+
     const categoryMap = new Map<string, any>();
     for (const c of rawCategoryFees) {
       if (c && c.categoryId && !categoryMap.has(c.categoryId)) {
@@ -391,11 +653,16 @@ export class PricingRepository {
 
     const categoryKey = String(req.jobCategory || req.categoryId || '').toLowerCase().trim();
     if (categoryKey) {
-      const match = categoryFees.find(
-        (c: any) =>
-          String(c.categoryId || '').toLowerCase() === categoryKey ||
-          String(c.categoryName || '').toLowerCase() === categoryKey
-      );
+      const aliasId = JOB_SECTOR_ALIAS_TO_CAT_ID[categoryKey];
+      const match =
+        categoryFees.find(
+          (c: any) =>
+            String(c.categoryId || '').toLowerCase().trim() === categoryKey ||
+            String(c.categoryName || '').toLowerCase().trim() === categoryKey
+        ) ||
+        (aliasId
+          ? categoryFees.find((c: any) => String(c.categoryId || '').toLowerCase().trim() === aliasId)
+          : undefined);
       if (match) {
         appliedCategoryName = match.categoryName;
         if (match.isFree) {
@@ -412,12 +679,18 @@ export class PricingRepository {
       if (match) {
         appliedCategoryName = match.categoryName;
         baseStandardFee = match.isFree ? 0 : (match.feePkr ?? 0);
+        if (typeof match.discountPercent === 'number' && match.discountPercent > 0) {
+          categoryDiscountPercent = Math.min(100, Math.max(0, match.discountPercent));
+        }
       }
     } else if (req.newspaper) {
       const match = categoryFees.find((c: any) => String(c.categoryId || '').includes('news'));
       if (match) {
         appliedCategoryName = match.categoryName;
         baseStandardFee = match.isFree ? 0 : (match.feePkr ?? 0);
+        if (typeof match.discountPercent === 'number' && match.discountPercent > 0) {
+          categoryDiscountPercent = Math.min(100, Math.max(0, match.discountPercent));
+        }
       }
     }
 

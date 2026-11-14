@@ -75,7 +75,8 @@ import {
   ArrowUpDown,
   Link as LinkIcon,
   MoreVertical,
-  CreditCard
+  CreditCard,
+  Save
 } from 'lucide-react';
 import { UserDetailModal } from './UserDetailModal';
 import { AdminJobDetailModal } from './AdminJobDetailModal';
@@ -112,7 +113,7 @@ import { AdminAiQualityEnhancer } from './admin/AdminAiQualityEnhancer';
 import { AdminEmployerKycHub } from './admin/AdminEmployerKycHub';
 import { LandingPageCustomizer } from './admin/LandingPageCustomizer';
 import { AdminCampaignCenter } from './admin/AdminCampaignCenter';
-import { AdminFeeManager } from './admin/AdminFeeManager';
+import { AdminFeeManager, CompleteFeeConfigSavePayload } from './admin/AdminFeeManager';
 import { AdminActivityLogs } from './admin/AdminActivityLogs';
 import { AdminBulkNotificationTool } from './admin/AdminBulkNotificationTool';
 import { AdminWhatsAppManager } from './admin/AdminWhatsAppManager';
@@ -207,8 +208,15 @@ interface AdminDashboardProps {
   onRejectAd?: (adId: string, reason: string) => void;
   jobPostingPricing?: JobPostingPricingConfig;
   onChangeJobPostingPricing?: (config: JobPostingPricingConfig) => void;
+  onSaveJobPostingPricing?: (config: JobPostingPricingConfig) => Promise<any> | any | void;
   landingConfig?: LandingPageConfig;
   onUpdateLandingConfig?: (config: LandingPageConfig) => Promise<any> | any | void;
+  onSaveCompleteFeeConfig?: (payload: CompleteFeeConfigSavePayload) => Promise<any> | any | void;
+  onSyncAuthoritativePricing?: (pricing: any) => void;
+  isPricingLoading?: boolean;
+  pricingLoadError?: string | null;
+  isPricingReady?: boolean;
+  onReloadPricingConfig?: () => Promise<void> | void;
   whatsAppSupportConfig?: WhatsAppSupportConfig;
   onUpdateWhatsAppConfig?: (config: WhatsAppSupportConfig) => Promise<any> | boolean | void;
   siteSeoConfig?: SiteSeoConfig;
@@ -474,6 +482,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onChangeMonthlyFee = () => {},
   jobPostingPricing = DEFAULT_JOB_POSTING_PRICING_CONFIG,
   onChangeJobPostingPricing,
+  onSaveJobPostingPricing,
   allApplications = [],
   onReloadJobs,
   onApproveJob,
@@ -522,6 +531,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRejectAd,
   landingConfig,
   onUpdateLandingConfig,
+  onSaveCompleteFeeConfig,
+  onSyncAuthoritativePricing,
+  isPricingLoading = false,
+  pricingLoadError = null,
+  isPricingReady = true,
+  onReloadPricingConfig,
   whatsAppSupportConfig,
   onUpdateWhatsAppConfig,
   siteSeoConfig: propSiteSeoConfig,
@@ -535,6 +550,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRejectPaymentTransaction,
   onUpdateChannelAvailability
 }) => {
+  const [tierPricingDraft, setTierPricingDraft] = useState<JobPostingPricingConfig>(jobPostingPricing);
+  const [isSavingTierPricing, setIsSavingTierPricing] = useState(false);
+  const [tierPricingNotice, setTierPricingNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    setTierPricingDraft(jobPostingPricing);
+  }, [jobPostingPricing]);
+
+  const handleSaveTierPricing = async (overrideConfig?: JobPostingPricingConfig) => {
+    const configToSave = overrideConfig ?? tierPricingDraft;
+    if (isPricingLoading || !isPricingReady) {
+      setTierPricingNotice({
+        type: 'error',
+        message: 'Pricing configuration has not finished loading from the server. Retry loading before saving.'
+      });
+      return;
+    }
+    setIsSavingTierPricing(true);
+    setTierPricingNotice(null);
+    try {
+      if (onSaveJobPostingPricing) {
+        const res = await onSaveJobPostingPricing(configToSave);
+        if (res && typeof res === 'object' && res.success === false) {
+          throw new Error(res.message || 'Failed to save job tier pricing.');
+        }
+      } else {
+        const res = await api.pricing.update({ jobPosting: configToSave });
+        if (!res || !res.success) {
+          throw new Error(res?.message || 'Failed to save job tier pricing.');
+        }
+        if (onSyncAuthoritativePricing && res.pricing) {
+          onSyncAuthoritativePricing(res.pricing);
+        } else {
+          if (onChangeJobPostingPricing) {
+            onChangeJobPostingPricing(res.pricing?.jobPosting || configToSave);
+          }
+          onChangeJobPostingFee(res.pricing?.jobPosting?.standardFeePkr ?? configToSave.standardFeePkr);
+        }
+      }
+      setTierPricingNotice({
+        type: 'success',
+        message: 'Job posting & priority placement rates saved to the database.'
+      });
+    } catch (err: any) {
+      setTierPricingNotice({
+        type: 'error',
+        message: err?.message || 'Failed to save job tier pricing to the database.'
+      });
+    } finally {
+      setIsSavingTierPricing(false);
+    }
+  };
 
 
   const [adminTab, setAdminTab] = useState<
@@ -3240,7 +3307,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB: UNIVERSAL PRICING CONTROLLER */}
       {adminTab === 'pricing-controller' && (
-        <AdminPricingController />
+        <AdminPricingController onPricingSaved={onSyncAuthoritativePricing} />
       )}
 
       {/* TAB: APPLICATION FLOW & BUTTON CUSTOMIZER */}
@@ -3258,6 +3325,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminFeeManager
           landingConfig={landingConfig}
           onUpdateLandingConfig={onUpdateLandingConfig}
+          onSaveCompleteFeeConfig={onSaveCompleteFeeConfig}
+          isPricingLoading={isPricingLoading}
+          pricingLoadError={pricingLoadError}
+          isPricingReady={isPricingReady}
+          onReloadPricingConfig={onReloadPricingConfig}
           globalPostingFeePkr={jobPostingFeePkr}
           onChangeGlobalPostingFee={onChangeJobPostingFee}
           postingPricing={jobPostingPricing}
@@ -6281,30 +6353,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span>Base Per-Job Posting Fee</span>
               </span>
               <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold">
-                {jobPostingPricing.standardFeePkr > 0 ? `PKR ${jobPostingPricing.standardFeePkr.toLocaleString()}` : 'Free'}
+                {tierPricingDraft.standardFeePkr > 0 ? `PKR ${tierPricingDraft.standardFeePkr.toLocaleString()}` : 'Free'}
               </span>
             </h3>
             <div>
               <label className="block text-xs font-bold text-slate-400 mb-1">Standard Job Posting Fee (PKR) [Set to 0 for Free]</label>
               <input
                 type="number"
-                value={jobPostingPricing.standardFeePkr}
+                value={tierPricingDraft.standardFeePkr}
                 onChange={(e) => {
-                  const val = Number(e.target.value);
-                  onChangeJobPostingFee(val);
-                  if (onChangeJobPostingPricing) {
-                    onChangeJobPostingPricing({
-                      ...jobPostingPricing,
-                      standardFeePkr: val
-                    });
-                  }
+                  const val = Math.max(0, Number(e.target.value) || 0);
+                  setTierPricingNotice(null);
+                  setTierPricingDraft((prev) => ({
+                    ...prev,
+                    standardFeePkr: val
+                  }));
                 }}
                 placeholder="1000"
                 className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold focus:border-amber-400 outline-none"
               />
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              When set &gt; 0, employers posting regular standard jobs will be invoiced PKR {jobPostingPricing.standardFeePkr.toLocaleString()} before their job listing is reviewed and published.
+              When set &gt; 0, employers posting regular standard jobs will be invoiced PKR {tierPricingDraft.standardFeePkr.toLocaleString()} before their job listing is reviewed and published.
             </p>
           </div>
 
@@ -6316,7 +6386,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
                     Priority Monetization & Tier Placements
                   </span>
-                  <span className="text-xs text-slate-400 font-mono">Live Pricing & Duration Engine</span>
+                  <span className="text-xs text-slate-400 font-mono">Authoritative Database Pricing Engine</span>
                 </div>
                 <h3 className="text-lg font-black text-white flex items-center space-x-2 mt-1">
                   <Sparkles className="w-5 h-5 text-amber-400" />
@@ -6327,28 +6397,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  disabled={isSavingTierPricing || isPricingLoading || !isPricingReady}
                   onClick={() => {
-                    if (onChangeJobPostingPricing) {
-                      onChangeJobPostingPricing(DEFAULT_JOB_POSTING_PRICING_CONFIG);
-                    }
-                    onChangeJobPostingFee(DEFAULT_JOB_POSTING_PRICING_CONFIG.standardFeePkr);
+                    const resetCfg = {
+                      ...tierPricingDraft,
+                      ...DEFAULT_JOB_POSTING_PRICING_CONFIG
+                    };
+                    setTierPricingDraft(resetCfg);
+                    handleSaveTierPricing(resetCfg);
                   }}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer transition-all"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer transition-all"
                 >
                   Reset Defaults
                 </button>
+                <button
+                  type="button"
+                  disabled={isSavingTierPricing || isPricingLoading || !isPricingReady}
+                  onClick={() => handleSaveTierPricing()}
+                  className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 text-xs font-black rounded-xl flex items-center space-x-1.5 cursor-pointer transition-all shadow-lg"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingTierPricing ? 'Saving...' : 'Save Job Tier Pricing'}</span>
+                </button>
               </div>
             </div>
+
+            {pricingLoadError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/40 rounded-xl flex items-center justify-between gap-3 text-xs text-rose-300">
+                <span>{pricingLoadError}</span>
+                {onReloadPricingConfig && (
+                  <button
+                    type="button"
+                    onClick={() => onReloadPricingConfig()}
+                    className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 rounded-lg font-bold text-white cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+
+            {tierPricingNotice && (
+              <div className={`p-3 rounded-xl border text-xs font-bold flex items-center space-x-2 ${
+                tierPricingNotice.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                {tierPricingNotice.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{tierPricingNotice.message}</span>
+              </div>
+            )}
 
             {/* 5 TIER FEE CONTROLS GRID WITH ENABLE/DISABLE & DURATION CONTROLS */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 text-xs">
               
               {/* TIER 1: STANDARD LISTING */}
               <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                jobPostingPricing.enableStandard !== false ? 'border-slate-700' : 'border-slate-800 opacity-60'
+                tierPricingDraft.enableStandard !== false ? 'border-slate-700' : 'border-slate-800 opacity-60'
               }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-slate-800 text-slate-300 border border-slate-700">
@@ -6357,20 +6469,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          enableStandard: !(jobPostingPricing.enableStandard !== false)
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        enableStandard: !(prev.enableStandard !== false)
+                      }));
                     }}
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      jobPostingPricing.enableStandard !== false
+                      tierPricingDraft.enableStandard !== false
                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                         : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
                     }`}
                   >
-                    {jobPostingPricing.enableStandard !== false ? '✓ Enabled' : '✕ Disabled'}
+                    {tierPricingDraft.enableStandard !== false ? '✓ Enabled' : '✕ Disabled'}
                   </button>
                 </div>
 
@@ -6385,16 +6496,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
                     <input
                       type="number"
-                      value={jobPostingPricing.standardFeePkr}
+                      value={tierPricingDraft.standardFeePkr}
                       onChange={(e) => {
-                        const val = Number(e.target.value);
-                        onChangeJobPostingFee(val);
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            standardFeePkr: val
-                          });
-                        }
+                        const val = Math.max(0, Number(e.target.value) || 0);
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          standardFeePkr: val
+                        }));
                       }}
                       className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-bold font-mono focus:border-amber-400 outline-none"
                     />
@@ -6406,14 +6515,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="relative">
                     <input
                       type="number"
-                      value={jobPostingPricing.standardDurationDays ?? 30}
+                      value={tierPricingDraft.standardDurationDays ?? 30}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            standardDurationDays: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          standardDurationDays: Math.max(1, Number(e.target.value) || 1)
+                        }));
                       }}
                       className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono focus:border-amber-400 outline-none"
                     />
@@ -6425,14 +6533,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Description for Users</label>
                   <input
                     type="text"
-                    value={jobPostingPricing.standardDescription || 'Standard chronological listing on public board.'}
+                    value={tierPricingDraft.standardDescription || 'Standard chronological listing on public board.'}
                     onChange={(e) => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          standardDescription: e.target.value
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        standardDescription: e.target.value
+                      }));
                     }}
                     className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-slate-300 text-[11px] outline-none"
                   />
@@ -6441,7 +6548,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {/* TIER 2: URGENT HIRING */}
               <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                jobPostingPricing.enableUrgent !== false ? 'border-rose-500/30' : 'border-slate-800 opacity-60'
+                tierPricingDraft.enableUrgent !== false ? 'border-rose-500/30' : 'border-slate-800 opacity-60'
               }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
@@ -6450,20 +6557,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          enableUrgent: !(jobPostingPricing.enableUrgent !== false)
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        enableUrgent: !(prev.enableUrgent !== false)
+                      }));
                     }}
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      jobPostingPricing.enableUrgent !== false
+                      tierPricingDraft.enableUrgent !== false
                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                         : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
                     }`}
                   >
-                    {jobPostingPricing.enableUrgent !== false ? '✓ Enabled' : '✕ Disabled'}
+                    {tierPricingDraft.enableUrgent !== false ? '✓ Enabled' : '✕ Disabled'}
                   </button>
                 </div>
 
@@ -6478,14 +6584,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
                     <input
                       type="number"
-                      value={jobPostingPricing.urgentFeePkr}
+                      value={tierPricingDraft.urgentFeePkr}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            urgentFeePkr: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          urgentFeePkr: Math.max(0, Number(e.target.value) || 0)
+                        }));
                       }}
                       className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-bold font-mono focus:border-rose-400 outline-none"
                     />
@@ -6497,14 +6602,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="relative">
                     <input
                       type="number"
-                      value={jobPostingPricing.urgentDurationDays ?? 15}
+                      value={tierPricingDraft.urgentDurationDays ?? 15}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            urgentDurationDays: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          urgentDurationDays: Math.max(1, Number(e.target.value) || 1)
+                        }));
                       }}
                       className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-rose-300 font-mono focus:border-rose-400 outline-none"
                     />
@@ -6516,27 +6620,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
                   <input
                     type="text"
-                    value={jobPostingPricing.urgentBadgeText || '🔥 Urgent Hiring'}
+                    value={tierPricingDraft.urgentBadgeText || '🔥 Urgent Hiring'}
                     onChange={(e) => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          urgentBadgeText: e.target.value
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        urgentBadgeText: e.target.value
+                      }));
                     }}
                     className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-rose-300 text-[11px] outline-none"
                   />
                 </div>
 
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.urgentFeePkr).toLocaleString()}</strong>
+                  Total: <strong className="text-white font-mono">PKR {(tierPricingDraft.standardFeePkr + tierPricingDraft.urgentFeePkr).toLocaleString()}</strong>
                 </div>
               </div>
 
               {/* TIER 3: FEATURED & PINNED TOP */}
               <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                jobPostingPricing.enableFeaturedTop !== false ? 'border-amber-500/30' : 'border-slate-800 opacity-60'
+                tierPricingDraft.enableFeaturedTop !== false ? 'border-amber-500/30' : 'border-slate-800 opacity-60'
               }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
@@ -6545,20 +6648,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          enableFeaturedTop: !(jobPostingPricing.enableFeaturedTop !== false)
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        enableFeaturedTop: !(prev.enableFeaturedTop !== false)
+                      }));
                     }}
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      jobPostingPricing.enableFeaturedTop !== false
+                      tierPricingDraft.enableFeaturedTop !== false
                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                         : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
                     }`}
                   >
-                    {jobPostingPricing.enableFeaturedTop !== false ? '✓ Enabled' : '✕ Disabled'}
+                    {tierPricingDraft.enableFeaturedTop !== false ? '✓ Enabled' : '✕ Disabled'}
                   </button>
                 </div>
 
@@ -6573,14 +6675,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
                     <input
                       type="number"
-                      value={jobPostingPricing.featuredTopFeePkr}
+                      value={tierPricingDraft.featuredTopFeePkr}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            featuredTopFeePkr: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          featuredTopFeePkr: Math.max(0, Number(e.target.value) || 0)
+                        }));
                       }}
                       className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-bold font-mono focus:border-amber-400 outline-none"
                     />
@@ -6592,14 +6693,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="relative">
                     <input
                       type="number"
-                      value={jobPostingPricing.featuredTopDurationDays ?? 30}
+                      value={tierPricingDraft.featuredTopDurationDays ?? 30}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            featuredTopDurationDays: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          featuredTopDurationDays: Math.max(1, Number(e.target.value) || 1)
+                        }));
                       }}
                       className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-mono focus:border-amber-400 outline-none"
                     />
@@ -6611,27 +6711,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
                   <input
                     type="text"
-                    value={jobPostingPricing.featuredBadgeText || '⭐ Pinned Top & Featured'}
+                    value={tierPricingDraft.featuredBadgeText || '⭐ Pinned Top & Featured'}
                     onChange={(e) => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          featuredBadgeText: e.target.value
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        featuredBadgeText: e.target.value
+                      }));
                     }}
                     className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-amber-300 text-[11px] outline-none"
                   />
                 </div>
 
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.featuredTopFeePkr).toLocaleString()}</strong>
+                  Total: <strong className="text-white font-mono">PKR {(tierPricingDraft.standardFeePkr + tierPricingDraft.featuredTopFeePkr).toLocaleString()}</strong>
                 </div>
               </div>
 
               {/* TIER 4: FUTURE JOB / ADVANCE INTAKE */}
               <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                jobPostingPricing.enableFutureJob !== false ? 'border-indigo-500/30' : 'border-slate-800 opacity-60'
+                tierPricingDraft.enableFutureJob !== false ? 'border-indigo-500/30' : 'border-slate-800 opacity-60'
               }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -6640,20 +6739,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          enableFutureJob: !(jobPostingPricing.enableFutureJob !== false)
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        enableFutureJob: !(prev.enableFutureJob !== false)
+                      }));
                     }}
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      jobPostingPricing.enableFutureJob !== false
+                      tierPricingDraft.enableFutureJob !== false
                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                         : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
                     }`}
                   >
-                    {jobPostingPricing.enableFutureJob !== false ? '✓ Enabled' : '✕ Disabled'}
+                    {tierPricingDraft.enableFutureJob !== false ? '✓ Enabled' : '✕ Disabled'}
                   </button>
                 </div>
 
@@ -6668,14 +6766,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
                     <input
                       type="number"
-                      value={jobPostingPricing.futureJobFeePkr}
+                      value={tierPricingDraft.futureJobFeePkr}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            futureJobFeePkr: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          futureJobFeePkr: Math.max(0, Number(e.target.value) || 0)
+                        }));
                       }}
                       className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-bold font-mono focus:border-indigo-400 outline-none"
                     />
@@ -6687,14 +6784,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="relative">
                     <input
                       type="number"
-                      value={jobPostingPricing.futureJobDurationDays ?? 60}
+                      value={tierPricingDraft.futureJobDurationDays ?? 60}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            futureJobDurationDays: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          futureJobDurationDays: Math.max(1, Number(e.target.value) || 1)
+                        }));
                       }}
                       className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-indigo-300 font-mono focus:border-indigo-400 outline-none"
                     />
@@ -6706,27 +6802,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
                   <input
                     type="text"
-                    value={jobPostingPricing.futureBadgeText || '🚀 Advance Intake'}
+                    value={tierPricingDraft.futureBadgeText || '🚀 Advance Intake'}
                     onChange={(e) => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          futureBadgeText: e.target.value
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        futureBadgeText: e.target.value
+                      }));
                     }}
                     className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-indigo-300 text-[11px] outline-none"
                   />
                 </div>
 
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Total: <strong className="text-white font-mono">PKR {(jobPostingPricing.standardFeePkr + jobPostingPricing.futureJobFeePkr).toLocaleString()}</strong>
+                  Total: <strong className="text-white font-mono">PKR {(tierPricingDraft.standardFeePkr + tierPricingDraft.futureJobFeePkr).toLocaleString()}</strong>
                 </div>
               </div>
 
               {/* TIER 5: VIP ALL-IN-ONE BUNDLE */}
               <div className={`p-4 bg-slate-950/80 border rounded-2xl space-y-3 shadow-md transition-all ${
-                jobPostingPricing.enableVipBundle !== false ? 'border-purple-500/30' : 'border-slate-800 opacity-60'
+                tierPricingDraft.enableVipBundle !== false ? 'border-purple-500/30' : 'border-slate-800 opacity-60'
               }`}>
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
@@ -6735,20 +6830,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          enableVipBundle: !(jobPostingPricing.enableVipBundle !== false)
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        enableVipBundle: !(prev.enableVipBundle !== false)
+                      }));
                     }}
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                      jobPostingPricing.enableVipBundle !== false
+                      tierPricingDraft.enableVipBundle !== false
                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                         : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
                     }`}
                   >
-                    {jobPostingPricing.enableVipBundle !== false ? '✓ Enabled' : '✕ Disabled'}
+                    {tierPricingDraft.enableVipBundle !== false ? '✓ Enabled' : '✕ Disabled'}
                   </button>
                 </div>
 
@@ -6763,14 +6857,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">PKR</span>
                     <input
                       type="number"
-                      value={jobPostingPricing.vipBundleFeePkr}
+                      value={tierPricingDraft.vipBundleFeePkr}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            vipBundleFeePkr: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          vipBundleFeePkr: Math.max(0, Number(e.target.value) || 0)
+                        }));
                       }}
                       className="w-full pl-11 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-bold font-mono focus:border-purple-400 outline-none"
                     />
@@ -6782,14 +6875,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="relative">
                     <input
                       type="number"
-                      value={jobPostingPricing.vipBundleDurationDays ?? 45}
+                      value={tierPricingDraft.vipBundleDurationDays ?? 45}
                       onChange={(e) => {
-                        if (onChangeJobPostingPricing) {
-                          onChangeJobPostingPricing({
-                            ...jobPostingPricing,
-                            vipBundleDurationDays: Number(e.target.value)
-                          });
-                        }
+                        setTierPricingNotice(null);
+                        setTierPricingDraft((prev) => ({
+                          ...prev,
+                          vipBundleDurationDays: Math.max(1, Number(e.target.value) || 1)
+                        }));
                       }}
                       className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-purple-300 font-mono focus:border-purple-400 outline-none"
                     />
@@ -6801,21 +6893,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">Badge Text</label>
                   <input
                     type="text"
-                    value={jobPostingPricing.vipBadgeText || '👑 VIP Ultimate Placement'}
+                    value={tierPricingDraft.vipBadgeText || '👑 VIP Ultimate Placement'}
                     onChange={(e) => {
-                      if (onChangeJobPostingPricing) {
-                        onChangeJobPostingPricing({
-                          ...jobPostingPricing,
-                          vipBadgeText: e.target.value
-                        });
-                      }
+                      setTierPricingNotice(null);
+                      setTierPricingDraft((prev) => ({
+                        ...prev,
+                        vipBadgeText: e.target.value
+                      }));
                     }}
                     className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-purple-300 text-[11px] outline-none"
                   />
                 </div>
 
                 <div className="text-[11px] bg-slate-900/90 p-2 rounded-xl border border-slate-800 text-slate-300">
-                  Flat Price: <strong className="text-purple-300 font-mono font-bold">PKR {jobPostingPricing.vipBundleFeePkr.toLocaleString()}</strong>
+                  Flat Price: <strong className="text-purple-300 font-mono font-bold">PKR {tierPricingDraft.vipBundleFeePkr.toLocaleString()}</strong>
                 </div>
               </div>
 

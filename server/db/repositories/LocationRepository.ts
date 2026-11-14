@@ -14,7 +14,7 @@ function readLocalLocations(): PakistanLocation[] {
       const content = fs.readFileSync(DATA_FILE, 'utf-8');
       if (content && content.trim()) {
         const parsed = JSON.parse(content);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed;
         }
       }
@@ -26,47 +26,102 @@ function readLocalLocations(): PakistanLocation[] {
 }
 
 function writeLocalLocations(locations: PakistanLocation[]): void {
-  try {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempFile = `${DATA_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tempFile, JSON.stringify(locations, null, 2), 'utf-8');
-    fs.renameSync(tempFile, DATA_FILE);
-  } catch (err) {
-    console.error('[LocationRepository] Error writing local location_catalog.json:', err);
+  const dir = path.dirname(DATA_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
+  const tempFile = `${DATA_FILE}.tmp.${Date.now()}`;
+  fs.writeFileSync(tempFile, JSON.stringify(locations, null, 2), 'utf-8');
+  fs.renameSync(tempFile, DATA_FILE);
 }
 
 export class LocationRepository {
+  private static mockCollection: any = null;
+  private static mockJobsCollection: any = null;
+  private static mockPendingJobsCollection: any = null;
+
+  /**
+   * Test-only helper to exercise MongoDB read/save/failure behavior without touching live MongoDB or local JSON.
+   * Strictly rejected outside test mode (IS_TEST !== 'true').
+   */
+  static setMockCollection(coll: any): void {
+    if (coll !== null && process.env.IS_TEST !== 'true') {
+      throw new Error('Security violation: Mock collection injection is strictly prohibited outside test mode (IS_TEST !== true).');
+    }
+    LocationRepository.mockCollection = coll;
+  }
+
+  static setMockUsageCollections(jobsColl: any, pendingJobsColl: any = null): void {
+    if ((jobsColl !== null || pendingJobsColl !== null) && process.env.IS_TEST !== 'true') {
+      throw new Error('Security violation: Mock usage collections injection is strictly prohibited outside test mode (IS_TEST !== true).');
+    }
+    LocationRepository.mockJobsCollection = jobsColl;
+    LocationRepository.mockPendingJobsCollection = pendingJobsColl;
+  }
+
+  private static useMongoBackend(): boolean {
+    return isMongoConfigured() || (process.env.IS_TEST === 'true' && LocationRepository.mockCollection !== null);
+  }
+
+  private static async getCatalogCollection(): Promise<any> {
+    if (process.env.IS_TEST === 'true' && LocationRepository.mockCollection !== null) {
+      return LocationRepository.mockCollection;
+    }
+    const db = await getMongoDb();
+    return db.collection(COLLECTION_NAME);
+  }
+
   /**
    * Retrieves the current location catalog.
-   * Authoritative source is MongoDB with local JSON file fallback.
+   * When MongoDB is configured, MongoDB is the strict single source of truth and errors fail closed.
+   * Empty catalogs (`locations: []`) are respected without reseeding defaults.
    */
   static async getAll(): Promise<PakistanLocation[]> {
-    if (isMongoConfigured()) {
+    if (LocationRepository.useMongoBackend()) {
       try {
-        const db = await getMongoDb();
-        const coll = db.collection(COLLECTION_NAME);
-        const doc = await withMongoTimeout(coll.findOne({ _id: 'master_catalog' as any }));
-        if (doc && Array.isArray(doc.locations) && doc.locations.length > 0) {
+        const coll = await LocationRepository.getCatalogCollection();
+        const doc = await withMongoTimeout<any>(
+          coll.findOne({ _id: 'master_catalog' as any }),
+          10000,
+          'fetch location catalog'
+        );
+        if (doc && Array.isArray(doc.locations)) {
           return doc.locations;
         }
 
-        // Initial Seed to MongoDB
+        // First-run atomic seed when document is genuinely missing
         const defaultList = readLocalLocations();
-        await withMongoTimeout(
+        const seedRes = await withMongoTimeout<any>(
           coll.updateOne(
             { _id: 'master_catalog' as any },
-            { $set: { _id: 'master_catalog' as any, locations: defaultList, updatedAt: new Date().toISOString() } },
+            {
+              $setOnInsert: {
+                _id: 'master_catalog' as any,
+                locations: defaultList,
+                updatedAt: new Date().toISOString()
+              }
+            },
             { upsert: true }
-          )
+          ),
+          10000,
+          'seed initial location catalog'
         );
-        writeLocalLocations(defaultList);
+        if (seedRes && seedRes.acknowledged === false) {
+          throw new Error('Initial location catalog seed was not acknowledged by MongoDB.');
+        }
+
+        const confirmed = await withMongoTimeout<any>(
+          coll.findOne({ _id: 'master_catalog' as any }),
+          10000,
+          'confirm seeded location catalog'
+        );
+        if (confirmed && Array.isArray(confirmed.locations)) {
+          return confirmed.locations;
+        }
         return defaultList;
-      } catch (err) {
-        console.warn('[LocationRepository] MongoDB query failed, falling back to local file storage:', err);
+      } catch (err: any) {
+        console.error('[LocationRepository] MongoDB read failed:', err?.message || err);
+        throw new Error(`Authoritative location database is unavailable: ${err?.message || err}`);
       }
     }
 
@@ -74,26 +129,35 @@ export class LocationRepository {
   }
 
   /**
-   * Persists the location catalog to MongoDB and local JSON fallback.
+   * Persists the location catalog.
+   * When MongoDB is configured, persists ONLY to MongoDB and fails closed on any error
+   * without touching data/location_catalog.json.
+   * When MongoDB is unconfigured, persists to data/location_catalog.json and throws on write failure.
    */
   static async saveAll(locations: PakistanLocation[]): Promise<void> {
-    writeLocalLocations(locations);
-
-    if (isMongoConfigured()) {
+    if (LocationRepository.useMongoBackend()) {
       try {
-        const db = await getMongoDb();
-        const coll = db.collection(COLLECTION_NAME);
-        await withMongoTimeout(
+        const coll = await LocationRepository.getCatalogCollection();
+        const result = await withMongoTimeout<any>(
           coll.updateOne(
             { _id: 'master_catalog' as any },
             { $set: { _id: 'master_catalog' as any, locations, updatedAt: new Date().toISOString() } },
             { upsert: true }
-          )
+          ),
+          12000,
+          'save location catalog'
         );
-      } catch (err) {
-        console.error('[LocationRepository] Error saving location catalog to MongoDB:', err);
+        if (result && result.acknowledged === false) {
+          throw new Error('Write not acknowledged by MongoDB.');
+        }
+        return;
+      } catch (err: any) {
+        console.error('[LocationRepository] Error saving location catalog to MongoDB:', err?.message || err);
+        throw new Error(`Durable location persistence failed: ${err?.message || err}`);
       }
     }
+
+    writeLocalLocations(locations);
   }
 
   /**
@@ -296,35 +360,42 @@ export class LocationRepository {
     const clean = cityName.trim();
     if (!clean) return { jobCount: 0 };
 
-    if (isMongoConfigured()) {
+    const useMockUsage =
+      process.env.IS_TEST === 'true' &&
+      (LocationRepository.mockJobsCollection !== null || LocationRepository.mockPendingJobsCollection !== null);
+
+    if (isMongoConfigured() || useMockUsage) {
       try {
-        const db = await getMongoDb();
-        const jobsColl = db.collection('jobs');
-        const pendingColl = db.collection('pending_jobs');
+        let jobsColl = LocationRepository.mockJobsCollection;
+        let pendingColl = LocationRepository.mockPendingJobsCollection;
+        if (!useMockUsage) {
+          const db = await getMongoDb();
+          jobsColl = db.collection('jobs');
+          pendingColl = db.collection('pending_jobs');
+        }
         const regex = new RegExp(`^${clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
         const [jobsCount, pendingCount] = await Promise.all([
-          jobsColl.countDocuments({ city: regex }),
-          pendingColl.countDocuments({ city: regex })
+          jobsColl ? withMongoTimeout(jobsColl.countDocuments({ city: regex }), 10000, 'count live jobs by city') : Promise.resolve(0),
+          pendingColl ? withMongoTimeout(pendingColl.countDocuments({ city: regex }), 10000, 'count pending jobs by city') : Promise.resolve(0)
         ]);
 
-        return { jobCount: jobsCount + pendingCount };
-      } catch (err) {
-        console.error('[LocationRepository] Error checking city usage in MongoDB:', err);
+        return { jobCount: Number(jobsCount || 0) + Number(pendingCount || 0) };
+      } catch (err: any) {
+        console.error('[LocationRepository] Error checking city usage in MongoDB:', err?.message || err);
+        throw new Error(`Authoritative location usage check failed: ${err?.message || err}`);
       }
     }
 
-    // Local file fallback
-    try {
-      const jobsFile = path.resolve(process.cwd(), 'data', 'jobs.json');
-      if (fs.existsSync(jobsFile)) {
-        const jobs = JSON.parse(fs.readFileSync(jobsFile, 'utf-8'));
-        const count = (Array.isArray(jobs) ? jobs : []).filter(
-          (j: any) => j.city && normalizeCityName(j.city) === normalizeCityName(clean)
-        ).length;
-        return { jobCount: count };
-      }
-    } catch {}
+    // Local file storage when MongoDB is not configured
+    const jobsFile = path.resolve(process.cwd(), 'data', 'jobs.json');
+    if (fs.existsSync(jobsFile)) {
+      const jobs = JSON.parse(fs.readFileSync(jobsFile, 'utf-8'));
+      const count = (Array.isArray(jobs) ? jobs : []).filter(
+        (j: any) => j.city && normalizeCityName(j.city) === normalizeCityName(clean)
+      ).length;
+      return { jobCount: count };
+    }
 
     return { jobCount: 0 };
   }

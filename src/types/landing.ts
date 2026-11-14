@@ -104,6 +104,8 @@ export interface LandingPageConfig {
   categoryPostingFees: CategoryPostingFee[];
   exemptUserIds: string[]; // Users/Employers exempt from posting fees
   exemptUserEmails: string[];
+  isFreeAllPostings?: boolean;
+  globalDiscount?: number;
   jobCardDesign: JobCardDesignConfig;
 }
 

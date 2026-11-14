@@ -1212,7 +1212,7 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      AuditRepository.add({
+      await AuditRepository.add({
         user: effectiveUserName || 'User',
         role: 'Member',
         action: finalStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
@@ -1293,7 +1293,7 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
         });
       }
 
-      AuditRepository.add({
+      await AuditRepository.add({
         user: 'Administrator',
         role: 'Payment Manager',
         action: action === 'approve' ? 'Payment Approved' : 'Payment Rejected',

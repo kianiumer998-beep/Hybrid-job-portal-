@@ -137,7 +137,7 @@ applicationRouter.post('/upload-cv', async (req, res) => {
     const downloadToken = generateCvDownloadToken(storedFileName, 24); // 24 hours
     const fileUrl = `${storageResult.relativeUrl}?token=${downloadToken}`;
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Candidate',
       role: (req as any).user?.role || 'Applicant',
       action: 'CV Uploaded Securely',
@@ -233,7 +233,7 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
     }
 
     if (!isAuthorized) {
-      AuditRepository.add({
+      await AuditRepository.add({
         user: user?.name || 'Anonymous',
         role: user?.role || 'Guest',
         action: 'Unauthorized CV Access Attempt Blocked',
@@ -597,7 +597,7 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       console.error(`Failed to dispatch application notification for app ${newApp.id}:`, notifErr);
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user.name,
       role: (req as any).user.role,
       action: 'Job Application Submitted',
@@ -713,7 +713,7 @@ applicationRouter.patch('/:id/status', requireAuth, async (req, res) => {
       }
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: (req as any).user?.role || 'Hiring Manager',
       action: 'Application Status Updated',

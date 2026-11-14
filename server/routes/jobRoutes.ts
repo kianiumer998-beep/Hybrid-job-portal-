@@ -254,7 +254,7 @@ jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage
     if (!approved) {
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
     }
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Moderator',
       action: 'Job Approved & Published Live',
@@ -314,7 +314,7 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
       }
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Moderator',
       action: 'Job Rejected',
@@ -405,7 +405,7 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
       }
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Deleted',
@@ -497,7 +497,7 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
     const result = await JobRepository.bulkApprovePending(idsToApprove);
     const combinedErrors = [...unresolvedErrors, ...result.errors];
     const totalFailureCount = combinedErrors.length;
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Approved',
@@ -589,7 +589,7 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
       }
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Rejected',
@@ -631,7 +631,7 @@ jobRouter.post('/bulk-delete-duplicates', requireAdminPermission('jobs.manage'),
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.bulkDeleteDuplicates(ids);
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Duplicate Jobs Deleted',
@@ -661,7 +661,7 @@ jobRouter.post('/duplicates/bulk-delete', requireAdminPermission('jobs.manage'),
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.bulkDeleteDuplicates(ids);
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Duplicate Jobs Deleted',
@@ -693,7 +693,7 @@ jobRouter.post('/keep-original-delete-duplicates', requireAdminPermission('jobs.
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.keepOriginalAndDeleteDuplicates(ids);
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Keep Original + Delete Duplicates Processed',
@@ -723,7 +723,7 @@ jobRouter.post('/duplicates/keep-original', requireAdminPermission('jobs.manage'
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.keepOriginalAndDeleteDuplicates(ids);
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Keep Original + Delete Duplicates Processed',
@@ -755,7 +755,7 @@ jobRouter.post('/overwrite-original', requireAdminPermission('jobs.manage'), asy
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.overwriteOriginalWithDuplicates(ids);
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Overwrite Original with Duplicate Data',
@@ -785,7 +785,7 @@ jobRouter.post('/duplicates/overwrite-original', requireAdminPermission('jobs.ma
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.overwriteOriginalWithDuplicates(ids);
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Overwrite Original with Duplicate Data',
@@ -873,7 +873,7 @@ jobRouter.post('/batch', requireAdminPermission('jobs.manage'), async (req, res)
       pendingRes = await JobRepository.addPendingBatch(toPending);
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Batch Importer',
       action: 'Batch Ingestion & Persistence',
@@ -1534,7 +1534,7 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
 
     if (importedCount > 0) {
       try {
-        await AuditRepository.add({
+        await await AuditRepository.add({
           user: (req as any).user?.name || 'Administrator',
           role: (req as any).user?.role || 'Admin',
           action: 'Admin Bulk Job Import',
@@ -1654,7 +1654,7 @@ jobRouter.post('/override-duplicate', requireAdminPermission('jobs.manage'), asy
       await JobRepository.update(jobId, updates);
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Quality Assurance',
       action: 'Duplicate Decision Overridden',
@@ -1690,7 +1690,7 @@ jobRouter.post('/merge', requireAdminPermission('jobs.manage'), async (req, res)
     await JobRepository.delete(secondaryJobId);
     await JobRepository.rejectPending(secondaryJobId, `Merged into job ${primaryJobId}`);
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Jobs Merged Intelligently',
@@ -1785,7 +1785,7 @@ jobRouter.post('/attachments/upload', requireAdminPermission('jobs.manage'), asy
       isPublic
     };
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Document Attachment Uploaded',
@@ -1881,7 +1881,7 @@ jobRouter.post('/:id/attachments', requireAdminPermission('jobs.manage'), async 
     const updatedAttachments = [...currentAttachments, newAttachment];
     const updatedJob = await JobRepository.update(id, { attachments: updatedAttachments });
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Document Attached to Job',
@@ -1932,7 +1932,7 @@ jobRouter.patch('/:id/attachments/:attachmentId/visibility', requireAdminPermiss
 
     const updatedJob = await JobRepository.update(id, { attachments: currentAttachments });
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Attachment Visibility Changed',
@@ -1982,7 +1982,7 @@ jobRouter.delete('/:id/attachments/:attachmentId', requireAdminPermission('jobs.
       deleteAttachmentFile(targetAtt.fileUrl);
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Document Attachment Removed from Job',
@@ -2100,7 +2100,7 @@ jobRouter.post('/', async (req, res) => {
     if (canCreateApproved) {
       newJob.status = 'Approved';
       savedJob = await JobRepository.create(newJob);
-      AuditRepository.add({
+      await AuditRepository.add({
         user: user?.name || 'Administrator',
         role: user?.role || 'Admin',
         action: 'Job Created & Published (Admin Direct)',
@@ -2135,7 +2135,7 @@ jobRouter.post('/', async (req, res) => {
       newJob.priorityTier = 'standard';
       newJob.isVerified = false;
       savedJob = await JobRepository.addPending(newJob);
-      AuditRepository.add({
+      await AuditRepository.add({
         user: user?.name || 'Guest Employer',
         role: user?.role || 'Employer',
         action: 'Job Submitted for Review',
@@ -2162,7 +2162,7 @@ jobRouter.put('/:id', requireAdminPermission('jobs.manage'), async (req, res) =>
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
     }
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Updated',
@@ -2217,7 +2217,7 @@ jobRouter.delete('/:id', requireAdminPermission('jobs.manage'), async (req, res)
       }
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Deleted',
@@ -2239,7 +2239,7 @@ jobRouter.post('/restore-expired/:id', requireAdminPermission('jobs.manage'), as
     if (!restored) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
     }
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Expired Job Restored to Live',
@@ -2261,7 +2261,7 @@ jobRouter.post('/bulk-restore-expired', requireAdminPermission('jobs.manage'), a
       return res.status(400).json({ success: false, message: 'Array of job IDs required' });
     }
     const count = await JobRepository.bulkRestoreJobs(ids);
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Expired Jobs Restored to Live',
@@ -2316,7 +2316,7 @@ jobRouter.delete('/permanent/:id', requireAdminPermission('jobs.manage'), async 
       }
     }
 
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Permanently Deleted',
@@ -2339,7 +2339,7 @@ jobRouter.post('/bulk-update-location', requireAdminPermission('jobs.manage'), a
       return res.status(400).json({ success: false, message: 'Array of job IDs required' });
     }
     const result = await JobRepository.bulkUpdateLocation(jobIds, locationData || {});
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Job Location Updated',
@@ -2361,7 +2361,7 @@ jobRouter.post('/bulk-mark-non-job', requireAdminPermission('jobs.manage'), asyn
       return res.status(400).json({ success: false, message: 'Array of job IDs required' });
     }
     const result = await JobRepository.bulkMarkNonJob(ids, reason || 'Marked as Non-Job by administrator');
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Marked as Non-Job',
@@ -2386,7 +2386,7 @@ jobRouter.post('/convert-to-job', requireAdminPermission('jobs.manage'), async (
     if (!success) {
       return res.status(404).json({ success: false, message: 'Job not found in pending queue.' });
     }
-    AuditRepository.add({
+    await AuditRepository.add({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Record Converted to Job',

@@ -36,7 +36,10 @@ import {
   resolveInitialWhatsAppFormData,
   syncWhatsAppFormWithConfig,
   runLegacyGroupMigration,
-  executeRestoreWhatsAppDefaults
+  executeRestoreWhatsAppDefaults,
+  canShowLegacyMigrationRetry,
+  getStoredValidLegacyGroupLink,
+  LegacyMigrationStatus
 } from '../../src/components/admin/AdminWhatsAppManager';
 
 function getDataSnapshot(): Record<string, string> {
@@ -1081,7 +1084,442 @@ async function runTests() {
       }
     });
 
-    await runTest('20. Protected files (server/db/mongodb.ts & data/*.json) remain byte-for-byte unchanged', () => {
+    await runTest('20. Controlled retry eligibility, lifecycle callbacks, and MongoDB priority stay synchronized', async () => {
+      resetSystemSettingsTestStore();
+      const legacyLink = 'https://chat.whatsapp.com/LegacyControlledRetry20';
+      const mongoLink = 'https://chat.whatsapp.com/AuthoritativeMongo20';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        // 1. Absent or invalid/sample legacy keys never show retry or start migration
+        assert.strictEqual(getStoredValidLegacyGroupLink(), '');
+        assert.strictEqual(
+          canShowLegacyMigrationRetry({
+            config: DEFAULT_WHATSAPP_CONFIG,
+            legacyLink: getStoredValidLegacyGroupLink(),
+            migrationStatus: 'failed'
+          }),
+          false
+        );
+
+        for (const badLink of ['not-a-url', 'http://chat.whatsapp.com/InsecureLink', 'https://chat.whatsapp.com/samplecareerpakcommunity']) {
+          memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, badLink);
+          assert.strictEqual(getStoredValidLegacyGroupLink(), '');
+          assert.strictEqual(
+            canShowLegacyMigrationRetry({
+              config: DEFAULT_WHATSAPP_CONFIG,
+              legacyLink: getStoredValidLegacyGroupLink(),
+              migrationStatus: 'failed'
+            }),
+            false
+          );
+        }
+
+        // 2. Valid legacy link -> failed migration triggers lifecycle callbacks & enables retry
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        assert.strictEqual(getStoredValidLegacyGroupLink(), legacyLink);
+
+        let formData = resolveInitialWhatsAppFormData(DEFAULT_WHATSAPP_CONFIG);
+        const hasAttemptedMigrationRef = { current: false };
+        const isRestoringDefaultsRef = { current: false };
+        const migrationInFlightRef = { current: false };
+
+        let status: LegacyMigrationStatus = 'idle';
+        let migrationError: string | null = null;
+        let finishEvents = 0;
+
+        let shouldFail = true;
+        let backendCalls = 0;
+        const onUpdateConfig = async (payload: any) => {
+          backendCalls++;
+          if (shouldFail) {
+            return { success: false, message: 'Simulated transient migration failure' };
+          }
+          const putRes = await fetch(baseUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+            body: JSON.stringify({ whatsAppSupportConfig: payload })
+          });
+          return putRes.json();
+        };
+
+        const runAttempt = (cfg: any) =>
+          runLegacyGroupMigration({
+            config: cfg,
+            hasAttemptedMigrationRef,
+            isRestoringDefaultsRef,
+            migrationInFlightRef,
+            onUpdateConfig,
+            setFormData: (u: any) => { formData = typeof u === 'function' ? u(formData) : u; },
+            onMigrationStart: () => {
+              migrationError = null;
+              status = 'in_flight';
+            },
+            onMigrationSuccess: () => {
+              migrationError = null;
+              status = 'succeeded';
+            },
+            onMigrationFailure: (msg) => {
+              migrationError = msg;
+              status = 'failed';
+            },
+            onMigrationFinish: () => {
+              finishEvents++;
+              if (status === 'in_flight') status = 'idle';
+            }
+          });
+
+        assert.strictEqual(await runAttempt(DEFAULT_WHATSAPP_CONFIG), false);
+        assert.strictEqual(backendCalls, 1);
+        assert.strictEqual(status, 'failed');
+        assert.strictEqual(finishEvents, 1);
+        assert.strictEqual(migrationError, 'Simulated transient migration failure');
+        assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink);
+        assert.strictEqual(
+          canShowLegacyMigrationRetry({
+            config: DEFAULT_WHATSAPP_CONFIG,
+            legacyLink: getStoredValidLegacyGroupLink(),
+            migrationStatus: status,
+            hasAttemptedMigration: hasAttemptedMigrationRef.current
+          }),
+          true
+        );
+
+        // If valid MongoDB groupLink appears while retry is eligible, retry hides & never migrates/overwrites it
+        const configWithMongo = { ...DEFAULT_WHATSAPP_CONFIG, groupLink: mongoLink };
+        assert.strictEqual(
+          canShowLegacyMigrationRetry({
+            config: configWithMongo,
+            legacyLink: getStoredValidLegacyGroupLink(),
+            migrationStatus: status,
+            hasAttemptedMigration: hasAttemptedMigrationRef.current
+          }),
+          false
+        );
+        assert.strictEqual(await runAttempt(configWithMongo), false);
+        assert.strictEqual(backendCalls, 1, 'Valid MongoDB groupLink must block legacy migration');
+
+        // Clicking retry when backend recovers succeeds & hides retry permanently
+        shouldFail = false;
+        assert.strictEqual(await runAttempt(DEFAULT_WHATSAPP_CONFIG), true);
+        assert.strictEqual(backendCalls, 2);
+        assert.strictEqual(status, 'succeeded');
+        assert.strictEqual(migrationError, null);
+        assert.strictEqual(hasAttemptedMigrationRef.current, true);
+        assert.strictEqual(memStorage.has(LEGACY_WHATSAPP_GROUP_LINK_KEY), false);
+        assert.strictEqual(formData.groupLink, legacyLink);
+        assert.strictEqual(
+          canShowLegacyMigrationRetry({
+            config: DEFAULT_WHATSAPP_CONFIG,
+            legacyLink: getStoredValidLegacyGroupLink(),
+            migrationStatus: status,
+            hasAttemptedMigration: hasAttemptedMigrationRef.current
+          }),
+          false
+        );
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('21. AdminWhatsAppManager SSR output exposes Retry Migration only when eligible and disables Restore Defaults while in flight', () => {
+      const legacyLink = 'https://chat.whatsapp.com/LegacySsrComponent21';
+      const mongoLink = 'https://chat.whatsapp.com/MongoSsrComponent21';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        // Note: React SSR renderToStaticMarkup verifies rendered component states without simulating browser DOM click/effect loops.
+        // 1. Failed state + valid legacy key + empty Mongo groupLink -> Retry Migration button visible & enabled; Restore Defaults enabled
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        const failedHtml = renderToStaticMarkup(
+          React.createElement(AdminWhatsAppManager, {
+            config: DEFAULT_WHATSAPP_CONFIG,
+            onUpdateConfig: async () => false,
+            initialMigrationStatus: 'failed',
+            initialMigrationError: 'Server rejected migration'
+          })
+        );
+        assert.ok(failedHtml.includes('data-testid="retry-legacy-migration-btn"'), 'Retry button must render after failed migration');
+        assert.ok(failedHtml.includes('Retry Migration'));
+        assert.ok(failedHtml.includes('Server rejected migration'));
+        assert.ok(failedHtml.includes('data-testid="restore-whatsapp-defaults-btn"'));
+        const restoreDisabledRegex = /<button[^>]*data-testid="restore-whatsapp-defaults-btn"[^>]*\sdisabled=""/;
+        assert.strictEqual(restoreDisabledRegex.test(failedHtml), false, 'Restore button must be enabled after migration finishes');
+
+        // 2. In-flight migration state -> Retry button hidden, in-flight banner shown, Restore Defaults visibly disabled
+        const inFlightHtml = renderToStaticMarkup(
+          React.createElement(AdminWhatsAppManager, {
+            config: DEFAULT_WHATSAPP_CONFIG,
+            onUpdateConfig: async () => true,
+            initialMigrationStatus: 'in_flight'
+          })
+        );
+        assert.strictEqual(inFlightHtml.includes('data-testid="retry-legacy-migration-btn"'), false, 'Retry button must hide while migration is in flight');
+        assert.ok(inFlightHtml.includes('data-testid="legacy-migration-in-flight-banner"'));
+        assert.ok(restoreDisabledRegex.test(inFlightHtml), 'Restore button must be disabled while migration is active');
+
+        // 3. Valid MongoDB groupLink hides retry control even if legacy key exists
+        const mongoPresentHtml = renderToStaticMarkup(
+          React.createElement(AdminWhatsAppManager, {
+            config: { ...DEFAULT_WHATSAPP_CONFIG, groupLink: mongoLink },
+            onUpdateConfig: async () => true,
+            initialMigrationStatus: 'failed'
+          })
+        );
+        assert.strictEqual(mongoPresentHtml.includes('data-testid="retry-legacy-migration-btn"'), false);
+
+        // 4. Succeeded or restored states hide retry control
+        for (const terminalStatus of ['succeeded', 'restored'] as const) {
+          const terminalHtml = renderToStaticMarkup(
+            React.createElement(AdminWhatsAppManager, {
+              config: DEFAULT_WHATSAPP_CONFIG,
+              onUpdateConfig: async () => true,
+              initialMigrationStatus: terminalStatus
+            })
+          );
+          assert.strictEqual(terminalHtml.includes('data-testid="retry-legacy-migration-btn"'), false);
+        }
+
+        // 5. Absent or sample/invalid legacy keys hide retry control
+        memStorage.delete(LEGACY_WHATSAPP_GROUP_LINK_KEY);
+        const noKeyHtml = renderToStaticMarkup(
+          React.createElement(AdminWhatsAppManager, {
+            config: DEFAULT_WHATSAPP_CONFIG,
+            onUpdateConfig: async () => false,
+            initialMigrationStatus: 'failed'
+          })
+        );
+        assert.strictEqual(noKeyHtml.includes('data-testid="retry-legacy-migration-btn"'), false);
+
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, 'https://chat.whatsapp.com/samplecareerpakcommunity');
+        const sampleKeyHtml = renderToStaticMarkup(
+          React.createElement(AdminWhatsAppManager, {
+            config: DEFAULT_WHATSAPP_CONFIG,
+            onUpdateConfig: async () => false,
+            initialMigrationStatus: 'failed'
+          })
+        );
+        assert.strictEqual(sampleKeyHtml.includes('data-testid="retry-legacy-migration-btn"'), false);
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('22. Bidirectional mutual exclusion between Migration and Restore Defaults blocks races and concurrent duplicates', async () => {
+      resetSystemSettingsTestStore();
+      const legacyLink = 'https://chat.whatsapp.com/LegacyMutualExclusion22';
+
+      const memStorage = new Map<string, string>();
+      const prevLocalStorage = (globalThis as any).localStorage;
+      (globalThis as any).localStorage = {
+        getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+        setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+        removeItem: (k: string) => { memStorage.delete(k); }
+      };
+
+      try {
+        // PART A: Migration in flight blocks Restore Defaults (both explicit migrationInFlightRef and WeakMap fallback)
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        const initialConfig = {
+          ...DEFAULT_WHATSAPP_CONFIG,
+          enabled: true,
+          phoneNumber: '923118889900',
+          groupLink: ''
+        };
+        let formData = { ...initialConfig, groupLink: legacyLink };
+        const setFormData: any = (u: any) => { formData = typeof u === 'function' ? u(formData) : u; };
+        const hasAttemptedMigrationRef = { current: false };
+        const isRestoringDefaultsRef = { current: false };
+        const migrationInFlightRef = { current: false };
+
+        let saveError: string | null = null;
+        let isSaving = false;
+        let savedSuccess = false;
+
+        let resolvePendingMigration!: (val: any) => void;
+        let migrationBackendCalls = 0;
+        const onUpdateConfig = (payload: any) => {
+          migrationBackendCalls++;
+          if (migrationBackendCalls === 1) {
+            return new Promise((resolve) => {
+              resolvePendingMigration = resolve;
+            });
+          }
+          return fetch(baseUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+            body: JSON.stringify({ whatsAppSupportConfig: payload })
+          }).then(r => r.json());
+        };
+
+        const pendingMigration = runLegacyGroupMigration({
+          config: initialConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          onUpdateConfig,
+          setFormData
+        });
+        await Promise.resolve();
+        assert.strictEqual(migrationInFlightRef.current, true);
+
+        // Attempt Restore Defaults while migration is in flight (with explicit ref)
+        let onRestoreFailureCalled = false;
+        const blockedRestore1 = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; },
+          onRestoreFailure: () => { onRestoreFailureCalled = true; }
+        });
+        assert.strictEqual(blockedRestore1, false, 'Restore Defaults must be rejected while migration is in flight');
+        assert.strictEqual(onRestoreFailureCalled, true);
+        assert.ok(saveError && String(saveError).toLowerCase().includes('migration'));
+        assert.strictEqual(migrationBackendCalls, 1, 'Blocked Restore Defaults must NOT call onUpdateConfig');
+        assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink, 'Blocked Restore must NOT remove LocalStorage');
+        assert.strictEqual(formData.groupLink, legacyLink, 'Blocked Restore must NOT change formData');
+        assert.strictEqual(formData.phoneNumber, '923118889900');
+        assert.strictEqual(hasAttemptedMigrationRef.current, false, 'Blocked Restore must NOT mark migration completed');
+        assert.strictEqual(isRestoringDefaultsRef.current, false);
+        assert.strictEqual(isSaving, false);
+        assert.strictEqual(savedSuccess, false);
+
+        // Also blocked if caller omitted migrationInFlightRef (via WeakMap fallback)
+        const blockedRestore2 = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; }
+        });
+        assert.strictEqual(blockedRestore2, false);
+        assert.strictEqual(migrationBackendCalls, 1);
+
+        // Finish migration with failure so lock releases, then Restore Defaults must succeed cleanly
+        resolvePendingMigration({ success: false });
+        assert.strictEqual(await pendingMigration, false);
+        assert.strictEqual(migrationInFlightRef.current, false);
+
+        let restoreSuccessCb = false;
+        const restoreAfterMigration = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig,
+          hasAttemptedMigrationRef,
+          isRestoringDefaultsRef,
+          migrationInFlightRef,
+          setFormData,
+          setSaveError: (v: any) => { saveError = typeof v === 'function' ? v(saveError) : v; },
+          setIsSaving: (v: any) => { isSaving = typeof v === 'function' ? v(isSaving) : v; },
+          setSavedSuccess: (v: any) => { savedSuccess = typeof v === 'function' ? v(savedSuccess) : v; },
+          onRestoreSuccess: () => { restoreSuccessCb = true; }
+        });
+        assert.strictEqual(restoreAfterMigration, true, 'Restore Defaults must succeed once migration finishes');
+        assert.strictEqual(restoreSuccessCb, true);
+        assert.strictEqual(migrationBackendCalls, 2);
+        assert.strictEqual(memStorage.has(LEGACY_WHATSAPP_GROUP_LINK_KEY), false);
+        assert.strictEqual(hasAttemptedMigrationRef.current, true);
+        assert.deepStrictEqual(formData, DEFAULT_WHATSAPP_CONFIG);
+
+        // PART B: Restore Defaults in flight blocks concurrent duplicate Restore AND blocks Migration
+        resetSystemSettingsTestStore();
+        memStorage.set(LEGACY_WHATSAPP_GROUP_LINK_KEY, legacyLink);
+        const rHasAttemptedRef = { current: false };
+        const rIsRestoringRef = { current: false };
+        const rMigrationInFlightRef = { current: false };
+        let rFormData = { ...initialConfig, groupLink: legacyLink };
+        const rSetFormData: any = (u: any) => { rFormData = typeof u === 'function' ? u(rFormData) : u; };
+
+        let resolvePendingRestore!: (val: any) => void;
+        let restoreCalls = 0;
+        const slowRestoreUpdate = () => {
+          restoreCalls++;
+          return new Promise((resolve) => {
+            resolvePendingRestore = resolve;
+          });
+        };
+
+        const pRestore1 = executeRestoreWhatsAppDefaults({
+          onUpdateConfig: slowRestoreUpdate,
+          hasAttemptedMigrationRef: rHasAttemptedRef,
+          isRestoringDefaultsRef: rIsRestoringRef,
+          migrationInFlightRef: rMigrationInFlightRef,
+          setFormData: rSetFormData,
+          setSaveError: () => {},
+          setIsSaving: () => {},
+          setSavedSuccess: () => {}
+        });
+        await Promise.resolve();
+        assert.strictEqual(rIsRestoringRef.current, true);
+
+        // Duplicate Restore Defaults call must be blocked immediately
+        const pRestore2 = await executeRestoreWhatsAppDefaults({
+          onUpdateConfig: slowRestoreUpdate,
+          hasAttemptedMigrationRef: rHasAttemptedRef,
+          isRestoringDefaultsRef: rIsRestoringRef,
+          migrationInFlightRef: rMigrationInFlightRef,
+          setFormData: rSetFormData,
+          setSaveError: () => {},
+          setIsSaving: () => {},
+          setSavedSuccess: () => {}
+        });
+        assert.strictEqual(pRestore2, false, 'Concurrent duplicate Restore Defaults must be blocked');
+
+        // Migration during active Restore Defaults must also be blocked
+        const blockedMigration = await runLegacyGroupMigration({
+          config: DEFAULT_WHATSAPP_CONFIG,
+          hasAttemptedMigrationRef: rHasAttemptedRef,
+          isRestoringDefaultsRef: rIsRestoringRef,
+          migrationInFlightRef: rMigrationInFlightRef,
+          onUpdateConfig: slowRestoreUpdate,
+          setFormData: rSetFormData
+        });
+        assert.strictEqual(blockedMigration, false, 'Migration must not start while Restore Defaults is active');
+        assert.strictEqual(restoreCalls, 1, 'Only one backend write allowed while restore is active');
+
+        // Complete pending restore as failure first -> preserves LocalStorage & formData & releases lock
+        resolvePendingRestore({ success: false });
+        assert.strictEqual(await pRestore1, false);
+        assert.strictEqual(rIsRestoringRef.current, false);
+        assert.strictEqual(memStorage.get(LEGACY_WHATSAPP_GROUP_LINK_KEY), legacyLink);
+        assert.strictEqual(rFormData.phoneNumber, '923118889900');
+        assert.strictEqual(rHasAttemptedRef.current, false);
+      } finally {
+        if (prevLocalStorage === undefined) {
+          delete (globalThis as any).localStorage;
+        } else {
+          (globalThis as any).localStorage = prevLocalStorage;
+        }
+      }
+    });
+
+    await runTest('23. Protected files (server/db/mongodb.ts & data/*.json) remain byte-for-byte unchanged', () => {
       assert.strictEqual(getFileSha256('server/db/mongodb.ts'), preMongoHash);
       const postData = getDataSnapshot();
       assert.deepStrictEqual(Object.keys(postData).sort(), Object.keys(preData).sort());

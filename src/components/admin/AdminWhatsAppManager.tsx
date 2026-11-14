@@ -30,10 +30,14 @@ import {
   buildWhatsAppChatUrl
 } from '../WhatsAppStickyButton';
 
+export type LegacyMigrationStatus = 'idle' | 'in_flight' | 'failed' | 'succeeded' | 'restored';
+
 interface AdminWhatsAppManagerProps {
   config: WhatsAppSupportConfig;
   onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
   subscribersCount?: number;
+  initialMigrationStatus?: LegacyMigrationStatus;
+  initialMigrationError?: string | null;
 }
 
 const isRealWhatsAppGroupLink = (link?: string | null): boolean => {
@@ -41,6 +45,29 @@ const isRealWhatsAppGroupLink = (link?: string | null): boolean => {
 };
 
 export const LEGACY_WHATSAPP_GROUP_LINK_KEY = 'hybrid_whatsapp_group_link';
+
+export function getStoredValidLegacyGroupLink(): string {
+  try {
+    const legacy = localStorage.getItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
+    return isRealWhatsAppGroupLink(legacy) ? legacy!.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+export function canShowLegacyMigrationRetry(params: {
+  config?: Partial<WhatsAppSupportConfig> | null;
+  legacyLink?: string | null;
+  migrationStatus: LegacyMigrationStatus;
+  hasAttemptedMigration?: boolean;
+}): boolean {
+  const { config, legacyLink, migrationStatus, hasAttemptedMigration } = params;
+  if (hasAttemptedMigration) return false;
+  if (migrationStatus !== 'failed') return false;
+  if (isRealWhatsAppGroupLink(config?.groupLink)) return false;
+  if (!isRealWhatsAppGroupLink(legacyLink)) return false;
+  return true;
+}
 
 export function resolveInitialWhatsAppFormData(
   config?: Partial<WhatsAppSupportConfig> | null
@@ -91,6 +118,15 @@ export function syncWhatsAppFormWithConfig(
 
 const fallbackMigrationInFlightMap = new WeakMap<{ current: boolean }, { current: boolean }>();
 
+function getFallbackMigrationInFlightRef(hasAttemptedMigrationRef: { current: boolean }): { current: boolean } {
+  let ref = fallbackMigrationInFlightMap.get(hasAttemptedMigrationRef);
+  if (!ref) {
+    ref = { current: false };
+    fallbackMigrationInFlightMap.set(hasAttemptedMigrationRef, ref);
+  }
+  return ref;
+}
+
 export async function runLegacyGroupMigration(params: {
   config?: WhatsAppSupportConfig | null;
   hasAttemptedMigrationRef: { current: boolean };
@@ -98,6 +134,10 @@ export async function runLegacyGroupMigration(params: {
   migrationInFlightRef?: { current: boolean };
   onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
   setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
+  onMigrationStart?: () => void;
+  onMigrationSuccess?: () => void;
+  onMigrationFailure?: (message: string) => void;
+  onMigrationFinish?: () => void;
 }): Promise<boolean> {
   const {
     config,
@@ -105,22 +145,21 @@ export async function runLegacyGroupMigration(params: {
     isRestoringDefaultsRef,
     migrationInFlightRef,
     onUpdateConfig,
-    setFormData
+    setFormData,
+    onMigrationStart,
+    onMigrationSuccess,
+    onMigrationFailure,
+    onMigrationFinish
   } = params;
 
-  let activeInFlightRef = migrationInFlightRef;
-  if (!activeInFlightRef) {
-    activeInFlightRef = fallbackMigrationInFlightMap.get(hasAttemptedMigrationRef);
-    if (!activeInFlightRef) {
-      activeInFlightRef = { current: false };
-      fallbackMigrationInFlightMap.set(hasAttemptedMigrationRef, activeInFlightRef);
-    }
-  }
+  const fallbackInFlightRef = getFallbackMigrationInFlightRef(hasAttemptedMigrationRef);
+  const activeInFlightRef = migrationInFlightRef || fallbackInFlightRef;
 
   if (
     hasAttemptedMigrationRef.current ||
     isRestoringDefaultsRef?.current ||
-    activeInFlightRef.current
+    activeInFlightRef.current ||
+    fallbackInFlightRef.current
   ) {
     return false;
   }
@@ -148,6 +187,8 @@ export async function runLegacyGroupMigration(params: {
     };
 
     activeInFlightRef.current = true;
+    fallbackInFlightRef.current = true;
+    onMigrationStart?.();
     try {
       const res = await Promise.resolve(onUpdateConfig(payload));
       // Rule 5: Treat migration as successful only when the backend explicitly confirms success.
@@ -165,18 +206,29 @@ export async function runLegacyGroupMigration(params: {
           groupLink: validLink,
           ...(res?.whatsAppSupportConfig || {})
         }));
+        onMigrationSuccess?.();
         return true;
       } else {
         // Rule 6: Retain legacy value and keep eligible for controlled retry if migration fails
+        const failMsg =
+          (res && typeof res === 'object' && typeof res.message === 'string' && res.message) ||
+          'Legacy WhatsApp group link migration could not be saved on server. Your saved link is preserved—click Retry Migration to try again.';
         console.warn('[AdminWhatsAppManager] Backend did not confirm group link migration. Legacy LocalStorage value retained.');
+        onMigrationFailure?.(failMsg);
         return false;
       }
     } catch (err: any) {
       // Rule 6: Retain legacy value and keep eligible for controlled retry if migration fails
+      const errMsg =
+        err?.message ||
+        'Failed to migrate legacy WhatsApp group link to server. Your saved link is preserved—click Retry Migration to try again.';
       console.warn('[AdminWhatsAppManager] Failed to migrate legacy Group Link to MongoDB:', err);
+      onMigrationFailure?.(errMsg);
       return false;
     } finally {
       activeInFlightRef.current = false;
+      fallbackInFlightRef.current = false;
+      onMigrationFinish?.();
     }
   }
 
@@ -187,31 +239,60 @@ export async function executeRestoreWhatsAppDefaults(params: {
   onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
   hasAttemptedMigrationRef: { current: boolean };
   isRestoringDefaultsRef: { current: boolean };
+  migrationInFlightRef?: { current: boolean };
   setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
   setSaveError: React.Dispatch<React.SetStateAction<string | null>>;
   setIsSaving: React.Dispatch<React.SetStateAction<boolean>>;
   setSavedSuccess: React.Dispatch<React.SetStateAction<boolean>>;
+  onRestoreStart?: () => void;
+  onRestoreSuccess?: () => void;
+  onRestoreFailure?: (message: string) => void;
+  onRestoreFinish?: () => void;
 }): Promise<boolean> {
   const {
     onUpdateConfig,
     hasAttemptedMigrationRef,
     isRestoringDefaultsRef,
+    migrationInFlightRef,
     setFormData,
     setSaveError,
     setIsSaving,
-    setSavedSuccess
+    setSavedSuccess,
+    onRestoreStart,
+    onRestoreSuccess,
+    onRestoreFailure,
+    onRestoreFinish
   } = params;
+
+  // Mutual exclusion & duplicate-restore guard before mutating state or calling backend
+  if (isRestoringDefaultsRef.current) {
+    return false;
+  }
+
+  const fallbackInFlightRef = getFallbackMigrationInFlightRef(hasAttemptedMigrationRef);
+  if (migrationInFlightRef?.current || fallbackInFlightRef.current) {
+    const busyMsg =
+      'Cannot restore defaults while legacy WhatsApp group link migration is in progress. Please wait for it to finish and try again.';
+    setSaveError(busyMsg);
+    onRestoreFailure?.(busyMsg);
+    return false;
+  }
 
   setSaveError(null);
   setIsSaving(true);
   isRestoringDefaultsRef.current = true;
+  onRestoreStart?.();
   try {
-    const result = await onUpdateConfig(DEFAULT_WHATSAPP_CONFIG);
+    const result = await Promise.resolve(onUpdateConfig(DEFAULT_WHATSAPP_CONFIG));
     const isRestoreSuccess = Boolean(
       result === true || (result && typeof result === 'object' && result.success === true)
     );
     if (!isRestoreSuccess) {
-      setSaveError('Failed to restore defaults on server. Form values retained.');
+      const failMsg =
+        (result && typeof result === 'object' && typeof result.message === 'string' && result.message) ||
+        'Failed to restore defaults on server. Form values retained.';
+      setSaveError(failMsg);
+      onRestoreFailure?.(failMsg);
       return false;
     }
     try {
@@ -221,20 +302,26 @@ export async function executeRestoreWhatsAppDefaults(params: {
     setFormData({ ...DEFAULT_WHATSAPP_CONFIG });
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
+    onRestoreSuccess?.();
     return true;
   } catch (err: any) {
-    setSaveError(err?.message || 'Error resetting WhatsApp configuration.');
+    const errMsg = err?.message || 'Error resetting WhatsApp configuration.';
+    setSaveError(errMsg);
+    onRestoreFailure?.(errMsg);
     return false;
   } finally {
     isRestoringDefaultsRef.current = false;
     setIsSaving(false);
+    onRestoreFinish?.();
   }
 }
 
 export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   config,
   onUpdateConfig,
-  subscribersCount = 0
+  subscribersCount = 0,
+  initialMigrationStatus = 'idle',
+  initialMigrationError = null
 }) => {
   const [formData, setFormData] = useState<WhatsAppSupportConfig>(() =>
     resolveInitialWhatsAppFormData(config)
@@ -245,21 +332,44 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   const [testUrduMessage, setTestUrduMessage] = useState(
     'السلام علیکم! کیریئر پاک پر جاب الرٹس اور اپلائی کرنے کے لیے رہنمائی درکار ہے۔'
   );
+  const [migrationStatus, setMigrationStatus] = useState<LegacyMigrationStatus>(initialMigrationStatus);
+  const [migrationError, setMigrationError] = useState<string | null>(initialMigrationError);
+  const [isRestoringDefaults, setIsRestoringDefaults] = useState(false);
 
-  const hasAttemptedMigrationRef = useRef(false);
+  const hasAttemptedMigrationRef = useRef(
+    initialMigrationStatus === 'succeeded' || initialMigrationStatus === 'restored'
+  );
   const isRestoringDefaultsRef = useRef(false);
-  const migrationInFlightRef = useRef(false);
+  const migrationInFlightRef = useRef(initialMigrationStatus === 'in_flight');
 
-  // Safe migration of legacy LocalStorage group link to MongoDB
-  useEffect(() => {
-    void runLegacyGroupMigration({
+  const executeControlledLegacyMigration = () =>
+    runLegacyGroupMigration({
       config,
       hasAttemptedMigrationRef,
       isRestoringDefaultsRef,
       migrationInFlightRef,
       onUpdateConfig,
-      setFormData
+      setFormData,
+      onMigrationStart: () => {
+        setMigrationError(null);
+        setMigrationStatus('in_flight');
+      },
+      onMigrationSuccess: () => {
+        setMigrationError(null);
+        setMigrationStatus('succeeded');
+      },
+      onMigrationFailure: (message: string) => {
+        setMigrationError(message);
+        setMigrationStatus('failed');
+      },
+      onMigrationFinish: () => {
+        setMigrationStatus(prev => (prev === 'in_flight' ? 'idle' : prev));
+      }
     });
+
+  // Safe migration of legacy LocalStorage group link to MongoDB
+  useEffect(() => {
+    void executeControlledLegacyMigration();
   }, [config, onUpdateConfig]);
 
   // Keep local state in sync if parent config prop updates
@@ -278,6 +388,16 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const storedLegacyLink = getStoredValidLegacyGroupLink();
+  const hasValidMongoGroupLink = isRealWhatsAppGroupLink(config?.groupLink);
+  const isMigrationInFlight = migrationStatus === 'in_flight';
+  const showRetryMigration = canShowLegacyMigrationRetry({
+    config,
+    legacyLink: storedLegacyLink,
+    migrationStatus,
+    hasAttemptedMigration: hasAttemptedMigrationRef.current
+  });
 
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -340,6 +460,9 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       try {
         localStorage.removeItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
       } catch {}
+      hasAttemptedMigrationRef.current = true;
+      setMigrationError(null);
+      setMigrationStatus('succeeded');
 
       // Use authoritative server state returned by MongoDB if available
       if (result && typeof result === 'object') {
@@ -367,11 +490,22 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       onUpdateConfig,
       hasAttemptedMigrationRef,
       isRestoringDefaultsRef,
+      migrationInFlightRef,
       setFormData,
       setSaveError,
       setIsSaving,
-      setSavedSuccess
+      setSavedSuccess,
+      onRestoreStart: () => setIsRestoringDefaults(true),
+      onRestoreSuccess: () => {
+        setMigrationError(null);
+        setMigrationStatus('restored');
+      },
+      onRestoreFinish: () => setIsRestoringDefaults(false)
     });
+  };
+
+  const handleRetryMigration = async () => {
+    await executeControlledLegacyMigration();
   };
 
   const handleCopyLink = (text: string) => {
@@ -444,6 +578,43 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
         <div className="bg-rose-950/80 border border-rose-500 rounded-2xl p-4 flex items-center space-x-3 text-rose-300 text-sm font-bold shadow-lg animate-in fade-in">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
           <span>{saveError}</span>
+        </div>
+      )}
+
+      {showRetryMigration && (
+        <div
+          data-testid="legacy-migration-retry-banner"
+          className="bg-amber-950/80 border border-amber-500/70 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-amber-200 text-sm font-bold shadow-lg animate-in fade-in"
+        >
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <div>
+                {migrationError ||
+                  'Legacy WhatsApp group link migration could not be saved on server. Your saved link is preserved—click Retry Migration to try again.'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            data-testid="retry-legacy-migration-btn"
+            onClick={handleRetryMigration}
+            disabled={isSaving || isRestoringDefaults || isMigrationInFlight}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center space-x-2 shrink-0 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Retry Migration</span>
+          </button>
+        </div>
+      )}
+
+      {isMigrationInFlight && !hasValidMongoGroupLink && (
+        <div
+          data-testid="legacy-migration-in-flight-banner"
+          className="bg-slate-900/90 border border-emerald-500/40 rounded-2xl p-3.5 flex items-center space-x-3 text-emerald-300 text-xs font-bold shadow-lg"
+        >
+          <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin shrink-0" />
+          <span>Migrating legacy WhatsApp group link to server...</span>
         </div>
       )}
 
@@ -811,17 +982,19 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
             <div className="pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3">
               <button
                 type="button"
+                data-testid="restore-whatsapp-defaults-btn"
                 onClick={handleRestoreDefaults}
-                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95"
+                disabled={isSaving || isRestoringDefaults || isMigrationInFlight}
+                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <RefreshCw className="w-4 h-4 text-amber-400" />
-                <span>Restore Defaults</span>
+                <RefreshCw className={`w-4 h-4 text-amber-400 ${isRestoringDefaults ? 'animate-spin' : ''}`} />
+                <span>{isRestoringDefaults ? 'Restoring Defaults...' : 'Restore Defaults'}</span>
               </button>
 
               <button
                 type="submit"
-                disabled={isSaving}
-                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-xl shadow-emerald-500/25 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                disabled={isSaving || isRestoringDefaults || isMigrationInFlight}
+                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center space-x-2 shadow-xl shadow-emerald-500/25 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Save className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
                 <span>{isSaving ? 'Saving to Server...' : 'Save & Apply WhatsApp Configuration'}</span>

@@ -53,7 +53,7 @@ function assertDataSnapshotUnchanged(initial: DataSnapshot, current: DataSnapsho
 }
 
 async function runTests() {
-  console.log('=== Starting STEP-C.1 Public SEO Visibility Guard Test Suite ===\n');
+  console.log('=== Starting STEP-C.1.1 Public SEO Visibility Guard Test Suite ===\n');
 
   const initialSnapshot = getDataDirectorySnapshot();
   assert.strictEqual(fs.existsSync(SEO_JSON_PATH), false, 'data/seo_config.json must not exist before tests');
@@ -75,71 +75,152 @@ async function runTests() {
 
   // ==========================================
   // SECTION 1: UNIT TESTS FOR isJobEligibleForPublicSeo
+  // Strict status validation & legacy compatibility table
   // ==========================================
   console.log('--- Section 1: Helper isJobEligibleForPublicSeo Unit Tests ---');
 
   const futureDeadline = '2035-12-31';
   const pastDeadline = '2020-01-01';
 
-  runTest('1.1. Approved, active, future-deadline job is eligible', () => {
-    const job = { id: 'j-approved', title: 'Senior Dev', company: 'Tech Corp', status: 'Approved', deadline: futureDeadline };
+  // 1. Missing property -> Legacy-compatible (Approved)
+  await runTest('1.1. Status input: missing property -> legacy-compatible (Approved)', () => {
+    const job = { id: 'j-missing', title: 'Senior Dev', company: 'Tech Corp', deadline: futureDeadline };
     assert.strictEqual(isJobEligibleForPublicSeo(job), true);
   });
 
-  runTest('1.2. Legacy active job with omitted status is normalized as Approved and eligible', () => {
-    const job = { id: 'j-legacy', title: 'Legacy Dev', company: 'Legacy Tech', deadline: futureDeadline };
-    assert.strictEqual(isJobEligibleForPublicSeo(job), true);
+  // 2. undefined -> Legacy-compatible (Approved)
+  await runTest('1.2. Status input: undefined -> legacy-compatible (Approved)', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: undefined, deadline: futureDeadline }), true);
   });
 
-  runTest('1.3. Case-insensitive status handling works (approved / APPROVED)', () => {
+  // 3. null -> Legacy-compatible (Approved)
+  await runTest('1.3. Status input: null -> legacy-compatible (Approved)', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: null, deadline: futureDeadline }), true);
+  });
+
+  // 4. Empty string -> Legacy-compatible (Approved)
+  await runTest('1.4. Status input: empty string ("") -> legacy-compatible (Approved)', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: '', deadline: futureDeadline }), true);
+  });
+
+  // 5. Whitespace-only string -> Legacy-compatible (Approved)
+  await runTest('1.5. Status input: whitespace-only string ("   ") -> legacy-compatible (Approved)', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: '   ', deadline: futureDeadline }), true);
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: '\t\n  ', deadline: futureDeadline }), true);
+  });
+
+  // 6. "Approved" -> Eligible, subject to other checks
+  await runTest('1.6. Status input: "Approved" -> eligible, subject to other checks', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Approved', deadline: futureDeadline }), true);
+  });
+
+  // 7. "approved" -> Eligible, subject to other checks (and casing variations)
+  await runTest('1.7. Status input: "approved" & casing variations -> eligible', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'approved', deadline: futureDeadline }), true);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'APPROVED', deadline: futureDeadline }), true);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: '  Approved  ', deadline: futureDeadline }), true);
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'aPpRoVeD', deadline: futureDeadline }), true);
   });
 
-  runTest('1.4. Pending job is rejected regardless of casing', () => {
+  // 8. "Pending" -> Rejected
+  await runTest('1.8. Status input: "Pending" -> rejected regardless of casing', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Pending', deadline: futureDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'pending', deadline: futureDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'PENDING', deadline: futureDeadline }), false);
   });
 
-  runTest('1.5. Rejected job is rejected regardless of casing', () => {
+  // 9. "Rejected" -> Rejected
+  await runTest('1.9. Status input: "Rejected" -> rejected regardless of casing', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Rejected', deadline: futureDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'rejected', deadline: futureDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'REJECTED', deadline: futureDeadline }), false);
   });
 
-  runTest('1.6. Suspended status job is rejected', () => {
+  // 10. "Suspended" -> Rejected
+  await runTest('1.10. Status input: "Suspended" -> rejected regardless of casing', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Suspended', deadline: futureDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'suspended', deadline: futureDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'SUSPENDED', deadline: futureDeadline }), false);
   });
 
-  runTest('1.7. Flagged suspended job (isSuspended: true) is rejected even if status is Approved', () => {
+  // 11. "Expired" -> Rejected
+  await runTest('1.11. Status input: "Expired" -> rejected regardless of casing', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Expired', deadline: futureDeadline }), false);
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'expired', deadline: futureDeadline }), false);
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'EXPIRED', deadline: futureDeadline }), false);
+  });
+
+  // 12. 123 (numeric) -> Rejected
+  await runTest('1.12. Status input: 123 (numeric) -> rejected', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 123, deadline: futureDeadline }), false);
+  });
+
+  // 13. 0 (numeric) -> Rejected
+  await runTest('1.13. Status input: 0 (numeric) -> rejected', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 0, deadline: futureDeadline }), false);
+  });
+
+  // 14. true (boolean) -> Rejected
+  await runTest('1.14. Status input: true (boolean) -> rejected', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: true, deadline: futureDeadline }), false);
+  });
+
+  // 15. false (boolean) -> Rejected
+  await runTest('1.15. Status input: false (boolean) -> rejected', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: false, deadline: futureDeadline }), false);
+  });
+
+  // 16. {} (object) -> Rejected
+  await runTest('1.16. Status input: {} (object) -> rejected', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: {}, deadline: futureDeadline }), false);
+  });
+
+  // 17. [] (array) -> Rejected
+  await runTest('1.17. Status input: [] (array) -> rejected', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: [], deadline: futureDeadline }), false);
+  });
+
+  // Additional status tests: non-Approved strings
+  await runTest('1.18. Status input: other non-Approved strings ("Draft", "Archived", "Review") -> rejected', () => {
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Draft', deadline: futureDeadline }), false);
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Archived', deadline: futureDeadline }), false);
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Review', deadline: futureDeadline }), false);
+    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Unknown', deadline: futureDeadline }), false);
+  });
+
+  // Preserved flags: suspended, duplicate, expired
+  await runTest('1.19. Flagged suspended job (isSuspended: true) is rejected even if status is Approved', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Approved', isSuspended: true, deadline: futureDeadline }), false);
   });
 
-  runTest('1.8. Flagged duplicate job (isDuplicate: true) is rejected even if status is Approved', () => {
+  await runTest('1.20. Flagged duplicate job (isDuplicate: true) is rejected even if status is Approved', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Approved', isDuplicate: true, deadline: futureDeadline }), false);
   });
 
-  runTest('1.9. Expired status job is rejected', () => {
-    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Expired' }), false);
-    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'expired' }), false);
-    assert.strictEqual(isJobEligibleForPublicSeo({ status: 'EXPIRED' }), false);
-  });
-
-  runTest('1.10. Flagged expired job (isExpired: true) is rejected even if status is Approved', () => {
+  await runTest('1.21. Flagged expired job (isExpired: true) is rejected even if status is Approved', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Approved', isExpired: true, deadline: futureDeadline }), false);
   });
 
-  runTest('1.11. Job with expired deadline (past date) is rejected via checkJobExpired', () => {
+  // Preserved actual expiry via checkJobExpired
+  await runTest('1.22. Job with expired deadline (past date) is rejected via checkJobExpired', () => {
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Approved', deadline: pastDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Approved', deadlineDate: pastDeadline }), false);
     assert.strictEqual(isJobEligibleForPublicSeo({ status: 'Approved', closingDeadline: pastDeadline }), false);
   });
 
-  runTest('1.12. Null, undefined, non-objects, and primitives are rejected safely', () => {
+  // Preserved restored job handling via checkJobExpired
+  await runTest('1.23. Intentional restored job handling in checkJobExpired is preserved', () => {
+    const restoredJob = {
+      status: 'Approved',
+      deadline: pastDeadline,
+      restoredAt: new Date().toISOString(),
+      isExpired: false
+    };
+    assert.strictEqual(isJobEligibleForPublicSeo(restoredJob), true);
+  });
+
+  // Malformed job entities (not status, but job itself)
+  await runTest('1.24. Null, undefined, non-objects, and primitives for job itself are rejected safely', () => {
     assert.strictEqual(isJobEligibleForPublicSeo(null), false);
     assert.strictEqual(isJobEligibleForPublicSeo(undefined), false);
     assert.strictEqual(isJobEligibleForPublicSeo(''), false);
@@ -255,6 +336,38 @@ async function runTests() {
       company: 'Past Deadline Co',
       status: 'Approved',
       deadline: pastDeadline
+    },
+    'job-malformed-num': {
+      id: 'job-malformed-num',
+      slug: 'malformed-num-role',
+      title: 'Malformed Num Role',
+      company: 'Bad Data Co',
+      status: 123,
+      deadline: futureDeadline
+    },
+    'job-malformed-bool': {
+      id: 'job-malformed-bool',
+      slug: 'malformed-bool-role',
+      title: 'Malformed Bool Role',
+      company: 'Bad Data Co',
+      status: true,
+      deadline: futureDeadline
+    },
+    'job-malformed-obj': {
+      id: 'job-malformed-obj',
+      slug: 'malformed-obj-role',
+      title: 'Malformed Obj Role',
+      company: 'Bad Data Co',
+      status: { custom: 'status' },
+      deadline: futureDeadline
+    },
+    'job-malformed-arr': {
+      id: 'job-malformed-arr',
+      slug: 'malformed-arr-role',
+      title: 'Malformed Arr Role',
+      company: 'Bad Data Co',
+      status: ['Pending'],
+      deadline: futureDeadline
     }
   };
 
@@ -409,8 +522,44 @@ async function runTests() {
       assert.strictEqual(data.message, 'Job not found');
     });
 
-    // 2.13 GET /public-job/:idOrSlug returns 200 SSR HTML for approved job
-    await runTest('2.13. GET /public-job/:idOrSlug returns 200 SSR HTML for approved job by ID', async () => {
+    // 2.13 GET /job-meta/:id returns 404 for Malformed Number status
+    await runTest('2.13. GET /job-meta/:id returns safe 404 for job with numeric status (123)', async () => {
+      const res = await fetch(`${baseUrl}/job-meta/job-malformed-num`);
+      assert.strictEqual(res.status, 404);
+      const data = await res.json();
+      assert.strictEqual(data.success, false);
+      assert.strictEqual(data.message, 'Job not found');
+    });
+
+    // 2.14 GET /job-meta/:id returns 404 for Malformed Boolean status
+    await runTest('2.14. GET /job-meta/:id returns safe 404 for job with boolean status (true)', async () => {
+      const res = await fetch(`${baseUrl}/job-meta/job-malformed-bool`);
+      assert.strictEqual(res.status, 404);
+      const data = await res.json();
+      assert.strictEqual(data.success, false);
+      assert.strictEqual(data.message, 'Job not found');
+    });
+
+    // 2.15 GET /job-meta/:id returns 404 for Malformed Object status
+    await runTest('2.15. GET /job-meta/:id returns safe 404 for job with object status ({})', async () => {
+      const res = await fetch(`${baseUrl}/job-meta/job-malformed-obj`);
+      assert.strictEqual(res.status, 404);
+      const data = await res.json();
+      assert.strictEqual(data.success, false);
+      assert.strictEqual(data.message, 'Job not found');
+    });
+
+    // 2.16 GET /job-meta/:id returns 404 for Malformed Array status
+    await runTest('2.16. GET /job-meta/:id returns safe 404 for job with array status ([])', async () => {
+      const res = await fetch(`${baseUrl}/job-meta/job-malformed-arr`);
+      assert.strictEqual(res.status, 404);
+      const data = await res.json();
+      assert.strictEqual(data.success, false);
+      assert.strictEqual(data.message, 'Job not found');
+    });
+
+    // 2.17 GET /public-job/:idOrSlug returns 200 SSR HTML for approved job
+    await runTest('2.17. GET /public-job/:idOrSlug returns 200 SSR HTML for approved job by ID', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-pub-1`);
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.headers.get('content-type')?.includes('text/html'), true);
@@ -420,16 +569,16 @@ async function runTests() {
       assert.ok(html.includes('/jobs/senior-full-stack-engineer-lahore'));
     });
 
-    // 2.14 GET /public-job/:idOrSlug returns 200 SSR HTML for approved job by slug
-    await runTest('2.14. GET /public-job/:idOrSlug returns 200 SSR HTML for approved job by slug', async () => {
+    // 2.18 GET /public-job/:idOrSlug returns 200 SSR HTML for approved job by slug
+    await runTest('2.18. GET /public-job/:idOrSlug returns 200 SSR HTML for approved job by slug', async () => {
       const res = await fetch(`${baseUrl}/public-job/senior-full-stack-engineer-lahore`);
       assert.strictEqual(res.status, 200);
       const html = await res.text();
       assert.ok(html.includes('Senior Full Stack Engineer'));
     });
 
-    // 2.15 GET /public-job/:idOrSlug returns 404 HTML for Pending job
-    await runTest('2.15. GET /public-job/:idOrSlug returns 404 HTML for Pending job without leaking private details', async () => {
+    // 2.19 GET /public-job/:idOrSlug returns 404 HTML for Pending job
+    await runTest('2.19. GET /public-job/:idOrSlug returns 404 HTML for Pending job without leaking private details', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-pending-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
@@ -438,8 +587,8 @@ async function runTests() {
       assert.strictEqual(html.includes('Confidential Stealth Co'), false);
     });
 
-    // 2.16 GET /public-job/:idOrSlug returns 404 HTML for Rejected job
-    await runTest('2.16. GET /public-job/:idOrSlug returns 404 HTML for Rejected job', async () => {
+    // 2.20 GET /public-job/:idOrSlug returns 404 HTML for Rejected job
+    await runTest('2.20. GET /public-job/:idOrSlug returns 404 HTML for Rejected job', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-rejected-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
@@ -447,64 +596,77 @@ async function runTests() {
       assert.strictEqual(html.includes('Suspicious High Pay'), false);
     });
 
-    // 2.17 GET /public-job/:idOrSlug returns 404 HTML for Suspended job
-    await runTest('2.17. GET /public-job/:idOrSlug returns 404 HTML for Suspended job', async () => {
+    // 2.21 GET /public-job/:idOrSlug returns 404 HTML for Suspended job
+    await runTest('2.21. GET /public-job/:idOrSlug returns 404 HTML for Suspended job', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-suspended-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
       assert.ok(html.includes('404 - Job Vacancy Not Found'));
     });
 
-    // 2.18 GET /public-job/:idOrSlug returns 404 HTML for Flag-suspended job
-    await runTest('2.18. GET /public-job/:idOrSlug returns 404 HTML for Flag-suspended job', async () => {
+    // 2.22 GET /public-job/:idOrSlug returns 404 HTML for Flag-suspended job
+    await runTest('2.22. GET /public-job/:idOrSlug returns 404 HTML for Flag-suspended job', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-flag-suspended-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
       assert.ok(html.includes('404 - Job Vacancy Not Found'));
     });
 
-    // 2.19 GET /public-job/:idOrSlug returns 404 HTML for Duplicate job
-    await runTest('2.19. GET /public-job/:idOrSlug returns 404 HTML for Duplicate job', async () => {
+    // 2.23 GET /public-job/:idOrSlug returns 404 HTML for Duplicate job
+    await runTest('2.23. GET /public-job/:idOrSlug returns 404 HTML for Duplicate job', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-duplicate-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
       assert.ok(html.includes('404 - Job Vacancy Not Found'));
     });
 
-    // 2.20 GET /public-job/:idOrSlug returns 404 HTML for Status expired job
-    await runTest('2.20. GET /public-job/:idOrSlug returns 404 HTML for Status-expired job', async () => {
+    // 2.24 GET /public-job/:idOrSlug returns 404 HTML for Status expired job
+    await runTest('2.24. GET /public-job/:idOrSlug returns 404 HTML for Status-expired job', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-status-expired-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
       assert.ok(html.includes('404 - Job Vacancy Not Found'));
     });
 
-    // 2.21 GET /public-job/:idOrSlug returns 404 HTML for Flag expired job
-    await runTest('2.21. GET /public-job/:idOrSlug returns 404 HTML for Flag-expired job', async () => {
+    // 2.25 GET /public-job/:idOrSlug returns 404 HTML for Flag expired job
+    await runTest('2.25. GET /public-job/:idOrSlug returns 404 HTML for Flag-expired job', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-flag-expired-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
       assert.ok(html.includes('404 - Job Vacancy Not Found'));
     });
 
-    // 2.22 GET /public-job/:idOrSlug returns 404 HTML for Deadline expired job
-    await runTest('2.22. GET /public-job/:idOrSlug returns 404 HTML for Deadline-expired job', async () => {
+    // 2.26 GET /public-job/:idOrSlug returns 404 HTML for Deadline expired job
+    await runTest('2.26. GET /public-job/:idOrSlug returns 404 HTML for Deadline-expired job', async () => {
       const res = await fetch(`${baseUrl}/public-job/job-deadline-expired-1`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
       assert.ok(html.includes('404 - Job Vacancy Not Found'));
     });
 
-    // 2.23 GET /public-job/:idOrSlug returns 404 HTML for non-existent job
-    await runTest('2.23. GET /public-job/:idOrSlug returns 404 HTML for non-existent job', async () => {
+    // 2.27 GET /public-job/:idOrSlug returns 404 HTML for malformed status jobs
+    await runTest('2.27. GET /public-job/:idOrSlug returns 404 HTML for jobs with malformed non-string status', async () => {
+      const resNum = await fetch(`${baseUrl}/public-job/job-malformed-num`);
+      assert.strictEqual(resNum.status, 404);
+      const htmlNum = await resNum.text();
+      assert.ok(htmlNum.includes('404 - Job Vacancy Not Found'));
+
+      const resBool = await fetch(`${baseUrl}/public-job/job-malformed-bool`);
+      assert.strictEqual(resBool.status, 404);
+      const htmlBool = await resBool.text();
+      assert.ok(htmlBool.includes('404 - Job Vacancy Not Found'));
+    });
+
+    // 2.28 GET /public-job/:idOrSlug returns 404 HTML for non-existent job
+    await runTest('2.28. GET /public-job/:idOrSlug returns 404 HTML for non-existent job', async () => {
       const res = await fetch(`${baseUrl}/public-job/non-existent-xyz`);
       assert.strictEqual(res.status, 404);
       const html = await res.text();
       assert.ok(html.includes('404 - Job Vacancy Not Found'));
     });
 
-    // 2.24 GET /sitemap.xml includes only public approved jobs and excludes all non-public jobs
-    await runTest('2.24. GET /sitemap.xml includes approved jobs and excludes pending/rejected/suspended/duplicate/expired', async () => {
+    // 2.29 GET /sitemap.xml includes only public approved jobs and excludes all non-public and malformed jobs
+    await runTest('2.29. GET /sitemap.xml includes approved jobs and excludes pending/rejected/suspended/duplicate/expired/malformed', async () => {
       const res = await fetch(`${baseUrl}/sitemap.xml`);
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.headers.get('content-type')?.includes('application/xml'), true);
@@ -523,6 +685,10 @@ async function runTests() {
       assert.strictEqual(xml.includes('/jobs/status-expired-role'), false, 'Status-expired job must NOT be in sitemap');
       assert.strictEqual(xml.includes('/jobs/flag-expired-role'), false, 'Flag-expired job must NOT be in sitemap');
       assert.strictEqual(xml.includes('/jobs/deadline-expired-role'), false, 'Deadline-expired job must NOT be in sitemap');
+      assert.strictEqual(xml.includes('/jobs/malformed-num-role'), false, 'Malformed numeric status job must NOT be in sitemap');
+      assert.strictEqual(xml.includes('/jobs/malformed-bool-role'), false, 'Malformed boolean status job must NOT be in sitemap');
+      assert.strictEqual(xml.includes('/jobs/malformed-obj-role'), false, 'Malformed object status job must NOT be in sitemap');
+      assert.strictEqual(xml.includes('/jobs/malformed-arr-role'), false, 'Malformed array status job must NOT be in sitemap');
     });
 
   } finally {
@@ -539,7 +705,7 @@ async function runTests() {
   // SECTION 3: DATA INTEGRITY CHECK
   // ==========================================
   console.log('\n--- Section 3: Data Directory Integrity Check ---');
-  runTest('3.1. Protected JSON data files remain strictly unchanged', () => {
+  await runTest('3.1. Protected JSON data files remain strictly unchanged', () => {
     const finalSnapshot = getDataDirectorySnapshot();
     assertDataSnapshotUnchanged(initialSnapshot, finalSnapshot);
   });

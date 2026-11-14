@@ -34,23 +34,33 @@ export function isJobEligibleForPublicSeo(job: any): boolean {
     return false;
   }
 
-  // Evaluate status (case-insensitive)
-  const rawStatus = typeof job.status === 'string' ? job.status.trim() : '';
-  const lowerStatus = rawStatus.toLowerCase();
+  // Strict status validation:
+  // Legacy compatibility: accept missing status property, undefined, null, or empty/whitespace-only string as Approved.
+  // Explicit valid status: string that after trimming equals 'approved' (case-insensitive).
+  // Explicit invalid status: non-approved strings, and any non-string value (numbers, booleans, objects, arrays, etc.) fail closed.
+  let isApprovedStatus = false;
 
-  // Explicitly reject non-public statuses
-  if (
-    lowerStatus === 'pending' ||
-    lowerStatus === 'rejected' ||
-    lowerStatus === 'suspended' ||
-    lowerStatus === 'expired'
-  ) {
+  if (job.status === undefined || job.status === null) {
+    // Missing property, undefined, or null: legacy compatibility treated as Approved
+    isApprovedStatus = true;
+  } else if (typeof job.status === 'string') {
+    const trimmedStatus = job.status.trim();
+    if (trimmedStatus === '') {
+      // Empty string or whitespace-only string: legacy compatibility treated as Approved
+      isApprovedStatus = true;
+    } else if (trimmedStatus.toLowerCase() === 'approved') {
+      // Explicit 'Approved' (case-insensitive)
+      isApprovedStatus = true;
+    } else {
+      // Explicit non-Approved strings ('Pending', 'Rejected', 'Suspended', 'Expired', 'Draft', etc.)
+      return false;
+    }
+  } else {
+    // Explicitly malformed non-string values (numbers 123/0, booleans true/false, objects {}, arrays [], etc.) fail closed
     return false;
   }
 
-  // Preserve legacy compatibility: if status is omitted/empty, repository normalizes as 'Approved'
-  const effectiveStatus = rawStatus || 'Approved';
-  if (effectiveStatus.toLowerCase() !== 'approved') {
+  if (!isApprovedStatus) {
     return false;
   }
 

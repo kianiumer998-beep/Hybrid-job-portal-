@@ -1,5 +1,12 @@
 import { Router } from 'express';
 import { SystemSettingsRepository, FeatureFlagsRepository, AuditRepository } from '../db/repositories';
+import {
+  isSampleWhatsAppPhoneNumber,
+  normalizeWhatsAppPhoneNumber,
+  isValidWhatsAppPhoneNumber,
+  isSampleWhatsAppGroupLink,
+  isValidWhatsAppGroupLink
+} from '../db/repositories/SystemSettingsRepository';
 import { requireAdminPermission } from '../auth/authManager';
 
 export const systemSettingsRouter = Router();
@@ -35,7 +42,7 @@ systemSettingsRouter.put('/communication', requireAdminPermission('settings.mana
     const user = (req as any).user;
     const { whatsAppSupportConfig } = req.body;
 
-    if (!whatsAppSupportConfig || typeof whatsAppSupportConfig !== 'object') {
+    if (!whatsAppSupportConfig || typeof whatsAppSupportConfig !== 'object' || Array.isArray(whatsAppSupportConfig)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid request: whatsAppSupportConfig object is required.'
@@ -72,6 +79,79 @@ systemSettingsRouter.put('/communication', requireAdminPermission('settings.mana
         });
       }
       sanitizedConfig[key] = whatsAppSupportConfig[key];
+    }
+
+    if ('enabled' in sanitizedConfig && typeof sanitizedConfig.enabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation Error: enabled must be a strict boolean.'
+      });
+    }
+
+    if ('phoneNumber' in sanitizedConfig) {
+      if (typeof sanitizedConfig.phoneNumber !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: 'Validation Error: phoneNumber must be a string.'
+        });
+      }
+      const trimmedPhone = sanitizedConfig.phoneNumber.trim();
+      if (trimmedPhone === '') {
+        sanitizedConfig.phoneNumber = '';
+      } else {
+        if (isSampleWhatsAppPhoneNumber(trimmedPhone)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Validation Error: Placeholder or sample WhatsApp phone numbers are not permitted.'
+          });
+        }
+        const normalizedPhone = normalizeWhatsAppPhoneNumber(trimmedPhone);
+        if (!normalizedPhone) {
+          return res.status(400).json({
+            success: false,
+            message: 'Validation Error: phoneNumber must be a valid international digit number (8-15 digits with country code).'
+          });
+        }
+        sanitizedConfig.phoneNumber = normalizedPhone;
+      }
+    }
+
+    if ('groupLink' in sanitizedConfig && sanitizedConfig.groupLink !== undefined) {
+      if (typeof sanitizedConfig.groupLink !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: 'Validation Error: groupLink must be a string.'
+        });
+      }
+      const trimmedGroupLink = sanitizedConfig.groupLink.trim();
+      if (trimmedGroupLink === '') {
+        sanitizedConfig.groupLink = '';
+      } else if (isSampleWhatsAppGroupLink(trimmedGroupLink)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Validation Error: Placeholder or sample WhatsApp group links are not permitted.'
+        });
+      } else if (!isValidWhatsAppGroupLink(trimmedGroupLink)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Validation Error: groupLink must be a valid HTTPS invite link on chat.whatsapp.com.'
+        });
+      } else {
+        sanitizedConfig.groupLink = trimmedGroupLink;
+      }
+    }
+
+    const currentConfig = await SystemSettingsRepository.getWhatsAppSupportConfig();
+    const effectiveEnabled =
+      'enabled' in sanitizedConfig ? sanitizedConfig.enabled : currentConfig.enabled;
+    const effectivePhone =
+      'phoneNumber' in sanitizedConfig ? sanitizedConfig.phoneNumber : currentConfig.phoneNumber;
+
+    if (effectiveEnabled === true && !isValidWhatsAppPhoneNumber(effectivePhone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation Error: Cannot enable WhatsApp support widget without a valid international phoneNumber.'
+      });
     }
 
     const savedConfig = await SystemSettingsRepository.saveWhatsAppSupportConfig(sanitizedConfig);

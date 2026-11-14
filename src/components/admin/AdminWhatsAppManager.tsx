@@ -19,7 +19,16 @@ import {
   Zap,
   AlertCircle
 } from 'lucide-react';
-import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from '../WhatsAppStickyButton';
+import {
+  WhatsAppSupportConfig,
+  DEFAULT_WHATSAPP_CONFIG,
+  isSampleWhatsAppPhone,
+  normalizeWhatsAppPhone,
+  isValidWhatsAppPhone,
+  isSampleWhatsAppGroupLink,
+  isValidWhatsAppGroupLink,
+  buildWhatsAppChatUrl
+} from '../WhatsAppStickyButton';
 
 interface AdminWhatsAppManagerProps {
   config: WhatsAppSupportConfig;
@@ -27,27 +36,8 @@ interface AdminWhatsAppManagerProps {
   subscribersCount?: number;
 }
 
-const isValidWhatsAppGroupLink = (link?: string | null): boolean => {
-  if (!link || typeof link !== 'string') return false;
-  const trimmed = link.trim();
-  if (!trimmed) return false;
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== 'https:') return false;
-    const host = parsed.hostname.toLowerCase();
-    return host === 'chat.whatsapp.com';
-  } catch {
-    return false;
-  }
-};
-
 const isRealWhatsAppGroupLink = (link?: string | null): boolean => {
-  if (!link || typeof link !== 'string') return false;
-  const trimmed = link.trim();
-  if (!trimmed) return false;
-  if (trimmed === DEFAULT_WHATSAPP_CONFIG.groupLink) return false;
-  if (trimmed === 'https://chat.whatsapp.com/sampleCareerPakCommunity') return false;
-  return isValidWhatsAppGroupLink(trimmed);
+  return isValidWhatsAppGroupLink(link);
 };
 
 export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
@@ -56,7 +46,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   subscribersCount = 0
 }) => {
   const [formData, setFormData] = useState<WhatsAppSupportConfig>(() => {
-    let resolvedGroupLink = isRealWhatsAppGroupLink(config?.groupLink) ? config.groupLink : undefined;
+    let resolvedGroupLink = isRealWhatsAppGroupLink(config?.groupLink) ? config!.groupLink!.trim() : '';
     if (!resolvedGroupLink) {
       try {
         const legacy = localStorage.getItem('hybrid_whatsapp_group_link');
@@ -65,10 +55,15 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
         }
       } catch {}
     }
+    const safePhone = isSampleWhatsAppPhone(config?.phoneNumber)
+      ? ''
+      : (config?.phoneNumber || '');
     return {
       ...DEFAULT_WHATSAPP_CONFIG,
       ...(config || {}),
-      groupLink: resolvedGroupLink || config?.groupLink || DEFAULT_WHATSAPP_CONFIG.groupLink
+      phoneNumber: safePhone,
+      enabled: Boolean(config?.enabled && isValidWhatsAppPhone(safePhone)),
+      groupLink: resolvedGroupLink
     };
   });
 
@@ -98,9 +93,12 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     if (isRealWhatsAppGroupLink(legacyLink)) {
       hasAttemptedMigrationRef.current = true;
       const validLink = legacyLink!.trim();
+      const sanitizedPhone = normalizeWhatsAppPhone(config?.phoneNumber);
       const payload: WhatsAppSupportConfig = {
         ...DEFAULT_WHATSAPP_CONFIG,
         ...(config || {}),
+        phoneNumber: sanitizedPhone,
+        enabled: Boolean(config?.enabled && sanitizedPhone),
         groupLink: validLink
       };
 
@@ -136,23 +134,30 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
   useEffect(() => {
     if (config) {
       setFormData(prev => {
-        let resolvedLink = prev.groupLink;
-        if (isRealWhatsAppGroupLink(config.groupLink)) {
-          resolvedLink = config.groupLink;
-        }
+        const resolvedPhone = isSampleWhatsAppPhone(config.phoneNumber)
+          ? ''
+          : (config.phoneNumber || '');
+        const resolvedLink = isRealWhatsAppGroupLink(config.groupLink)
+          ? config.groupLink!.trim()
+          : (isRealWhatsAppGroupLink(prev.groupLink) && hasAttemptedMigrationRef.current
+              ? prev.groupLink!
+              : '');
         return {
           ...DEFAULT_WHATSAPP_CONFIG,
           ...prev,
           ...config,
-          groupLink: resolvedLink || DEFAULT_WHATSAPP_CONFIG.groupLink
+          phoneNumber: resolvedPhone,
+          enabled: Boolean(config.enabled && isValidWhatsAppPhone(resolvedPhone)),
+          groupLink: resolvedLink
         };
       });
     }
   }, [config]);
 
-  const cleanPhone = (formData.phoneNumber || DEFAULT_WHATSAPP_CONFIG.phoneNumber).replace(/[^0-9]/g, '');
-  const testChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(formData.defaultMessage || DEFAULT_WHATSAPP_CONFIG.defaultMessage)}`;
-  const testUrduChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(testUrduMessage)}`;
+  const cleanPhone = normalizeWhatsAppPhone(formData.phoneNumber);
+  const hasValidPhone = Boolean(cleanPhone);
+  const testChatUrl = buildWhatsAppChatUrl(cleanPhone, formData.defaultMessage || DEFAULT_WHATSAPP_CONFIG.defaultMessage);
+  const testUrduChatUrl = buildWhatsAppChatUrl(cleanPhone, testUrduMessage);
 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -162,8 +167,32 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
     setSaveError(null);
     setIsSaving(true);
     try {
-      if (formData.groupLink && formData.groupLink.trim()) {
-        const trimmedLink = formData.groupLink.trim();
+      const trimmedPhone = (formData.phoneNumber || '').trim();
+      if (trimmedPhone && isSampleWhatsAppPhone(trimmedPhone)) {
+        setSaveError('Validation Error: Placeholder or sample WhatsApp phone numbers are not allowed. Please enter your official WhatsApp business number.');
+        setIsSaving(false);
+        return;
+      }
+
+      if (formData.enabled && !isValidWhatsAppPhone(trimmedPhone)) {
+        setSaveError('Validation Error: Please enter a valid international WhatsApp phone number (8-15 digits with country code) before enabling the widget.');
+        setIsSaving(false);
+        return;
+      }
+
+      if (!formData.enabled && trimmedPhone && !isValidWhatsAppPhone(trimmedPhone)) {
+        setSaveError('Validation Error: Please enter a valid international WhatsApp phone number (8-15 digits with country code) or clear the field while disabled.');
+        setIsSaving(false);
+        return;
+      }
+
+      const trimmedLink = (formData.groupLink || '').trim();
+      if (trimmedLink) {
+        if (isSampleWhatsAppGroupLink(trimmedLink)) {
+          setSaveError('Validation Error: Sample WhatsApp group invite links are not allowed.');
+          setIsSaving(false);
+          return;
+        }
         if (!isValidWhatsAppGroupLink(trimmedLink)) {
           setSaveError('Validation Error: Please enter a valid HTTPS WhatsApp group invite link using hostname chat.whatsapp.com (e.g., https://chat.whatsapp.com/yourGroupCode).');
           setIsSaving(false);
@@ -171,12 +200,21 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
         }
       }
 
-      const result = await onUpdateConfig(formData);
+      const normalizedPayload: WhatsAppSupportConfig = {
+        ...formData,
+        phoneNumber: trimmedPhone ? normalizeWhatsAppPhone(trimmedPhone) : '',
+        groupLink: trimmedLink
+      };
+
+      const result = await onUpdateConfig(normalizedPayload);
       const isSaveSuccess = Boolean(
         result === true || (result && typeof result === 'object' && result.success === true)
       );
       if (!isSaveSuccess) {
-        setSaveError('Failed to save WhatsApp support configuration to server. Form values retained.');
+        setSaveError(
+          (result && typeof result === 'object' && result.message) ||
+            'Failed to save WhatsApp support configuration to server. Form values retained.'
+        );
         setIsSaving(false);
         return;
       }
@@ -263,15 +301,28 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
           </div>
 
           <div className="flex items-center space-x-3">
-            <a
-              href={testChatUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center space-x-2 transition-all shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
-            >
-              <ExternalLink className="w-4 h-4" />
-              <span>Test Live WhatsApp Chat</span>
-            </a>
+            {testChatUrl ? (
+              <a
+                href={testChatUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center space-x-2 transition-all shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Test Live WhatsApp Chat</span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="Enter a valid international WhatsApp phone number to enable live chat testing"
+                className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-500 border border-slate-700 font-black text-xs flex items-center space-x-2 opacity-60 cursor-not-allowed"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Test Live WhatsApp Chat</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -312,13 +363,13 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                     type="text"
                     value={formData.phoneNumber}
                     onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                    placeholder="923001234567 or 923219876543"
-                    required
+                    placeholder="e.g. 923XXXXXXXXX (country code + number)"
+                    required={Boolean(formData.enabled)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
                   />
                 </div>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Example: <code className="text-emerald-400">923001234567</code> (Do not add spaces or special characters).
+                  International format without spaces or symbols (8–15 digits including country code).
                 </p>
               </div>
 
@@ -721,8 +772,8 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 </div>
 
                 <div className="text-center">
-                  <span className="text-[10px] font-mono text-emerald-400">
-                    +{cleanPhone || '923001234567'}
+                  <span className={`text-[10px] font-mono ${hasValidPhone ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {hasValidPhone ? `+${cleanPhone}` : 'No valid WhatsApp number configured'}
                   </span>
                 </div>
               </div>
@@ -745,15 +796,28 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-slate-200 resize-none font-urdu text-right"
                 dir="rtl"
               />
-              <a
-                href={testUrduChatUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Test Send Urdu Greeting on WhatsApp</span>
-              </a>
+              {testUrduChatUrl ? (
+                <a
+                  href={testUrduChatUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Test Send Urdu Greeting on WhatsApp</span>
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  title="Enter a valid international WhatsApp phone number to enable Urdu test chat"
+                  className="w-full py-2 px-3 rounded-xl bg-slate-900 text-slate-500 border border-slate-800 font-bold text-xs flex items-center justify-center space-x-1.5 opacity-60 cursor-not-allowed"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Test Send Urdu Greeting on WhatsApp</span>
+                </button>
+              )}
             </div>
           </div>
 

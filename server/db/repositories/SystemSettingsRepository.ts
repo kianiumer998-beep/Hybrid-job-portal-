@@ -23,8 +23,8 @@ export interface WhatsAppSupportConfig {
 }
 
 export const DEFAULT_WHATSAPP_SUPPORT_CONFIG: WhatsAppSupportConfig = {
-  enabled: true,
-  phoneNumber: '923001234567',
+  enabled: false,
+  phoneNumber: '',
   defaultMessage: 'Hello! I need assistance regarding job applications and career alerts on HybridJobs.pk.',
   agentName: 'Ayesha (Career Advisor)',
   supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
@@ -39,8 +39,103 @@ export const DEFAULT_WHATSAPP_SUPPORT_CONFIG: WhatsAppSupportConfig = {
   showOnlineBadge: true,
   greetingCtaText: 'Start WhatsApp Chat',
   enablePulseAnimation: true,
-  groupLink: 'https://chat.whatsapp.com/sampleCareerPakCommunity'
+  groupLink: ''
 };
+
+const KNOWN_SAMPLE_WHATSAPP_PHONES = new Set([
+  '923001234567',
+  '03001234567',
+  '923219876543',
+  '923000000000',
+  '1234567890',
+  '123456789012'
+]);
+
+const KNOWN_SAMPLE_WHATSAPP_GROUP_CODE = '/samplecareerpakcommunity';
+
+export function isSampleWhatsAppPhoneNumber(phone: unknown): boolean {
+  if (typeof phone !== 'string') return false;
+  const trimmed = phone.trim();
+  if (!trimmed) return false;
+  if (!/^\+?[\d\s\-()]+$/.test(trimmed)) return false;
+  const digits = trimmed.replace(/[\s\-()+]/g, '');
+  if (!digits) return false;
+  if (KNOWN_SAMPLE_WHATSAPP_PHONES.has(digits)) return true;
+  if (/^(\d)\1+$/.test(digits)) return true;
+  return false;
+}
+
+export function normalizeWhatsAppPhoneNumber(phone: unknown): string | null {
+  if (typeof phone !== 'string') return null;
+  const trimmed = phone.trim();
+  if (!trimmed) return '';
+  if (!/^\+?[\d\s\-()]+$/.test(trimmed)) return null;
+  const digits = trimmed.replace(/[\s\-()+]/g, '');
+  if (!/^[1-9]\d{7,14}$/.test(digits)) return null;
+  if (isSampleWhatsAppPhoneNumber(digits)) return null;
+  return digits;
+}
+
+export function isValidWhatsAppPhoneNumber(phone: unknown): boolean {
+  const normalized = normalizeWhatsAppPhoneNumber(phone);
+  return typeof normalized === 'string' && normalized.length > 0;
+}
+
+export function isSampleWhatsAppGroupLink(link: unknown): boolean {
+  if (typeof link !== 'string') return false;
+  const trimmed = link.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+    return (
+      parsed.hostname.toLowerCase() === 'chat.whatsapp.com' &&
+      normalizedPath === KNOWN_SAMPLE_WHATSAPP_GROUP_CODE
+    );
+  } catch {
+    return trimmed.toLowerCase().includes('samplecareerpakcommunity');
+  }
+}
+
+export function isValidWhatsAppGroupLink(link: unknown): boolean {
+  if (typeof link !== 'string') return false;
+  const trimmed = link.trim();
+  if (!trimmed) return false;
+  if (isSampleWhatsAppGroupLink(trimmed)) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.hostname.toLowerCase() !== 'chat.whatsapp.com') return false;
+    const inviteCode = parsed.pathname.replace(/^\/+|\/+$/g, '');
+    return inviteCode.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function sanitizeWhatsAppSupportConfig(
+  raw?: Partial<WhatsAppSupportConfig> | null
+): WhatsAppSupportConfig {
+  const merged: WhatsAppSupportConfig = {
+    ...DEFAULT_WHATSAPP_SUPPORT_CONFIG,
+    ...(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {})
+  };
+
+  const normalizedPhone = normalizeWhatsAppPhoneNumber(merged.phoneNumber);
+  const safePhone = typeof normalizedPhone === 'string' && normalizedPhone.length > 0 ? normalizedPhone : '';
+
+  const rawGroupLink = typeof merged.groupLink === 'string' ? merged.groupLink.trim() : '';
+  const safeGroupLink = isValidWhatsAppGroupLink(rawGroupLink) ? rawGroupLink : '';
+
+  const effectiveEnabled = merged.enabled === true && safePhone.length > 0;
+
+  return {
+    ...merged,
+    enabled: effectiveEnabled,
+    phoneNumber: safePhone,
+    groupLink: safeGroupLink
+  };
+}
 
 const isTest = () => process.env.IS_TEST === 'true';
 const testSettings = new Map<string, any>();
@@ -153,18 +248,15 @@ export class SystemSettingsRepository {
 
   static async getWhatsAppSupportConfig(): Promise<WhatsAppSupportConfig> {
     const raw = await this.getSetting<Partial<WhatsAppSupportConfig>>('whats_app_support_config', DEFAULT_WHATSAPP_SUPPORT_CONFIG);
-    return {
-      ...DEFAULT_WHATSAPP_SUPPORT_CONFIG,
-      ...(raw || {})
-    };
+    return sanitizeWhatsAppSupportConfig(raw);
   }
 
   static async saveWhatsAppSupportConfig(config: Partial<WhatsAppSupportConfig>): Promise<WhatsAppSupportConfig> {
     const current = await this.getWhatsAppSupportConfig();
-    const updated: WhatsAppSupportConfig = {
+    const updated = sanitizeWhatsAppSupportConfig({
       ...current,
       ...(config || {})
-    };
+    });
     return this.saveSetting<WhatsAppSupportConfig>('whats_app_support_config', updated);
   }
 

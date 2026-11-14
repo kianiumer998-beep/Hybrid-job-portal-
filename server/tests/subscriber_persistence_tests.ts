@@ -20,6 +20,7 @@ import {
 } from '../db/repositories/SubscriberRepository';
 import { PaymentRepository } from '../db/repositories/PaymentRepository';
 import { UserRepository } from '../db/repositories/UserRepository';
+import { FeatureFlagsRepository, DEFAULT_FEATURE_FLAGS } from '../db/repositories/FeatureFlagsRepository';
 import { subscriberRouter } from '../routes/subscriberRoutes';
 import { authMiddleware, createToken } from '../auth/authManager';
 
@@ -60,9 +61,10 @@ async function runTestSuite() {
   let httpServer: Server | null = null;
   let serverPort = 0;
   let passCount = 0;
-  const totalTests = 31; // Includes 8 transaction ownership & guest verification regression tests
+  const totalTests = 35; // Includes STEP-C.3 WhatsApp channel gating regression tests 32-35
 
   const originalGetByIdAsync = PaymentRepository.getByIdAsync;
+  const originalGetFlags = FeatureFlagsRepository.getFlags;
 
   try {
     const app = express();
@@ -860,6 +862,148 @@ async function runTestSuite() {
     passCount++;
     console.log('✓ Test 31 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
 
+    // ----------------------------------------------------
+    // Tests 32-35: STEP-C.3 POST /pending WhatsApp Channel Gating
+    // ----------------------------------------------------
+    SubscriberRepository.resetTestStore();
+
+    // Test 32: WhatsApp globally disabled => pending subscriber whatsappEnabled=false
+    FeatureFlagsRepository.getFlags = async () => ({
+      ...DEFAULT_FEATURE_FLAGS,
+      enableEmailAlerts: true,
+      enableWhatsAppAlerts: false
+    });
+    (PaymentRepository as any).getByIdAsync = async (id: string) => ({
+      id,
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 1500,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      userEmail: 'gate32@example.com',
+      senderPhoneOrAccount: '+923110000032'
+    });
+    let pendingRes = await fetch(`${baseUrl}/pending`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paymentTransactionId: 'tx-wa-gate-32',
+        name: 'Gate User 32',
+        email: 'gate32@example.com',
+        phone: '+923110000032',
+        senderPhoneOrAccount: '+923110000032',
+        whatsappEnabled: false
+      })
+    });
+    assert.strictEqual(pendingRes.status, 201);
+    let pendingData = await pendingRes.json();
+    assert.strictEqual(pendingData.subscriber.whatsappEnabled, false);
+    passCount++;
+    console.log('✓ Test 32 Passed: WhatsApp globally disabled stores pending subscriber whatsappEnabled=false.');
+
+    // Test 33: Missing whatsappEnabled request field => false even when global WhatsApp is enabled
+    FeatureFlagsRepository.getFlags = async () => ({
+      ...DEFAULT_FEATURE_FLAGS,
+      enableEmailAlerts: true,
+      enableWhatsAppAlerts: true
+    });
+    (PaymentRepository as any).getByIdAsync = async (id: string) => ({
+      id,
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 1500,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      userEmail: 'gate33@example.com',
+      senderPhoneOrAccount: '+923110000033'
+    });
+    pendingRes = await fetch(`${baseUrl}/pending`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paymentTransactionId: 'tx-wa-gate-33',
+        name: 'Gate User 33',
+        email: 'gate33@example.com',
+        phone: '+923110000033',
+        senderPhoneOrAccount: '+923110000033'
+      })
+    });
+    assert.strictEqual(pendingRes.status, 201);
+    pendingData = await pendingRes.json();
+    assert.strictEqual(pendingData.subscriber.whatsappEnabled, false, 'Omitted whatsappEnabled must fail closed to false');
+    passCount++;
+    console.log('✓ Test 33 Passed: Missing whatsappEnabled request field stores false.');
+
+    // Test 34: Global WhatsApp enabled + explicit request true => true
+    (PaymentRepository as any).getByIdAsync = async (id: string) => ({
+      id,
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 1500,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      userEmail: 'gate34@example.com',
+      senderPhoneOrAccount: '+923110000034'
+    });
+    pendingRes = await fetch(`${baseUrl}/pending`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paymentTransactionId: 'tx-wa-gate-34',
+        name: 'Gate User 34',
+        email: 'gate34@example.com',
+        phone: '+923110000034',
+        senderPhoneOrAccount: '+923110000034',
+        whatsappEnabled: true
+      })
+    });
+    assert.strictEqual(pendingRes.status, 201);
+    pendingData = await pendingRes.json();
+    assert.strictEqual(pendingData.subscriber.whatsappEnabled, true);
+    passCount++;
+    console.log('✓ Test 34 Passed: Global WhatsApp enabled + explicit request true stores true.');
+
+    // Test 35: Client cannot bypass global disabled feature flag by sending true (and SubscriptionModal default=false)
+    FeatureFlagsRepository.getFlags = async () => ({
+      ...DEFAULT_FEATURE_FLAGS,
+      enableEmailAlerts: true,
+      enableWhatsAppAlerts: false
+    });
+    (PaymentRepository as any).getByIdAsync = async (id: string) => ({
+      id,
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 1500,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      userEmail: 'gate35@example.com',
+      senderPhoneOrAccount: '+923110000035'
+    });
+    pendingRes = await fetch(`${baseUrl}/pending`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paymentTransactionId: 'tx-wa-gate-35',
+        name: 'Gate User 35',
+        email: 'gate35@example.com',
+        phone: '+923110000035',
+        senderPhoneOrAccount: '+923110000035',
+        whatsappEnabled: true
+      })
+    });
+    assert.strictEqual(pendingRes.status, 201);
+    pendingData = await pendingRes.json();
+    assert.strictEqual(pendingData.subscriber.whatsappEnabled, false, 'Client true must not bypass global disabled flag');
+
+    const modalSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/SubscriptionModal.tsx'), 'utf8');
+    assert.ok(modalSrc.includes('whatsappEnabledGlobal = false'), 'SubscriptionModal must default whatsappEnabledGlobal to false');
+    passCount++;
+    console.log('✓ Test 35 Passed: Client cannot bypass disabled global WhatsApp flag and SubscriptionModal defaults false.');
+
     assert.strictEqual(passCount, totalTests, `All tests must pass successfully (Expected ${totalTests}, got ${passCount})`);
 
     console.log('==================================================================');
@@ -871,6 +1015,7 @@ async function runTestSuite() {
   } finally {
     // Rule 15: Restore every mocked PaymentRepository method in finally blocks, including getByIdAsync
     PaymentRepository.getByIdAsync = originalGetByIdAsync;
+    FeatureFlagsRepository.getFlags = originalGetFlags;
 
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer!.close(() => resolve()));

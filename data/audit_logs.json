@@ -1,5 +1,167 @@
 [
   {
+    "id": "log-1794663037353-tas5",
+    "timestamp": "2026-11-14T13:30:37.353Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1794662996009-21z1",
+    "timestamp": "2026-11-14T13:29:56.009Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1794662983943-uez3",
+    "timestamp": "2026-11-14T13:29:43.943Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1794662971157-mgb8",
+    "timestamp": "2026-11-14T13:29:31.157Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1794662953769-pw75",
+    "timestamp": "2026-11-14T13:29:13.769Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1794662942385-jth4",
+    "timestamp": "2026-11-14T13:29:02.385Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1794662924738-gjyn",
+    "timestamp": "2026-11-14T13:28:44.738Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Warning",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 1
+    }
+  },
+  {
+    "id": "log-1794662913571-6u2o",
+    "timestamp": "2026-11-14T13:28:33.571Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
+    "id": "log-1794662902055-rli2",
+    "timestamp": "2026-11-14T13:28:22.055Z",
+    "user": "Administrator",
+    "role": "Scraper Hub",
+    "action": "Scraper Run Completed",
+    "target": "1 Source Portals (0 Jobs Harvested)",
+    "status": "Success",
+    "metadata": {
+      "mode": "since_last",
+      "duplicateMode": "with",
+      "totalFound": 0,
+      "published": 0,
+      "pending": 0,
+      "duplicates": 0,
+      "failedSources": 0
+    }
+  },
+  {
     "id": "log-1794229947913-bnvo",
     "timestamp": "2026-11-09T13:12:27.913Z",
     "user": "Administrator",

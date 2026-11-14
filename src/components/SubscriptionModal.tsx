@@ -37,7 +37,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   onSubscribeSuccess,
   initialSelectedJobTitle,
   currentUser,
-  whatsappEnabledGlobal = true
+  whatsappEnabledGlobal = false
 }) => {
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');

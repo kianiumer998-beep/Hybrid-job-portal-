@@ -17,7 +17,13 @@ import { Footer } from './components/Footer';
 import { CountrySelectionModal } from './components/CountrySelectionModal';
 import { LegalDisclaimerModal } from './components/LegalDisclaimerModal';
 import { PremiumUpgradeModal } from './components/PremiumUpgradeModal';
-import { WhatsAppStickyButton, WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './components/WhatsAppStickyButton';
+import {
+  WhatsAppStickyButton,
+  WhatsAppSupportConfig,
+  DEFAULT_WHATSAPP_CONFIG,
+  sanitizeWhatsAppConfig,
+  isValidWhatsAppPhone
+} from './components/WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
 import { PaymentVerificationResult } from './components/admin/AdminPaymentVerificationHub';
@@ -1057,20 +1063,16 @@ export default function App() {
     return [];
   });
 
-  // Persistent WhatsApp Support Configuration State
+  // Persistent WhatsApp Support Configuration State (Backend GET /communication is authoritative)
   const [whatsAppSupportConfig, setWhatsAppSupportConfig] = useState<WhatsAppSupportConfig>(() => {
     try {
       const saved = localStorage.getItem('hybrid_whatsapp_support_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return sanitizeWhatsAppConfig(parsed);
+      }
     } catch (e) {}
-    return {
-      phoneNumber: '923001234567',
-      agentName: 'Ayesha (Lead Career Advisor)',
-      defaultMessage: 'Hello! I need assistance with job applications on CareerPak...',
-      supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
-      enabled: true,
-      position: 'bottom-right'
-    };
+    return DEFAULT_WHATSAPP_CONFIG;
   });
 
   const [channelAvailability, setChannelAvailability] = useState<{ email: boolean; whatsapp: boolean }>({ email: false, whatsapp: false });
@@ -1086,7 +1088,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(whatsAppSupportConfig));
+      localStorage.setItem('hybrid_whatsapp_support_config', JSON.stringify(sanitizeWhatsAppConfig(whatsAppSupportConfig)));
     } catch (e) {}
   }, [whatsAppSupportConfig]);
 
@@ -1094,13 +1096,18 @@ export default function App() {
   useEffect(() => {
     api.settings.getCommunication().then(res => {
       if (res?.success) {
-        if (res.whatsAppSupportConfig) {
-          setWhatsAppSupportConfig(prev => ({ ...prev, ...res.whatsAppSupportConfig }));
-        }
+        setWhatsAppSupportConfig(sanitizeWhatsAppConfig(res.whatsAppSupportConfig));
         if (res.channelAvailability) {
-          setChannelAvailability(res.channelAvailability);
+          setChannelAvailability({
+            email: res.channelAvailability.email === true,
+            whatsapp: res.channelAvailability.whatsapp === true
+          });
           setIsChannelStatusLoaded(true);
+        } else {
+          setIsChannelStatusLoaded(false);
         }
+      } else {
+        setIsChannelStatusLoaded(false);
       }
     }).catch(err => {
       console.error('[App] Failed to load communication settings from backend:', err);
@@ -4113,7 +4120,7 @@ export default function App() {
               try {
                 const res = await api.settings.updateCommunication({ whatsAppSupportConfig: newCfg });
                 if (res && res.success) {
-                  const saved = res.whatsAppSupportConfig || newCfg;
+                  const saved = sanitizeWhatsAppConfig(res.whatsAppSupportConfig || newCfg);
                   setWhatsAppSupportConfig(saved);
                   return res;
                 }
@@ -4607,7 +4614,10 @@ export default function App() {
       />
 
       {/* Persistent Floating WhatsApp Support & Alerts Button */}
-      {isChannelStatusLoaded && channelAvailability.whatsapp && whatsAppSupportConfig.enabled && (
+      {isChannelStatusLoaded &&
+        channelAvailability.whatsapp === true &&
+        whatsAppSupportConfig.enabled === true &&
+        isValidWhatsAppPhone(whatsAppSupportConfig.phoneNumber) && (
         <WhatsAppStickyButton
           config={whatsAppSupportConfig}
           onOpenLegalModal={() => setLegalModalOpen(true)}

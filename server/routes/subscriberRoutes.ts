@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { SubscriberRepository } from '../db/repositories/SubscriberRepository';
+import { FeatureFlagsRepository } from '../db/repositories/FeatureFlagsRepository';
 import { requireAdminPermission } from '../auth/authManager';
 
 export const subscriberRouter = Router();
@@ -29,6 +30,9 @@ subscriberRouter.post('/pending', async (req: any, res) => {
     const authUserId = req.user ? req.user.userId || req.user.id : undefined;
     const authUserEmail = req.user ? req.user.email : undefined;
 
+    const flags = await FeatureFlagsRepository.getFlags();
+    const effectiveWhatsappEnabled = flags?.enableWhatsAppAlerts === true && whatsappEnabled === true;
+
     const subscriber = await SubscriberRepository.createPendingSubscription({
       paymentTransactionId,
       authUserId,
@@ -36,7 +40,7 @@ subscriberRouter.post('/pending', async (req: any, res) => {
       guestName: name,
       guestEmail: email,
       guestPhone: phone,
-      whatsappEnabled: whatsappEnabled !== false,
+      whatsappEnabled: effectiveWhatsappEnabled,
       senderPhoneOrAccount
     });
 

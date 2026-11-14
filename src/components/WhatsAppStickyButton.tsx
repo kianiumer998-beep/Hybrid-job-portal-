@@ -3,7 +3,7 @@ import { MessageCircle, X, Send } from 'lucide-react';
 
 export interface WhatsAppSupportConfig {
   enabled: boolean;
-  phoneNumber: string;       // e.g. "923001234567" or "+92 300 1234567"
+  phoneNumber: string;       // International digits with country code, e.g. 923XXXXXXXXX
   defaultMessage: string;    // e.g. "Hello! I need help with Hybrid Remote Jobs & ATS Resume Builder."
   agentName: string;         // e.g. "Sarah (HR Career Advisor)"
   supportHoursText: string;  // e.g. "Online • 9:00 AM - 9:00 PM PKT"
@@ -22,8 +22,8 @@ export interface WhatsAppSupportConfig {
 }
 
 export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
-  enabled: true,
-  phoneNumber: '923001234567',
+  enabled: false,
+  phoneNumber: '',
   defaultMessage: 'Hello! I need assistance regarding job applications and career alerts on HybridJobs.pk.',
   agentName: 'Ayesha (Career Advisor)',
   supportHoursText: 'Online • 9:00 AM - 9:00 PM PKT',
@@ -38,8 +38,98 @@ export const DEFAULT_WHATSAPP_CONFIG: WhatsAppSupportConfig = {
   showOnlineBadge: true,
   greetingCtaText: 'Start WhatsApp Chat',
   enablePulseAnimation: true,
-  groupLink: 'https://chat.whatsapp.com/sampleCareerPakCommunity'
+  groupLink: ''
 };
+
+const KNOWN_SAMPLE_WHATSAPP_PHONES = new Set([
+  '923001234567',
+  '03001234567',
+  '923219876543',
+  '923000000000',
+  '1234567890',
+  '123456789012'
+]);
+
+const KNOWN_SAMPLE_GROUP_PATH = '/samplecareerpakcommunity';
+
+export function isSampleWhatsAppPhone(phone?: string | null): boolean {
+  if (typeof phone !== 'string') return false;
+  const trimmed = phone.trim();
+  if (!trimmed) return false;
+  if (!/^\+?[\d\s\-()]+$/.test(trimmed)) return false;
+  const digits = trimmed.replace(/[\s\-()+]/g, '');
+  if (!digits) return false;
+  if (KNOWN_SAMPLE_WHATSAPP_PHONES.has(digits)) return true;
+  if (/^(\d)\1+$/.test(digits)) return true;
+  return false;
+}
+
+export function normalizeWhatsAppPhone(phone?: string | null): string {
+  if (typeof phone !== 'string') return '';
+  const trimmed = phone.trim();
+  if (!trimmed) return '';
+  if (!/^\+?[\d\s\-()]+$/.test(trimmed)) return '';
+  const digits = trimmed.replace(/[\s\-()+]/g, '');
+  if (!/^[1-9]\d{7,14}$/.test(digits)) return '';
+  if (isSampleWhatsAppPhone(digits)) return '';
+  return digits;
+}
+
+export function isValidWhatsAppPhone(phone?: string | null): boolean {
+  return normalizeWhatsAppPhone(phone).length > 0;
+}
+
+export function isSampleWhatsAppGroupLink(link?: string | null): boolean {
+  if (typeof link !== 'string') return false;
+  const trimmed = link.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+    return (
+      parsed.hostname.toLowerCase() === 'chat.whatsapp.com' &&
+      normalizedPath === KNOWN_SAMPLE_GROUP_PATH
+    );
+  } catch {
+    return trimmed.toLowerCase().includes('samplecareerpakcommunity');
+  }
+}
+
+export function isValidWhatsAppGroupLink(link?: string | null): boolean {
+  if (typeof link !== 'string') return false;
+  const trimmed = link.trim();
+  if (!trimmed) return false;
+  if (isSampleWhatsAppGroupLink(trimmed)) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.hostname.toLowerCase() !== 'chat.whatsapp.com') return false;
+    const inviteCode = parsed.pathname.replace(/^\/+|\/+$/g, '');
+    return inviteCode.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function sanitizeWhatsAppConfig(raw?: Partial<WhatsAppSupportConfig> | null): WhatsAppSupportConfig {
+  const safeRaw = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const validDigits = normalizeWhatsAppPhone(safeRaw.phoneNumber);
+  const safeGroupLink = isValidWhatsAppGroupLink(safeRaw.groupLink) ? safeRaw.groupLink!.trim() : '';
+  return {
+    ...DEFAULT_WHATSAPP_CONFIG,
+    ...safeRaw,
+    phoneNumber: validDigits,
+    groupLink: safeGroupLink,
+    enabled: safeRaw.enabled === true && Boolean(validDigits)
+  };
+}
+
+export function buildWhatsAppChatUrl(phoneNumber?: string | null, message?: string): string | null {
+  const validDigits = normalizeWhatsAppPhone(phoneNumber);
+  if (!validDigits) return null;
+  const encodedText = encodeURIComponent(message || DEFAULT_WHATSAPP_CONFIG.defaultMessage);
+  return `https://wa.me/${validDigits}?text=${encodedText}`;
+}
 
 interface WhatsAppStickyButtonProps {
   config?: WhatsAppSupportConfig;
@@ -94,23 +184,24 @@ export const WhatsAppStickyButton: React.FC<WhatsAppStickyButtonProps> = ({
   const showPulse = config.enablePulseAnimation !== false;
   const ctaButtonText = config.greetingCtaText || DEFAULT_WHATSAPP_CONFIG.greetingCtaText || 'Start WhatsApp Chat';
 
-  // Auto-show tooltip prompt after configured delay seconds if greeting bubble enabled and not interacted
+  const cleanPhone = normalizeWhatsAppPhone(config?.phoneNumber);
+  const isWidgetActive = config?.enabled === true && Boolean(cleanPhone);
+
+  // Auto-show tooltip prompt after configured delay seconds if widget active, greeting bubble enabled, and not interacted
   useEffect(() => {
-    if (!showGreeting) return;
+    if (!isWidgetActive || !showGreeting) return;
     const timer = setTimeout(() => {
       if (!hasInteracted) {
         setIsOpenPrompt(true);
       }
     }, autoShowDelayMs);
     return () => clearTimeout(timer);
-  }, [hasInteracted, showGreeting, autoShowDelayMs]);
+  }, [hasInteracted, isWidgetActive, showGreeting, autoShowDelayMs]);
 
-  if (!config.enabled) return null;
+  if (!isWidgetActive) return null;
 
-  // Sanitize phone number (strip spaces, dashes, plus signs)
-  const cleanPhone = (config.phoneNumber || DEFAULT_WHATSAPP_CONFIG.phoneNumber).replace(/[^0-9]/g, '');
-  const encodedText = encodeURIComponent(config.defaultMessage || DEFAULT_WHATSAPP_CONFIG.defaultMessage);
-  const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
+  const whatsappUrl = buildWhatsAppChatUrl(cleanPhone, config.defaultMessage || DEFAULT_WHATSAPP_CONFIG.defaultMessage);
+  if (!whatsappUrl) return null;
 
   const handleOpenWhatsApp = () => {
     setHasInteracted(true);

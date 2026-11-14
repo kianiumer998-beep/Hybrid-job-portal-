@@ -1359,47 +1359,62 @@ export async function loadAuthoritativeDuplicatePool(
   }
 
   const pendingJobs: any[] = [];
-  for (let pendingPage = 1; ; pendingPage++) {
-    const pendingRes = await JobRepository.getPending({ page: pendingPage, limit: 500 });
+  if (!isMongoConfigured() && process.env.IS_TEST !== 'true') {
+    const pendingRes = await JobRepository.getPending();
     if (!Array.isArray(pendingRes)) {
       throw new DuplicateCheckLoadError('Authoritative pending jobs could not be loaded for duplicate detection.');
     }
-    if (pendingRes.length === 0) {
-      break;
-    }
-    pendingJobs.push(...pendingRes);
-
     const hasExplicitTotal =
       typeof (pendingRes as any).total === 'number' && Number.isFinite((pendingRes as any).total);
-    const totalPending = hasExplicitTotal ? (pendingRes as any).total : pendingJobs.length;
-    const pendingLimit =
-      typeof (pendingRes as any).limit === 'number' && (pendingRes as any).limit > 0
-        ? (pendingRes as any).limit
-        : 500;
-    const reachedEnd =
-      (hasExplicitTotal && pendingJobs.length >= totalPending) ||
-      pendingRes.length < pendingLimit;
-
-    if (reachedEnd) {
-      break;
+    if (hasExplicitTotal && pendingRes.length < (pendingRes as any).total) {
+      throw new DuplicateCheckLoadError(
+        `Authoritative pending-job duplicate pool returned incomplete local fallback data (${pendingRes.length} of ${(pendingRes as any).total} loaded). Import aborted to prevent incomplete duplicate checks.`
+      );
     }
-
-    if (pendingPage >= maxPages) {
-      if (hasExplicitTotal) {
-        throw new DuplicateCheckLoadError(
-          `Authoritative pending-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) (${pendingJobs.length} of ${totalPending} loaded). Import aborted to prevent incomplete duplicate checks.`
-        );
+    pendingJobs.push(...pendingRes);
+  } else {
+    for (let pendingPage = 1; ; pendingPage++) {
+      const pendingRes = await JobRepository.getPending({ page: pendingPage, limit: 500 });
+      if (!Array.isArray(pendingRes)) {
+        throw new DuplicateCheckLoadError('Authoritative pending jobs could not be loaded for duplicate detection.');
       }
-      const nextPending = await JobRepository.getPending({ page: pendingPage + 1, limit: 500 });
-      if (!Array.isArray(nextPending)) {
-        throw new DuplicateCheckLoadError('Authoritative pending jobs could not be verified beyond final page.');
-      }
-      if (nextPending.length === 0) {
+      if (pendingRes.length === 0) {
         break;
       }
-      throw new DuplicateCheckLoadError(
-        `Authoritative pending-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) with additional records remaining. Import aborted to prevent incomplete duplicate checks.`
-      );
+      pendingJobs.push(...pendingRes);
+
+      const hasExplicitTotal =
+        typeof (pendingRes as any).total === 'number' && Number.isFinite((pendingRes as any).total);
+      const totalPending = hasExplicitTotal ? (pendingRes as any).total : pendingJobs.length;
+      const pendingLimit =
+        typeof (pendingRes as any).limit === 'number' && (pendingRes as any).limit > 0
+          ? (pendingRes as any).limit
+          : 500;
+      const reachedEnd =
+        (hasExplicitTotal && pendingJobs.length >= totalPending) ||
+        pendingRes.length < pendingLimit;
+
+      if (reachedEnd) {
+        break;
+      }
+
+      if (pendingPage >= maxPages) {
+        if (hasExplicitTotal) {
+          throw new DuplicateCheckLoadError(
+            `Authoritative pending-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) (${pendingJobs.length} of ${totalPending} loaded). Import aborted to prevent incomplete duplicate checks.`
+          );
+        }
+        const nextPending = await JobRepository.getPending({ page: pendingPage + 1, limit: 500 });
+        if (!Array.isArray(nextPending)) {
+          throw new DuplicateCheckLoadError('Authoritative pending jobs could not be verified beyond final page.');
+        }
+        if (nextPending.length === 0) {
+          break;
+        }
+        throw new DuplicateCheckLoadError(
+          `Authoritative pending-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) with additional records remaining. Import aborted to prevent incomplete duplicate checks.`
+        );
+      }
     }
   }
 

@@ -16,6 +16,7 @@ process.env.MONGO_URI = '';
 import { processBackupImportJson, AdminDataBackupHub } from '../../src/components/admin/AdminDataBackupHub';
 import { jobRouter } from '../routes/jobRoutes';
 import { JobRepository } from '../db/repositories/JobRepository';
+import { Database } from '../db/database';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { UserRepository } from '../db/repositories/UserRepository';
 import { authMiddleware, createToken } from '../auth/authManager';
@@ -421,6 +422,7 @@ async function runTests() {
   let simulateGetPendingFailure = false;
   let customGetAllHandler: ((filter: any) => Promise<any>) | null = null;
   let customGetPendingHandler: ((filter: any) => Promise<any>) | null = null;
+  let getPendingCallArgs: any[][] = [];
   let createCallCount = 0;
   let auditEntries: any[] = [];
 
@@ -465,16 +467,19 @@ async function runTests() {
     };
   };
 
-  JobRepository.getPending = async (filter: any = {}) => {
+  JobRepository.getPending = async (...args: any[]) => {
+    getPendingCallArgs.push(args);
+    const filter = args[0];
     if (customGetPendingHandler) {
       return customGetPendingHandler(filter);
     }
     if (simulateGetPendingFailure) {
       throw new Error('Simulated pending queue load failure');
     }
+    const safeFilter = filter || {};
     const list = inMemoryPendingJobs.map((j) => JSON.parse(JSON.stringify(j)));
-    const page = Math.max(1, filter?.page || 1);
-    const limit = Math.min(500, Math.max(1, filter?.limit || 200));
+    const page = Math.max(1, safeFilter?.page || 1);
+    const limit = Math.min(500, Math.max(1, safeFilter?.limit || 200));
     const start = (page - 1) * limit;
     const sliced = list.slice(start, start + limit);
     Object.defineProperty(sliced, 'total', { value: list.length, enumerable: true });
@@ -1212,6 +1217,232 @@ async function runTests() {
       assert.strictEqual(backendData.errors.length, 1, 'Preserve exact indexed error for invalid row only');
       assert.strictEqual(backendData.errors[0].index, 2);
       assert.ok(backendData.message.includes('0 of 4'));
+    });
+
+    await runTest('2.23. Non-Mongo fallback (IS_TEST !== "true") calls JobRepository.getPending() without pagination args and detects pending duplicates beyond 500', async () => {
+      createCallCount = 0;
+      getPendingCallArgs = [];
+      const largePendingPool = Array.from({ length: 550 }, (_, idx) => ({
+        id: `local-pending-${idx + 1}`,
+        title:
+          idx === 535
+            ? 'Senior Geothermal Exploration Engineer'
+            : `Local Fallback Pending Role ${idx + 1}`,
+        company: idx === 535 ? 'Northern Thermal Energy PK' : `Fallback Org ${idx + 1}`,
+        city: idx === 535 ? 'Gilgit' : 'Lahore',
+        status: 'Pending'
+      }));
+
+      customGetPendingHandler = async (filter: any) => {
+        // Mimic JobRepository.getPending local fallback behavior: slice if filter?.limit is passed, full list if no args
+        if (filter && filter.limit) {
+          return largePendingPool.slice(0, Math.min(500, filter.limit)).map((j) => ({ ...j }));
+        }
+        return largePendingPool.map((j) => ({ ...j }));
+      };
+
+      const prevIsTest = process.env.IS_TEST;
+      const prevMongoUri = process.env.MONGODB_URI;
+      const prevMongoUriAlt = process.env.MONGO_URI;
+      process.env.IS_TEST = 'false';
+      process.env.MONGODB_URI = '';
+      process.env.MONGO_URI = '';
+
+      try {
+        const res = await postImport({
+          jobs: [
+            {
+              title: 'Senior Geothermal Exploration Engineer',
+              company: 'Northern Thermal Energy PK',
+              city: 'Gilgit'
+            },
+            {
+              title: 'Unique Non-Mongo Fallback Role 2026',
+              company: 'Karakoram Clean Grid Corp',
+              city: 'Skardu'
+            }
+          ]
+        });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.strictEqual(getPendingCallArgs.length, 1, 'Non-Mongo fallback must invoke getPending() once');
+        assert.strictEqual(
+          getPendingCallArgs[0].length,
+          0,
+          'Non-Mongo fallback must call JobRepository.getPending() with ZERO arguments (no { page, limit })'
+        );
+        assert.strictEqual(data.requestedCount, 2);
+        assert.strictEqual(data.processed, 2);
+        assert.strictEqual(data.importedCount, 1);
+        assert.strictEqual(data.skippedDuplicateCount, 1, 'Pending record #536 (>500) must be caught as duplicate');
+        assert.strictEqual(data.failedCount, 0);
+        assert.strictEqual(data.partialSuccess, true);
+        assert.strictEqual(createCallCount, 1, 'Only the unique job should be persisted');
+      } finally {
+        customGetPendingHandler = null;
+        process.env.IS_TEST = prevIsTest;
+        process.env.MONGODB_URI = prevMongoUri;
+        process.env.MONGO_URI = prevMongoUriAlt;
+      }
+    });
+
+    await runTest('2.24. Real unstubbed JobRepository.getPending() in non-Mongo mode returns full >500 fallback collection vs sliced paginated call', async () => {
+      createCallCount = 0;
+      const realPendingFixture = Array.from({ length: 560 }, (_, idx) => ({
+        id: `db-fallback-pending-${idx + 1}`,
+        title:
+          idx === 545
+            ? 'Director of Indus Telemetry Analytics'
+            : `Database Fallback Pending Position ${idx + 1}`,
+        company: idx === 545 ? 'Sindh Irrigation Tech Authority' : `Telemetry Dept ${idx + 1}`,
+        city: idx === 545 ? 'Hyderabad' : 'Karachi',
+        status: 'Pending'
+      }));
+
+      const origDbGetPendingJobs = Database.getPendingJobs;
+      const currentWrappedGetPending = JobRepository.getPending;
+      Database.getPendingJobs = () => realPendingFixture.map((j) => ({ ...j }));
+      JobRepository.getPending = originalGetPending;
+
+      const prevIsTest = process.env.IS_TEST;
+      const prevMongoUri = process.env.MONGODB_URI;
+      const prevMongoUriAlt = process.env.MONGO_URI;
+      process.env.IS_TEST = 'false';
+      process.env.MONGODB_URI = '';
+      process.env.MONGO_URI = '';
+
+      try {
+        // Confirm why pagination args fail in non-Mongo fallback (would slice to 500 and miss idx 545)
+        const slicedOldCall = await originalGetPending({ page: 1, limit: 500 });
+        assert.strictEqual(slicedOldCall.length, 500);
+        assert.strictEqual(slicedOldCall.some((j: any) => j.id === 'db-fallback-pending-546'), false);
+
+        const res = await postImport({
+          jobs: [
+            {
+              title: 'Director of Indus Telemetry Analytics',
+              company: 'Sindh Irrigation Tech Authority',
+              city: 'Hyderabad'
+            }
+          ]
+        });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.strictEqual(data.success, false);
+        assert.strictEqual(data.requestedCount, 1);
+        assert.strictEqual(data.processed, 1);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(data.skippedDuplicateCount, 1);
+        assert.strictEqual(data.failedCount, 0);
+        assert.strictEqual(createCallCount, 0, 'Real JobRepository.getPending() fallback must block duplicate at index 545');
+      } finally {
+        JobRepository.getPending = currentWrappedGetPending;
+        Database.getPendingJobs = origDbGetPendingJobs;
+        process.env.IS_TEST = prevIsTest;
+        process.env.MONGODB_URI = prevMongoUri;
+        process.env.MONGO_URI = prevMongoUriAlt;
+      }
+    });
+
+    await runTest('2.25. Non-Mongo fallback fails closed (HTTP 500, 0 writes) when pending fallback result is non-array, throws, or is incomplete', async () => {
+      const prevIsTest = process.env.IS_TEST;
+      const prevMongoUri = process.env.MONGODB_URI;
+      const prevMongoUriAlt = process.env.MONGO_URI;
+      process.env.IS_TEST = 'false';
+      process.env.MONGODB_URI = '';
+      process.env.MONGO_URI = '';
+
+      const incompleteArr = [{ id: 'inc-1', title: 'Only One', company: 'Org', city: 'Lahore', status: 'Pending' }];
+      Object.defineProperty(incompleteArr, 'total', { value: 550, enumerable: true });
+
+      const badResponses: Array<{ label: string; handler: () => Promise<any> }> = [
+        { label: 'null response', handler: async () => null },
+        { label: 'plain object response', handler: async () => ({ jobs: [] }) },
+        {
+          label: 'rejected fallback promise',
+          handler: async () => {
+            throw new Error('Disk fallback read error');
+          }
+        },
+        { label: 'incomplete total vs length', handler: async () => incompleteArr }
+      ];
+
+      try {
+        for (const testCase of badResponses) {
+          createCallCount = 0;
+          customGetPendingHandler = testCase.handler;
+          const res = await postImport({
+            jobs: [
+              { title: 'Safe Job Should Not Persist 1', company: 'Verify Safe Corp', city: 'Lahore' },
+              { title: 'Safe Job Should Not Persist 2', company: 'Verify Safe Corp', city: 'Karachi' }
+            ]
+          });
+          assert.strictEqual(res.status, 500, `${testCase.label} must fail closed with HTTP 500`);
+          const data = await res.json();
+          assert.strictEqual(data.success, false);
+          assert.strictEqual(data.errorType, 'DuplicateCheckLoadError', `${testCase.label} must return DuplicateCheckLoadError`);
+          assert.strictEqual(data.requestedCount, 2);
+          assert.strictEqual(data.processed, 2);
+          assert.strictEqual(data.importedCount, 0);
+          assert.strictEqual(data.failedCount, 2);
+          assert.strictEqual(data.skippedDuplicateCount, 0);
+          assert.strictEqual(createCallCount, 0, `${testCase.label} must write 0 jobs`);
+        }
+      } finally {
+        customGetPendingHandler = null;
+        process.env.IS_TEST = prevIsTest;
+        process.env.MONGODB_URI = prevMongoUri;
+        process.env.MONGO_URI = prevMongoUriAlt;
+      }
+    });
+
+    await runTest('2.26. When MongoDB IS configured and IS_TEST !== "true", paginated JobRepository.getPending({ page, limit: 500 }) continues to be used', async () => {
+      createCallCount = 0;
+      getPendingCallArgs = [];
+      const pagedPendingPool = [
+        { id: 'mongo-p1', title: 'Mongo Page 1 Role', company: 'Mongo Org 1', city: 'Lahore', status: 'Pending' },
+        { id: 'mongo-p2', title: 'Mongo Page 2 Nuclear Safety Inspector', company: 'PNRA Pakistan', city: 'Islamabad', status: 'Pending' }
+      ];
+      customGetPendingHandler = async (filter: any) => {
+        const p = filter?.page || 1;
+        const item = pagedPendingPool[p - 1];
+        const arr = item ? [{ ...item }] : [];
+        Object.defineProperty(arr, 'total', { value: pagedPendingPool.length, enumerable: true });
+        Object.defineProperty(arr, 'limit', { value: 1, enumerable: true });
+        return arr;
+      };
+
+      const prevIsTest = process.env.IS_TEST;
+      const prevMongoUri = process.env.MONGODB_URI;
+      const prevMongoUriAlt = process.env.MONGO_URI;
+      process.env.IS_TEST = 'false';
+      process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/mock_configured_check';
+      process.env.MONGO_URI = '';
+
+      try {
+        const res = await postImport({
+          jobs: [
+            {
+              title: 'Mongo Page 2 Nuclear Safety Inspector',
+              company: 'PNRA Pakistan',
+              city: 'Islamabad'
+            }
+          ]
+        });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.strictEqual(getPendingCallArgs.length, 2, 'Mongo-configured mode must paginate through both pages');
+        assert.deepStrictEqual(getPendingCallArgs[0], [{ page: 1, limit: 500 }]);
+        assert.deepStrictEqual(getPendingCallArgs[1], [{ page: 2, limit: 500 }]);
+        assert.strictEqual(data.skippedDuplicateCount, 1);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(createCallCount, 0);
+      } finally {
+        customGetPendingHandler = null;
+        process.env.IS_TEST = prevIsTest;
+        process.env.MONGODB_URI = prevMongoUri;
+        process.env.MONGO_URI = prevMongoUriAlt;
+      }
     });
   } finally {
     JobRepository.create = originalCreate;

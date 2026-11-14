@@ -176,21 +176,21 @@ interface AdminDashboardProps {
   onDeleteSubscriber?: (subscriberId: string) => void;
   onBulkDeleteSubscribers?: (subscriberIds: string[]) => void;
   onUpdateUser?: (user: UserAccount) => void;
-  onBulkDeleteUsers?: (userIds: string[]) => void;
+  onBulkDeleteUsers?: (userIds: string[]) => Promise<{ deletedIds: string[]; failed: Array<{ userId: string; message: string }> } | void> | void;
   onDeleteFeeLog?: (logId: string) => void;
   onBulkDeleteFeeLogs?: (logIds: string[]) => void;
   onSendMessageToUser: (userId: string, userName: string, text: string) => Promise<boolean> | boolean;
   onAddCustomField: (field: CustomFormField) => Promise<boolean> | boolean | void;
   onToggleCustomField: (fieldId: string) => Promise<boolean> | boolean | void;
   onDeleteCustomField: (fieldId: string) => Promise<boolean> | boolean | void;
-  onUpdateUserExpiry: (userId: string, newExpiryDate: string) => void;
-  onToggleUserPlan: (userId: string) => void;
+  onUpdateUserExpiry: (userId: string, newExpiryDate: string) => Promise<{ success: boolean; user?: UserAccount; message?: string } | boolean | void> | void;
+  onToggleUserPlan: (userId: string) => Promise<{ success: boolean; user?: UserAccount; message?: string } | boolean | void> | void;
   onUpdateUserPassword?: (userId: string, newPass: string) => void;
-  onEndUserMembership?: (userId: string) => void;
-  onDeactivateUserJobs?: (userId: string) => void;
-  onEndUserMembershipAndJobs?: (userId: string) => void;
+  onEndUserMembership?: (userId: string, options?: { silent?: boolean }) => Promise<{ success: boolean; user?: UserAccount; message?: string } | boolean | void> | void;
+  onDeactivateUserJobs?: (userId: string) => Promise<{ success: boolean; suspendedCount: number; message?: string } | void> | void;
+  onEndUserMembershipAndJobs?: (userId: string) => Promise<{ success: boolean; message?: string } | boolean | void> | void;
   onSuspendJob?: (jobId: string, reason?: string) => void;
-  onBulkEndUnpaidMemberships?: () => void;
+  onBulkEndUnpaidMemberships?: () => Promise<void> | void;
   monthlyFeePkr?: number;
   onChangeMonthlyFee?: (newFee: number) => void;
   onExitAdmin: () => void;
@@ -1317,6 +1317,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [auditUser, setAuditUser] = useState<UserAccount | null>(null);
   const [customExpiryInput, setCustomExpiryInput] = useState('');
 
+  useEffect(() => {
+    if (selectedUserForModal) {
+      const fresh = users.find(u => String(u.id) === String(selectedUserForModal.id));
+      if (!fresh) {
+        setSelectedUserForModal(null);
+      } else if (fresh !== selectedUserForModal) {
+        setSelectedUserForModal(fresh);
+      }
+    }
+    if (auditUser) {
+      const freshAudit = users.find(u => String(u.id) === String(auditUser.id));
+      if (!freshAudit) {
+        setAuditUser(null);
+      } else if (freshAudit !== auditUser) {
+        setAuditUser(freshAudit);
+      }
+    }
+  }, [users]);
+
   // Global Search State
   const [searchJobQuery, setSearchJobQuery] = useState('');
 
@@ -1360,6 +1379,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [userPaymentFilter, setUserPaymentFilter] = useState<'all' | 'paid' | 'unpaid' | 'overdue'>('all');
   const [userPlanFilter, setUserPlanFilter] = useState<'all' | 'Free' | 'Premium'>('all');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [isBulkDeletingUsers, setIsBulkDeletingUsers] = useState<boolean>(false);
+  const [isBulkEndingMemberships, setIsBulkEndingMemberships] = useState<boolean>(false);
   const [showUserDuplicatesOnly, setShowUserDuplicatesOnly] = useState(false);
   const [isUserDuplicateModalOpen, setIsUserDuplicateModalOpen] = useState(false);
 
@@ -3953,6 +3974,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {adminTab === 'user-audit' && (() => {
         const userClusters = computeUserDuplicateClusters(users);
 
+        const getUserMembershipFlags = (u: UserAccount) => {
+          const rawExpiry = u.expiryDate && typeof u.expiryDate === 'string' ? u.expiryDate.trim() : '';
+          const expiryMs = rawExpiry ? new Date(rawExpiry).getTime() : NaN;
+          const isDateExpired = Number.isFinite(expiryMs) && expiryMs < Date.now();
+          const isGenuinelyUnpaid =
+            u.paymentStatus === 'Unpaid' ||
+            u.paymentStatus === 'Overdue' ||
+            u.membershipStatus === 'Unpaid';
+          const isRevoked = u.membershipStatus === 'Revoked';
+          const isExpired = u.membershipStatus === 'Expired' || isDateExpired;
+          const isInactiveOrUnpaid = isGenuinelyUnpaid || isRevoked || isExpired;
+          return { isGenuinelyUnpaid, isRevoked, isExpired, isInactiveOrUnpaid };
+        };
+
         const filteredUsers = users.filter((u) => {
           if (userSearchQuery.trim()) {
             const q = userSearchQuery.toLowerCase();
@@ -3962,9 +3997,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             if (!matchesName && !matchesEmail && !matchesRole) return false;
           }
 
-          const isUnpaid = u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now());
-          if (userPaymentFilter === 'paid' && isUnpaid) return false;
-          if (userPaymentFilter === 'unpaid' && !isUnpaid) return false;
+          const { isInactiveOrUnpaid } = getUserMembershipFlags(u);
+          if (userPaymentFilter === 'paid' && isInactiveOrUnpaid) return false;
+          if (userPaymentFilter === 'unpaid' && !isInactiveOrUnpaid) return false;
 
           if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
           if (userPlanFilter !== 'all' && u.plan !== userPlanFilter) return false;
@@ -3994,27 +4029,76 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           );
         };
 
-        const handleBulkDeleteSelectedUsers = () => {
-          if (selectedUserIds.length === 0) return;
-          if (confirm(`Permanently delete ${selectedUserIds.length} selected user accounts and clean up their sessions?`)) {
-            if (onBulkDeleteUsers) {
-              onBulkDeleteUsers(selectedUserIds);
-            } else {
-              selectedUserIds.forEach(id => {
-                if (onEndUserMembership) onEndUserMembership(id);
-              });
+        const handleBulkDeleteSelectedUsers = async () => {
+          if (selectedUserIds.length === 0 || isBulkDeletingUsers) return;
+          if (!onBulkDeleteUsers) {
+            alert('User deletion handler is unavailable.');
+            return;
+          }
+          if (!confirm(`Permanently delete ${selectedUserIds.length} selected user account(s)? This removes the selected user records and cannot be undone.`)) {
+            return;
+          }
+
+          setIsBulkDeletingUsers(true);
+          try {
+            const result = await onBulkDeleteUsers(selectedUserIds);
+            if (result && Array.isArray(result.deletedIds)) {
+              const deletedSet = new Set(result.deletedIds);
+              setSelectedUserIds(prev => prev.filter(id => !deletedSet.has(id)));
+              if (result.failed.length > 0) {
+                const failureSummary = result.failed
+                  .slice(0, 3)
+                  .map(f => `${f.userId}: ${f.message}`)
+                  .join('; ');
+                alert(
+                  `Deleted ${result.deletedIds.length} user account(s). Failed to delete ${result.failed.length} account(s): ${failureSummary}`
+                );
+              } else if (result.deletedIds.length > 0) {
+                alert(`Permanently deleted ${result.deletedIds.length} selected user account(s).`);
+              }
             }
-            setSelectedUserIds([]);
+          } finally {
+            setIsBulkDeletingUsers(false);
           }
         };
 
-        const handleBulkEndMembershipSelected = () => {
-          if (selectedUserIds.length === 0) return;
-          if (confirm(`End membership and revoke premium access for ${selectedUserIds.length} selected users?`)) {
-            selectedUserIds.forEach(id => {
-              if (onEndUserMembership) onEndUserMembership(id);
-            });
-            setSelectedUserIds([]);
+        const handleBulkEndMembershipSelected = async () => {
+          if (selectedUserIds.length === 0 || isBulkEndingMemberships) return;
+          if (!onEndUserMembership) {
+            alert('Membership termination handler is unavailable.');
+            return;
+          }
+          if (!confirm(`End membership and revoke premium access for ${selectedUserIds.length} selected user(s)?`)) {
+            return;
+          }
+
+          setIsBulkEndingMemberships(true);
+          try {
+            const succeededIds: string[] = [];
+            const failedMessages: string[] = [];
+            for (const id of selectedUserIds) {
+              const res = await onEndUserMembership(id, { silent: true });
+              if (res && typeof res === 'object' && 'success' in res) {
+                if (res.success) {
+                  succeededIds.push(id);
+                } else {
+                  failedMessages.push(`${id}: ${res.message || 'Failed'}`);
+                }
+              } else if (res === false) {
+                failedMessages.push(`${id}: Failed`);
+              } else {
+                succeededIds.push(id);
+              }
+            }
+            const succeededSet = new Set(succeededIds);
+            setSelectedUserIds(prev => prev.filter(id => !succeededSet.has(id)));
+            if (failedMessages.length > 0) {
+              alert(`Revoked membership for ${succeededIds.length} user(s). Failed for ${failedMessages.length}: ${failedMessages.slice(0, 3).join('; ')}`);
+            } else {
+              alert(`Revoked membership for ${succeededIds.length} selected user(s).`);
+            }
+          } finally {
+            setIsBulkEndingMemberships(false);
           }
         };
 
@@ -4171,26 +4255,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
+                    disabled={isBulkEndingMemberships || isBulkDeletingUsers}
                     onClick={handleBulkEndMembershipSelected}
-                    className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold text-xs rounded-xl border border-amber-500/40 cursor-pointer flex items-center space-x-1"
+                    className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold text-xs rounded-xl border border-amber-500/40 cursor-pointer flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ShieldAlert className="w-3.5 h-3.5" />
-                    <span>Bulk End Membership</span>
+                    <span>{isBulkEndingMemberships ? 'Ending Memberships...' : 'Bulk End Membership'}</span>
                   </button>
 
                   <button
                     type="button"
+                    disabled={isBulkDeletingUsers || isBulkEndingMemberships}
                     onClick={handleBulkDeleteSelectedUsers}
-                    className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-500/20 cursor-pointer flex items-center space-x-1"
+                    className="px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-500/20 cursor-pointer flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Bulk Delete Accounts ({selectedUserIds.length})</span>
+                    <span>{isBulkDeletingUsers ? 'Deleting Accounts...' : `Bulk Delete Accounts (${selectedUserIds.length})`}</span>
                   </button>
 
                   <button
                     type="button"
+                    disabled={isBulkDeletingUsers || isBulkEndingMemberships}
                     onClick={() => setSelectedUserIds([])}
-                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-bold cursor-pointer disabled:opacity-50"
                   >
                     Deselect
                   </button>
@@ -4234,7 +4321,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         (u.name && j.company?.toLowerCase() === u.name.toLowerCase()) ||
                         (u.email && j.company?.toLowerCase() === u.email.toLowerCase())
                       );
-                      const isUnpaidOrRevoked = u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now());
+                      const { isGenuinelyUnpaid, isRevoked, isExpired, isInactiveOrUnpaid } = getUserMembershipFlags(u);
+                      const statusBadgeLabel = isGenuinelyUnpaid
+                        ? isRevoked
+                          ? '⚠️ Unpaid / Revoked'
+                          : '⚠️ Unpaid'
+                        : isRevoked
+                        ? u.paymentStatus === 'Paid'
+                          ? '⛔ Revoked (Paid)'
+                          : '⛔ Revoked'
+                        : isExpired
+                        ? u.paymentStatus === 'Paid'
+                          ? '⌛ Expired (Paid)'
+                          : '⌛ Expired'
+                        : '💳 Paid Active';
 
                       return (
                         <tr
@@ -4273,15 +4373,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
                           <td className="p-3">
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black inline-flex items-center space-x-1 ${
-                              !isUnpaidOrRevoked
+                              !isInactiveOrUnpaid
                                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : isExpired && !isGenuinelyUnpaid && !isRevoked
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                                 : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                             }`}>
-                              <span>{!isUnpaidOrRevoked ? '💳 Paid Active' : '⚠️ Unpaid / Revoked'}</span>
+                              <span>{statusBadgeLabel}</span>
                             </span>
                           </td>
                           <td className="p-3 font-mono text-xs">
-                            <span className={isUnpaidOrRevoked ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                            <span className={isInactiveOrUnpaid ? 'text-rose-400 font-bold' : 'text-slate-300'}>
                               {u.expiryDate || '2026-08-24 09:00'}
                             </span>
                           </td>
@@ -7069,15 +7171,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     const currentExp = auditUser.expiryDate || '2026-08-24 09:00';
                     const parts = currentExp.split(' ');
                     const dateParts = parts[0].split('-');
                     const d = new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]));
                     d.setDate(d.getDate() + 30);
                     const newExp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${parts[1] || '09:00'}`;
-                    onUpdateUserExpiry(auditUser.id, newExp);
-                    setAuditUser({ ...auditUser, expiryDate: newExp, renewalCount: (auditUser.renewalCount || 1) + 1 });
+                    const res = await onUpdateUserExpiry(auditUser.id, newExp);
+                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
+                    if (res === false) return;
+                    setAuditUser(
+                      res && typeof res === 'object' && res.user
+                        ? { ...auditUser, ...res.user }
+                        : { ...auditUser, expiryDate: newExp, renewalCount: (auditUser.renewalCount || 1) + 1 }
+                    );
                     alert(`Subscription for ${auditUser.name} extended by +30 Days! New Expiry: ${newExp}`);
                   }}
                   className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer"
@@ -7087,10 +7195,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     const revExp = '2020-01-01 00:00';
-                    onUpdateUserExpiry(auditUser.id, revExp);
-                    setAuditUser({ ...auditUser, expiryDate: revExp, plan: 'Free' });
+                    const res = await onUpdateUserExpiry(auditUser.id, revExp);
+                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
+                    if (res === false) return;
+                    setAuditUser(
+                      res && typeof res === 'object' && res.user
+                        ? { ...auditUser, ...res.user }
+                        : { ...auditUser, expiryDate: revExp, plan: 'Free', membershipStatus: 'Expired', autoRenew: false }
+                    );
                     alert(`Subscription for ${auditUser.name} revoked/expired immediately.`);
                   }}
                   className="px-3.5 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-bold transition-all cursor-pointer"
@@ -7100,10 +7214,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => {
-                    onToggleUserPlan(auditUser.id);
+                  onClick={async () => {
+                    const res = await onToggleUserPlan(auditUser.id);
+                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
+                    if (res === false) return;
                     const newPlan = auditUser.plan === 'Premium' ? 'Free' : 'Premium';
-                    setAuditUser({ ...auditUser, plan: newPlan });
+                    setAuditUser(
+                      res && typeof res === 'object' && res.user
+                        ? { ...auditUser, ...res.user }
+                        : { ...auditUser, plan: newPlan }
+                    );
                   }}
                   className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer"
                 >
@@ -7121,11 +7241,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!customExpiryInput.trim()) return;
-                    onUpdateUserExpiry(auditUser.id, customExpiryInput.trim());
-                    setAuditUser({ ...auditUser, expiryDate: customExpiryInput.trim() });
-                    alert(`Expiry date updated to ${customExpiryInput.trim()}`);
+                  onClick={async () => {
+                    const trimmed = customExpiryInput.trim();
+                    if (!trimmed) return;
+                    const res = await onUpdateUserExpiry(auditUser.id, trimmed);
+                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
+                    if (res === false) return;
+                    setAuditUser(
+                      res && typeof res === 'object' && res.user
+                        ? { ...auditUser, ...res.user }
+                        : { ...auditUser, expiryDate: trimmed }
+                    );
+                    alert(`Expiry date updated to ${trimmed}`);
                     setCustomExpiryInput('');
                   }}
                   className="px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl cursor-pointer"
@@ -7210,24 +7337,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onEndUserMembershipAndJobs={onEndUserMembershipAndJobs}
           onSuspendJob={onSuspendJob}
           onInspectJob={(j) => setSelectedJobForModal(j)}
-          onSaveAdminNotes={(userId, notes) => {
-            if (onUpdateUser) {
-              const target = users.find(u => u.id === userId);
-              if (target) {
-                onUpdateUser({ ...target, adminNotes: notes });
+          onSaveAdminNotes={async (userId, notes) => {
+            try {
+              const res = await api.users.updateProfile(userId, { adminNotes: notes });
+              if (res && res.success && res.user) {
+                setSelectedUserForModal(prev => prev && String(prev.id) === String(userId) ? { ...prev, ...res.user } : prev);
+                if (onUpdateUser) {
+                  onUpdateUser(res.user);
+                }
+              } else {
+                alert(res?.message || 'Failed to save admin notes.');
               }
+            } catch (err: any) {
+              alert(err?.message || 'Error saving admin notes.');
             }
           }}
-          onUpdateUserVerification={(userId, status, kycStatus) => {
-            if (onUpdateUser) {
-              const target = users.find(u => u.id === userId);
-              if (target) {
-                onUpdateUser({
-                  ...target,
-                  verificationStatus: status,
-                  ...(kycStatus ? { kycStatus } : {})
-                });
+          onUpdateUserVerification={async (userId, status, kycStatus) => {
+            try {
+              const payload: Record<string, any> = {
+                verificationStatus: status,
+                ...(kycStatus ? { kycStatus } : {})
+              };
+              const res = await api.users.updateProfile(userId, payload);
+              if (res && res.success && res.user) {
+                setSelectedUserForModal(prev => prev && String(prev.id) === String(userId) ? { ...prev, ...res.user } : prev);
+                if (onUpdateUser) {
+                  onUpdateUser(res.user);
+                }
+              } else {
+                alert(res?.message || 'Failed to update verification status.');
               }
+            } catch (err: any) {
+              alert(err?.message || 'Error updating verification status.');
             }
           }}
         />

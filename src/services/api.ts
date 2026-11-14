@@ -1006,6 +1006,12 @@ export const api = {
         body: JSON.stringify({ role })
       });
     },
+    async delete(userId: string) {
+      return safeFetchJson(`${API_BASE}/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
+    },
     async getSavedJobs() {
       return safeFetchJson(`${API_BASE}/users/saved-jobs`, {
         headers: getAuthHeader()

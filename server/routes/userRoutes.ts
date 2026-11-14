@@ -1,10 +1,106 @@
 import { Router } from 'express';
 import path from 'path';
 import { Database } from '../db/database';
-import { PaymentRepository, UserRepository } from '../db/repositories';
+import { AuditRepository, PaymentRepository, UserRepository } from '../db/repositories';
 import { requireAdminPermission, requireAuth, hasAdminPermission, getPermissionsForRole } from '../auth/authManager';
 
 export const userRouter = Router();
+
+const ALLOWED_NORMAL_USER_FIELDS = new Set([
+  'name',
+  'fullName',
+  'phone',
+  'phoneNumber',
+  'bio',
+  'location',
+  'city',
+  'country',
+  'address',
+  'avatarUrl',
+  'company',
+  'companyName',
+  'headline',
+  'title',
+  'skills',
+  'preferences',
+  'website',
+  'experience',
+  'education',
+  'cvUrl',
+  'resumeUrl',
+  'socialLinks',
+  'notificationsEnabled',
+  'whatsappAlertsEnabled'
+]);
+
+const ALLOWED_ADMIN_USER_FIELDS = new Set([
+  ...ALLOWED_NORMAL_USER_FIELDS,
+  'plan',
+  'membershipStatus',
+  'paymentStatus',
+  'autoRenew',
+  'expiryDate',
+  'activationDate',
+  'renewalCount',
+  'adminNotes',
+  'verificationStatus',
+  'kycStatus'
+]);
+
+const PROTECTED_ADMIN_UPDATE_FIELDS = new Set([
+  '_id',
+  'id',
+  'role',
+  'permissions',
+  'walletBalance',
+  'passwordHash',
+  'salt',
+  'password',
+  'transactions',
+  'appliedJobs',
+  'createdAt',
+  'updatedAt'
+]);
+
+const VALID_USER_PLANS = new Set(['Free', 'Premium']);
+const VALID_MEMBERSHIP_STATUSES = new Set(['Active', 'Revoked', 'Expired', 'Unpaid']);
+const VALID_PAYMENT_STATUSES = new Set(['Paid', 'Unpaid', 'Overdue']);
+const PROTECTED_SYSTEM_ACCOUNT_IDS = new Set(['system', 'system-admin', 'admin-bootstrap']);
+
+function isValidUserIdParam(id: string): boolean {
+  return Boolean(id && id.length <= 128 && !id.includes('\0') && !id.includes('/') && !id.includes('\\'));
+}
+
+function isValidUserDateString(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 64) return false;
+
+  const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/);
+  if (ymdMatch) {
+    const year = Number(ymdMatch[1]);
+    const month = Number(ymdMatch[2]);
+    const day = Number(ymdMatch[3]);
+    const hour = ymdMatch[4] !== undefined ? Number(ymdMatch[4]) : 0;
+    const minute = ymdMatch[5] !== undefined ? Number(ymdMatch[5]) : 0;
+    const second = ymdMatch[6] !== undefined ? Number(ymdMatch[6]) : 0;
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) {
+      return false;
+    }
+    const utcCheck = new Date(Date.UTC(year, month - 1, day));
+    if (
+      utcCheck.getUTCFullYear() !== year ||
+      utcCheck.getUTCMonth() !== month - 1 ||
+      utcCheck.getUTCDate() !== day
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed);
+}
 
 function isUserAdmin(user: any): boolean {
   return hasAdminPermission(user?.role, 'users.manage');
@@ -351,10 +447,18 @@ userRouter.get('/:id', requireAuth, async (req: any, res) => {
 // 6. Update User Profile or Admin Status
 userRouter.put('/:id', requireAuth, async (req: any, res) => {
   try {
-    const { id } = req.params;
-    const updates = req.body || {};
+    const id = String(req.params.id || '').trim();
+    if (!isValidUserIdParam(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID.' });
+    }
+
+    const updates = req.body;
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      return res.status(400).json({ success: false, message: 'Invalid update payload.' });
+    }
+
     const isAdmin = isUserAdmin(req.user);
-    const currentUserId = req.user?.userId || req.user?.id;
+    const currentUserId = String(req.user?.userId || req.user?.id || '').trim();
 
     let finalUpdates: Record<string, any>;
 
@@ -366,33 +470,6 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       // Explicit allowlist of profile fields a normal user is permitted to self-update.
       // Strictly prevents modification of: role, walletBalance, membershipStatus, permissions,
       // plan, verified, kycStatus, activationDate, expiryDate, and administrative fields.
-      const ALLOWED_NORMAL_USER_FIELDS = new Set([
-        'name',
-        'fullName',
-        'phone',
-        'phoneNumber',
-        'bio',
-        'location',
-        'city',
-        'country',
-        'address',
-        'avatarUrl',
-        'company',
-        'companyName',
-        'headline',
-        'title',
-        'skills',
-        'preferences',
-        'website',
-        'experience',
-        'education',
-        'cvUrl',
-        'resumeUrl',
-        'socialLinks',
-        'notificationsEnabled',
-        'whatsappAlertsEnabled'
-      ]);
-
       finalUpdates = {};
       for (const [key, value] of Object.entries(updates)) {
         if (ALLOWED_NORMAL_USER_FIELDS.has(key)) {
@@ -400,23 +477,122 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
         }
       }
     } else {
+      const updateEntries = Object.entries(updates);
+      if (updateEntries.length === 0) {
+        return res.status(400).json({ success: false, message: 'No valid update fields provided.' });
+      }
+
+      finalUpdates = {};
+      for (const [key, value] of updateEntries) {
+        if (PROTECTED_ADMIN_UPDATE_FIELDS.has(key)) {
+          return res.status(400).json({
+            success: false,
+            message: `Protected field '${key}' cannot be modified via this endpoint.`
+          });
+        }
+        if (!ALLOWED_ADMIN_USER_FIELDS.has(key)) {
+          return res.status(400).json({
+            success: false,
+            message: `Unsupported field '${key}' in admin user update payload.`
+          });
+        }
+
+        if (key === 'plan') {
+          if (typeof value !== 'string' || !VALID_USER_PLANS.has(value)) {
+            return res.status(400).json({ success: false, message: "Invalid plan value. Must be 'Free' or 'Premium'." });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'membershipStatus') {
+          if (typeof value !== 'string' || !VALID_MEMBERSHIP_STATUSES.has(value)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid membershipStatus value. Must be 'Active', 'Revoked', 'Expired', or 'Unpaid'."
+            });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'paymentStatus') {
+          if (typeof value !== 'string' || !VALID_PAYMENT_STATUSES.has(value)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid paymentStatus value. Must be 'Paid', 'Unpaid', or 'Overdue'."
+            });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'autoRenew' || key === 'notificationsEnabled' || key === 'whatsappAlertsEnabled') {
+          if (typeof value !== 'boolean') {
+            return res.status(400).json({ success: false, message: `Field '${key}' must be a boolean.` });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'expiryDate' || key === 'activationDate') {
+          if (!isValidUserDateString(value)) {
+            return res.status(400).json({ success: false, message: `Field '${key}' must be a valid date string.` });
+          }
+          finalUpdates[key] = value.trim();
+        } else if (key === 'renewalCount') {
+          if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100000) {
+            return res.status(400).json({
+              success: false,
+              message: "Field 'renewalCount' must be a non-negative integer."
+            });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'adminNotes') {
+          if (typeof value !== 'string' || value.length > 5000) {
+            return res.status(400).json({
+              success: false,
+              message: "Field 'adminNotes' must be a string (max 5000 chars)."
+            });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'verificationStatus' || key === 'kycStatus') {
+          if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) {
+            return res.status(400).json({
+              success: false,
+              message: `Field '${key}' must be a non-empty string.`
+            });
+          }
+          finalUpdates[key] = value.trim();
+        } else if (key === 'skills') {
+          if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
+            return res.status(400).json({ success: false, message: "Field 'skills' must be an array of strings." });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'preferences' || key === 'socialLinks') {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return res.status(400).json({ success: false, message: `Field '${key}' must be an object.` });
+          }
+          finalUpdates[key] = value;
+        } else if (key === 'experience' || key === 'education') {
+          if (typeof value !== 'string' && !Array.isArray(value)) {
+            return res.status(400).json({ success: false, message: `Field '${key}' must be a string or array.` });
+          }
+          finalUpdates[key] = value;
+        } else {
+          if (typeof value !== 'string' || value.length > 2000) {
+            return res.status(400).json({ success: false, message: `Field '${key}' must be a valid string.` });
+          }
+          finalUpdates[key] = value;
+        }
+      }
+
       const existingUser = await UserRepository.getByIdAsync(id);
-      if (existingUser && existingUser.role === 'Super Admin' && req.user?.role !== 'Super Admin') {
+      if (!existingUser) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
+      }
+      if (existingUser.role === 'Super Admin' && req.user?.role !== 'Super Admin') {
         return res.status(403).json({
           success: false,
           message: 'Access denied: Only a Super Admin can modify a Super Admin account.'
         });
       }
-
-      // Administrators retain full administrative user management capabilities
-      finalUpdates = { ...updates };
     }
 
-    // Never allow updating passwordHash, salt, password, role, permissions, walletBalance, or primary ID directly via this endpoint
+    // Defensive safeguard: never allow updating passwordHash, salt, password, role, permissions, walletBalance, or primary ID
     delete finalUpdates.passwordHash;
     delete finalUpdates.salt;
     delete finalUpdates.password;
     delete finalUpdates.id;
+    delete finalUpdates._id;
     delete finalUpdates.role;
     delete finalUpdates.permissions;
     delete finalUpdates.walletBalance;
@@ -426,9 +602,117 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
+    if (isAdmin) {
+      const membershipChanged = ['plan', 'membershipStatus', 'paymentStatus', 'autoRenew', 'expiryDate', 'activationDate', 'renewalCount']
+        .some(field => Object.prototype.hasOwnProperty.call(finalUpdates, field));
+      try {
+        AuditRepository.add({
+          user: req.user?.name || req.user?.email || 'Administrator',
+          role: req.user?.role || 'Admin',
+          action: membershipChanged ? 'Admin User Membership Updated' : 'Admin User Profile Updated',
+          target: `${updated.email || updated.id} (${updated.id})`,
+          status: 'Success',
+          metadata: {
+            actorId: currentUserId,
+            targetUserId: updated.id,
+            updatedFields: Object.keys(finalUpdates),
+            plan: updated.plan,
+            membershipStatus: updated.membershipStatus,
+            paymentStatus: updated.paymentStatus,
+            expiryDate: updated.expiryDate
+          }
+        });
+      } catch (auditErr) {
+        console.warn('[userRoutes] Failed to log user update audit entry:', auditErr);
+      }
+    }
+
     const { passwordHash, salt, password, ...safeUser } = updated;
     res.json({ success: true, user: safeUser, message: 'User profile updated successfully!' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating user' });
+  }
+});
+
+// 7. Permanently Delete User Account (Admin Only - Requires users.manage, Non-Cascading)
+userRouter.delete('/:id', requireAdminPermission('users.manage'), async (req: any, res) => {
+  try {
+    const targetId = String(req.params.id || '').trim();
+    if (!isValidUserIdParam(targetId)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID.' });
+    }
+
+    const actorId = String(req.user?.userId || req.user?.id || '').trim();
+    if (actorId && targetId === actorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Action blocked: You cannot delete your own account.'
+      });
+    }
+
+    const targetUser = await UserRepository.getByIdAsync(targetId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    if (targetUser.role === 'Super Admin' && req.user?.role !== 'Super Admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Only a Super Admin can delete a Super Admin account.'
+      });
+    }
+
+    if (
+      targetUser.isSystem === true ||
+      targetUser.isProtected === true ||
+      targetUser.isBootstrapAdmin === true ||
+      PROTECTED_SYSTEM_ACCOUNT_IDS.has(targetId)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Action blocked: Protected administrative or system accounts cannot be deleted.'
+      });
+    }
+
+    if (targetUser.role === 'Super Admin') {
+      const allUsers = await UserRepository.getAllAsync();
+      const superAdminCount = allUsers.filter(u => u && u.role === 'Super Admin').length;
+      if (superAdminCount <= 1) {
+        return res.status(403).json({
+          success: false,
+          message: 'Action blocked: Cannot delete the last remaining Super Admin account.'
+        });
+      }
+    }
+
+    const deleted = await UserRepository.deleteAsync(targetId);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'User not found or already deleted.' });
+    }
+
+    try {
+      AuditRepository.add({
+        user: req.user?.name || req.user?.email || 'Administrator',
+        role: req.user?.role || 'Admin',
+        action: 'User Account Deleted',
+        target: `${targetUser.email || targetId} (${targetId})`,
+        status: 'Success',
+        metadata: {
+          actorId,
+          targetUserId: targetId,
+          targetRole: targetUser.role
+        }
+      });
+    } catch (auditErr) {
+      console.warn('[userRoutes] Failed to log user deletion audit entry:', auditErr);
+    }
+
+    return res.json({
+      success: true,
+      deletedId: targetId,
+      message: 'User account permanently deleted.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Error deleting user' });
   }
 });

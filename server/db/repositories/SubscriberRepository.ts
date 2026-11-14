@@ -607,11 +607,16 @@ export class SubscriberRepository {
 
     // Ownership & Guest verification (Rule 68, 69, 73, 74)
     if (authUserId) {
-      const txUserId = String(tx.userId || '');
+      const normalizedAuthUserId = String(authUserId).trim();
+      const txUserId =
+        tx.userId !== undefined && tx.userId !== null ? String(tx.userId).trim() : '';
       const txUserEmail = normalizeEmail(tx.userEmail);
-      const isOwner =
-        (txUserId && txUserId === authUserId) ||
-        (authUserEmail && txUserEmail && txUserEmail === normalizeEmail(authUserEmail));
+      const normalizedAuthEmail = normalizeEmail(authUserEmail);
+
+      // When transaction already has a userId, require an exact userId match; email must never override a mismatched userId.
+      const isOwner = txUserId
+        ? txUserId === normalizedAuthUserId
+        : Boolean(normalizedAuthEmail && txUserEmail && txUserEmail === normalizedAuthEmail);
 
       if (!isOwner) {
         throw new Error('Access denied: You are not authorized to create a subscriber for another user transaction.');

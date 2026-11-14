@@ -60,7 +60,7 @@ async function runTestSuite() {
   let httpServer: Server | null = null;
   let serverPort = 0;
   let passCount = 0;
-  const totalTests = 23; // Reconciled test count with guest identity, separate phone, and isolation tests
+  const totalTests = 31; // Includes 8 transaction ownership & guest verification regression tests
 
   const originalGetByIdAsync = PaymentRepository.getByIdAsync;
 
@@ -627,7 +627,228 @@ async function runTestSuite() {
     console.log('✓ Test 22 Passed: HTTP-level admin CRUD operations fully verified.');
 
     // ----------------------------------------------------
-    // Test 23: Storage Isolation & Protected File Checksum Verification
+    // Tests 23-30: Subscriber Transaction Ownership Verification
+    // ----------------------------------------------------
+    SubscriberRepository.resetTestStore();
+
+    // Test 23: Authenticated user with matching tx.userId succeeds
+    (PaymentRepository as any).getByIdAsync = async () => ({
+      id: 'tx-own-match-1',
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 1500,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      userId: 'usr-owner-1',
+      userEmail: 'different.email@example.com',
+      senderPhoneOrAccount: '+923001110001'
+    });
+    const ownMatchSub = await SubscriberRepository.createPendingSubscription({
+      paymentTransactionId: 'tx-own-match-1',
+      authUserId: 'usr-owner-1',
+      authUserEmail: 'owner1@example.com',
+      guestName: 'Owner One',
+      guestEmail: 'owner1@example.com',
+      guestPhone: '+923001110001'
+    });
+    assert.strictEqual(ownMatchSub.id, 'sub-tx-own-match-1');
+    passCount++;
+    console.log('✓ Test 23 Passed: Authenticated user with matching tx.userId succeeds.');
+
+    // Test 24: Authenticated user with mismatched tx.userId fails EVEN if email matches
+    (PaymentRepository as any).getByIdAsync = async () => ({
+      id: 'tx-own-mismatch-email-1',
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 1500,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'JazzCash',
+      userId: 'usr-victim-999',
+      userEmail: 'attacker@example.com',
+      senderPhoneOrAccount: '+923001110002'
+    });
+    let emailOverrideBlocked = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-own-mismatch-email-1',
+        authUserId: 'usr-attacker-1',
+        authUserEmail: 'Attacker@Example.com',
+        guestName: 'Attacker',
+        guestEmail: 'attacker@example.com',
+        guestPhone: '+923001110002'
+      });
+    } catch (err: any) {
+      emailOverrideBlocked = String(err?.message || '').includes('Access denied');
+    }
+    assert.strictEqual(emailOverrideBlocked, true, 'Mismatched userId must fail even when email matches');
+    passCount++;
+    console.log('✓ Test 24 Passed: Mismatched tx.userId rejected even when authUserEmail matches.');
+
+    // Test 25: Authenticated user with mismatched tx.userId and mismatched email fails
+    let bothMismatchBlocked = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-own-mismatch-email-1',
+        authUserId: 'usr-other-2',
+        authUserEmail: 'other2@example.com',
+        guestName: 'Other User',
+        guestEmail: 'other2@example.com',
+        guestPhone: '+923001110003'
+      });
+    } catch {
+      bothMismatchBlocked = true;
+    }
+    assert.strictEqual(bothMismatchBlocked, true);
+    passCount++;
+    console.log('✓ Test 25 Passed: Mismatched tx.userId and mismatched email rejected.');
+
+    // Test 26: Authenticated user when tx.userId missing/empty and normalized email matches succeeds
+    (PaymentRepository as any).getByIdAsync = async () => ({
+      id: 'tx-own-empty-uid-1',
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 1800,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'Easypaisa',
+      userId: '   ',
+      userEmail: '  Legacy.Owner@Example.COM ',
+      senderPhoneOrAccount: '+923001110004'
+    });
+    const emptyUidSub = await SubscriberRepository.createPendingSubscription({
+      paymentTransactionId: 'tx-own-empty-uid-1',
+      authUserId: 'usr-legacy-owner-1',
+      authUserEmail: 'legacy.owner@example.com',
+      guestName: 'Legacy Owner',
+      guestEmail: 'legacy.owner@example.com',
+      guestPhone: '+923001110004'
+    });
+    assert.strictEqual(emptyUidSub.id, 'sub-tx-own-empty-uid-1');
+    passCount++;
+    console.log('✓ Test 26 Passed: Missing/empty tx.userId falls back to normalized email match.');
+
+    // Test 27: Authenticated user when tx.userId missing/empty and email does NOT match fails
+    let emptyUidMismatchBlocked = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-own-empty-uid-1',
+        authUserId: 'usr-stranger-1',
+        authUserEmail: 'stranger@example.com',
+        guestName: 'Stranger',
+        guestEmail: 'stranger@example.com',
+        guestPhone: '+923001110005'
+      });
+    } catch {
+      emptyUidMismatchBlocked = true;
+    }
+    assert.strictEqual(emptyUidMismatchBlocked, true);
+    passCount++;
+    console.log('✓ Test 27 Passed: Missing tx.userId with non-matching email rejected.');
+
+    // Test 28: Guest flow with matching email AND sender phone/account succeeds
+    (PaymentRepository as any).getByIdAsync = async () => ({
+      id: 'tx-guest-match-1',
+      type: 'Subscription',
+      status: 'Pending',
+      amount: 2000,
+      currency: 'PKR',
+      plan: 'Pro Alerts',
+      paymentMethod: 'Bank Transfer',
+      userEmail: 'guest.buyer@example.com',
+      senderPhoneOrAccount: '0300-7654321'
+    });
+    const guestMatchSub = await SubscriberRepository.createPendingSubscription({
+      paymentTransactionId: 'tx-guest-match-1',
+      guestName: 'Guest Buyer',
+      guestEmail: 'Guest.Buyer@Example.com',
+      guestPhone: '+923001119999',
+      senderPhoneOrAccount: '03007654321'
+    });
+    assert.strictEqual(guestMatchSub.id, 'sub-tx-guest-match-1');
+    passCount++;
+    console.log('✓ Test 28 Passed: Guest flow succeeds when both email and sender phone match.');
+
+    // Test 29: Guest flow with mismatched email or mismatched sender phone fails
+    let guestBadEmailBlocked = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-guest-match-1',
+        guestName: 'Bad Guest',
+        guestEmail: 'wrong.guest@example.com',
+        guestPhone: '+923001119999',
+        senderPhoneOrAccount: '03007654321'
+      });
+    } catch {
+      guestBadEmailBlocked = true;
+    }
+    let guestBadPhoneBlocked = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-guest-match-1',
+        guestName: 'Bad Guest',
+        guestEmail: 'guest.buyer@example.com',
+        guestPhone: '+923001119999',
+        senderPhoneOrAccount: '03000000000'
+      });
+    } catch {
+      guestBadPhoneBlocked = true;
+    }
+    assert.strictEqual(guestBadEmailBlocked, true);
+    assert.strictEqual(guestBadPhoneBlocked, true);
+    passCount++;
+    console.log('✓ Test 29 Passed: Guest flow rejects mismatched email or sender phone.');
+
+    // Test 30: Non-Pending status and non-Subscription transaction type rejected
+    (PaymentRepository as any).getByIdAsync = async () => ({
+      id: 'tx-non-pending-1',
+      type: 'Subscription',
+      status: 'Success',
+      userId: 'usr-owner-1',
+      userEmail: 'owner1@example.com'
+    });
+    let nonPendingBlocked = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-non-pending-1',
+        authUserId: 'usr-owner-1',
+        authUserEmail: 'owner1@example.com',
+        guestName: 'Owner',
+        guestEmail: 'owner1@example.com',
+        guestPhone: '+923001110001'
+      });
+    } catch {
+      nonPendingBlocked = true;
+    }
+
+    (PaymentRepository as any).getByIdAsync = async () => ({
+      id: 'tx-non-sub-1',
+      type: 'Job Posting Fee',
+      status: 'Pending',
+      userId: 'usr-owner-1',
+      userEmail: 'owner1@example.com'
+    });
+    let nonSubTypeBlocked = false;
+    try {
+      await SubscriberRepository.createPendingSubscription({
+        paymentTransactionId: 'tx-non-sub-1',
+        authUserId: 'usr-owner-1',
+        authUserEmail: 'owner1@example.com',
+        guestName: 'Owner',
+        guestEmail: 'owner1@example.com',
+        guestPhone: '+923001110001'
+      });
+    } catch {
+      nonSubTypeBlocked = true;
+    }
+    assert.strictEqual(nonPendingBlocked, true);
+    assert.strictEqual(nonSubTypeBlocked, true);
+    passCount++;
+    console.log('✓ Test 30 Passed: Non-Pending status and non-Subscription transaction type fail closed.');
+
+    // ----------------------------------------------------
+    // Test 31: Storage Isolation & Protected File Checksum Verification
     // ----------------------------------------------------
     const postSnapshot = getDataDirectorySnapshot();
     const postMongoHash = getMongodbTsHash();
@@ -637,7 +858,7 @@ async function runTestSuite() {
       assert.strictEqual(postSnapshot.files[key], preSnapshot.files[key], `Data file ${key} must remain byte-for-byte unchanged`);
     }
     passCount++;
-    console.log('✓ Test 23 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
+    console.log('✓ Test 31 Passed: Storage isolation and byte-for-byte protected file integrity verified.');
 
     assert.strictEqual(passCount, totalTests, `All tests must pass successfully (Expected ${totalTests}, got ${passCount})`);
 

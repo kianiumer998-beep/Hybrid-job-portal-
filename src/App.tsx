@@ -2423,57 +2423,154 @@ export default function App() {
     localStorage.setItem('hybrid_job_posting_fee', jobPostingFeePkr.toString());
   }, [jobPostingFeePkr]);
 
-  // Handlers for Admin Subscription Controls
-  const handleUpdateUserExpiry = (userId: string, newExpiryDate: string) => {
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, expiryDate: newExpiryDate } : u));
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser(prev => prev ? { ...prev, expiryDate: newExpiryDate } : null);
-    }
-  };
-
-  const handleToggleUserPlan = (userId: string) => {
-    setUsers(prev => prev.map(u => {
-      if (u.id === userId) {
-        const nextPlan = u.plan === 'Premium' ? 'Free' : 'Premium';
-        return { ...u, plan: nextPlan };
+  const applyAuthoritativeUserUpdate = useCallback((rawUser: any): UserAccount => {
+    const authoritativeUser = sanitizeBackendUser(rawUser);
+    setUsers(prev => prev.map(u => String(u.id) === String(authoritativeUser.id) ? { ...u, ...authoritativeUser } : u));
+    setCurrentUser(prev => {
+      if (!prev || String(prev.id) !== String(authoritativeUser.id)) {
+        return prev;
       }
-      return u;
-    }));
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser(prev => prev ? { ...prev, plan: prev.plan === 'Premium' ? 'Free' : 'Premium' } : null);
-    }
-  };
-
-  // Admin Ends Unpaid Membership
-  const handleEndUserMembership = (userId: string) => {
-    setUsers(prev => prev.map(u => {
-      if (u.id === userId) {
-        return {
-          ...u,
-          plan: 'Free',
-          membershipStatus: 'Revoked',
-          paymentStatus: 'Unpaid',
-          autoRenew: false,
-          expiryDate: '2020-01-01 00:00'
-        };
-      }
-      return u;
-    }));
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser(prev => prev ? {
+      return {
         ...prev,
-        plan: 'Free',
-        membershipStatus: 'Revoked',
-        paymentStatus: 'Unpaid',
-        autoRenew: false,
-        expiryDate: '2020-01-01 00:00'
-      } : null);
+        ...authoritativeUser,
+        appliedJobs: prev.appliedJobs,
+        transactions: prev.transactions
+      };
+    });
+    return authoritativeUser;
+  }, [sanitizeBackendUser]);
+
+  const parseSafeExpiryTimestamp = (expiryDate?: string): number | null => {
+    if (!expiryDate || typeof expiryDate !== 'string' || !expiryDate.trim()) return null;
+    const ms = new Date(expiryDate.trim()).getTime();
+    return Number.isFinite(ms) ? ms : null;
+  };
+
+  const formatPastExpiryTimestamp = (): string => {
+    return new Date(Date.now() - 60000).toISOString().replace('T', ' ').substring(0, 16);
+  };
+
+  // Handlers for Admin Subscription Controls (Backend-Persisted)
+  const handleUpdateUserExpiry = async (
+    userId: string,
+    newExpiryDate: string
+  ): Promise<{ success: boolean; user?: UserAccount; message?: string }> => {
+    const trimmedExpiry = typeof newExpiryDate === 'string' ? newExpiryDate.trim() : '';
+    const parsedMs = parseSafeExpiryTimestamp(trimmedExpiry);
+    if (!trimmedExpiry || parsedMs === null) {
+      const msg = 'Invalid expiry date format.';
+      alert(msg);
+      return { success: false, message: msg };
     }
-    alert('User premium membership has been terminated/revoked due to unpaid status.');
+
+    const targetUser = users.find(u => String(u.id) === String(userId));
+    const isPastExpiry = parsedMs < Date.now();
+    const payload: Record<string, any> = {
+      expiryDate: trimmedExpiry,
+      ...(isPastExpiry
+        ? { plan: 'Free', membershipStatus: 'Expired', autoRenew: false }
+        : targetUser?.membershipStatus === 'Expired'
+        ? { membershipStatus: 'Active' }
+        : {})
+    };
+
+    try {
+      const res = await api.users.updateProfile(userId, payload);
+      if (res && res.success && res.user) {
+        const authoritativeUser = applyAuthoritativeUserUpdate(res.user);
+        return { success: true, user: authoritativeUser };
+      }
+      const msg = res?.message || 'Failed to update user expiry date on backend.';
+      alert(msg);
+      return { success: false, message: msg };
+    } catch (err: any) {
+      console.error('Error updating user expiry on backend:', err);
+      const msg = err?.message || 'Error updating user expiry date.';
+      alert(msg);
+      return { success: false, message: msg };
+    }
+  };
+
+  const handleToggleUserPlan = async (
+    userId: string
+  ): Promise<{ success: boolean; user?: UserAccount; message?: string }> => {
+    const targetUser = users.find(u => String(u.id) === String(userId));
+    if (!targetUser) {
+      const msg = 'Target user not found.';
+      alert(msg);
+      return { success: false, message: msg };
+    }
+
+    const nextPlan: 'Free' | 'Premium' = targetUser.plan === 'Premium' ? 'Free' : 'Premium';
+    const payload: Record<string, any> = {
+      plan: nextPlan,
+      ...(nextPlan === 'Premium' && targetUser.membershipStatus !== 'Active'
+        ? { membershipStatus: 'Active' }
+        : {})
+    };
+
+    try {
+      const res = await api.users.updateProfile(userId, payload);
+      if (res && res.success && res.user) {
+        const authoritativeUser = applyAuthoritativeUserUpdate(res.user);
+        return { success: true, user: authoritativeUser };
+      }
+      const msg = res?.message || 'Failed to switch user plan on backend.';
+      alert(msg);
+      return { success: false, message: msg };
+    } catch (err: any) {
+      console.error('Error toggling user plan on backend:', err);
+      const msg = err?.message || 'Error toggling user plan.';
+      alert(msg);
+      return { success: false, message: msg };
+    }
+  };
+
+  // Admin Revokes / Ends User Membership (Preserves Paid paymentStatus history)
+  const handleEndUserMembership = async (
+    userId: string,
+    options?: { silent?: boolean }
+  ): Promise<{ success: boolean; user?: UserAccount; message?: string }> => {
+    const targetUser = users.find(u => String(u.id) === String(userId));
+    const currentExpiryMs = parseSafeExpiryTimestamp(targetUser?.expiryDate);
+    const needsImmediatePastExpiry = currentExpiryMs === null || currentExpiryMs > Date.now();
+
+    const payload: Record<string, any> = {
+      plan: 'Free',
+      membershipStatus: 'Revoked',
+      autoRenew: false,
+      ...(needsImmediatePastExpiry ? { expiryDate: formatPastExpiryTimestamp() } : {})
+    };
+
+    try {
+      const res = await api.users.updateProfile(userId, payload);
+      if (res && res.success && res.user) {
+        const authoritativeUser = applyAuthoritativeUserUpdate(res.user);
+        if (!options?.silent) {
+          alert('User membership has been revoked and saved.');
+        }
+        return { success: true, user: authoritativeUser };
+      }
+      const msg = res?.message || 'Failed to revoke user membership on backend.';
+      if (!options?.silent) {
+        alert(msg);
+      }
+      return { success: false, message: msg };
+    } catch (err: any) {
+      console.error('Error revoking user membership on backend:', err);
+      const msg = err?.message || 'Error revoking user membership.';
+      if (!options?.silent) {
+        alert(msg);
+      }
+      return { success: false, message: msg };
+    }
   };
 
   // Admin Deactivates all jobs posted by a specific user
-  const handleDeactivateUserJobs = async (userId: string) => {
+  const handleDeactivateUserJobs = async (
+    userId: string,
+    options?: { silent?: boolean }
+  ): Promise<{ success: boolean; suspendedCount: number; message?: string }> => {
     const user = users.find(u => u.id === userId);
     const userCompanyName = user?.name?.toLowerCase();
     const userEmail = user?.email?.toLowerCase();
@@ -2489,25 +2586,52 @@ export default function App() {
         ...j,
         status: 'Suspended' as const,
         isSuspended: true,
-        rejectionReason: 'Suspended: Unpaid Employer Account'
+        rejectionReason: 'Suspended: Unpaid / Revoked Employer Account'
       }));
       try {
-        await api.jobs.bulkUpdate(updated);
+        const res = await api.jobs.bulkUpdate(updated);
         await loadBackendJobs();
-      } catch (err) {
+        if (res && res.success === false) {
+          const msg = res.message || 'Failed to suspend user jobs on backend.';
+          if (!options?.silent) alert(msg);
+          return { success: false, suspendedCount: 0, message: msg };
+        }
+      } catch (err: any) {
         console.error('Error deactivating user jobs on backend:', err);
         await loadBackendJobs();
+        const msg = err?.message || 'Error deactivating user jobs on backend.';
+        if (!options?.silent) alert(msg);
+        return { success: false, suspendedCount: 0, message: msg };
       }
     }
 
-    alert(`All posted jobs for user "${user?.name || userId}" have been suspended/deactivated.`);
+    if (!options?.silent) {
+      alert(`All posted jobs for user "${user?.name || userId}" have been suspended/deactivated.`);
+    }
+    return { success: true, suspendedCount: jobsToSuspend.length };
   };
 
   // Admin Ends Both Membership and Deactivates Jobs
-  const handleEndUserMembershipAndJobs = async (userId: string) => {
-    handleEndUserMembership(userId);
-    await handleDeactivateUserJobs(userId);
-    alert('Terminated membership and deactivated all associated job postings.');
+  const handleEndUserMembershipAndJobs = async (
+    userId: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    const membershipRes = await handleEndUserMembership(userId, { silent: true });
+    if (!membershipRes.success) {
+      const msg = membershipRes.message || 'Failed to revoke user membership.';
+      alert(msg);
+      return { success: false, message: msg };
+    }
+
+    const jobsRes = await handleDeactivateUserJobs(userId, { silent: true });
+    if (!jobsRes.success) {
+      const msg = `Membership revoked, but deactivating posted jobs failed: ${jobsRes.message || 'Unknown error'}`;
+      alert(msg);
+      return { success: false, message: msg };
+    }
+
+    const msg = 'Terminated membership and deactivated all associated job postings.';
+    alert(msg);
+    return { success: true, message: msg };
   };
 
   // Admin Suspends an individual Job
@@ -2523,47 +2647,167 @@ export default function App() {
     }
   };
 
-  // Bulk End All Unpaid Memberships & Deactivate Jobs
+  // Bulk End All Unpaid / Expired Memberships & Deactivate Jobs (Backend-Persisted)
   const handleBulkEndUnpaidMemberships = async () => {
-    const unpaidUserIds = users.filter(u => u.paymentStatus === 'Unpaid' || u.membershipStatus === 'Revoked' || (u.expiryDate && new Date(u.expiryDate).getTime() < Date.now())).map(u => u.id);
-    
-    if (unpaidUserIds.length === 0) {
-      alert('All users currently have active, valid paid memberships.');
+    const unpaidTargets: Array<{ user: UserAccount; updates: Record<string, any> }> = [];
+    const expiredTargets: Array<{ user: UserAccount; updates: Record<string, any> }> = [];
+    const alreadyInactiveUserIds = new Set<string>();
+
+    for (const u of users) {
+      if (!u || !u.id) continue;
+      if ((ADMIN_ROLES as readonly string[]).includes(u.role)) continue;
+
+      const expiryMs = parseSafeExpiryTimestamp(u.expiryDate);
+      const isDateExpired = expiryMs !== null && expiryMs < Date.now();
+      const isGenuinelyUnpaid =
+        u.paymentStatus === 'Unpaid' ||
+        u.paymentStatus === 'Overdue' ||
+        u.membershipStatus === 'Unpaid';
+      const isExpiredOnly = !isGenuinelyUnpaid && (u.membershipStatus === 'Expired' || isDateExpired);
+      const isAlreadyRevoked = u.membershipStatus === 'Revoked';
+
+      if (isGenuinelyUnpaid) {
+        alreadyInactiveUserIds.add(u.id);
+        const needsUpdate = u.plan !== 'Free' || u.membershipStatus !== 'Revoked' || u.autoRenew !== false;
+        if (needsUpdate) {
+          const needsImmediatePastExpiry = expiryMs === null || expiryMs > Date.now();
+          unpaidTargets.push({
+            user: u,
+            updates: {
+              plan: 'Free',
+              membershipStatus: 'Revoked',
+              autoRenew: false,
+              ...(needsImmediatePastExpiry ? { expiryDate: formatPastExpiryTimestamp() } : {})
+            }
+          });
+        }
+      } else if (isExpiredOnly) {
+        alreadyInactiveUserIds.add(u.id);
+        const needsUpdate = u.plan !== 'Free' || u.membershipStatus !== 'Expired' || u.autoRenew !== false;
+        if (needsUpdate) {
+          expiredTargets.push({
+            user: u,
+            updates: {
+              plan: 'Free',
+              membershipStatus: 'Expired',
+              autoRenew: false
+            }
+          });
+        }
+      } else if (isAlreadyRevoked) {
+        alreadyInactiveUserIds.add(u.id);
+      }
+    }
+
+    const allUpdateTargets = [...unpaidTargets, ...expiredTargets];
+    const eligibleJobSuspensions = [...jobs, ...pendingJobs].filter(
+      j => j.submittedByUserId && alreadyInactiveUserIds.has(j.submittedByUserId) && j.status !== 'Suspended'
+    );
+
+    if (allUpdateTargets.length === 0 && eligibleJobSuspensions.length === 0) {
+      alert('All users currently have active, valid memberships.');
       return;
     }
 
-    setUsers(prev => prev.map(u => {
-      if (unpaidUserIds.includes(u.id)) {
-        return {
-          ...u,
-          plan: 'Free',
-          membershipStatus: 'Revoked',
-          paymentStatus: 'Unpaid',
-          autoRenew: false,
-          expiryDate: '2020-01-01 00:00'
-        };
-      }
-      return u;
-    }));
+    const succeededUserIds = new Set<string>();
+    const failedUsers: Array<{ userId: string; message: string }> = [];
 
-    const jobsToSuspend = [...jobs, ...pendingJobs].filter(j => j.submittedByUserId && unpaidUserIds.includes(j.submittedByUserId));
+    for (const target of allUpdateTargets) {
+      try {
+        const res = await api.users.updateProfile(target.user.id, target.updates);
+        if (res && res.success && res.user) {
+          applyAuthoritativeUserUpdate(res.user);
+          succeededUserIds.add(target.user.id);
+        } else {
+          failedUsers.push({ userId: target.user.id, message: res?.message || 'Update failed' });
+        }
+      } catch (err: any) {
+        failedUsers.push({ userId: target.user.id, message: err?.message || 'Update error' });
+      }
+    }
+
+    const failedUserIdSet = new Set(failedUsers.map(f => f.userId));
+    const jobsToSuspend = eligibleJobSuspensions.filter(
+      j => j.submittedByUserId && !failedUserIdSet.has(j.submittedByUserId)
+    );
+
+    let suspendedJobsCount = 0;
+    let jobSuspendFailed = false;
     if (jobsToSuspend.length > 0) {
       const updated = jobsToSuspend.map(j => ({
         ...j,
         status: 'Suspended' as const,
         isSuspended: true,
-        rejectionReason: 'Bulk Action: Suspended due to unpaid employer membership'
+        rejectionReason: 'Bulk Action: Suspended due to unpaid or expired employer membership'
       }));
       try {
-        await api.jobs.bulkUpdate(updated);
+        const jobRes = await api.jobs.bulkUpdate(updated);
         await loadBackendJobs();
+        if (jobRes && jobRes.success === false) {
+          jobSuspendFailed = true;
+        } else {
+          suspendedJobsCount = updated.length;
+        }
       } catch (err) {
-        console.error('Error suspending unpaid member jobs on backend:', err);
+        console.error('Error suspending unpaid/expired member jobs on backend:', err);
+        jobSuspendFailed = true;
         await loadBackendJobs();
       }
     }
 
-    alert(`Enforced unpaid policy on ${unpaidUserIds.length} user account(s) and suspended their active jobs.`);
+    try {
+      await api.audit.addLog({
+        action: 'Bulk Membership Enforcement',
+        target: `${succeededUserIds.size} user(s) updated, ${suspendedJobsCount} job(s) suspended`,
+        status: failedUsers.length > 0 || jobSuspendFailed ? 'Warning' : 'Success',
+        metadata: {
+          updatedUserIds: Array.from(succeededUserIds),
+          failedCount: failedUsers.length,
+          suspendedJobsCount
+        }
+      });
+    } catch {}
+
+    if (failedUsers.length > 0 || jobSuspendFailed) {
+      alert(
+        `Bulk enforcement completed with partial failures: ${succeededUserIds.size} user(s) updated, ` +
+        `${suspendedJobsCount} job(s) suspended, ${failedUsers.length} user update(s) failed` +
+        `${jobSuspendFailed ? ', and job suspension failed' : ''}.`
+      );
+    } else {
+      alert(
+        `Updated ${succeededUserIds.size} user account(s) (Unpaid: ${unpaidTargets.length}, Expired: ${expiredTargets.length}) and suspended ${suspendedJobsCount} active job(s).`
+      );
+    }
+  };
+
+  // Permanent Backend User Deletion (No Frontend-Only Removal)
+  const handleBulkDeleteUsers = async (
+    userIds: string[]
+  ): Promise<{ deletedIds: string[]; failed: Array<{ userId: string; message: string }> }> => {
+    const uniqueIds = Array.from(new Set((userIds || []).map(id => String(id || '').trim()).filter(Boolean)));
+    const deletedIds: string[] = [];
+    const failed: Array<{ userId: string; message: string }> = [];
+
+    for (const userId of uniqueIds) {
+      try {
+        const res = await api.users.delete(userId);
+        if (res && res.success) {
+          deletedIds.push(userId);
+        } else {
+          failed.push({ userId, message: res?.message || 'Failed to delete user.' });
+        }
+      } catch (err: any) {
+        failed.push({ userId, message: err?.message || 'Error deleting user.' });
+      }
+    }
+
+    if (deletedIds.length > 0) {
+      setUsers(prev => prev.filter(u => !deletedIds.includes(String(u.id))));
+      await loadBackendAdminUsers();
+    }
+
+    return { deletedIds, failed };
   };
 
   // User submits job for admin verification with optional Fee Payment
@@ -3605,8 +3849,8 @@ export default function App() {
             onUpdateSubscriber={handleUpdateSubscriber}
             onDeleteSubscriber={handleDeleteSubscriber}
             onBulkDeleteSubscribers={handleBulkDeleteSubscribers}
-            onUpdateUser={(updatedUser) => setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u))}
-            onBulkDeleteUsers={(userIds) => setUsers(prev => prev.filter(u => !userIds.includes(u.id)))}
+            onUpdateUser={(updatedUser) => applyAuthoritativeUserUpdate(updatedUser)}
+            onBulkDeleteUsers={handleBulkDeleteUsers}
             onDeleteFeeLog={handleDeleteFeeLog}
             onBulkDeleteFeeLogs={handleBulkDeleteFeeLogs}
             onExitAdmin={() => {

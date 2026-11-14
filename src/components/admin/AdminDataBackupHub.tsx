@@ -58,7 +58,11 @@ export interface BackupImportProcessResult {
   status: 'success' | 'rejected' | 'error';
   kind: 'job-array' | 'full-snapshot' | 'invalid';
   message: string;
+  requestedCount?: number;
+  processed?: number;
   importedCount: number;
+  failedCount?: number;
+  skippedDuplicateCount?: number;
   jobs?: Job[];
   errors?: BulkJobImportRecordError[];
 }
@@ -175,7 +179,11 @@ export function processBackupImportJson(
       status: 'error',
       kind: 'invalid',
       message: 'Please paste a valid JSON array of job objects to import.',
-      importedCount: 0
+      requestedCount: 0,
+      processed: 0,
+      importedCount: 0,
+      failedCount: 0,
+      skippedDuplicateCount: 0
     };
   }
 
@@ -187,7 +195,11 @@ export function processBackupImportJson(
       status: 'error',
       kind: 'invalid',
       message: `Invalid JSON formatting: ${e?.message || 'Syntax error'}`,
-      importedCount: 0
+      requestedCount: 0,
+      processed: 0,
+      importedCount: 0,
+      failedCount: 0,
+      skippedDuplicateCount: 0
     };
   }
 
@@ -197,7 +209,11 @@ export function processBackupImportJson(
       kind: 'full-snapshot',
       message:
         'Full snapshot restore is temporarily unavailable and disabled because not all snapshot categories (users, subscribers, payments, audit logs) have a verified restore implementation. To import jobs, provide a JSON array of job objects (`[...]`).',
-      importedCount: 0
+      requestedCount: 0,
+      processed: 0,
+      importedCount: 0,
+      failedCount: 0,
+      skippedDuplicateCount: 0
     };
   }
 
@@ -206,7 +222,11 @@ export function processBackupImportJson(
       status: 'error',
       kind: 'invalid',
       message: 'Unrecognized format. Please provide a JSON array of job objects (`[ { ... } ]`).',
-      importedCount: 0
+      requestedCount: 0,
+      processed: 0,
+      importedCount: 0,
+      failedCount: 0,
+      skippedDuplicateCount: 0
     };
   }
 
@@ -215,7 +235,11 @@ export function processBackupImportJson(
       status: 'error',
       kind: 'invalid',
       message: 'The JSON array is empty. Please provide at least 1 valid job object to import.',
-      importedCount: 0
+      requestedCount: 0,
+      processed: 0,
+      importedCount: 0,
+      failedCount: 0,
+      skippedDuplicateCount: 0
     };
   }
 
@@ -223,8 +247,12 @@ export function processBackupImportJson(
     return {
       status: 'error',
       kind: 'invalid',
-      message: `Batch limit exceeded: you provided ${parsed.length} records, but the maximum allowed per import is ${MAX_BULK_IMPORT_RECORDS}.`,
-      importedCount: 0
+      message: `Batch limit exceeded: you provided ${parsed.length} records, but the maximum allowed per import is ${MAX_BULK_IMPORT_RECORDS}. No records were written.`,
+      requestedCount: parsed.length,
+      processed: parsed.length,
+      importedCount: 0,
+      failedCount: parsed.length,
+      skippedDuplicateCount: 0
     };
   }
 
@@ -365,8 +393,12 @@ export function processBackupImportJson(
     return {
       status: 'error',
       kind: 'invalid',
-      message: `Validation failed on ${recordErrors.length} record(s): ${preview}${extraCount}`,
+      message: `Batch validation failed on ${recordErrors.length} of ${parsed.length} record(s); entire batch rejected so 0 of ${parsed.length} job(s) were written. ${preview}${extraCount}`,
+      requestedCount: parsed.length,
+      processed: parsed.length,
       importedCount: 0,
+      failedCount: parsed.length,
+      skippedDuplicateCount: 0,
       errors: recordErrors
     };
   }
@@ -379,7 +411,11 @@ export function processBackupImportJson(
     status: 'success',
     kind: 'job-array',
     message: `Validated ${parsed.length} job object(s) ready for import.`,
+    requestedCount: parsed.length,
+    processed: parsed.length,
     importedCount: parsed.length,
+    failedCount: 0,
+    skippedDuplicateCount: 0,
     jobs: parsed as Job[]
   };
 }
@@ -528,16 +564,19 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
     const validation = processBackupImportJson(importJsonText);
     if (validation.status !== 'success' || !validation.jobs) {
       setImportErrorMessage(validation.message);
-      if (validation.errors && validation.errors.length > 0) {
+      const reqCount = typeof validation.requestedCount === 'number' ? validation.requestedCount : 0;
+      const procCount = typeof validation.processed === 'number' ? validation.processed : reqCount;
+      const failCount = typeof validation.failedCount === 'number' ? validation.failedCount : reqCount;
+      if (reqCount > 0 || (validation.errors && validation.errors.length > 0)) {
         setImportResultDetails({
           success: false,
           message: validation.message,
-          processed: 0,
-          requestedCount: 0,
+          processed: procCount,
+          requestedCount: reqCount,
           importedCount: 0,
-          failedCount: validation.errors.length,
+          failedCount: failCount,
           skippedDuplicateCount: 0,
-          errors: validation.errors,
+          errors: validation.errors || [],
           partialSuccess: false
         });
       }

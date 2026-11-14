@@ -345,6 +345,28 @@ async function runTests() {
     assert.deepStrictEqual(received[0].attachments, [validAtt]);
   });
 
+  await runTest('1.18. Frontend atomic validation counts reconcile requestedCount, processed, failedCount, importedCount=0, skippedDuplicateCount=0', () => {
+    let called = false;
+    const mixedFour = JSON.stringify([
+      { title: 'Valid Frontend 1', company: 'Co A', city: 'Lahore' },
+      { title: 'Valid Frontend 2', company: 'Co B', city: 'Karachi' },
+      { title: 'Invalid Frontend 3', company: '' },
+      { title: 'Valid Frontend 4', company: 'Co D', city: 'Islamabad' }
+    ]);
+    const res = processBackupImportJson(mixedFour, () => {
+      called = true;
+    });
+    assert.strictEqual(called, false);
+    assert.strictEqual(res.status, 'error');
+    assert.strictEqual(res.requestedCount, 4);
+    assert.strictEqual(res.processed, 4);
+    assert.strictEqual(res.failedCount, 4, 'Entire 4-record batch rejected before persistence must report failedCount=4');
+    assert.strictEqual(res.importedCount, 0);
+    assert.strictEqual(res.skippedDuplicateCount, 0);
+    assert.ok(res.errors && res.errors.length === 1 && res.errors[0].index === 2);
+    assert.ok(res.message.includes('0 of 4'));
+  });
+
   // ==========================================
   // SECTION 2: BACKEND ENDPOINT VALIDATION, SECURITY & PERSISTENCE TESTS
   // ==========================================
@@ -377,12 +399,28 @@ async function runTests() {
     status: 'Pending',
     createdAt: '2026-01-01T00:00:00.000Z'
   };
+  const existingExpiredJob = {
+    id: 'existing-expired-job-303',
+    slug: 'existing-expired-job-303-slug',
+    title: 'Expired Senior Petroleum Geologist',
+    company: 'Indus Basin Energy Ltd',
+    city: 'Rawalpindi',
+    country: 'Pakistan',
+    status: 'Expired',
+    isExpired: true,
+    deadlineDate: '2024-01-01',
+    createdAt: '2024-01-01T00:00:00.000Z'
+  };
+  inMemoryJobsStore.set(existingExpiredJob.id, JSON.parse(JSON.stringify(existingExpiredJob)));
+
   const inMemoryPendingJobs: any[] = [JSON.parse(JSON.stringify(existingPendingJob))];
 
   let failOnTitles = new Set<string>();
   let returnFalsyOnTitles = new Set<string>();
   let simulateGetAllFailure = false;
   let simulateGetPendingFailure = false;
+  let customGetAllHandler: ((filter: any) => Promise<any>) | null = null;
+  let customGetPendingHandler: ((filter: any) => Promise<any>) | null = null;
   let createCallCount = 0;
   let auditEntries: any[] = [];
 
@@ -407,22 +445,30 @@ async function runTests() {
   };
 
   JobRepository.getAll = async (filter: any = {}) => {
+    if (customGetAllHandler) {
+      return customGetAllHandler(filter);
+    }
     if (simulateGetAllFailure) {
       throw new Error('Simulated live catalog load failure');
     }
-    const allLive = Array.from(inMemoryJobsStore.values()).map((j) => JSON.parse(JSON.stringify(j)));
+    const allJobs = Array.from(inMemoryJobsStore.values())
+      .filter((j) => (filter.includeExpired ? true : j.status !== 'Expired' && j.isExpired !== true))
+      .map((j) => JSON.parse(JSON.stringify(j)));
     const page = Math.max(1, filter.page || 1);
     const limit = Math.min(1000, Math.max(1, filter.limit || 100));
     const start = (page - 1) * limit;
     return {
-      jobs: allLive.slice(start, start + limit),
-      total: allLive.length,
+      jobs: allJobs.slice(start, start + limit),
+      total: allJobs.length,
       page,
       limit
     };
   };
 
   JobRepository.getPending = async (filter: any = {}) => {
+    if (customGetPendingHandler) {
+      return customGetPendingHandler(filter);
+    }
     if (simulateGetPendingFailure) {
       throw new Error('Simulated pending queue load failure');
     }
@@ -944,6 +990,228 @@ async function runTests() {
         assert.strictEqual(data.errors[0].index, 1);
       }
       assert.strictEqual(createCallCount, 0, 'Invalid attachment in any row must reject entire batch before writes');
+    });
+
+    await runTest('2.17. Existing expired job is included in duplicate pool and detected as duplicate without DB write', async () => {
+      createCallCount = 0;
+      let sawIncludeExpiredTrue = false;
+      customGetAllHandler = async (filter: any) => {
+        if (filter.includeExpired === true) sawIncludeExpiredTrue = true;
+        const allJobs = Array.from(inMemoryJobsStore.values())
+          .filter((j) => (filter.includeExpired ? true : j.status !== 'Expired' && j.isExpired !== true))
+          .map((j) => JSON.parse(JSON.stringify(j)));
+        return { jobs: allJobs, total: allJobs.length, page: filter.page || 1, limit: filter.limit || 1000 };
+      };
+
+      try {
+        const res = await postImport({
+          jobs: [
+            {
+              title: existingExpiredJob.title,
+              company: existingExpiredJob.company,
+              city: existingExpiredJob.city
+            }
+          ]
+        });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.strictEqual(sawIncludeExpiredTrue, true, 'Duplicate pool loader must pass includeExpired: true');
+        assert.strictEqual(createCallCount, 0, 'Expired duplicate must NOT be written');
+        assert.strictEqual(data.success, false);
+        assert.strictEqual(data.requestedCount, 1);
+        assert.strictEqual(data.processed, 1);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(data.failedCount, 0);
+        assert.strictEqual(data.skippedDuplicateCount, 1);
+        assert.strictEqual(data.errors[0].index, 0);
+        assert.strictEqual(data.errors[0].type, 'duplicate');
+      } finally {
+        customGetAllHandler = null;
+      }
+    });
+
+    await runTest('2.18. Multi-page live-job pagination reaches final page and detects duplicate on last page', async () => {
+      createCallCount = 0;
+      const pagesLoaded: number[] = [];
+      const pagedLivePool = [
+        { id: 'pg-live-1', title: 'Page 1 Role', company: 'Alpha Co', city: 'Lahore', status: 'Approved' },
+        { id: 'pg-live-2', title: 'Page 2 Role', company: 'Beta Co', city: 'Karachi', status: 'Approved' },
+        { id: 'pg-live-3', title: 'Final Page Marine Surveyor', company: 'Gwadar Maritime Authority', city: 'Gwadar', status: 'Expired', isExpired: true }
+      ];
+      customGetAllHandler = async (filter: any) => {
+        const p = filter.page || 1;
+        pagesLoaded.push(p);
+        const pageSize = 1;
+        const item = pagedLivePool[p - 1];
+        return {
+          jobs: item ? [JSON.parse(JSON.stringify(item))] : [],
+          total: pagedLivePool.length,
+          page: p,
+          limit: pageSize
+        };
+      };
+
+      try {
+        const res = await postImport({
+          jobs: [
+            {
+              title: 'Final Page Marine Surveyor',
+              company: 'Gwadar Maritime Authority',
+              city: 'Gwadar'
+            }
+          ]
+        });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.deepStrictEqual(pagesLoaded, [1, 2, 3], 'All 3 live pages must be loaded sequentially');
+        assert.strictEqual(data.skippedDuplicateCount, 1);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(createCallCount, 0);
+      } finally {
+        customGetAllHandler = null;
+      }
+    });
+
+    await runTest('2.19. Multi-page pending-job pagination reaches final page and detects duplicate on last page', async () => {
+      createCallCount = 0;
+      const pendingPagesLoaded: number[] = [];
+      const pagedPendingPool = [
+        { id: 'pg-pend-1', title: 'Pending P1 Officer', company: 'Org 1', city: 'Lahore', status: 'Pending' },
+        { id: 'pg-pend-2', title: 'Pending P2 Auditor', company: 'Org 2', city: 'Multan', status: 'Pending' },
+        { id: 'pg-pend-3', title: 'Pending Final Page Hydrologist', company: 'WAPDA Hydrology', city: 'Peshawar', status: 'Pending' }
+      ];
+      customGetPendingHandler = async (filter: any) => {
+        const p = filter?.page || 1;
+        pendingPagesLoaded.push(p);
+        const pageSize = 1;
+        const item = pagedPendingPool[p - 1];
+        const arr = item ? [JSON.parse(JSON.stringify(item))] : [];
+        Object.defineProperty(arr, 'total', { value: pagedPendingPool.length, enumerable: true });
+        Object.defineProperty(arr, 'limit', { value: pageSize, enumerable: true });
+        return arr;
+      };
+
+      try {
+        const res = await postImport({
+          jobs: [
+            {
+              title: 'Pending Final Page Hydrologist',
+              company: 'WAPDA Hydrology',
+              city: 'Peshawar'
+            }
+          ]
+        });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.deepStrictEqual(pendingPagesLoaded, [1, 2, 3], 'All 3 pending pages must be loaded sequentially');
+        assert.strictEqual(data.skippedDuplicateCount, 1);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(createCallCount, 0);
+      } finally {
+        customGetPendingHandler = null;
+      }
+    });
+
+    await runTest('2.20. Live-job pagination limit reached while records remain fails closed with DuplicateCheckLoadError and 0 writes', async () => {
+      createCallCount = 0;
+      let livePageCalls = 0;
+      customGetAllHandler = async (filter: any) => {
+        livePageCalls++;
+        return {
+          jobs: [{ id: `live-overflow-${filter.page}`, title: `Live Job ${filter.page}`, company: 'Overflow Co', city: 'Lahore', status: 'Approved' }],
+          total: 1005, // exceeds default 1000-page safety limit when limit=1
+          page: filter.page,
+          limit: 1
+        };
+      };
+
+      try {
+        const res = await postImport({
+          jobs: [{ title: 'Should Abort Live Overflow', company: 'Safe Corp', city: 'Lahore' }]
+        });
+        assert.strictEqual(res.status, 500);
+        const data = await res.json();
+        assert.strictEqual(livePageCalls, 1000, 'Must stop and fail closed at the 1000-page safety limit');
+        assert.strictEqual(data.success, false);
+        assert.strictEqual(data.errorType, 'DuplicateCheckLoadError');
+        assert.strictEqual(data.requestedCount, 1);
+        assert.strictEqual(data.processed, 1);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(data.failedCount, 1);
+        assert.strictEqual(data.skippedDuplicateCount, 0);
+        assert.strictEqual(createCallCount, 0, 'Zero records may be written when live duplicate pool is incomplete');
+      } finally {
+        customGetAllHandler = null;
+      }
+    });
+
+    await runTest('2.21. Pending-job pagination limit reached while records remain fails closed with DuplicateCheckLoadError and 0 writes', async () => {
+      createCallCount = 0;
+      let pendingPageCalls = 0;
+      customGetPendingHandler = async (filter: any) => {
+        pendingPageCalls++;
+        const arr = [{ id: `pend-overflow-${filter.page}`, title: `Pending Job ${filter.page}`, company: 'Overflow Pending Co', city: 'Karachi', status: 'Pending' }];
+        Object.defineProperty(arr, 'total', { value: 1005, enumerable: true });
+        Object.defineProperty(arr, 'limit', { value: 1, enumerable: true });
+        return arr;
+      };
+
+      try {
+        const res = await postImport({
+          jobs: [
+            { title: 'Should Abort Pending Overflow 1', company: 'Safe Corp', city: 'Lahore' },
+            { title: 'Should Abort Pending Overflow 2', company: 'Safe Corp', city: 'Karachi' }
+          ]
+        });
+        assert.strictEqual(res.status, 500);
+        const data = await res.json();
+        assert.strictEqual(pendingPageCalls, 1000, 'Must stop and fail closed at the 1000-page safety limit');
+        assert.strictEqual(data.success, false);
+        assert.strictEqual(data.errorType, 'DuplicateCheckLoadError');
+        assert.strictEqual(data.requestedCount, 2);
+        assert.strictEqual(data.processed, 2);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(data.failedCount, 2);
+        assert.strictEqual(data.skippedDuplicateCount, 0);
+        assert.strictEqual(createCallCount, 0, 'Zero records may be written when pending duplicate pool is incomplete');
+      } finally {
+        customGetPendingHandler = null;
+      }
+    });
+
+    await runTest('2.22. Atomic batch validation accounting reconciles requestedCount, processed, and failedCount across backend & frontend', async () => {
+      createCallCount = 0;
+      const mixedPayload = [
+        { title: 'Atomic Valid Job 1', company: 'Alpha PK', city: 'Lahore' },
+        { title: 'Atomic Valid Job 2', company: 'Beta PK', city: 'Karachi' },
+        { title: 'Atomic Invalid Missing Company', company: '', city: 'Islamabad' },
+        { title: 'Atomic Valid Job 4', company: 'Delta PK', city: 'Multan' }
+      ];
+
+      const frontendRes = processBackupImportJson(JSON.stringify(mixedPayload));
+      assert.strictEqual(frontendRes.status, 'error');
+      assert.strictEqual(frontendRes.requestedCount, 4);
+      assert.strictEqual(frontendRes.processed, 4);
+      assert.strictEqual(frontendRes.failedCount, 4);
+      assert.strictEqual(frontendRes.importedCount, 0);
+      assert.strictEqual(frontendRes.skippedDuplicateCount, 0);
+      assert.strictEqual(frontendRes.errors?.length, 1);
+      assert.strictEqual(frontendRes.errors?.[0].index, 2);
+
+      const backendRes = await postImport({ jobs: mixedPayload });
+      assert.strictEqual(backendRes.status, 400);
+      const backendData = await backendRes.json();
+      assert.strictEqual(createCallCount, 0, 'Atomic validation failure must persist zero records');
+      assert.strictEqual(backendData.success, false);
+      assert.strictEqual(backendData.requestedCount, 4);
+      assert.strictEqual(backendData.processed, 4);
+      assert.strictEqual(backendData.failedCount, 4, 'All 4 records in rejected batch were prevented from importing');
+      assert.strictEqual(backendData.importedCount, 0);
+      assert.strictEqual(backendData.skippedDuplicateCount, 0);
+      assert.strictEqual(backendData.partialSuccess, false);
+      assert.strictEqual(backendData.errors.length, 1, 'Preserve exact indexed error for invalid row only');
+      assert.strictEqual(backendData.errors[0].index, 2);
+      assert.ok(backendData.message.includes('0 of 4'));
     });
   } finally {
     JobRepository.create = originalCreate;

@@ -1299,41 +1299,108 @@ export function buildSanitizedAdminImportJob(item: Record<string, any>): Record<
   };
 }
 
-async function loadAuthoritativeDuplicatePool(): Promise<any[]> {
+export class DuplicateCheckLoadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DuplicateCheckLoadError';
+  }
+}
+
+export function getDuplicatePoolMaxPages(): number {
+  const raw = Number(process.env.ADMIN_IMPORT_MAX_POOL_PAGES);
+  return Number.isInteger(raw) && raw > 0 ? raw : 1000;
+}
+
+export async function loadAuthoritativeDuplicatePool(
+  maxPages: number = getDuplicatePoolMaxPages()
+): Promise<any[]> {
+  if (!Number.isInteger(maxPages) || maxPages < 1) {
+    throw new DuplicateCheckLoadError('Invalid duplicate-check pagination limit configuration.');
+  }
+
   const liveJobs: any[] = [];
-  let page = 1;
-  while (page <= 1000) {
-    const res = await JobRepository.getAll({ page, limit: 1000 });
+  for (let page = 1; ; page++) {
+    const res = await JobRepository.getAll({ page, limit: 1000, includeExpired: true });
     if (!res || !Array.isArray(res.jobs)) {
-      throw new Error('Authoritative live jobs could not be loaded for duplicate detection.');
+      throw new DuplicateCheckLoadError('Authoritative live jobs could not be loaded for duplicate detection.');
     }
-    liveJobs.push(...res.jobs);
-    const total = typeof res.total === 'number' ? res.total : res.jobs.length;
-    const pageLimit = typeof res.limit === 'number' && res.limit > 0 ? res.limit : 1000;
-    if (res.jobs.length === 0 || liveJobs.length >= total || res.jobs.length < pageLimit) {
+    if (res.jobs.length === 0) {
       break;
     }
-    page++;
+    liveJobs.push(...res.jobs);
+
+    const hasExplicitTotal = typeof res.total === 'number' && Number.isFinite(res.total);
+    const pageLimit = typeof res.limit === 'number' && res.limit > 0 ? res.limit : 1000;
+    const reachedEnd =
+      (hasExplicitTotal && liveJobs.length >= res.total) ||
+      res.jobs.length < pageLimit;
+
+    if (reachedEnd) {
+      break;
+    }
+
+    if (page >= maxPages) {
+      if (hasExplicitTotal) {
+        throw new DuplicateCheckLoadError(
+          `Authoritative live-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) (${liveJobs.length} of ${res.total} loaded). Import aborted to prevent incomplete duplicate checks.`
+        );
+      }
+      const nextRes = await JobRepository.getAll({ page: page + 1, limit: 1000, includeExpired: true });
+      if (!nextRes || !Array.isArray(nextRes.jobs)) {
+        throw new DuplicateCheckLoadError('Authoritative live jobs could not be verified beyond final page.');
+      }
+      if (nextRes.jobs.length === 0) {
+        break;
+      }
+      throw new DuplicateCheckLoadError(
+        `Authoritative live-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) with additional records remaining. Import aborted to prevent incomplete duplicate checks.`
+      );
+    }
   }
 
   const pendingJobs: any[] = [];
-  let pendingPage = 1;
-  while (pendingPage <= 1000) {
+  for (let pendingPage = 1; ; pendingPage++) {
     const pendingRes = await JobRepository.getPending({ page: pendingPage, limit: 500 });
     if (!Array.isArray(pendingRes)) {
-      throw new Error('Authoritative pending jobs could not be loaded for duplicate detection.');
+      throw new DuplicateCheckLoadError('Authoritative pending jobs could not be loaded for duplicate detection.');
+    }
+    if (pendingRes.length === 0) {
+      break;
     }
     pendingJobs.push(...pendingRes);
-    const totalPending =
-      typeof (pendingRes as any).total === 'number' ? (pendingRes as any).total : pendingRes.length;
+
+    const hasExplicitTotal =
+      typeof (pendingRes as any).total === 'number' && Number.isFinite((pendingRes as any).total);
+    const totalPending = hasExplicitTotal ? (pendingRes as any).total : pendingJobs.length;
     const pendingLimit =
       typeof (pendingRes as any).limit === 'number' && (pendingRes as any).limit > 0
         ? (pendingRes as any).limit
         : 500;
-    if (pendingRes.length === 0 || pendingJobs.length >= totalPending || pendingRes.length < pendingLimit) {
+    const reachedEnd =
+      (hasExplicitTotal && pendingJobs.length >= totalPending) ||
+      pendingRes.length < pendingLimit;
+
+    if (reachedEnd) {
       break;
     }
-    pendingPage++;
+
+    if (pendingPage >= maxPages) {
+      if (hasExplicitTotal) {
+        throw new DuplicateCheckLoadError(
+          `Authoritative pending-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) (${pendingJobs.length} of ${totalPending} loaded). Import aborted to prevent incomplete duplicate checks.`
+        );
+      }
+      const nextPending = await JobRepository.getPending({ page: pendingPage + 1, limit: 500 });
+      if (!Array.isArray(nextPending)) {
+        throw new DuplicateCheckLoadError('Authoritative pending jobs could not be verified beyond final page.');
+      }
+      if (nextPending.length === 0) {
+        break;
+      }
+      throw new DuplicateCheckLoadError(
+        `Authoritative pending-job duplicate pool exceeded maximum pagination limit of ${maxPages} page(s) with additional records remaining. Import aborted to prevent incomplete duplicate checks.`
+      );
+    }
   }
 
   return [...liveJobs, ...pendingJobs];
@@ -1344,18 +1411,24 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
   try {
     const validation = validateAdminImportJobsPayload(req.body);
     if (!validation.valid) {
-      const requestedCount = Array.isArray(req.body)
-        ? req.body.length
-        : Array.isArray(req.body?.jobs)
-          ? req.body.jobs.length
-          : 0;
+      const requestedCount = isFullSnapshotImportPayload(req.body)
+        ? 0
+        : Array.isArray(req.body)
+          ? req.body.length
+          : Array.isArray(req.body?.jobs)
+            ? req.body.jobs.length
+            : 0;
+      const batchFailureMessage =
+        requestedCount > 0
+          ? `Batch validation failed on ${validation.errors.length} of ${requestedCount} record(s); entire batch rejected so 0 of ${requestedCount} record(s) were written. ${validation.message}`
+          : validation.message;
       return res.status(400).json({
         success: false,
-        message: validation.message,
-        processed: 0,
+        message: batchFailureMessage,
+        processed: requestedCount,
         requestedCount,
         importedCount: 0,
-        failedCount: validation.errors.length,
+        failedCount: requestedCount,
         skippedDuplicateCount: 0,
         errors: validation.errors,
         partialSuccess: false
@@ -1365,18 +1438,20 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
     const validatedJobs = validation.jobs;
     const requestedCount = validatedJobs.length;
 
-    // Fail closed before writing any record if authoritative live/pending jobs cannot be loaded
+    // Fail closed before writing any record if authoritative live/expired/pending jobs cannot be loaded completely
     let existingPool: any[] = [];
     try {
       existingPool = await loadAuthoritativeDuplicatePool();
     } catch (poolErr: any) {
+      const isDuplicateLoadErr = poolErr instanceof DuplicateCheckLoadError || poolErr?.name === 'DuplicateCheckLoadError';
       const isDbUnavailable =
-        isTransientMongoError(poolErr) || String(poolErr?.message || '').toLowerCase().includes('mongo');
+        !isDuplicateLoadErr &&
+        (isTransientMongoError(poolErr) || String(poolErr?.message || '').toLowerCase().includes('mongo'));
       return res.status(isDbUnavailable ? 503 : 500).json({
         success: false,
         errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'DuplicateCheckLoadError',
-        message: `Bulk import aborted (fail-closed): Unable to load existing live/pending jobs for duplicate detection. ${poolErr?.message || ''}`.trim(),
-        processed: 0,
+        message: `Bulk import aborted (fail-closed): Unable to load complete existing live, expired, and pending jobs for duplicate detection. ${poolErr?.message || ''}`.trim(),
+        processed: requestedCount,
         requestedCount,
         importedCount: 0,
         failedCount: requestedCount,
@@ -1385,7 +1460,7 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
           {
             index: 0,
             type: 'error',
-            message: poolErr?.message || 'Unable to load existing live and pending jobs for duplicate detection.'
+            message: poolErr?.message || 'Unable to load complete existing jobs for duplicate detection.'
           }
         ],
         partialSuccess: false

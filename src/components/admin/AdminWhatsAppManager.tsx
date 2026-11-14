@@ -89,15 +89,41 @@ export function syncWhatsAppFormWithConfig(
   };
 }
 
+const fallbackMigrationInFlightMap = new WeakMap<{ current: boolean }, { current: boolean }>();
+
 export async function runLegacyGroupMigration(params: {
   config?: WhatsAppSupportConfig | null;
   hasAttemptedMigrationRef: { current: boolean };
   isRestoringDefaultsRef?: { current: boolean };
+  migrationInFlightRef?: { current: boolean };
   onUpdateConfig: (updated: WhatsAppSupportConfig) => Promise<boolean | any> | boolean | any;
   setFormData: React.Dispatch<React.SetStateAction<WhatsAppSupportConfig>>;
 }): Promise<boolean> {
-  const { config, hasAttemptedMigrationRef, isRestoringDefaultsRef, onUpdateConfig, setFormData } = params;
-  if (hasAttemptedMigrationRef.current || isRestoringDefaultsRef?.current) return false;
+  const {
+    config,
+    hasAttemptedMigrationRef,
+    isRestoringDefaultsRef,
+    migrationInFlightRef,
+    onUpdateConfig,
+    setFormData
+  } = params;
+
+  let activeInFlightRef = migrationInFlightRef;
+  if (!activeInFlightRef) {
+    activeInFlightRef = fallbackMigrationInFlightMap.get(hasAttemptedMigrationRef);
+    if (!activeInFlightRef) {
+      activeInFlightRef = { current: false };
+      fallbackMigrationInFlightMap.set(hasAttemptedMigrationRef, activeInFlightRef);
+    }
+  }
+
+  if (
+    hasAttemptedMigrationRef.current ||
+    isRestoringDefaultsRef?.current ||
+    activeInFlightRef.current
+  ) {
+    return false;
+  }
 
   // Rule 1 & 3: Existing MongoDB saved Group Link must always take priority over legacy LocalStorage
   if (isRealWhatsAppGroupLink(config?.groupLink)) {
@@ -111,7 +137,6 @@ export async function runLegacyGroupMigration(params: {
 
   // Rule 2 & 7: If MongoDB has no saved Group Link and a valid legacy LocalStorage value exists (not placeholder), migrate it to MongoDB
   if (isRealWhatsAppGroupLink(legacyLink)) {
-    hasAttemptedMigrationRef.current = true;
     const validLink = legacyLink!.trim();
     const sanitizedPhone = normalizeWhatsAppPhone(config?.phoneNumber);
     const payload: WhatsAppSupportConfig = {
@@ -122,14 +147,16 @@ export async function runLegacyGroupMigration(params: {
       groupLink: validLink
     };
 
+    activeInFlightRef.current = true;
     try {
       const res = await Promise.resolve(onUpdateConfig(payload));
       // Rule 5: Treat migration as successful only when the backend explicitly confirms success.
-      // Do not delete legacy LocalStorage on undefined, malformed, or unsuccessful responses.
+      // Do not delete legacy LocalStorage or mark migration completed on undefined, malformed, false, or rejected responses.
       const isSuccess = Boolean(
         res === true || (res && typeof res === 'object' && res.success === true)
       );
       if (isSuccess) {
+        hasAttemptedMigrationRef.current = true;
         try {
           localStorage.removeItem(LEGACY_WHATSAPP_GROUP_LINK_KEY);
         } catch {}
@@ -140,14 +167,16 @@ export async function runLegacyGroupMigration(params: {
         }));
         return true;
       } else {
-        // Rule 6: Retain legacy value and report failure safely if migration fails
+        // Rule 6: Retain legacy value and keep eligible for controlled retry if migration fails
         console.warn('[AdminWhatsAppManager] Backend did not confirm group link migration. Legacy LocalStorage value retained.');
         return false;
       }
     } catch (err: any) {
-      // Rule 6: Retain legacy value and report failure safely if migration fails
+      // Rule 6: Retain legacy value and keep eligible for controlled retry if migration fails
       console.warn('[AdminWhatsAppManager] Failed to migrate legacy Group Link to MongoDB:', err);
       return false;
+    } finally {
+      activeInFlightRef.current = false;
     }
   }
 
@@ -219,6 +248,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
 
   const hasAttemptedMigrationRef = useRef(false);
   const isRestoringDefaultsRef = useRef(false);
+  const migrationInFlightRef = useRef(false);
 
   // Safe migration of legacy LocalStorage group link to MongoDB
   useEffect(() => {
@@ -226,6 +256,7 @@ export const AdminWhatsAppManager: React.FC<AdminWhatsAppManagerProps> = ({
       config,
       hasAttemptedMigrationRef,
       isRestoringDefaultsRef,
+      migrationInFlightRef,
       onUpdateConfig,
       setFormData
     });

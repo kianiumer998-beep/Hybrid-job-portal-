@@ -240,7 +240,7 @@ async function runLocationPersistenceTests() {
       headers: { Authorization: `Bearer ${adminToken}` }
     })).json();
     assert.strictEqual(usageOkRes.success, true);
-    assert.strictEqual(usageOkRes.totalUsageCount, 3);
+    assert.strictEqual(usageOkRes.jobCount, 3);
     console.log('  OK: checkCityUsage fails closed on error and returns exact counts when available.');
 
     // Scenario 9 & 10: Add / update (rename & move province) / delete city, add province, and duplicate city protection
@@ -309,8 +309,51 @@ async function runLocationPersistenceTests() {
     assert.strictEqual(sha256File(LOCATION_JSON_PATH), initialLocationHash, 'Mongo mutations must not write local JSON');
     console.log('  OK: Add, duplicate protection, move/rename, add province, and delete city verified.');
 
+    // Scenario 11-14: Malformed MongoDB location documents fail closed without repair attempts
+    console.log('[11-14/14] Testing malformed MongoDB location documents fail closed without repair...');
+    const malformedCases = [
+      { _id: 'master_catalog' }, // missing locations
+      { _id: 'master_catalog', locations: null },
+      { _id: 'master_catalog', locations: 'not-an-array' },
+      { _id: 'master_catalog', locations: { invalid: true } }
+    ];
+
+    for (const malformedDoc of malformedCases) {
+      const malformedColl = createMockLocationCollection();
+      malformedColl.store.set('master_catalog', malformedDoc);
+      LocationRepository.setMockCollection(malformedColl);
+
+      await assert.rejects(
+        () => LocationRepository.getAll(),
+        /Data integrity violation/i,
+        `Malformed doc with locations=${JSON.stringify(malformedDoc.locations)} must fail closed`
+      );
+
+      // Verify no updateOne ($setOnInsert) repair attempt was made
+      const upsertOps = malformedColl.ops.filter((op) => op.includes('updateOne'));
+      assert.strictEqual(
+        upsertOps.length,
+        0,
+        `No $setOnInsert repair attempt should be made for malformed document locations=${JSON.stringify(malformedDoc.locations)}`
+      );
+    }
+
+    // Seed confirmation failure test
+    const failConfirmColl = {
+      ...createMockLocationCollection(),
+      async findOne() { return null; } // returns null on confirmation read after seed
+    };
+    LocationRepository.setMockCollection(failConfirmColl);
+    await assert.rejects(
+      () => LocationRepository.getAll(),
+      /Seed confirmation failed/i,
+      'Seed confirmation failure must throw rather than returning local defaults'
+    );
+
+    console.log('  OK: Malformed MongoDB documents and seed confirmation failures correctly fail closed.');
+
     // Scenario 5: MongoDB unconfigured local JSON read/write works cleanly (and restores original file afterwards)
-    console.log('[10/10] Testing unconfigured MongoDB local JSON read/write mode...');
+    console.log('[10/14] Testing unconfigured MongoDB local JSON read/write mode...');
     LocationRepository.setMockCollection(null);
     LocationRepository.setMockUsageCollections(null, null);
 

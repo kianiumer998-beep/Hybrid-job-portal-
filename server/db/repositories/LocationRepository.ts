@@ -85,8 +85,11 @@ export class LocationRepository {
           10000,
           'fetch location catalog'
         );
-        if (doc && Array.isArray(doc.locations)) {
-          return doc.locations;
+        if (doc) {
+          if (Array.isArray(doc.locations)) {
+            return doc.locations;
+          }
+          throw new Error('Data integrity violation: master_catalog document in MongoDB contains missing, null, or invalid locations array.');
         }
 
         // First-run atomic seed when document is genuinely missing
@@ -118,7 +121,7 @@ export class LocationRepository {
         if (confirmed && Array.isArray(confirmed.locations)) {
           return confirmed.locations;
         }
-        return defaultList;
+        throw new Error('Seed confirmation failed: location catalog document could not be confirmed in MongoDB.');
       } catch (err: any) {
         console.error('[LocationRepository] MongoDB read failed:', err?.message || err);
         throw new Error(`Authoritative location database is unavailable: ${err?.message || err}`);

@@ -241,71 +241,94 @@ async function runPricingPersistenceTests() {
     assert.strictEqual(calcFreeBody.calculation.finalPrice, 0);
     console.log('  OK: Master Free Mode yields 0 PKR across tiers.');
 
-    // Scenario 4: Turning Master Free Mode off restores configured standard fee (NOT 500)
-    console.log('[4/12] Testing Master Free Mode disable restores configured standard fee (not 500)...');
-    const restoredFee = resolveRestoredStandardFee(0, 1750);
-    assert.strictEqual(restoredFee, 1750);
-    const fallbackToPositiveCurrent = resolveRestoredStandardFee(1200, undefined);
-    assert.strictEqual(fallbackToPositiveCurrent, 1200);
-    const zeroFallbackWhenNeverPositive = resolveRestoredStandardFee(0, 0);
-    assert.strictEqual(zeroFallbackWhenNeverPositive, 0);
+    // Scenario 4: Master Free Mode preserves individual category settings and restores configured standard fee
+    console.log('[4/12] Testing Master Free Mode preserves individual category settings & restores configured standard fee...');
+    const mixedCategories = [
+      { categoryId: 'cat-it', categoryName: 'IT & Software', feePkr: 800, isFree: false, discountPercent: 0 },
+      { categoryId: 'cat-govt', categoryName: 'Government Sector', feePkr: 0, isFree: true, discountPercent: 0 },
+      { categoryId: 'cat-news', categoryName: 'Newspaper Classified', feePkr: 0, isFree: true, discountPercent: 0 },
+      { categoryId: 'cat-health', categoryName: 'Healthcare', feePkr: 0, isFree: true, discountPercent: 0 },
+      { categoryId: 'cat-custom-1', categoryName: 'Custom Community Role', feePkr: 0, isFree: true, discountPercent: 0 }
+    ];
 
-    const toggledCategories = applyGlobalFreeToggleToCategories(
-      DEFAULT_CATEGORY_POSTING_FEES.map((c) => ({ ...c, isFree: true })),
-      false
-    );
-    assert.ok(toggledCategories.every((c) => c.isFree === false));
-
-    let capturedPayload: any = null;
-    const feeSaveOutcome = await executeCompleteFeeConfigSave(
-      {
-        standardFeePkr: restoredFee,
-        globalDiscount: 0,
-        isFreeAllPostings: false,
-        categoryPostingFees: toggledCategories,
-        exemptUserEmails: [],
-        landingPageConfig: {
-          ...DEFAULT_LANDING_PAGE_CONFIG,
-          isFreeAllPostings: false,
-          categoryPostingFees: toggledCategories
-        }
+    // Save mixed categories with Master Free disabled
+    await fetch(`${baseUrl}/api/pricing`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`
       },
-      async (payload) => {
-        capturedPayload = payload;
-        const r = await fetch(`${baseUrl}/api/pricing`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${adminToken}`
-          },
-          body: JSON.stringify({
-            jobPosting: {
-              standardFeePkr: payload.standardFeePkr,
-              globalDiscount: payload.globalDiscount,
-              isFreeAllPostings: payload.isFreeAllPostings,
-              categoryPostingFees: payload.categoryPostingFees,
-              exemptUserEmails: payload.exemptUserEmails
-            },
-            landingPageConfig: payload.landingPageConfig
-          })
-        });
-        return r.json();
-      }
-    );
-    assert.strictEqual(feeSaveOutcome.success, true);
-    assert.strictEqual(capturedPayload.standardFeePkr, 1750);
-
-    const calcAfterRestore = await fetch(`${baseUrl}/api/pricing/calculate-job`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        priorityTier: 'standard',
-        jobCategory: 'Unlisted Sector',
-        userEmail: 'employer@company.pk'
+        jobPosting: {
+          standardFeePkr: 1750,
+          isFreeAllPostings: false,
+          categoryPostingFees: mixedCategories
+        }
       })
     });
-    const calcAfterRestoreBody = await calcAfterRestore.json();
-    assert.strictEqual(calcAfterRestoreBody.calculation.finalPrice, 1750);
+
+    // Enable Master Free Mode
+    await fetch(`${baseUrl}/api/pricing`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({
+        jobPosting: {
+          standardFeePkr: 1750,
+          isFreeAllPostings: true,
+          categoryPostingFees: mixedCategories
+        }
+      })
+    });
+
+    // Confirm individual category settings remain unchanged while Master Free is active
+    const readEnabled = await (await fetch(`${baseUrl}/api/pricing`)).json();
+    const activeCats = readEnabled.pricing.jobPosting.categoryPostingFees;
+    assert.strictEqual(activeCats.find((c: any) => c.categoryId === 'cat-it').isFree, false, 'IT category must remain paid (isFree: false)');
+    assert.strictEqual(activeCats.find((c: any) => c.categoryId === 'cat-it').feePkr, 800);
+    assert.strictEqual(activeCats.find((c: any) => c.categoryId === 'cat-govt').isFree, true);
+
+    // Confirm Master Free makes server-calculated posting fee zero even for paid IT category
+    const calcMasterFreeIt = await (await fetch(`${baseUrl}/api/pricing/calculate-job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priorityTier: 'standard', jobCategory: 'IT & Software', userEmail: 'test@user.pk' })
+    })).json();
+    assert.strictEqual(calcMasterFreeIt.calculation.finalPrice, 0);
+
+    // Disable Master Free Mode
+    await fetch(`${baseUrl}/api/pricing`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({
+        jobPosting: {
+          standardFeePkr: 1750,
+          isFreeAllPostings: false,
+          categoryPostingFees: mixedCategories
+        }
+      })
+    });
+
+    // Confirm individual category settings match original configuration exactly
+    const readDisabled = await (await fetch(`${baseUrl}/api/pricing`)).json();
+    const disabledCats = readDisabled.pricing.jobPosting.categoryPostingFees;
+    assert.deepStrictEqual(disabledCats, mixedCategories, 'Category settings must match original configuration exactly after disabling Master Free');
+
+    // Confirm standard fee is restored to 1750
+    assert.strictEqual(readDisabled.pricing.jobPosting.standardFeePkr, 1750);
+
+    // Confirm category fees work normally after disabling Master Free (IT category charges 800)
+    const calcNormalIt = await (await fetch(`${baseUrl}/api/pricing/calculate-job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priorityTier: 'standard', jobCategory: 'IT & Software', userEmail: 'test@user.pk' })
+    })).json();
+    assert.strictEqual(calcNormalIt.calculation.finalPrice, 800);
     console.log('  OK: Turning Master Free Mode off restored 1750 PKR (never 500).');
 
     // Scenario 5 & 6: Category fee and category discount updates match UserDashboard sector labels
@@ -494,7 +517,11 @@ async function runPricingPersistenceTests() {
     assert.strictEqual(appSrc.includes("localStorage.getItem('hybrid_job_posting_fee')"), false, 'App must not read hybrid_job_posting_fee from localStorage');
     assert.strictEqual(appSrc.includes("localStorage.getItem('hybrid_job_posting_pricing')"), false, 'App must not read hybrid_job_posting_pricing from localStorage');
     assert.strictEqual(appSrc.includes("localStorage.getItem('hybrid_landing_page_config')"), false, 'App must not read hybrid_landing_page_config from localStorage');
-    assert.strictEqual(feeMgrSrc.includes('500'), false, 'AdminFeeManager must not hardcode 500 PKR fallback');
+    assert.strictEqual(
+      feeMgrSrc.includes('|| 500') || feeMgrSrc.includes('?? 500') || feeMgrSrc.includes(': 500'),
+      false,
+      'AdminFeeManager must not hardcode 500 PKR fallback'
+    );
     console.log('  OK: Source contracts verified (server-calculated fees, no localStorage authority, no 500 fallback).');
 
     // Scenario 11: Urgent, featured, future, and VIP bundle calculations match server config

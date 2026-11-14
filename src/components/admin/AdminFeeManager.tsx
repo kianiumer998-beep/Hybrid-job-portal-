@@ -425,7 +425,6 @@ export const AdminFeeManager: React.FC<AdminFeeManagerProps> = ({
         onChangeGlobalPostingFee(restored);
       }
     }
-    setCategoryFees((prev) => applyGlobalFreeToggleToCategories(prev, enable));
   };
 
   const filteredUsers = filterFeeManagerUsers(users, userSearchQuery);

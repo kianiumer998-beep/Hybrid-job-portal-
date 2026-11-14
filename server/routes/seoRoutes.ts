@@ -1,10 +1,66 @@
 import { Router } from 'express';
-import { JobRepository } from '../db/repositories/JobRepository';
+import { JobRepository, checkJobExpired } from '../db/repositories/JobRepository';
 import { SeoRepository } from '../db/repositories/SeoRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { requireAdminPermission } from '../auth/authManager';
 
 export const seoRouter = Router();
+
+/**
+ * Shared public-visibility eligibility helper for SEO metadata, public crawlable HTML, and sitemaps.
+ * Rejects:
+ * - Missing jobs (null, undefined, non-objects).
+ * - Jobs whose status is Pending, Rejected, Suspended, or Expired.
+ * - Jobs with isSuspended === true.
+ * - Jobs with isDuplicate === true.
+ * - Jobs with isExpired === true.
+ * - Jobs whose deadline has expired (via checkJobExpired helper).
+ *
+ * Only Approved jobs are eligible for public indexing. Legacy records with omitted status
+ * that are otherwise clean and non-expired are normalized as Approved.
+ */
+export function isJobEligibleForPublicSeo(job: any): boolean {
+  if (!job || typeof job !== 'object') {
+    return false;
+  }
+
+  // Reject explicitly flagged duplicate or suspended jobs
+  if (job.isDuplicate === true || job.isSuspended === true) {
+    return false;
+  }
+
+  // Reject explicitly flagged expired jobs
+  if (job.isExpired === true) {
+    return false;
+  }
+
+  // Evaluate status (case-insensitive)
+  const rawStatus = typeof job.status === 'string' ? job.status.trim() : '';
+  const lowerStatus = rawStatus.toLowerCase();
+
+  // Explicitly reject non-public statuses
+  if (
+    lowerStatus === 'pending' ||
+    lowerStatus === 'rejected' ||
+    lowerStatus === 'suspended' ||
+    lowerStatus === 'expired'
+  ) {
+    return false;
+  }
+
+  // Preserve legacy compatibility: if status is omitted/empty, repository normalizes as 'Approved'
+  const effectiveStatus = rawStatus || 'Approved';
+  if (effectiveStatus.toLowerCase() !== 'approved') {
+    return false;
+  }
+
+  // Evaluate deadline-based expiration using JobRepository's checkJobExpired helper
+  if (checkJobExpired(job)) {
+    return false;
+  }
+
+  return true;
+}
 
 // Helper to sanitize XML text
 function escapeXml(unsafe: string): string {
@@ -184,7 +240,7 @@ seoRouter.get('/sitemap.xml', async (req, res) => {
     }));
 
     const jobEntries: SitemapEntry[] = (activeApprovedJobs || [])
-      .filter((j: any) => !j.isDuplicate && !j.isSuspended && j.status === 'Approved')
+      .filter((j: any) => isJobEligibleForPublicSeo(j))
       .map((j: any) => ({
         url: `/jobs/${j.slug || j.id}`,
         lastmod: j.updatedAt || j.createdAt || j.scrapedAt || new Date().toISOString(),
@@ -245,7 +301,7 @@ Sitemap: ${baseUrl}/sitemap.xml
 seoRouter.get('/job-meta/:id', async (req, res) => {
   try {
     const job = (await JobRepository.getById(req.params.id)) || (await JobRepository.getBySlug(req.params.id));
-    if (!job) {
+    if (!job || !isJobEligibleForPublicSeo(job)) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
@@ -367,7 +423,7 @@ seoRouter.get('/job-meta/:id', async (req, res) => {
 seoRouter.get('/public-job/:idOrSlug', async (req, res) => {
   try {
     const job = (await JobRepository.getById(req.params.idOrSlug)) || (await JobRepository.getBySlug(req.params.idOrSlug));
-    if (!job) {
+    if (!job || !isJobEligibleForPublicSeo(job)) {
       return res.status(404).send(`<!DOCTYPE html><html><head><title>Job Not Found</title></head><body><h1>404 - Job Vacancy Not Found</h1><p>The requested vacancy may have been filled or expired.</p><p><a href="/">Return to Home</a></p></body></html>`);
     }
 

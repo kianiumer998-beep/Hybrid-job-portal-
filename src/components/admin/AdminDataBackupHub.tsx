@@ -12,13 +12,19 @@ import {
   ArrowDownToLine,
   FolderArchive
 } from 'lucide-react';
-import { Job, JobPostingFeeLog, ScrapedJobAuditEntry, ScraperBatchRun, Subscriber, UserAccount, CustomFormField, AdminFeatureFlags } from '../../types/job';
+import { Job, JobAttachment, JobPostingFeeLog, ScrapedJobAuditEntry, ScraperBatchRun, Subscriber, UserAccount, CustomFormField, AdminFeatureFlags } from '../../types/job';
 import { SystemSnapshotPayload } from '../../types/adminSuite';
+import { isNonJobRecord, isNeedsReviewRecord } from '../../utils/jobValidation';
 
 export interface BulkJobImportRecordError {
   index: number;
   title?: string;
   message: string;
+  type?: 'duplicate' | 'error';
+  confidence?: number;
+  duplicateCategory?: string;
+  matchedJobId?: string;
+  matchedJobTitle?: string;
 }
 
 export interface BulkJobImportResult {
@@ -28,6 +34,7 @@ export interface BulkJobImportResult {
   requestedCount: number;
   importedCount: number;
   failedCount: number;
+  skippedDuplicateCount?: number;
   errors: BulkJobImportRecordError[];
   partialSuccess: boolean;
 }
@@ -57,7 +64,7 @@ export interface BackupImportProcessResult {
 }
 
 const MAX_BULK_IMPORT_RECORDS = 500;
-const OPTIONAL_IMPORT_ARRAY_FIELDS = [
+const OPTIONAL_IMPORT_STRING_ARRAY_FIELDS = [
   'tags',
   'requirements',
   'benefits',
@@ -65,9 +72,86 @@ const OPTIONAL_IMPORT_ARRAY_FIELDS = [
   'responsibilitiesList',
   'advertisedPositions',
   'relatedSourceUrls',
-  'attachments',
   'duplicateTags'
 ] as const;
+
+const REQUIRED_ATTACHMENT_STRING_FIELDS: Array<keyof Pick<JobAttachment, 'id' | 'name' | 'fileUrl' | 'fileType' | 'uploadedAt'>> = [
+  'id',
+  'name',
+  'fileUrl',
+  'fileType',
+  'uploadedAt'
+];
+
+function validateFrontendImportAttachment(
+  att: unknown,
+  recordIndex: number,
+  attIndex: number,
+  recordTitle?: string
+): BulkJobImportRecordError | null {
+  if (
+    att === null ||
+    typeof att !== 'object' ||
+    Array.isArray(att) ||
+    Object.prototype.toString.call(att) !== '[object Object]'
+  ) {
+    return {
+      index: recordIndex,
+      title: recordTitle,
+      type: 'error',
+      message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] must be a plain object.`
+    };
+  }
+
+  const obj = att as Record<string, unknown>;
+  for (const field of REQUIRED_ATTACHMENT_STRING_FIELDS) {
+    const val = obj[field];
+    if (typeof val !== 'string' || !val.trim()) {
+      return {
+        index: recordIndex,
+        title: recordTitle,
+        type: 'error',
+        message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] requires non-empty string "${field}".`
+      };
+    }
+  }
+
+  for (const optStr of ['fileName', 'description'] as const) {
+    const val = obj[optStr];
+    if (val !== undefined && val !== null && typeof val !== 'string') {
+      return {
+        index: recordIndex,
+        title: recordTitle,
+        type: 'error',
+        message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] optional "${optStr}" must be a string when supplied.`
+      };
+    }
+  }
+
+  if (obj.isPublic !== undefined && obj.isPublic !== null && typeof obj.isPublic !== 'boolean') {
+    return {
+      index: recordIndex,
+      title: recordTitle,
+      type: 'error',
+      message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] optional "isPublic" must be a boolean when supplied.`
+    };
+  }
+
+  if (
+    obj.sizeBytes !== undefined &&
+    obj.sizeBytes !== null &&
+    (typeof obj.sizeBytes !== 'number' || !Number.isFinite(obj.sizeBytes) || obj.sizeBytes < 0)
+  ) {
+    return {
+      index: recordIndex,
+      title: recordTitle,
+      type: 'error',
+      message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] optional "sizeBytes" must be a finite non-negative number when supplied.`
+    };
+  }
+
+  return null;
+}
 
 export function isSystemSnapshotPayload(parsed: unknown): boolean {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
@@ -163,10 +247,33 @@ export function processBackupImportJson(
     }
 
     const record = item as Record<string, unknown>;
+    const rawTitleLabel = typeof record.title === 'string' && record.title.trim() ? record.title.trim() : undefined;
+
+    if (isNonJobRecord(record as Partial<Job>)) {
+      recordErrors.push({
+        index: i,
+        title: rawTitleLabel,
+        type: 'error',
+        message: `Record #${i + 1} (index ${i}): Non-job records (isNonJob/NON_JOB) cannot be imported.`
+      });
+      continue;
+    }
+
+    if (isNeedsReviewRecord(record as Partial<Job>)) {
+      recordErrors.push({
+        index: i,
+        title: rawTitleLabel,
+        type: 'error',
+        message: `Record #${i + 1} (index ${i}): Records marked NEEDS_REVIEW cannot be directly imported as Approved.`
+      });
+      continue;
+    }
+
     const titleStr = typeof record.title === 'string' ? record.title.trim() : '';
     if (!titleStr) {
       recordErrors.push({
         index: i,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Missing or invalid non-empty string "title".`
       });
       continue;
@@ -177,33 +284,76 @@ export function processBackupImportJson(
       recordErrors.push({
         index: i,
         title: titleStr,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Missing or invalid non-empty string "company".`
       });
       continue;
     }
 
+    const locationFields = ['city', 'province', 'region', 'country', 'location'] as const;
+    let badLocationField = false;
+    for (const locField of locationFields) {
+      if (record[locField] !== undefined && record[locField] !== null && typeof record[locField] !== 'string') {
+        recordErrors.push({
+          index: i,
+          title: titleStr,
+          type: 'error',
+          message: `Record #${i + 1} (index ${i}): Optional location field "${locField}" must be a string.`
+        });
+        badLocationField = true;
+        break;
+      }
+    }
+    if (badLocationField) continue;
+
     if (record.description !== undefined && record.description !== null && typeof record.description !== 'string') {
       recordErrors.push({
         index: i,
         title: titleStr,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Optional "description" must be a string.`
       });
       continue;
     }
 
     let badArrayField = false;
-    for (const field of OPTIONAL_IMPORT_ARRAY_FIELDS) {
-      if (record[field] !== undefined && record[field] !== null && !Array.isArray(record[field])) {
-        recordErrors.push({
-          index: i,
-          title: titleStr,
-          message: `Record #${i + 1} (index ${i}): Optional "${field}" must be an array.`
-        });
-        badArrayField = true;
-        break;
+    for (const field of OPTIONAL_IMPORT_STRING_ARRAY_FIELDS) {
+      const val = record[field];
+      if (val !== undefined && val !== null) {
+        if (!Array.isArray(val) || !val.every((entry) => typeof entry === 'string')) {
+          recordErrors.push({
+            index: i,
+            title: titleStr,
+            type: 'error',
+            message: `Record #${i + 1} (index ${i}): Optional "${field}" must be an array of strings.`
+          });
+          badArrayField = true;
+          break;
+        }
       }
     }
     if (badArrayField) continue;
+
+    if (record.attachments !== undefined && record.attachments !== null) {
+      if (!Array.isArray(record.attachments)) {
+        recordErrors.push({
+          index: i,
+          title: titleStr,
+          type: 'error',
+          message: `Record #${i + 1} (index ${i}): Optional "attachments" must be an array.`
+        });
+        continue;
+      }
+      let attachmentErr: BulkJobImportRecordError | null = null;
+      for (let aIdx = 0; aIdx < record.attachments.length; aIdx++) {
+        attachmentErr = validateFrontendImportAttachment(record.attachments[aIdx], i, aIdx, titleStr);
+        if (attachmentErr) break;
+      }
+      if (attachmentErr) {
+        recordErrors.push(attachmentErr);
+        continue;
+      }
+    }
   }
 
   if (recordErrors.length > 0) {
@@ -386,6 +536,7 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
           requestedCount: 0,
           importedCount: 0,
           failedCount: validation.errors.length,
+          skippedDuplicateCount: 0,
           errors: validation.errors,
           partialSuccess: false
         });
@@ -407,22 +558,34 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
         return;
       }
 
-      setImportResultDetails(result);
+      const skippedDuplicates = typeof result.skippedDuplicateCount === 'number' ? result.skippedDuplicateCount : 0;
+      const normalizedResult: BulkJobImportResult = {
+        ...result,
+        skippedDuplicateCount: skippedDuplicates
+      };
+      setImportResultDetails(normalizedResult);
 
-      if (result.importedCount > 0 && result.failedCount === 0) {
+      if (normalizedResult.importedCount > 0 && normalizedResult.failedCount === 0 && skippedDuplicates === 0) {
         setImportStatusMessage(
-          result.message || `✅ Confirmed: ${result.importedCount} of ${result.requestedCount} job(s) imported and saved.`
+          normalizedResult.message ||
+            `✅ Confirmed: ${normalizedResult.importedCount} of ${normalizedResult.requestedCount} job(s) imported and saved.`
         );
         setImportJsonText('');
-      } else if (result.importedCount > 0 && result.failedCount > 0) {
+      } else if (normalizedResult.importedCount > 0 && (normalizedResult.failedCount > 0 || skippedDuplicates > 0)) {
+        const notes: string[] = [];
+        if (skippedDuplicates > 0) notes.push(`${skippedDuplicates} duplicate(s) skipped`);
+        if (normalizedResult.failedCount > 0) notes.push(`${normalizedResult.failedCount} failed`);
         setImportWarningMessage(
-          result.message ||
-            `Partial import: ${result.importedCount} of ${result.requestedCount} job(s) saved, ${result.failedCount} failed.`
+          normalizedResult.message ||
+            `Partial import: ${normalizedResult.importedCount} of ${normalizedResult.requestedCount} job(s) saved (${notes.join(', ')}).`
         );
       } else {
+        const notes: string[] = [];
+        if (skippedDuplicates > 0) notes.push(`${skippedDuplicates} skipped as duplicate`);
+        if (normalizedResult.failedCount > 0) notes.push(`${normalizedResult.failedCount} failed`);
         setImportErrorMessage(
-          result.message ||
-            `Import failed: 0 of ${result.requestedCount} job(s) saved (${result.failedCount} failed).`
+          normalizedResult.message ||
+            `No jobs imported: 0 of ${normalizedResult.requestedCount} job(s) saved (${notes.join(', ') || '0 imported'}).`
         );
       }
     } catch (err: any) {
@@ -684,19 +847,30 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
               <div className="flex flex-wrap items-center gap-4 font-bold">
                 <span className="text-slate-300">Requested: {importResultDetails.requestedCount}</span>
                 <span className="text-emerald-400">Imported: {importResultDetails.importedCount}</span>
+                <span className={(importResultDetails.skippedDuplicateCount || 0) > 0 ? 'text-amber-400' : 'text-slate-400'}>
+                  Duplicates Skipped: {importResultDetails.skippedDuplicateCount || 0}
+                </span>
                 <span className={importResultDetails.failedCount > 0 ? 'text-rose-400' : 'text-slate-400'}>
                   Failed: {importResultDetails.failedCount}
                 </span>
               </div>
               {Array.isArray(importResultDetails.errors) && importResultDetails.errors.length > 0 && (
-                <ul className="space-y-1 text-[11px] text-rose-300 max-h-40 overflow-y-auto list-disc pl-4">
-                  {importResultDetails.errors.map((errItem, idx) => (
-                    <li key={`${errItem.index}-${idx}`}>
-                      <span className="font-bold">Record #{errItem.index + 1} (index {errItem.index}):</span>{' '}
-                      {errItem.title ? `[${errItem.title}] ` : ''}
-                      {errItem.message}
-                    </li>
-                  ))}
+                <ul className="space-y-1 text-[11px] max-h-40 overflow-y-auto list-disc pl-4">
+                  {importResultDetails.errors.map((errItem, idx) => {
+                    const isDup = errItem.type === 'duplicate';
+                    return (
+                      <li
+                        key={`${errItem.index}-${idx}`}
+                        className={isDup ? 'text-amber-300' : 'text-rose-300'}
+                      >
+                        <span className="font-bold">
+                          [{isDup ? 'Duplicate' : 'Error'}] Record #{errItem.index + 1} (index {errItem.index}):
+                        </span>{' '}
+                        {errItem.title ? `[${errItem.title}] ` : ''}
+                        {errItem.message}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

@@ -5,7 +5,7 @@ import { Database, generateJobSlug } from '../db/database';
 import { detectJobDuplicate, mergeJobRecords } from '../services/duplicateEngine';
 import { requireAdminPermission } from '../auth/authManager';
 import { JobRepository, AuditRepository, NotificationRepository, UserRepository } from '../db/repositories';
-import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType } from '../services/jobValidation';
+import { calculateJobMissingFields, isScrapedJob, deriveJobSourceType, isNonJobRecord, isNeedsReviewRecord } from '../services/jobValidation';
 import { withMongoRetry, isTransientMongoError } from '../db/repositories/ScraperRepository';
 import { isMongoConfigured } from '../db/mongodb';
 import { saveAttachment, getAttachmentStream, deleteAttachmentFile, validateAttachmentMagicBytes, getAttachmentMimeType } from '../services/attachmentStorage';
@@ -901,9 +901,15 @@ export interface AdminImportValidationError {
   index: number;
   title?: string;
   message: string;
+  type?: 'duplicate' | 'error';
+  confidence?: number;
+  duplicateCategory?: string;
+  matchedJobId?: string;
+  matchedJobTitle?: string;
 }
 
 const ADMIN_IMPORT_MAX_RECORDS = 500;
+const ADMIN_IMPORT_DUPLICATE_THRESHOLD = 80;
 const ADMIN_IMPORT_STRING_ARRAY_FIELDS = [
   'tags',
   'requirements',
@@ -914,6 +920,98 @@ const ADMIN_IMPORT_STRING_ARRAY_FIELDS = [
   'relatedSourceUrls',
   'duplicateTags'
 ] as const;
+
+const ADMIN_IMPORT_DUPLICATE_CONTROL_FIELDS = [
+  'isDuplicate',
+  'duplicateScore',
+  'duplicateCategory',
+  'duplicateTags',
+  'duplicateMatchReason',
+  'duplicateOfJobId',
+  'duplicateOfJobTitle',
+  'duplicateMatchedCompany',
+  'isDuplicateOverride',
+  'duplicateOverrideNote',
+  'duplicateDetectedAt'
+] as const;
+
+const ADMIN_IMPORT_REQUIRED_ATTACHMENT_STRINGS: Array<keyof Pick<JobAttachment, 'id' | 'name' | 'fileUrl' | 'fileType' | 'uploadedAt'>> = [
+  'id',
+  'name',
+  'fileUrl',
+  'fileType',
+  'uploadedAt'
+];
+
+export function validateAdminImportAttachment(
+  att: unknown,
+  recordIndex: number,
+  attIndex: number,
+  recordLabel?: string
+): AdminImportValidationError | null {
+  if (
+    att === null ||
+    typeof att !== 'object' ||
+    Array.isArray(att) ||
+    Object.prototype.toString.call(att) !== '[object Object]'
+  ) {
+    return {
+      index: recordIndex,
+      title: recordLabel,
+      type: 'error',
+      message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] must be a plain object.`
+    };
+  }
+
+  const obj = att as Record<string, unknown>;
+  for (const field of ADMIN_IMPORT_REQUIRED_ATTACHMENT_STRINGS) {
+    const val = obj[field];
+    if (typeof val !== 'string' || !val.trim()) {
+      return {
+        index: recordIndex,
+        title: recordLabel,
+        type: 'error',
+        message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] requires non-empty string "${field}".`
+      };
+    }
+  }
+
+  for (const optStrField of ['fileName', 'description'] as const) {
+    const val = obj[optStrField];
+    if (val !== undefined && val !== null && typeof val !== 'string') {
+      return {
+        index: recordIndex,
+        title: recordLabel,
+        type: 'error',
+        message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] optional "${optStrField}" must be a string when supplied.`
+      };
+    }
+  }
+
+  if (obj.isPublic !== undefined && obj.isPublic !== null && typeof obj.isPublic !== 'boolean') {
+    return {
+      index: recordIndex,
+      title: recordLabel,
+      type: 'error',
+      message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] optional "isPublic" must be a boolean when supplied.`
+    };
+  }
+
+  if (
+    obj.sizeBytes !== undefined &&
+    obj.sizeBytes !== null &&
+    (typeof obj.sizeBytes !== 'number' || !Number.isFinite(obj.sizeBytes) || obj.sizeBytes < 0)
+  ) {
+    return {
+      index: recordIndex,
+      title: recordLabel,
+      type: 'error',
+      message: `Record #${recordIndex + 1} (index ${recordIndex}): Attachment at attachments[${attIndex}] optional "sizeBytes" must be a finite non-negative number when supplied.`
+    };
+  }
+
+  return null;
+}
 
 export function isFullSnapshotImportPayload(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
@@ -938,7 +1036,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
     return {
       valid: false,
       jobs: [],
-      errors: [{ index: 0, message: 'Full system snapshot payloads cannot be imported via bulk job import.' }],
+      errors: [{ index: 0, type: 'error', message: 'Full system snapshot payloads cannot be imported via bulk job import.' }],
       message: 'Full system snapshot payloads are rejected. Provide a { jobs: [...] } array of job objects.'
     };
   }
@@ -951,7 +1049,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
     return {
       valid: false,
       jobs: [],
-      errors: [{ index: 0, message: 'A non-empty array of job objects is required.' }],
+      errors: [{ index: 0, type: 'error', message: 'A non-empty array of job objects is required.' }],
       message: 'A non-empty array of job objects is required.'
     };
   }
@@ -963,6 +1061,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
       errors: [
         {
           index: ADMIN_IMPORT_MAX_RECORDS,
+          type: 'error',
           message: `Batch size ${batchJobs.length} exceeds the maximum limit of ${ADMIN_IMPORT_MAX_RECORDS} records.`
         }
       ],
@@ -983,6 +1082,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
       const receivedType = item === null ? 'null' : Array.isArray(item) ? 'array' : typeof item;
       errors.push({
         index: i,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Expected a plain job object, received ${receivedType}.`
       });
       continue;
@@ -991,10 +1091,31 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
     const record = item as Record<string, any>;
     const recordLabel = typeof record.title === 'string' && record.title.trim() ? record.title.trim() : undefined;
 
+    if (isNonJobRecord(record)) {
+      errors.push({
+        index: i,
+        title: recordLabel,
+        type: 'error',
+        message: `Record #${i + 1} (index ${i}): Non-job records (isNonJob/NON_JOB) cannot be imported.`
+      });
+      continue;
+    }
+
+    if (isNeedsReviewRecord(record)) {
+      errors.push({
+        index: i,
+        title: recordLabel,
+        type: 'error',
+        message: `Record #${i + 1} (index ${i}): Records marked NEEDS_REVIEW cannot be directly imported as Approved.`
+      });
+      continue;
+    }
+
     if (typeof record.title !== 'string' || !record.title.trim()) {
       errors.push({
         index: i,
         title: recordLabel,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Valid non-empty string "title" is required.`
       });
       continue;
@@ -1004,6 +1125,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
       errors.push({
         index: i,
         title: recordLabel,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Valid non-empty string "company" is required.`
       });
       continue;
@@ -1016,6 +1138,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
         errors.push({
           index: i,
           title: recordLabel,
+          type: 'error',
           message: `Record #${i + 1} (index ${i}): Location field "${locField}" must be a string when supplied.`
         });
         hasInvalidLocationType = true;
@@ -1029,6 +1152,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
       errors.push({
         index: i,
         title: recordLabel,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Missing required publication field(s): ${missingFields.join(', ')}.`
       });
       continue;
@@ -1038,6 +1162,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
       errors.push({
         index: i,
         title: recordLabel,
+        type: 'error',
         message: `Record #${i + 1} (index ${i}): Optional "description" must be a string when supplied.`
       });
       continue;
@@ -1051,6 +1176,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
           errors.push({
             index: i,
             title: recordLabel,
+            type: 'error',
             message: `Record #${i + 1} (index ${i}): Optional "${arrField}" must be an array of strings when supplied.`
           });
           hasInvalidArrayField = true;
@@ -1060,13 +1186,25 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
     }
     if (hasInvalidArrayField) continue;
 
-    if (record.attachments !== undefined && record.attachments !== null && !Array.isArray(record.attachments)) {
-      errors.push({
-        index: i,
-        title: recordLabel,
-        message: `Record #${i + 1} (index ${i}): Optional "attachments" must be an array when supplied.`
-      });
-      continue;
+    if (record.attachments !== undefined && record.attachments !== null) {
+      if (!Array.isArray(record.attachments)) {
+        errors.push({
+          index: i,
+          title: recordLabel,
+          type: 'error',
+          message: `Record #${i + 1} (index ${i}): Optional "attachments" must be an array when supplied.`
+        });
+        continue;
+      }
+      let attachmentError: AdminImportValidationError | null = null;
+      for (let aIdx = 0; aIdx < record.attachments.length; aIdx++) {
+        attachmentError = validateAdminImportAttachment(record.attachments[aIdx], i, aIdx, recordLabel);
+        if (attachmentError) break;
+      }
+      if (attachmentError) {
+        errors.push(attachmentError);
+        continue;
+      }
     }
   }
 
@@ -1090,7 +1228,7 @@ export function validateAdminImportJobsPayload(rawBody: unknown): {
 export function buildSanitizedAdminImportJob(item: Record<string, any>): Record<string, any> {
   const sanitized: Record<string, any> = { ...item };
 
-  // Never trust client-supplied identifiers, slugs, timestamps, counts, status, or ownership fields
+  // Never trust client-supplied identifiers, slugs, timestamps, counts, status, ownership, or moderation states
   delete sanitized._id;
   delete sanitized.id;
   delete sanitized.slug;
@@ -1106,6 +1244,16 @@ export function buildSanitizedAdminImportJob(item: Record<string, any>): Record<
   delete sanitized.suspensionReason;
   delete sanitized.rejectionReason;
   delete sanitized.visibilitySource;
+  delete sanitized.isNonJob;
+  delete sanitized.classificationState;
+  delete sanitized.reviewStatus;
+  delete sanitized._titleTokens;
+  delete sanitized._companyTokens;
+
+  // Never trust imported duplicate-control metadata
+  for (const dupField of ADMIN_IMPORT_DUPLICATE_CONTROL_FIELDS) {
+    delete sanitized[dupField];
+  }
 
   const cleanTitle = String(item.title).trim();
   const cleanCompany = String(item.company).trim();
@@ -1128,8 +1276,13 @@ export function buildSanitizedAdminImportJob(item: Record<string, any>): Record<
   const newSlug = generateJobSlug(cleanTitle, cleanCity, newId);
   const now = new Date().toISOString();
 
+  const sanitizedAttachments = Array.isArray(item.attachments)
+    ? item.attachments.map((att: JobAttachment) => ({ ...att }))
+    : undefined;
+
   return {
     ...sanitized,
+    ...(sanitizedAttachments !== undefined ? { attachments: sanitizedAttachments } : {}),
     id: newId,
     slug: newSlug,
     title: cleanTitle,
@@ -1146,7 +1299,47 @@ export function buildSanitizedAdminImportJob(item: Record<string, any>): Record<
   };
 }
 
-// 10b. Dedicated Safe Admin Bulk Job Import (Validated, Non-Overwriting, Sequential Persistence)
+async function loadAuthoritativeDuplicatePool(): Promise<any[]> {
+  const liveJobs: any[] = [];
+  let page = 1;
+  while (page <= 1000) {
+    const res = await JobRepository.getAll({ page, limit: 1000 });
+    if (!res || !Array.isArray(res.jobs)) {
+      throw new Error('Authoritative live jobs could not be loaded for duplicate detection.');
+    }
+    liveJobs.push(...res.jobs);
+    const total = typeof res.total === 'number' ? res.total : res.jobs.length;
+    const pageLimit = typeof res.limit === 'number' && res.limit > 0 ? res.limit : 1000;
+    if (res.jobs.length === 0 || liveJobs.length >= total || res.jobs.length < pageLimit) {
+      break;
+    }
+    page++;
+  }
+
+  const pendingJobs: any[] = [];
+  let pendingPage = 1;
+  while (pendingPage <= 1000) {
+    const pendingRes = await JobRepository.getPending({ page: pendingPage, limit: 500 });
+    if (!Array.isArray(pendingRes)) {
+      throw new Error('Authoritative pending jobs could not be loaded for duplicate detection.');
+    }
+    pendingJobs.push(...pendingRes);
+    const totalPending =
+      typeof (pendingRes as any).total === 'number' ? (pendingRes as any).total : pendingRes.length;
+    const pendingLimit =
+      typeof (pendingRes as any).limit === 'number' && (pendingRes as any).limit > 0
+        ? (pendingRes as any).limit
+        : 500;
+    if (pendingRes.length === 0 || pendingJobs.length >= totalPending || pendingRes.length < pendingLimit) {
+      break;
+    }
+    pendingPage++;
+  }
+
+  return [...liveJobs, ...pendingJobs];
+}
+
+// 10b. Dedicated Safe Admin Bulk Job Import (Validated, Duplicate-Protected, Non-Overwriting, Sequential Persistence)
 jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (req, res) => {
   try {
     const validation = validateAdminImportJobsPayload(req.body);
@@ -1163,6 +1356,7 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
         requestedCount,
         importedCount: 0,
         failedCount: validation.errors.length,
+        skippedDuplicateCount: 0,
         errors: validation.errors,
         partialSuccess: false
       });
@@ -1170,32 +1364,83 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
 
     const validatedJobs = validation.jobs;
     const requestedCount = validatedJobs.length;
+
+    // Fail closed before writing any record if authoritative live/pending jobs cannot be loaded
+    let existingPool: any[] = [];
+    try {
+      existingPool = await loadAuthoritativeDuplicatePool();
+    } catch (poolErr: any) {
+      const isDbUnavailable =
+        isTransientMongoError(poolErr) || String(poolErr?.message || '').toLowerCase().includes('mongo');
+      return res.status(isDbUnavailable ? 503 : 500).json({
+        success: false,
+        errorType: isDbUnavailable ? 'DatabaseUnavailable' : 'DuplicateCheckLoadError',
+        message: `Bulk import aborted (fail-closed): Unable to load existing live/pending jobs for duplicate detection. ${poolErr?.message || ''}`.trim(),
+        processed: 0,
+        requestedCount,
+        importedCount: 0,
+        failedCount: requestedCount,
+        skippedDuplicateCount: 0,
+        errors: [
+          {
+            index: 0,
+            type: 'error',
+            message: poolErr?.message || 'Unable to load existing live and pending jobs for duplicate detection.'
+          }
+        ],
+        partialSuccess: false
+      });
+    }
+
     let importedCount = 0;
     let failedCount = 0;
+    let skippedDuplicateCount = 0;
     const errors: AdminImportValidationError[] = [];
+    const persistedBatchJobs: any[] = [];
 
     for (let i = 0; i < validatedJobs.length; i++) {
       const rawItem = validatedJobs[i];
       const titleLabel = String(rawItem.title).trim();
       try {
         const jobPayload = buildSanitizedAdminImportJob(rawItem);
+        const dupCheck = detectJobDuplicate({ ...jobPayload }, existingPool, persistedBatchJobs);
+
+        if (dupCheck.isDuplicate && dupCheck.confidence >= ADMIN_IMPORT_DUPLICATE_THRESHOLD) {
+          skippedDuplicateCount++;
+          const matchedTitle = dupCheck.matchedExistingJob?.title || 'existing listing';
+          const matchedCompany = dupCheck.matchedExistingJob?.company ? ` at "${dupCheck.matchedExistingJob.company}"` : '';
+          errors.push({
+            index: i,
+            title: titleLabel,
+            type: 'duplicate',
+            confidence: dupCheck.confidence,
+            duplicateCategory: dupCheck.duplicateCategory,
+            matchedJobId: dupCheck.matchedExistingJob?.id,
+            matchedJobTitle: dupCheck.matchedExistingJob?.title,
+            message: `Skipped duplicate (${dupCheck.confidence}% confidence, ${dupCheck.duplicateCategory}): matches "${matchedTitle}"${matchedCompany}.`
+          });
+          continue;
+        }
+
         const saved = await JobRepository.create(jobPayload);
         if (!saved || !saved.id) {
           throw new Error('Repository failed to confirm job persistence.');
         }
         importedCount++;
+        persistedBatchJobs.push({ ...saved });
       } catch (saveErr: any) {
         failedCount++;
         errors.push({
           index: i,
           title: titleLabel,
+          type: 'error',
           message: saveErr?.message || 'Failed to persist job record'
         });
       }
     }
 
-    const processed = importedCount + failedCount;
-    const partialSuccess = importedCount > 0 && failedCount > 0;
+    const processed = importedCount + skippedDuplicateCount + failedCount;
+    const partialSuccess = importedCount > 0 && (failedCount > 0 || skippedDuplicateCount > 0);
 
     if (importedCount > 0) {
       try {
@@ -1203,7 +1448,7 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
           user: (req as any).user?.name || 'Administrator',
           role: (req as any).user?.role || 'Admin',
           action: 'Admin Bulk Job Import',
-          target: `Imported ${importedCount}/${requestedCount} jobs (${failedCount} failed)`,
+          target: `Imported ${importedCount}/${requestedCount} jobs (${skippedDuplicateCount} duplicate(s) skipped, ${failedCount} failed)`,
           status: partialSuccess ? 'Warning' : 'Success'
         });
       } catch (auditErr) {
@@ -1211,28 +1456,48 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
       }
     }
 
-    if (importedCount === 0) {
+    if (importedCount === 0 && failedCount > 0) {
       return res.status(500).json({
         success: false,
-        message: `Import failed: 0 of ${requestedCount} job(s) persisted (${failedCount} failed).`,
+        message: `Import failed: 0 of ${requestedCount} job(s) persisted (${failedCount} failed${skippedDuplicateCount > 0 ? `, ${skippedDuplicateCount} skipped as duplicate` : ''}).`,
         processed,
         requestedCount,
         importedCount: 0,
         failedCount,
+        skippedDuplicateCount,
         errors,
         partialSuccess: false
       });
     }
 
+    if (importedCount === 0 && skippedDuplicateCount > 0) {
+      return res.status(200).json({
+        success: false,
+        message: `No jobs imported: 0 of ${requestedCount} job(s) saved (${skippedDuplicateCount} skipped as duplicate).`,
+        processed,
+        requestedCount,
+        importedCount: 0,
+        failedCount: 0,
+        skippedDuplicateCount,
+        errors,
+        partialSuccess: false
+      });
+    }
+
+    const statusNotes: string[] = [];
+    if (skippedDuplicateCount > 0) statusNotes.push(`${skippedDuplicateCount} duplicate(s) skipped`);
+    if (failedCount > 0) statusNotes.push(`${failedCount} failed`);
+
     return res.status(200).json({
       success: true,
       message: partialSuccess
-        ? `Partial import completed: ${importedCount} of ${requestedCount} job(s) saved, ${failedCount} failed.`
+        ? `Partial import completed: ${importedCount} of ${requestedCount} job(s) saved (${statusNotes.join(', ')}).`
         : `Successfully imported ${importedCount} job(s) into the live catalog.`,
       processed,
       requestedCount,
       importedCount,
       failedCount,
+      skippedDuplicateCount,
       errors,
       partialSuccess
     });
@@ -1245,7 +1510,8 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
       requestedCount: Array.isArray(req.body?.jobs) ? req.body.jobs.length : 0,
       importedCount: 0,
       failedCount: Array.isArray(req.body?.jobs) ? req.body.jobs.length : 0,
-      errors: [{ index: 0, message: err?.message || 'Server error during bulk import' }],
+      skippedDuplicateCount: 0,
+      errors: [{ index: 0, type: 'error', message: err?.message || 'Server error during bulk import' }],
       partialSuccess: false
     });
   }

@@ -265,6 +265,86 @@ async function runTests() {
     assert.strictEqual(called, false);
   });
 
+  await runTest('1.15. Frontend rejects invalid string-array elements consistently (not only Array.isArray)', () => {
+    for (const field of ['tags', 'requirements', 'benefits', 'responsibilities', 'responsibilitiesList', 'advertisedPositions', 'relatedSourceUrls', 'duplicateTags']) {
+      let called = false;
+      const res = processBackupImportJson(
+        JSON.stringify([{ title: 'Valid Role', company: 'Valid Co', city: 'Lahore', [field]: ['ok-item', 42] }]),
+        () => {
+          called = true;
+        }
+      );
+      assert.strictEqual(res.status, 'error', `Frontend should reject non-string element in ${field}`);
+      assert.ok(res.message.includes(field));
+      assert.strictEqual(called, false);
+    }
+  });
+
+  await runTest('1.16. Frontend rejects non-job and NEEDS_REVIEW markers before invoking callback', () => {
+    const markerPayloads = [
+      { title: 'News Article', company: 'Daily News', city: 'Lahore', isNonJob: true },
+      { title: 'Blog Post', company: 'Daily News', city: 'Lahore', classificationState: 'NON_JOB' },
+      { title: 'Press Release', company: 'Daily News', city: 'Lahore', reviewStatus: 'NON_JOB' },
+      { title: 'Uncertain Row', company: 'Org', city: 'Lahore', classificationState: 'NEEDS_REVIEW' },
+      { title: 'Uncertain Row 2', company: 'Org', city: 'Lahore', reviewStatus: 'NEEDS_REVIEW' }
+    ];
+    for (const rec of markerPayloads) {
+      let called = false;
+      const res = processBackupImportJson(JSON.stringify([rec]), () => {
+        called = true;
+      });
+      assert.strictEqual(res.status, 'error');
+      assert.strictEqual(called, false);
+      assert.ok(res.errors && res.errors[0].index === 0);
+    }
+  });
+
+  await runTest('1.17. Frontend validates JobAttachment objects strictly and preserves valid attachments', () => {
+    const invalidAttachments = [
+      'not-an-array',
+      [null],
+      [['nested']],
+      [{ id: 'a1', name: 'Ad', fileUrl: 'https://x.test/a.pdf', fileType: 'application/pdf' }], // missing uploadedAt
+      [{ id: ' ', name: 'Ad', fileUrl: 'https://x.test/a.pdf', fileType: 'application/pdf', uploadedAt: '2026-01-01T00:00:00Z' }],
+      [{ id: 'a1', name: 'Ad', fileUrl: 'https://x.test/a.pdf', fileType: 'application/pdf', uploadedAt: '2026-01-01T00:00:00Z', isPublic: 'yes' }],
+      [{ id: 'a1', name: 'Ad', fileUrl: 'https://x.test/a.pdf', fileType: 'application/pdf', uploadedAt: '2026-01-01T00:00:00Z', sizeBytes: -5 }],
+      [{ id: 'a1', name: 'Ad', fileUrl: 'https://x.test/a.pdf', fileType: 'application/pdf', uploadedAt: '2026-01-01T00:00:00Z', fileName: 123 }]
+    ];
+    for (const badAtt of invalidAttachments) {
+      let called = false;
+      const res = processBackupImportJson(
+        JSON.stringify([{ title: 'Valid', company: 'Co', city: 'Lahore', attachments: badAtt }]),
+        () => {
+          called = true;
+        }
+      );
+      assert.strictEqual(res.status, 'error');
+      assert.ok(res.errors && res.errors[0].index === 0);
+      assert.strictEqual(called, false);
+    }
+
+    const validAtt = {
+      id: 'att-1',
+      name: 'Official Gazette Notice',
+      fileUrl: 'https://cdn.example.com/notice.pdf',
+      fileType: 'application/pdf',
+      uploadedAt: '2026-11-14T00:00:00.000Z',
+      fileName: 'notice.pdf',
+      description: 'Official PDF clipping',
+      isPublic: true,
+      sizeBytes: 102400
+    };
+    let received: any[] = [];
+    const okRes = processBackupImportJson(
+      JSON.stringify([{ title: 'With Attachment', company: 'Public Co', city: 'Lahore', attachments: [validAtt] }]),
+      (jobs) => {
+        received = jobs;
+      }
+    );
+    assert.strictEqual(okRes.status, 'success');
+    assert.deepStrictEqual(received[0].attachments, [validAtt]);
+  });
+
   // ==========================================
   // SECTION 2: BACKEND ENDPOINT VALIDATION, SECURITY & PERSISTENCE TESTS
   // ==========================================
@@ -287,12 +367,28 @@ async function runTests() {
   };
   inMemoryJobsStore.set(existingProtectedJob.id, JSON.parse(JSON.stringify(existingProtectedJob)));
 
+  const existingPendingJob = {
+    id: 'existing-pending-job-202',
+    slug: 'existing-pending-job-202-slug',
+    title: 'Senior Cloud Infrastructure Architect',
+    company: 'Nimbus Systems PK',
+    city: 'Karachi',
+    country: 'Pakistan',
+    status: 'Pending',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  };
+  const inMemoryPendingJobs: any[] = [JSON.parse(JSON.stringify(existingPendingJob))];
+
   let failOnTitles = new Set<string>();
   let returnFalsyOnTitles = new Set<string>();
+  let simulateGetAllFailure = false;
+  let simulateGetPendingFailure = false;
   let createCallCount = 0;
   let auditEntries: any[] = [];
 
   const originalCreate = JobRepository.create;
+  const originalGetAll = JobRepository.getAll;
+  const originalGetPending = JobRepository.getPending;
   const originalAuditAdd = AuditRepository.add;
   const originalGetUserByIdAsync = UserRepository.getByIdAsync;
 
@@ -308,6 +404,36 @@ async function runTests() {
   AuditRepository.add = async (entry: any) => {
     auditEntries.push(entry);
     return entry;
+  };
+
+  JobRepository.getAll = async (filter: any = {}) => {
+    if (simulateGetAllFailure) {
+      throw new Error('Simulated live catalog load failure');
+    }
+    const allLive = Array.from(inMemoryJobsStore.values()).map((j) => JSON.parse(JSON.stringify(j)));
+    const page = Math.max(1, filter.page || 1);
+    const limit = Math.min(1000, Math.max(1, filter.limit || 100));
+    const start = (page - 1) * limit;
+    return {
+      jobs: allLive.slice(start, start + limit),
+      total: allLive.length,
+      page,
+      limit
+    };
+  };
+
+  JobRepository.getPending = async (filter: any = {}) => {
+    if (simulateGetPendingFailure) {
+      throw new Error('Simulated pending queue load failure');
+    }
+    const list = inMemoryPendingJobs.map((j) => JSON.parse(JSON.stringify(j)));
+    const page = Math.max(1, filter?.page || 1);
+    const limit = Math.min(500, Math.max(1, filter?.limit || 200));
+    const start = (page - 1) * limit;
+    const sliced = list.slice(start, start + limit);
+    Object.defineProperty(sliced, 'total', { value: list.length, enumerable: true });
+    Object.defineProperty(sliced, 'limit', { value: limit, enumerable: true });
+    return sliced;
   };
 
   JobRepository.create = async (jobData: any) => {
@@ -539,8 +665,290 @@ async function runTests() {
 
       failOnTitles.clear();
     });
+
+    await runTest('2.9. Duplicate against existing live job is skipped with exact index, explanation, and 0 DB writes', async () => {
+      createCallCount = 0;
+      const storeSizeBefore = inMemoryJobsStore.size;
+      const res = await postImport({
+        jobs: [
+          {
+            title: existingProtectedJob.title,
+            company: existingProtectedJob.company,
+            city: existingProtectedJob.city
+          }
+        ]
+      });
+      assert.strictEqual(res.status, 200);
+      const data = await res.json();
+      assert.strictEqual(createCallCount, 0, 'Live duplicate must NOT call JobRepository.create');
+      assert.strictEqual(inMemoryJobsStore.size, storeSizeBefore);
+      assert.strictEqual(data.success, false);
+      assert.strictEqual(data.requestedCount, 1);
+      assert.strictEqual(data.processed, 1);
+      assert.strictEqual(data.importedCount, 0);
+      assert.strictEqual(data.failedCount, 0);
+      assert.strictEqual(data.skippedDuplicateCount, 1);
+      assert.strictEqual(data.errors.length, 1);
+      assert.strictEqual(data.errors[0].index, 0);
+      assert.strictEqual(data.errors[0].type, 'duplicate');
+      assert.ok(data.errors[0].message.toLowerCase().includes('duplicate'));
+    });
+
+    await runTest('2.10. Duplicate against existing pending job is skipped without DB write', async () => {
+      createCallCount = 0;
+      const res = await postImport({
+        jobs: [
+          {
+            title: existingPendingJob.title,
+            company: existingPendingJob.company,
+            city: existingPendingJob.city
+          }
+        ]
+      });
+      assert.strictEqual(res.status, 200);
+      const data = await res.json();
+      assert.strictEqual(createCallCount, 0, 'Pending duplicate must NOT call JobRepository.create');
+      assert.strictEqual(data.importedCount, 0);
+      assert.strictEqual(data.failedCount, 0);
+      assert.strictEqual(data.skippedDuplicateCount, 1);
+      assert.strictEqual(data.processed, 1);
+      assert.strictEqual(data.errors[0].index, 0);
+      assert.strictEqual(data.errors[0].type, 'duplicate');
+    });
+
+    await runTest('2.11. Duplicate within same imported batch skips second record and reconciles counts accurately', async () => {
+      createCallCount = 0;
+      const storeSizeBefore = inMemoryJobsStore.size;
+      const res = await postImport({
+        jobs: [
+          {
+            id: 'same-batch-client-id',
+            title: 'Principal Cybersecurity Analyst',
+            company: 'ShieldCorp PK',
+            city: 'Islamabad'
+          },
+          {
+            id: 'same-batch-client-id',
+            title: 'Principal Cybersecurity Analyst',
+            company: 'ShieldCorp PK',
+            city: 'Islamabad'
+          },
+          {
+            title: 'Embedded Firmware Engineer',
+            company: 'SiliconLahore Ltd',
+            city: 'Lahore'
+          }
+        ]
+      });
+      assert.strictEqual(res.status, 200);
+      const data = await res.json();
+      assert.strictEqual(createCallCount, 2, 'Only non-duplicate records may trigger JobRepository.create');
+      assert.strictEqual(inMemoryJobsStore.size, storeSizeBefore + 2);
+      assert.strictEqual(data.success, true);
+      assert.strictEqual(data.requestedCount, 3);
+      assert.strictEqual(data.processed, 3);
+      assert.strictEqual(data.importedCount, 2);
+      assert.strictEqual(data.skippedDuplicateCount, 1);
+      assert.strictEqual(data.failedCount, 0);
+      assert.strictEqual(data.partialSuccess, true);
+      assert.strictEqual(
+        data.importedCount + data.skippedDuplicateCount + data.failedCount,
+        data.requestedCount
+      );
+      assert.strictEqual(data.errors.length, 1);
+      assert.strictEqual(data.errors[0].index, 1);
+      assert.strictEqual(data.errors[0].type, 'duplicate');
+    });
+
+    await runTest('2.12. Mixed reconciliation: imported + live/batch duplicates + persistence error reconcile exactly', async () => {
+      failOnTitles = new Set(['DB Failing Role']);
+      createCallCount = 0;
+      const res = await postImport({
+        jobs: [
+          { title: 'Fresh Unique Robotics Lead', company: 'RoboTech PK', city: 'Lahore' },
+          { title: existingProtectedJob.title, company: existingProtectedJob.company, city: existingProtectedJob.city },
+          { title: 'DB Failing Role', company: 'Transient Co', city: 'Multan' },
+          { title: 'Second Unique Economist', company: 'Policy Group', city: 'Islamabad' }
+        ]
+      });
+      assert.strictEqual(res.status, 200);
+      const data = await res.json();
+      assert.strictEqual(createCallCount, 3, 'Duplicate at index 1 must NOT be passed to JobRepository.create');
+      assert.strictEqual(data.requestedCount, 4);
+      assert.strictEqual(data.processed, 4);
+      assert.strictEqual(data.importedCount, 2);
+      assert.strictEqual(data.skippedDuplicateCount, 1);
+      assert.strictEqual(data.failedCount, 1);
+      assert.strictEqual(data.partialSuccess, true);
+      assert.strictEqual(data.errors.length, 2);
+      assert.strictEqual(data.errors[0].index, 1);
+      assert.strictEqual(data.errors[0].type, 'duplicate');
+      assert.strictEqual(data.errors[1].index, 2);
+      assert.strictEqual(data.errors[1].type, 'error');
+      failOnTitles.clear();
+    });
+
+    await runTest('2.13. Fail-closed duplicate pool loading: live or pending repository error aborts before writing any record', async () => {
+      createCallCount = 0;
+      simulateGetAllFailure = true;
+      const liveFailRes = await postImport({
+        jobs: [{ title: 'Should Not Write Live Fail', company: 'Safe Co', city: 'Lahore' }]
+      });
+      assert.strictEqual(liveFailRes.status, 500);
+      const liveFailData = await liveFailRes.json();
+      assert.strictEqual(liveFailData.success, false);
+      assert.strictEqual(liveFailData.importedCount, 0);
+      assert.strictEqual(createCallCount, 0);
+      simulateGetAllFailure = false;
+
+      simulateGetPendingFailure = true;
+      const pendingFailRes = await postImport({
+        jobs: [{ title: 'Should Not Write Pending Fail', company: 'Safe Co', city: 'Lahore' }]
+      });
+      assert.strictEqual(pendingFailRes.status, 500);
+      const pendingFailData = await pendingFailRes.json();
+      assert.strictEqual(pendingFailData.success, false);
+      assert.strictEqual(pendingFailData.importedCount, 0);
+      assert.strictEqual(createCallCount, 0);
+      simulateGetPendingFailure = false;
+    });
+
+    await runTest('2.14. Non-job and NEEDS_REVIEW markers are rejected before writes (HTTP 400)', async () => {
+      const blockedRecords = [
+        { title: 'News Bulletin', company: 'Gazette', city: 'Lahore', isNonJob: true },
+        { title: 'Blog Summary', company: 'Gazette', city: 'Lahore', classificationState: 'NON_JOB' },
+        { title: 'Editorial Notice', company: 'Gazette', city: 'Lahore', reviewStatus: 'NON_JOB' },
+        { title: 'Ambiguous Clipping', company: 'Gazette', city: 'Lahore', classificationState: 'NEEDS_REVIEW' },
+        { title: 'Low Confidence Item', company: 'Gazette', city: 'Lahore', reviewStatus: 'NEEDS_REVIEW' }
+      ];
+      createCallCount = 0;
+      for (const rec of blockedRecords) {
+        const res = await postImport({ jobs: [rec] });
+        assert.strictEqual(res.status, 400);
+        const data = await res.json();
+        assert.strictEqual(data.success, false);
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(data.errors[0].index, 0);
+      }
+      assert.strictEqual(createCallCount, 0, 'Non-job and NEEDS_REVIEW records must NEVER be written');
+    });
+
+    await runTest('2.15. Forged duplicate metadata is stripped while genuine scraper metadata and attachments are preserved', async () => {
+      createCallCount = 0;
+      const validAttachment = {
+        id: 'att-gazette-1',
+        name: 'Official Advertisement PDF',
+        fileUrl: 'https://example.gov.pk/ad.pdf',
+        fileType: 'application/pdf',
+        uploadedAt: '2026-11-14T00:00:00.000Z',
+        fileName: 'ad.pdf',
+        description: 'Scanned gazette page',
+        isPublic: true,
+        sizeBytes: 512000
+      };
+
+      // 1) Forged isDuplicateOverride must NOT bypass real duplicate check against existing live job
+      const bypassAttemptRes = await postImport({
+        jobs: [
+          {
+            title: existingProtectedJob.title,
+            company: existingProtectedJob.company,
+            city: existingProtectedJob.city,
+            isDuplicate: false,
+            isDuplicateOverride: true,
+            duplicateOverrideNote: 'force allow'
+          }
+        ]
+      });
+      assert.strictEqual(bypassAttemptRes.status, 200);
+      const bypassData = await bypassAttemptRes.json();
+      assert.strictEqual(bypassData.skippedDuplicateCount, 1);
+      assert.strictEqual(bypassData.importedCount, 0);
+      assert.strictEqual(createCallCount, 0);
+
+      // 2) Unique scraped job with forged duplicate metadata strips all 10 duplicate-control fields while preserving scraper metadata & valid attachment
+      const uniqueRes = await postImport({
+        jobs: [
+          {
+            title: 'Assistant Director Procurement BPS-17',
+            company: 'Federal Public Service Commission',
+            city: 'Islamabad',
+            isScraped: true,
+            scraperSourceId: 'fpsc-official-src',
+            scraperSourceName: 'FPSC Portal',
+            scrapedSourceDomain: 'fpsc.gov.pk',
+            sourceUrl: 'https://www.fpsc.gov.pk/jobs/proc-17',
+            sourceJobId: 'fpsc-proc-17-2026',
+            isDuplicate: true,
+            duplicateScore: 99,
+            duplicateCategory: 'LIVE DUPLICATE',
+            duplicateMatchReason: 'forged reason',
+            duplicateOfJobId: 'fake-id',
+            duplicateOfJobTitle: 'fake-title',
+            duplicateMatchedCompany: 'fake-company',
+            isDuplicateOverride: true,
+            duplicateOverrideNote: 'forged note',
+            duplicateDetectedAt: '2026-01-01T00:00:00.000Z',
+            attachments: [validAttachment]
+          }
+        ]
+      });
+      assert.strictEqual(uniqueRes.status, 200);
+      const uniqueData = await uniqueRes.json();
+      assert.strictEqual(uniqueData.importedCount, 1);
+
+      const saved = Array.from(inMemoryJobsStore.values()).find(
+        (j) => j.title === 'Assistant Director Procurement BPS-17'
+      );
+      assert.ok(saved, 'Unique scraped record should be saved');
+      for (const forgedField of [
+        'isDuplicate',
+        'duplicateScore',
+        'duplicateCategory',
+        'duplicateMatchReason',
+        'duplicateOfJobId',
+        'duplicateOfJobTitle',
+        'duplicateMatchedCompany',
+        'isDuplicateOverride',
+        'duplicateOverrideNote',
+        'duplicateDetectedAt'
+      ]) {
+        assert.strictEqual(saved[forgedField], undefined, `Forged field "${forgedField}" must be stripped`);
+      }
+      assert.strictEqual(saved.isScraped, true);
+      assert.strictEqual(saved.scraperSourceId, 'fpsc-official-src');
+      assert.strictEqual(saved.scraperSourceName, 'FPSC Portal');
+      assert.strictEqual(saved.sourceType, 'scraped');
+      assert.deepStrictEqual(saved.attachments, [validAttachment]);
+    });
+
+    await runTest('2.16. Backend rejects invalid attachment objects before writes (HTTP 400)', async () => {
+      createCallCount = 0;
+      const badAttachmentBatches = [
+        [{ id: '1', name: 'File', fileUrl: 'https://x.pk/a.pdf', fileType: 'application/pdf' }], // missing uploadedAt
+        [null],
+        [{ id: '1', name: 'File', fileUrl: 'https://x.pk/a.pdf', fileType: 'application/pdf', uploadedAt: '2026-01-01', sizeBytes: -1 }],
+        [{ id: '1', name: 'File', fileUrl: 'https://x.pk/a.pdf', fileType: 'application/pdf', uploadedAt: '2026-01-01', isPublic: 'true' }],
+        [{ id: '1', name: 'File', fileUrl: 'https://x.pk/a.pdf', fileType: 'application/pdf', uploadedAt: '2026-01-01', description: 404 }]
+      ];
+      for (const attachments of badAttachmentBatches) {
+        const res = await postImport({
+          jobs: [
+            { title: 'Valid Role Pre', company: 'Co A', city: 'Lahore' },
+            { title: 'Bad Attachment Role', company: 'Co B', city: 'Lahore', attachments }
+          ]
+        });
+        assert.strictEqual(res.status, 400);
+        const data = await res.json();
+        assert.strictEqual(data.importedCount, 0);
+        assert.strictEqual(data.errors[0].index, 1);
+      }
+      assert.strictEqual(createCallCount, 0, 'Invalid attachment in any row must reject entire batch before writes');
+    });
   } finally {
     JobRepository.create = originalCreate;
+    JobRepository.getAll = originalGetAll;
+    JobRepository.getPending = originalGetPending;
     AuditRepository.add = originalAuditAdd;
     UserRepository.getByIdAsync = originalGetUserByIdAsync;
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -571,11 +979,14 @@ async function runTests() {
     assert.ok(apiSrc.includes('/jobs/admin-import'));
   });
 
-  await runTest('3.4. AdminDataBackupHub UI renders intact with async loading & duplicate-click protection', () => {
+  await runTest('3.4. AdminDataBackupHub UI renders intact with async loading, duplicate-click protection & duplicate-skipped display', () => {
     const hubSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminDataBackupHub.tsx'), 'utf8');
     assert.ok(hubSrc.includes('isImporting'));
     assert.ok(hubSrc.includes('importInFlightRef'));
     assert.ok(hubSrc.includes('disabled={isImporting}'));
+    assert.ok(hubSrc.includes('Duplicates Skipped:'));
+    assert.ok(hubSrc.includes('skippedDuplicateCount'));
+    assert.ok(hubSrc.includes('skippedDuplicates === 0'));
 
     const html = renderToStaticMarkup(React.createElement(AdminDataBackupHub));
     assert.ok(html.includes('Download System JSON Backup'));

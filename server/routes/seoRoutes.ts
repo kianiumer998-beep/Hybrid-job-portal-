@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { Database } from '../db/database';
 import { JobRepository } from '../db/repositories/JobRepository';
+import { SeoRepository } from '../db/repositories/SeoRepository';
+import { AuditRepository } from '../db/repositories/AuditRepository';
 import { requireAdminPermission } from '../auth/authManager';
 
 export const seoRouter = Router();
@@ -55,13 +56,14 @@ function isLocalLoopbackHost(host: string): boolean {
 // 2) Configured canonicalUrl in site SEO config or FRONTEND_URL when valid and non-Render
 // 3) Validated request-derived origin (never trusting arbitrary raw X-Forwarded-Host or Render backend host)
 // 4) http://localhost:3000 only for genuine local development; otherwise empty string for domain-neutral paths
-function resolveRequestBaseUrl(req: any): string {
+async function resolveRequestBaseUrl(req: any): Promise<string> {
   const configuredBase = normalizeHttpBaseUrl(process.env.SITE_BASE_URL);
   if (configuredBase) {
     return configuredBase;
   }
 
-  const seoConfigBase = normalizeHttpBaseUrl(Database.getSeoConfig()?.canonicalUrl);
+  const seoConfig = await SeoRepository.getConfig();
+  const seoConfigBase = normalizeHttpBaseUrl(seoConfig?.canonicalUrl);
   if (seoConfigBase && !isRenderBackendHost(new URL(seoConfigBase).host)) {
     return seoConfigBase;
   }
@@ -158,7 +160,7 @@ seoRouter.get('/sitemap.xml', async (req, res) => {
   try {
     // Only include non-expired, approved, non-suspended jobs
     const { jobs: activeApprovedJobs } = await JobRepository.getAll({ limit: 1000, includeExpired: false });
-    const baseUrl = resolveRequestBaseUrl(req);
+    const baseUrl = await resolveRequestBaseUrl(req);
 
     interface SitemapEntry {
       url: string;
@@ -210,9 +212,10 @@ ${allUrls.map(u => `  <url>
 });
 
 // 2. Authoritative Robots.txt Generator
-seoRouter.get('/robots.txt', (req, res) => {
-  const baseUrl = resolveRequestBaseUrl(req);
-  const robots = `User-agent: *
+seoRouter.get('/robots.txt', async (req, res) => {
+  try {
+    const baseUrl = await resolveRequestBaseUrl(req);
+    const robots = `User-agent: *
 Allow: /
 Allow: /jobs
 Allow: /jobs/*
@@ -231,8 +234,11 @@ Disallow: /api/transactions/*
 
 Sitemap: ${baseUrl}/sitemap.xml
 `;
-  res.header('Content-Type', 'text/plain; charset=utf-8');
-  res.send(robots);
+    res.header('Content-Type', 'text/plain; charset=utf-8');
+    res.send(robots);
+  } catch (err: any) {
+    res.status(500).send('Error generating robots.txt');
+  }
 });
 
 // 3. Factual, Non-Invented JobPosting JSON-LD & Crawler Endpoint
@@ -243,7 +249,7 @@ seoRouter.get('/job-meta/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
-    const baseUrl = resolveRequestBaseUrl(req);
+    const baseUrl = await resolveRequestBaseUrl(req);
     const cleanTitle = (job.title || '').replace(/[^\w\s-]/gi, '').trim();
     const locationStr = [job.city, job.province, job.region].filter(Boolean).join(', ') || 'Pakistan';
     const scaleStr = job.govtScale ? ` (${job.govtScale})` : '';
@@ -365,7 +371,7 @@ seoRouter.get('/public-job/:idOrSlug', async (req, res) => {
       return res.status(404).send(`<!DOCTYPE html><html><head><title>Job Not Found</title></head><body><h1>404 - Job Vacancy Not Found</h1><p>The requested vacancy may have been filled or expired.</p><p><a href="/">Return to Home</a></p></body></html>`);
     }
 
-    const baseUrl = resolveRequestBaseUrl(req);
+    const baseUrl = await resolveRequestBaseUrl(req);
     const canonicalUrl = `${baseUrl}/jobs/${job.slug || job.id}`;
     const cleanTitle = (job.title || '').replace(/[^\w\s-]/gi, '').trim();
     const locationStr = [job.city, job.province, job.region].filter(Boolean).join(', ') || 'Pakistan';
@@ -413,20 +419,19 @@ seoRouter.get('/public-job/:idOrSlug', async (req, res) => {
 });
 
 // 5. Site SEO Config (GET / PUT)
-seoRouter.get('/config', (req, res) => {
+seoRouter.get('/config', async (req, res) => {
   try {
-    const config = Database.getSeoConfig();
+    const config = await SeoRepository.getConfig();
     res.json({ success: true, config });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error fetching SEO config' });
   }
 });
 
-seoRouter.put('/config', requireAdminPermission('seo.manage'), (req, res) => {
+seoRouter.put('/config', requireAdminPermission('seo.manage'), async (req, res) => {
   try {
-    const updated = { ...Database.getSeoConfig(), ...req.body, updatedAt: new Date().toISOString() };
-    Database.saveSeoConfig(updated);
-    Database.addAuditLog({
+    const updated = await SeoRepository.saveConfig(req.body);
+    AuditRepository.add({
       user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
       role: (req as any).user?.role || 'SEO Manager',
       action: 'SEO Configuration Updated',
@@ -435,6 +440,7 @@ seoRouter.put('/config', requireAdminPermission('seo.manage'), (req, res) => {
     });
     res.json({ success: true, config: updated, message: 'SEO configuration updated successfully!' });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error saving SEO config' });
+    const isValidationError = Boolean(err?.message && err.message.startsWith('Validation Error'));
+    res.status(isValidationError ? 400 : 500).json({ success: false, message: err.message || 'Error saving SEO config' });
   }
 });

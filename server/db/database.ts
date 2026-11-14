@@ -744,11 +744,15 @@ export class Database {
 
   // --- SEO CONFIG ---
   static getSeoConfig(): any {
-    return safeReadJson<any>('seo_config.json', INITIAL_SITE_SEO_CONFIG);
+    return {
+      ...INITIAL_SITE_SEO_CONFIG,
+      metaKeywords: [...INITIAL_SITE_SEO_CONFIG.metaKeywords],
+      announcementBanner: { ...INITIAL_SITE_SEO_CONFIG.announcementBanner }
+    };
   }
 
-  static saveSeoConfig(config: any): void {
-    safeWriteJson('seo_config.json', config);
+  static saveSeoConfig(_config: any): void {
+    throw new Error('Deprecated: SEO configuration must be persisted via SeoRepository in MongoDB, not data/seo_config.json.');
   }
 
   // --- USER SAVED JOBS ---

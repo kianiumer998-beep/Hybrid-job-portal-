@@ -108,7 +108,7 @@ import { AdminAnalyticsOverview } from './admin/AdminAnalyticsOverview';
 import { AdminSeoSettings } from './admin/AdminSeoSettings';
 import { AdminCurrencyManager } from './admin/AdminCurrencyManager';
 import { AdminBroadcastCenter } from './admin/AdminBroadcastCenter';
-import { AdminDataBackupHub } from './admin/AdminDataBackupHub';
+import { AdminDataBackupHub, BulkJobImportResult } from './admin/AdminDataBackupHub';
 import { AdminAiQualityEnhancer } from './admin/AdminAiQualityEnhancer';
 import { AdminEmployerKycHub } from './admin/AdminEmployerKycHub';
 import { LandingPageCustomizer } from './admin/LandingPageCustomizer';
@@ -166,6 +166,7 @@ interface AdminDashboardProps {
   onAddPendingJob?: (newJob: Job) => void;
   onBulkAddJobs?: (jobs: Job[]) => void;
   onBulkAddPendingJobs?: (jobs: Job[]) => void;
+  onImportBulkJobs?: (jobs: Job[]) => Promise<BulkJobImportResult>;
   onDeleteJob: (jobId: string) => void;
   onUpdateJob?: (job: Job) => void;
   onBulkDeleteJobs?: (jobIds: string[]) => void;
@@ -491,6 +492,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddPendingJob,
   onBulkAddJobs,
   onBulkAddPendingJobs,
+  onImportBulkJobs,
   onDeleteJob,
   onUpdateJob,
   onBulkDeleteJobs,
@@ -1313,8 +1315,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     console.warn('[AdminDashboard] Full snapshot restore is temporarily disabled until all snapshot categories have a verified restore implementation.');
   };
 
-  const handleImportBulkJobs = (importedJobs: Job[]) => {
-    importedJobs.forEach((j) => onAddJob(j));
+  const handleImportBulkJobs = async (importedJobs: Job[]): Promise<BulkJobImportResult> => {
+    if (!onImportBulkJobs) {
+      throw new Error('Bulk job import handler is not configured.');
+    }
+    return await onImportBulkJobs(importedJobs);
   };
 
   // Scraped Job History & Ingestion Batch Logs Persistence

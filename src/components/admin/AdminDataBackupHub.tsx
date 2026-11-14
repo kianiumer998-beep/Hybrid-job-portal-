@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Download,
   Upload,
@@ -15,6 +15,23 @@ import {
 import { Job, JobPostingFeeLog, ScrapedJobAuditEntry, ScraperBatchRun, Subscriber, UserAccount, CustomFormField, AdminFeatureFlags } from '../../types/job';
 import { SystemSnapshotPayload } from '../../types/adminSuite';
 
+export interface BulkJobImportRecordError {
+  index: number;
+  title?: string;
+  message: string;
+}
+
+export interface BulkJobImportResult {
+  success?: boolean;
+  message?: string;
+  processed: number;
+  requestedCount: number;
+  importedCount: number;
+  failedCount: number;
+  errors: BulkJobImportRecordError[];
+  partialSuccess: boolean;
+}
+
 interface AdminDataBackupHubProps {
   jobs?: Job[];
   pendingJobs?: Job[];
@@ -27,7 +44,7 @@ interface AdminDataBackupHubProps {
   customFormFields?: CustomFormField[];
   featureFlags?: AdminFeatureFlags;
   onRestoreSnapshot?: (snapshot: SystemSnapshotPayload) => void;
-  onImportBulkJobs?: (importedJobs: Job[]) => void;
+  onImportBulkJobs?: (importedJobs: Job[]) => Promise<BulkJobImportResult | void> | BulkJobImportResult | void;
 }
 
 export interface BackupImportProcessResult {
@@ -35,7 +52,22 @@ export interface BackupImportProcessResult {
   kind: 'job-array' | 'full-snapshot' | 'invalid';
   message: string;
   importedCount: number;
+  jobs?: Job[];
+  errors?: BulkJobImportRecordError[];
 }
+
+const MAX_BULK_IMPORT_RECORDS = 500;
+const OPTIONAL_IMPORT_ARRAY_FIELDS = [
+  'tags',
+  'requirements',
+  'benefits',
+  'responsibilities',
+  'responsibilitiesList',
+  'advertisedPositions',
+  'relatedSourceUrls',
+  'attachments',
+  'duplicateTags'
+] as const;
 
 export function isSystemSnapshotPayload(parsed: unknown): boolean {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
@@ -52,9 +84,9 @@ export function isSystemSnapshotPayload(parsed: unknown): boolean {
 
 export function processBackupImportJson(
   rawText: string,
-  onImportBulkJobs?: (importedJobs: Job[]) => void
+  onImportBulkJobs?: (importedJobs: Job[]) => any
 ): BackupImportProcessResult {
-  if (!rawText || !rawText.trim()) {
+  if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
     return {
       status: 'error',
       kind: 'invalid',
@@ -85,23 +117,120 @@ export function processBackupImportJson(
     };
   }
 
-  if (Array.isArray(parsed)) {
-    if (typeof onImportBulkJobs === 'function') {
-      onImportBulkJobs(parsed as Job[]);
-    }
+  if (!Array.isArray(parsed)) {
     return {
-      status: 'success',
-      kind: 'job-array',
-      message: `✅ Batch of ${parsed.length} jobs imported directly into the live catalog!`,
-      importedCount: parsed.length
+      status: 'error',
+      kind: 'invalid',
+      message: 'Unrecognized format. Please provide a JSON array of job objects (`[ { ... } ]`).',
+      importedCount: 0
     };
   }
 
+  if (parsed.length === 0) {
+    return {
+      status: 'error',
+      kind: 'invalid',
+      message: 'The JSON array is empty. Please provide at least 1 valid job object to import.',
+      importedCount: 0
+    };
+  }
+
+  if (parsed.length > MAX_BULK_IMPORT_RECORDS) {
+    return {
+      status: 'error',
+      kind: 'invalid',
+      message: `Batch limit exceeded: you provided ${parsed.length} records, but the maximum allowed per import is ${MAX_BULK_IMPORT_RECORDS}.`,
+      importedCount: 0
+    };
+  }
+
+  const recordErrors: BulkJobImportRecordError[] = [];
+
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i];
+    if (
+      item === null ||
+      typeof item !== 'object' ||
+      Array.isArray(item) ||
+      Object.prototype.toString.call(item) !== '[object Object]'
+    ) {
+      const kindLabel = item === null ? 'null' : Array.isArray(item) ? 'nested array' : typeof item;
+      recordErrors.push({
+        index: i,
+        message: `Record #${i + 1} (index ${i}): Expected a job object, received ${kindLabel}.`
+      });
+      continue;
+    }
+
+    const record = item as Record<string, unknown>;
+    const titleStr = typeof record.title === 'string' ? record.title.trim() : '';
+    if (!titleStr) {
+      recordErrors.push({
+        index: i,
+        message: `Record #${i + 1} (index ${i}): Missing or invalid non-empty string "title".`
+      });
+      continue;
+    }
+
+    const companyStr = typeof record.company === 'string' ? record.company.trim() : '';
+    if (!companyStr) {
+      recordErrors.push({
+        index: i,
+        title: titleStr,
+        message: `Record #${i + 1} (index ${i}): Missing or invalid non-empty string "company".`
+      });
+      continue;
+    }
+
+    if (record.description !== undefined && record.description !== null && typeof record.description !== 'string') {
+      recordErrors.push({
+        index: i,
+        title: titleStr,
+        message: `Record #${i + 1} (index ${i}): Optional "description" must be a string.`
+      });
+      continue;
+    }
+
+    let badArrayField = false;
+    for (const field of OPTIONAL_IMPORT_ARRAY_FIELDS) {
+      if (record[field] !== undefined && record[field] !== null && !Array.isArray(record[field])) {
+        recordErrors.push({
+          index: i,
+          title: titleStr,
+          message: `Record #${i + 1} (index ${i}): Optional "${field}" must be an array.`
+        });
+        badArrayField = true;
+        break;
+      }
+    }
+    if (badArrayField) continue;
+  }
+
+  if (recordErrors.length > 0) {
+    const preview = recordErrors
+      .slice(0, 3)
+      .map((err) => err.message)
+      .join(' ');
+    const extraCount = recordErrors.length > 3 ? ` (+${recordErrors.length - 3} more error(s))` : '';
+    return {
+      status: 'error',
+      kind: 'invalid',
+      message: `Validation failed on ${recordErrors.length} record(s): ${preview}${extraCount}`,
+      importedCount: 0,
+      errors: recordErrors
+    };
+  }
+
+  if (typeof onImportBulkJobs === 'function') {
+    onImportBulkJobs(parsed as Job[]);
+  }
+
   return {
-    status: 'error',
-    kind: 'invalid',
-    message: 'Unrecognized format. Please provide a JSON array of job objects (`[ { ... } ]`).',
-    importedCount: 0
+    status: 'success',
+    kind: 'job-array',
+    message: `Validated ${parsed.length} job object(s) ready for import.`,
+    importedCount: parsed.length,
+    jobs: parsed as Job[]
   };
 }
 
@@ -117,7 +246,7 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
   customFormFields = [],
   featureFlags = {} as any,
   onRestoreSnapshot: _onRestoreSnapshot,
-  onImportBulkJobs = (_importedJobs: Job[]) => {}
+  onImportBulkJobs
 }) => {
   const safeJobs = Array.isArray(jobs) ? jobs : [];
   const safePendingJobs = Array.isArray(pendingJobs) ? pendingJobs : [];
@@ -132,7 +261,11 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'snapshot' | 'csv-export' | 'bulk-import'>('snapshot');
   const [importJsonText, setImportJsonText] = useState('');
   const [importStatusMessage, setImportStatusMessage] = useState<string | null>(null);
+  const [importWarningMessage, setImportWarningMessage] = useState<string | null>(null);
   const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
+  const [importResultDetails, setImportResultDetails] = useState<BulkJobImportResult | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const importInFlightRef = useRef(false);
 
   // 1-Click Full Platform Snapshot JSON Download
   const handleDownloadFullSnapshot = () => {
@@ -233,16 +366,70 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
     downloadCsv(`careerpak_financial_revenue_ledger_${new Date().toISOString().substring(0, 10)}.csv`, headers, rows);
   };
 
-  // Bulk JSON Importer Handler (job-array only; full snapshot restore safely disabled)
-  const handleParseAndImport = () => {
-    setImportStatusMessage(null);
-    setImportErrorMessage(null);
+  // Bulk JSON Importer Handler (job-array only; awaits backend persistence; full snapshot restore safely disabled)
+  const handleParseAndImport = async () => {
+    if (isImporting || importInFlightRef.current) return;
 
-    const result = processBackupImportJson(importJsonText, onImportBulkJobs);
-    if (result.status === 'success') {
-      setImportStatusMessage(result.message);
-    } else {
-      setImportErrorMessage(result.message);
+    setImportStatusMessage(null);
+    setImportWarningMessage(null);
+    setImportErrorMessage(null);
+    setImportResultDetails(null);
+
+    const validation = processBackupImportJson(importJsonText);
+    if (validation.status !== 'success' || !validation.jobs) {
+      setImportErrorMessage(validation.message);
+      if (validation.errors && validation.errors.length > 0) {
+        setImportResultDetails({
+          success: false,
+          message: validation.message,
+          processed: 0,
+          requestedCount: 0,
+          importedCount: 0,
+          failedCount: validation.errors.length,
+          errors: validation.errors,
+          partialSuccess: false
+        });
+      }
+      return;
+    }
+
+    if (typeof onImportBulkJobs !== 'function') {
+      setImportErrorMessage('Bulk job import handler is not configured.');
+      return;
+    }
+
+    importInFlightRef.current = true;
+    setIsImporting(true);
+    try {
+      const result = await onImportBulkJobs(validation.jobs);
+      if (!result || typeof result.importedCount !== 'number' || typeof result.failedCount !== 'number') {
+        setImportErrorMessage('Backend did not confirm job persistence. Please verify and try again.');
+        return;
+      }
+
+      setImportResultDetails(result);
+
+      if (result.importedCount > 0 && result.failedCount === 0) {
+        setImportStatusMessage(
+          result.message || `✅ Confirmed: ${result.importedCount} of ${result.requestedCount} job(s) imported and saved.`
+        );
+        setImportJsonText('');
+      } else if (result.importedCount > 0 && result.failedCount > 0) {
+        setImportWarningMessage(
+          result.message ||
+            `Partial import: ${result.importedCount} of ${result.requestedCount} job(s) saved, ${result.failedCount} failed.`
+        );
+      } else {
+        setImportErrorMessage(
+          result.message ||
+            `Import failed: 0 of ${result.requestedCount} job(s) saved (${result.failedCount} failed).`
+        );
+      }
+    } catch (err: any) {
+      setImportErrorMessage(err?.message || 'Bulk job import failed due to a server or network error.');
+    } finally {
+      importInFlightRef.current = false;
+      setIsImporting(false);
     }
   };
 
@@ -480,9 +667,38 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
             </div>
           )}
 
+          {importWarningMessage && (
+            <div className="p-3.5 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-200 font-bold text-xs">
+              {importWarningMessage}
+            </div>
+          )}
+
           {importStatusMessage && (
             <div className="p-3.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs">
               {importStatusMessage}
+            </div>
+          )}
+
+          {importResultDetails && (
+            <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-2 text-xs">
+              <div className="flex flex-wrap items-center gap-4 font-bold">
+                <span className="text-slate-300">Requested: {importResultDetails.requestedCount}</span>
+                <span className="text-emerald-400">Imported: {importResultDetails.importedCount}</span>
+                <span className={importResultDetails.failedCount > 0 ? 'text-rose-400' : 'text-slate-400'}>
+                  Failed: {importResultDetails.failedCount}
+                </span>
+              </div>
+              {Array.isArray(importResultDetails.errors) && importResultDetails.errors.length > 0 && (
+                <ul className="space-y-1 text-[11px] text-rose-300 max-h-40 overflow-y-auto list-disc pl-4">
+                  {importResultDetails.errors.map((errItem, idx) => (
+                    <li key={`${errItem.index}-${idx}`}>
+                      <span className="font-bold">Record #{errItem.index + 1} (index {errItem.index}):</span>{' '}
+                      {errItem.title ? `[${errItem.title}] ` : ''}
+                      {errItem.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
@@ -490,18 +706,30 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
             <textarea
               rows={10}
               value={importJsonText}
+              disabled={isImporting}
               onChange={(e) => setImportJsonText(e.target.value)}
-              placeholder="Paste JSON array here e.g. [ { title: '...', company: '...', salary: '...' } ]"
-              className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-emerald-400 font-mono text-xs leading-relaxed"
+              placeholder="Paste JSON array here e.g. [ { title: '...', company: '...', city: 'Lahore' } ]"
+              className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-emerald-400 font-mono text-xs leading-relaxed disabled:opacity-60"
             />
           </div>
 
           <button
+            type="button"
             onClick={handleParseAndImport}
-            className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer transition-all active:scale-95 flex items-center justify-center space-x-2"
+            disabled={isImporting}
+            className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer transition-all active:scale-95 flex items-center justify-center space-x-2"
           >
-            <Upload className="w-4 h-4" />
-            <span>Validate Schema & Ingest Jobs</span>
+            {isImporting ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Importing &amp; Persisting Jobs...</span>
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4" />
+                <span>Validate Schema &amp; Ingest Jobs</span>
+              </>
+            )}
           </button>
         </div>
       )}

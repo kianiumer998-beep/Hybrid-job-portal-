@@ -345,6 +345,13 @@ export const api = {
         body: JSON.stringify({ jobs, status })
       });
     },
+    async importBulk(jobs: any[]) {
+      return safeFetchJson(`${API_BASE}/jobs/admin-import`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify({ jobs })
+      });
+    },
     async bulkDeleteDuplicates(ids: string[]) {
       return safeFetchJson(`${API_BASE}/jobs/bulk-delete-duplicates`, {
         method: 'POST',

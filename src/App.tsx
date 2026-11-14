@@ -21,6 +21,7 @@ import { WhatsAppStickyButton, WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } 
 import { INITIAL_PAYMENT_TRANSACTIONS } from './data/mockTransactions';
 import { api } from './services/api';
 import { PaymentVerificationResult } from './components/admin/AdminPaymentVerificationHub';
+import { BulkJobImportResult } from './components/admin/AdminDataBackupHub';
 
 import { TopBannerAd } from './components/ads/TopBannerAd';
 import { PopupAdModal } from './components/ads/PopupAdModal';
@@ -3337,6 +3338,24 @@ export default function App() {
     }
   };
 
+  const handleImportBulkJobs = async (importedJobs: Job[]): Promise<BulkJobImportResult> => {
+    const res = await api.jobs.importBulk(importedJobs);
+    const hasStructuredResult =
+      res &&
+      typeof res.importedCount === 'number' &&
+      typeof res.failedCount === 'number';
+
+    if (!hasStructuredResult) {
+      throw new Error(res?.message || 'Bulk job import failed.');
+    }
+
+    if (res.importedCount > 0) {
+      await loadBackendJobs();
+    }
+
+    return res as BulkJobImportResult;
+  };
+
   // Two-way User Chat Message sending (Durable Persistence)
   const handleUserSendMessage = async (text: string): Promise<boolean> => {
     if (!currentUser || !text.trim()) return false;
@@ -4037,6 +4056,7 @@ export default function App() {
             onReloadJobs={loadBackendJobs}
             onBulkAddJobs={handleBulkAddJobs}
             onBulkAddPendingJobs={handleBulkAddPendingJobs}
+            onImportBulkJobs={handleImportBulkJobs}
             onDeleteJob={handleDeleteJob}
             onSendMessageToUser={handleAdminSendMessage}
             onAddCustomField={handleAddCustomField}

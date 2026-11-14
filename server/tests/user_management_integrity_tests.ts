@@ -19,6 +19,10 @@ import { ApplicationRepository } from '../db/repositories/ApplicationRepository'
 import { PaymentRepository } from '../db/repositories/PaymentRepository';
 import { SubscriberRepository } from '../db/repositories/SubscriberRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
+import {
+  buildBulkMembershipEnforcementPlan,
+  executeBulkMembershipEnforcement
+} from '../../src/App';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 
@@ -446,7 +450,318 @@ async function runUserManagementIntegrityTests() {
       shouldFailAudit = false;
     });
 
-    await runTest('9. Protected files and data/*.json checksums remain byte-for-byte identical', async () => {
+    await runTest('9. STEP-A.1 Bulk enforcement fixes inconsistent Revoked + Premium/autoRenew:true accounts (past & future expiry) while preserving Revoked status and Paid history', async () => {
+      const revokedPastExpiry = await UserRepository.createAsync({
+        id: 'usr-revoked-inconsistent-past',
+        name: 'Revoked Inconsistent Past',
+        email: 'revoked.inconsistent.past@test.local',
+        role: 'Employer',
+        plan: 'Premium',
+        membershipStatus: 'Revoked',
+        paymentStatus: 'Paid',
+        autoRenew: true,
+        expiryDate: '2024-01-10 00:00',
+        createdAt: '2024-01-01T00:00:00.000Z'
+      });
+
+      const revokedFutureExpiry = await UserRepository.createAsync({
+        id: 'usr-revoked-inconsistent-future',
+        name: 'Revoked Inconsistent Future',
+        email: 'revoked.inconsistent.future@test.local',
+        role: 'Employer',
+        plan: 'Premium',
+        membershipStatus: 'Revoked',
+        paymentStatus: 'Paid',
+        autoRenew: true,
+        expiryDate: '2029-12-31 23:59',
+        createdAt: '2025-01-01T00:00:00.000Z'
+      });
+
+      const updateCalls: Array<{ userId: string; updates: Record<string, any> }> = [];
+      const authoritativeApplied: any[] = [];
+
+      const result = await executeBulkMembershipEnforcement({
+        users: [revokedPastExpiry as any, revokedFutureExpiry as any],
+        jobs: [],
+        pendingJobs: [],
+        updateUserProfile: async (userId, updates) => {
+          updateCalls.push({ userId, updates });
+          const res = await fetch(`${baseUrl}/${userId}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${adminToken}`
+            },
+            body: JSON.stringify(updates)
+          });
+          return res.json();
+        },
+        bulkUpdateJobs: async () => ({ success: true }),
+        reloadJobs: async () => {},
+        applyAuthoritativeUserUpdate: (raw) => {
+          authoritativeApplied.push(raw);
+          return raw;
+        },
+        addAuditLog: async (entry) => AuditRepository.add({ user: adminUser.name, role: adminUser.role, ...entry })
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.updatedCount, 2);
+      assert.strictEqual(updateCalls.length, 2);
+
+      for (const uid of [revokedPastExpiry.id, revokedFutureExpiry.id]) {
+        const readRes = await fetch(`${baseUrl}/${uid}`, {
+          headers: { Authorization: `Bearer ${adminToken}` }
+        });
+        assert.strictEqual(readRes.status, 200);
+        const readJson = await readRes.json();
+        assert.strictEqual(readJson.user.plan, 'Free', `${uid} plan must become Free`);
+        assert.strictEqual(readJson.user.membershipStatus, 'Revoked', `${uid} must remain Revoked`);
+        assert.strictEqual(readJson.user.paymentStatus, 'Paid', `${uid} Paid paymentStatus must be preserved`);
+        assert.strictEqual(readJson.user.autoRenew, false, `${uid} autoRenew must become false`);
+      }
+
+      // Verify expiry dates were preserved without mutation
+      const pastRead = await UserRepository.getByIdAsync(revokedPastExpiry.id);
+      const futureRead = await UserRepository.getByIdAsync(revokedFutureExpiry.id);
+      assert.strictEqual(pastRead?.expiryDate, '2024-01-10 00:00');
+      assert.strictEqual(futureRead?.expiryDate, '2029-12-31 23:59');
+    });
+
+    await runTest('10. STEP-A.1 Bulk enforcement skips redundant updates for consistent Revoked Paid and Revoked Unpaid accounts', async () => {
+      const revokedConsistentPaid = {
+        id: 'usr-revoked-clean-paid',
+        name: 'Revoked Clean Paid',
+        email: 'revoked.clean.paid@test.local',
+        role: 'Employer',
+        plan: 'Free' as const,
+        membershipStatus: 'Revoked' as const,
+        paymentStatus: 'Paid' as const,
+        autoRenew: false,
+        expiryDate: '2024-02-01 00:00',
+        createdAt: '2024-01-01T00:00:00.000Z'
+      };
+      const revokedConsistentUnpaid = {
+        id: 'usr-revoked-clean-unpaid',
+        name: 'Revoked Clean Unpaid',
+        email: 'revoked.clean.unpaid@test.local',
+        role: 'Employer',
+        plan: 'Free' as const,
+        membershipStatus: 'Revoked' as const,
+        paymentStatus: 'Unpaid' as const,
+        autoRenew: false,
+        expiryDate: '2024-02-01 00:00',
+        createdAt: '2024-01-01T00:00:00.000Z'
+      };
+
+      const plan = buildBulkMembershipEnforcementPlan(
+        [revokedConsistentPaid, revokedConsistentUnpaid],
+        [],
+        []
+      );
+      assert.strictEqual(plan.allUpdateTargets.length, 0, 'Consistent Revoked accounts must not enqueue updates');
+      assert.strictEqual(plan.expiredTargets.length, 0);
+      assert.strictEqual(plan.unpaidTargets.length, 0);
+      assert.strictEqual(plan.revokedTargets.length, 0);
+
+      let apiPutCalled = false;
+      const res = await executeBulkMembershipEnforcement({
+        users: [revokedConsistentPaid, revokedConsistentUnpaid],
+        jobs: [],
+        pendingJobs: [],
+        updateUserProfile: async () => {
+          apiPutCalled = true;
+          return { success: true };
+        },
+        bulkUpdateJobs: async () => ({ success: true }),
+        reloadJobs: async () => {},
+        applyAuthoritativeUserUpdate: (raw) => raw,
+        addAuditLog: async () => {}
+      });
+
+      assert.strictEqual(apiPutCalled, false, 'No backend PUT call may occur for consistent Revoked users');
+      assert.strictEqual(res.updatedCount, 0);
+      assert.strictEqual(revokedConsistentPaid.paymentStatus, 'Paid');
+      assert.strictEqual(revokedConsistentUnpaid.paymentStatus, 'Unpaid');
+    });
+
+    await runTest('11. STEP-A.1 Expired-only Paid account stays Expired (not Unpaid) and preserves Paid paymentStatus', async () => {
+      const expiredPaidUser = await UserRepository.createAsync({
+        id: 'usr-expired-paid-1',
+        name: 'Expired Paid User',
+        email: 'expired.paid@test.local',
+        role: 'Employer',
+        plan: 'Premium',
+        membershipStatus: 'Active',
+        paymentStatus: 'Paid',
+        autoRenew: true,
+        expiryDate: '2024-05-01 00:00',
+        createdAt: '2024-04-01T00:00:00.000Z'
+      });
+
+      const plan = buildBulkMembershipEnforcementPlan([expiredPaidUser as any], [], []);
+      assert.strictEqual(plan.expiredTargets.length, 1);
+      assert.strictEqual(plan.unpaidTargets.length, 0);
+      assert.strictEqual(plan.revokedTargets.length, 0);
+
+      const res = await executeBulkMembershipEnforcement({
+        users: [expiredPaidUser as any],
+        jobs: [],
+        pendingJobs: [],
+        updateUserProfile: async (userId, updates) => {
+          const put = await fetch(`${baseUrl}/${userId}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${adminToken}`
+            },
+            body: JSON.stringify(updates)
+          });
+          return put.json();
+        },
+        bulkUpdateJobs: async () => ({ success: true }),
+        reloadJobs: async () => {},
+        applyAuthoritativeUserUpdate: (raw) => raw,
+        addAuditLog: async (entry) => AuditRepository.add({ user: adminUser.name, role: adminUser.role, ...entry })
+      });
+
+      assert.strictEqual(res.success, true);
+      assert.strictEqual(res.updatedCount, 1);
+
+      const persisted = await UserRepository.getByIdAsync(expiredPaidUser.id);
+      assert.strictEqual(persisted?.membershipStatus, 'Expired');
+      assert.strictEqual(persisted?.paymentStatus, 'Paid');
+      assert.strictEqual(persisted?.plan, 'Free');
+      assert.strictEqual(persisted?.autoRenew, false);
+    });
+
+    await runTest('12. STEP-A.1 Failed backend user update reports failure and skips suspending that user jobs while suspending succeeded users jobs', async () => {
+      const failingRevokedUser = {
+        id: 'usr-failing-revoked',
+        name: 'Failing Revoked User',
+        email: 'failing.revoked@test.local',
+        role: 'Employer',
+        plan: 'Premium' as const,
+        membershipStatus: 'Revoked' as const,
+        paymentStatus: 'Paid' as const,
+        autoRenew: true,
+        createdAt: '2025-01-01T00:00:00.000Z'
+      };
+      const succeedingUnpaidUser = {
+        id: 'usr-succeeding-unpaid',
+        name: 'Succeeding Unpaid User',
+        email: 'succeeding.unpaid@test.local',
+        role: 'Employer',
+        plan: 'Premium' as const,
+        membershipStatus: 'Active' as const,
+        paymentStatus: 'Unpaid' as const,
+        autoRenew: true,
+        createdAt: '2025-01-01T00:00:00.000Z'
+      };
+      const activePaidUser = {
+        id: 'usr-active-valid',
+        name: 'Valid Active User',
+        email: 'valid.active@test.local',
+        role: 'Employer',
+        plan: 'Premium' as const,
+        membershipStatus: 'Active' as const,
+        paymentStatus: 'Paid' as const,
+        autoRenew: true,
+        expiryDate: '2029-12-31 23:59',
+        createdAt: '2025-01-01T00:00:00.000Z'
+      };
+
+      const testJobs: any[] = [
+        { id: 'job-fail-user', title: 'Job A', submittedByUserId: failingRevokedUser.id, status: 'Approved' },
+        { id: 'job-ok-user', title: 'Job B', submittedByUserId: succeedingUnpaidUser.id, status: 'Approved' },
+        { id: 'job-active-user', title: 'Job C', submittedByUserId: activePaidUser.id, status: 'Approved' }
+      ];
+
+      let suspendedBatches: any[] = [];
+      const res = await executeBulkMembershipEnforcement({
+        users: [failingRevokedUser, succeedingUnpaidUser, activePaidUser],
+        jobs: testJobs,
+        pendingJobs: [],
+        updateUserProfile: async (userId, updates) => {
+          if (userId === failingRevokedUser.id) {
+            return { success: false, message: 'Simulated HTTP 500 error' };
+          }
+          return {
+            success: true,
+            user: { ...succeedingUnpaidUser, ...updates }
+          };
+        },
+        bulkUpdateJobs: async (updatedJobs) => {
+          suspendedBatches = updatedJobs;
+          return { success: true };
+        },
+        reloadJobs: async () => {},
+        applyAuthoritativeUserUpdate: (raw) => raw,
+        addAuditLog: async () => {}
+      });
+
+      assert.strictEqual(res.success, false, 'Partial failure must NOT report success');
+      assert.strictEqual(res.failedUsers.length, 1);
+      assert.strictEqual(res.failedUsers[0].userId, failingRevokedUser.id);
+      assert.strictEqual(res.updatedCount, 1);
+      assert.strictEqual(res.suspendedJobsCount, 1);
+      assert.deepStrictEqual(suspendedBatches.map(j => j.id), ['job-ok-user'], 'Only succeeded inactive user jobs may be suspended; failed user and active user jobs must NOT be suspended');
+    });
+
+    await runTest('13. STEP-A.1 Existing Unpaid enforcement behavior downgrades Premium Unpaid to Free/Revoked/autoRenew:false with past expiry', async () => {
+      const unpaidUser = await UserRepository.createAsync({
+        id: 'usr-unpaid-enforce-1',
+        name: 'Unpaid Enforce User',
+        email: 'unpaid.enforce@test.local',
+        role: 'Employer',
+        plan: 'Premium',
+        membershipStatus: 'Active',
+        paymentStatus: 'Unpaid',
+        autoRenew: true,
+        expiryDate: '2029-12-31 23:59',
+        createdAt: '2025-01-01T00:00:00.000Z'
+      });
+
+      let suspendedJobIds: string[] = [];
+      const res = await executeBulkMembershipEnforcement({
+        users: [unpaidUser as any],
+        jobs: [
+          { id: 'job-unpaid-1', title: 'Unpaid Job', submittedByUserId: unpaidUser.id, status: 'Approved' } as any,
+          { id: 'job-already-susp', title: 'Already Suspended', submittedByUserId: unpaidUser.id, status: 'Suspended' } as any
+        ],
+        pendingJobs: [],
+        updateUserProfile: async (userId, updates) => {
+          const put = await fetch(`${baseUrl}/${userId}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${adminToken}`
+            },
+            body: JSON.stringify(updates)
+          });
+          return put.json();
+        },
+        bulkUpdateJobs: async (updatedJobs) => {
+          suspendedJobIds = updatedJobs.map(j => j.id);
+          return { success: true };
+        },
+        reloadJobs: async () => {},
+        applyAuthoritativeUserUpdate: (raw) => raw,
+        addAuditLog: async (entry) => AuditRepository.add({ user: adminUser.name, role: adminUser.role, ...entry })
+      });
+
+      assert.strictEqual(res.success, true);
+      assert.strictEqual(res.updatedCount, 1);
+      assert.deepStrictEqual(suspendedJobIds, ['job-unpaid-1']);
+
+      const persisted = await UserRepository.getByIdAsync(unpaidUser.id);
+      assert.strictEqual(persisted?.plan, 'Free');
+      assert.strictEqual(persisted?.membershipStatus, 'Revoked');
+      assert.strictEqual(persisted?.autoRenew, false);
+      assert.ok(new Date(persisted!.expiryDate!).getTime() < Date.now(), 'Unpaid user expiry must be moved to the past');
+    });
+
+    await runTest('14. Protected files and data/*.json checksums remain byte-for-byte identical', async () => {
       const postDataSnapshot = getDataSnapshot();
       const postMongoHash = getFileHash('server/db/mongodb.ts');
       assert.strictEqual(postMongoHash, preMongoHash, 'server/db/mongodb.ts must remain untouched');

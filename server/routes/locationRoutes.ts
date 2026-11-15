@@ -32,19 +32,19 @@ locationRouter.post('/cities', requireAdminPermission('settings.manage'), async 
       return res.status(400).json(result);
     }
 
-    try {
-      AuditRepository.add({
-        user: (req as any).user?.name || 'Administrator',
-        role: (req as any).user?.role || 'Admin',
-        action: 'Location City Added',
-        target: `${cityName.trim()} (${provinceName.trim()})`,
-        status: 'Success'
-      });
-    } catch (auditErr) {
-      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
-    }
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'Admin',
+      action: 'Location City Added',
+      target: `${cityName.trim()} (${provinceName.trim()})`,
+      status: 'Success'
+    }, 'POST /api/locations/cities');
 
-    res.status(201).json(result);
+    res.status(201).json(
+      auditOutcome.persisted
+        ? result
+        : { ...result, auditPersisted: false, auditWarning: auditOutcome.auditWarning }
+    );
   } catch (err: any) {
     console.error('Error adding city:', err);
     res.status(500).json({ success: false, message: err.message || 'Error adding city to catalog.' });
@@ -87,19 +87,19 @@ locationRouter.put('/cities/:cityName', requireAdminPermission('settings.manage'
       return res.status(400).json(result);
     }
 
-    try {
-      AuditRepository.add({
-        user: (req as any).user?.name || 'Administrator',
-        role: (req as any).user?.role || 'Admin',
-        action: 'Location City Updated',
-        target: `${oldCityName} -> ${newCityName.trim()} in ${targetProvince.trim()}`,
-        status: 'Success'
-      });
-    } catch (auditErr) {
-      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
-    }
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'Admin',
+      action: 'Location City Updated',
+      target: `${oldCityName} -> ${newCityName.trim()} in ${targetProvince.trim()}`,
+      status: 'Success'
+    }, 'PUT /api/locations/cities/:cityName');
 
-    res.json(result);
+    res.json(
+      auditOutcome.persisted
+        ? result
+        : { ...result, auditPersisted: false, auditWarning: auditOutcome.auditWarning }
+    );
   } catch (err: any) {
     console.error('Error updating city:', err);
     res.status(500).json({ success: false, message: err.message || 'Error updating city.' });
@@ -115,19 +115,19 @@ locationRouter.delete('/cities/:cityName', requireAdminPermission('settings.mana
       return res.status(404).json(result);
     }
 
-    try {
-      AuditRepository.add({
-        user: (req as any).user?.name || 'Administrator',
-        role: (req as any).user?.role || 'Admin',
-        action: 'Location City Deleted',
-        target: cityName,
-        status: 'Success'
-      });
-    } catch (auditErr) {
-      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
-    }
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'Admin',
+      action: 'Location City Deleted',
+      target: cityName,
+      status: 'Success'
+    }, 'DELETE /api/locations/cities/:cityName');
 
-    res.json(result);
+    res.json(
+      auditOutcome.persisted
+        ? result
+        : { ...result, auditPersisted: false, auditWarning: auditOutcome.auditWarning }
+    );
   } catch (err: any) {
     console.error('Error deleting city:', err);
     res.status(500).json({ success: false, message: err.message || 'Error deleting city.' });
@@ -147,19 +147,19 @@ locationRouter.post('/provinces', requireAdminPermission('settings.manage'), asy
       return res.status(400).json(result);
     }
 
-    try {
-      AuditRepository.add({
-        user: (req as any).user?.name || 'Administrator',
-        role: (req as any).user?.role || 'Admin',
-        action: 'Location Province Added',
-        target: provinceName.trim(),
-        status: 'Success'
-      });
-    } catch (auditErr) {
-      console.warn('[locationRoutes] Non-blocking audit log error:', auditErr);
-    }
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'Admin',
+      action: 'Location Province Added',
+      target: provinceName.trim(),
+      status: 'Success'
+    }, 'POST /api/locations/provinces');
 
-    res.status(201).json(result);
+    res.status(201).json(
+      auditOutcome.persisted
+        ? result
+        : { ...result, auditPersisted: false, auditWarning: auditOutcome.auditWarning }
+    );
   } catch (err: any) {
     console.error('Error adding province:', err);
     res.status(500).json({ success: false, message: err.message || 'Error adding province.' });

@@ -23,6 +23,8 @@ import { PricingRepository } from '../db/repositories/PricingRepository';
 import { CurrencyRepository } from '../db/repositories/CurrencyRepository';
 import { SeoRepository } from '../db/repositories/SeoRepository';
 import { SystemSettingsRepository } from '../db/repositories/SystemSettingsRepository';
+import { CommunicationProviderRepository } from '../db/repositories/CommunicationProviderRepository';
+import { LocationRepository } from '../db/repositories/LocationRepository';
 import { Database } from '../db/database';
 import { auditRouter } from '../routes/auditRoutes';
 import { transactionRouter } from '../routes/transactionRoutes';
@@ -36,6 +38,9 @@ import { seoRouter } from '../routes/seoRoutes';
 import { paymentSettingsRouter } from '../routes/paymentSettingsRoutes';
 import { systemSettingsRouter } from '../routes/systemSettingsRoutes';
 import { jobVisibilityRouter } from '../routes/jobVisibilityRoutes';
+import { applySettingsRouter } from '../routes/applySettingsRoutes';
+import { communicationProviderRouter } from '../routes/communicationProviderRoutes';
+import { locationRouter } from '../routes/locationRoutes';
 import { createToken } from '../auth/authManager';
 import { cvStorage } from '../services/cvStorage';
 import { INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
@@ -1239,6 +1244,264 @@ async function runAuditDurableTests() {
         PaymentRepository.getByIdAsync = origPayGetById;
         PaymentRepository.updateAsync = origPayUpdate;
         Database.getAds = origDbGetAds;
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    })();
+
+    // 26-29. STEP-D.1.3: applySettingsRoutes, communicationProviderRoutes & locationRoutes audit persistence safety
+    await (async () => {
+      const origAuditAdd = AuditRepository.add;
+      const origDbAddAuditLog = Database.addAuditLog;
+      const origGetApplySettings = Database.getApplySettings;
+      const origSaveApplySettings = Database.saveApplySettings;
+      const origCommSave = CommunicationProviderRepository.saveConfig;
+      const origLocAddCity = LocationRepository.addCity;
+      const origLocUpdateCity = LocationRepository.updateCity;
+      const origLocDeleteCity = LocationRepository.deleteCity;
+      const origLocAddProvince = LocationRepository.addProvince;
+      const origUserGetById = UserRepository.getByIdAsync;
+
+      const stepD13Admin = {
+        id: 'stepd13-admin-1',
+        userId: 'stepd13-admin-1',
+        name: 'StepD13 Actor Admin',
+        email: 'stepd13-admin@test.local',
+        role: 'Super Admin',
+        permissions: ['*']
+      };
+
+      let directJsonAuditCalls = 0;
+      let applySaveCalls = 0;
+      let addCityCalls = 0;
+      let updateCityCalls = 0;
+      let deleteCityCalls = 0;
+      let addProvinceCalls = 0;
+      const capturedAuditEntries: any[] = [];
+      let failAuditWrite = true;
+
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        (req as any).user = stepD13Admin;
+        next();
+      });
+      app.use('/api/apply-settings', applySettingsRouter);
+      app.use('/api/settings/communication/providers', communicationProviderRouter);
+      app.use('/api/locations', locationRouter);
+
+      const server: Server = createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, resolve));
+      const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+
+      try {
+        UserRepository.getByIdAsync = async (id: string) => (id === stepD13Admin.id ? stepD13Admin : null);
+        Database.addAuditLog = () => {
+          directJsonAuditCalls++;
+          throw new Error('Direct Database.addAuditLog must NOT be called');
+        };
+        AuditRepository.add = async (entry: any) => {
+          capturedAuditEntries.push(entry);
+          if (failAuditWrite) {
+            throw new Error('MongoNetworkError: timeout on internal-replica-01.mongo.local:27017');
+          }
+          return { id: `audit-captured-${capturedAuditEntries.length}`, timestamp: new Date().toISOString(), ...entry };
+        };
+
+        await runCase('Test 26: PUT /api/apply-settings succeeds when audit persistence fails without direct JSON writes', async () => {
+          failAuditWrite = true;
+          capturedAuditEntries.length = 0;
+          Database.getApplySettings = () => ({
+            enableApplyButton: true,
+            applyButtonRequiresPremium: false,
+            modalSettings: {}
+          });
+          Database.saveApplySettings = (_next: any) => {
+            applySaveCalls++;
+          };
+
+          const res = await fetch(`${baseUrl}/api/apply-settings`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              applyButtonRequiresPremium: true,
+              premiumCtaText: 'Upgrade Now'
+            })
+          });
+          const data = (await res.json()) as any;
+          assert.strictEqual(res.status, 200, `Expected 200, got ${res.status}: ${JSON.stringify(data)}`);
+          assert.strictEqual(data.success, true);
+          assert.strictEqual(data.settings?.applyButtonRequiresPremium, true);
+          assert.strictEqual(data.settings?.premiumCtaText, 'Upgrade Now');
+          assert.strictEqual(data.auditPersisted, false);
+          assert.strictEqual(data.auditWarning, SAFE_AUDIT_WARNING);
+          assert.ok(!String(data.auditWarning).includes('internal-replica-01'));
+          assert.strictEqual(applySaveCalls, 1, 'Apply settings save must execute only once');
+          assert.strictEqual(directJsonAuditCalls, 0, 'Direct Database.addAuditLog must not be called');
+          assert.strictEqual(capturedAuditEntries.length, 1);
+          assert.strictEqual(capturedAuditEntries[0].user, 'StepD13 Actor Admin');
+          assert.strictEqual(capturedAuditEntries[0].role, 'Super Admin');
+        });
+
+        await runCase('Test 27: PUT /api/settings/communication/providers succeeds on audit failure & never exposes secrets in audit or responses', async () => {
+          const SECRET_SMTP_PASS = 'SuperSecretSMTP!9988';
+          const SECRET_SENDGRID_KEY = 'SG.secret_sendgrid_token_12345';
+          const SECRET_WHATSAPP_TOKEN = 'EAAB_whatsapp_secret_token_67890';
+
+          CommunicationProviderRepository.saveConfig = async () => ({
+            emailProvider: 'smtp',
+            smtpHost: 'smtp.example.org',
+            smtpPort: 587,
+            smtpSenderEmail: 'noreply@example.org',
+            smtpPasswordConfigured: true,
+            sendgridApiKeyConfigured: true,
+            whatsappProvider: 'meta-cloud',
+            whatsappCloudApiTokenConfigured: true
+          } as any);
+
+          const payload = {
+            emailProvider: 'smtp',
+            smtpHost: 'smtp.example.org',
+            smtpPort: 587,
+            smtpSenderEmail: 'noreply@example.org',
+            smtpPassword: SECRET_SMTP_PASS,
+            sendgridApiKey: SECRET_SENDGRID_KEY,
+            whatsappCloudApiToken: SECRET_WHATSAPP_TOKEN
+          };
+
+          // Case A: Audit write fails
+          failAuditWrite = true;
+          capturedAuditEntries.length = 0;
+          const resFail = await fetch(`${baseUrl}/api/settings/communication/providers`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const dataFail = (await resFail.json()) as any;
+          assert.strictEqual(resFail.status, 200, `Expected 200, got ${resFail.status}: ${JSON.stringify(dataFail)}`);
+          assert.strictEqual(dataFail.success, true);
+          assert.strictEqual(dataFail.auditPersisted, false);
+          assert.strictEqual(dataFail.auditWarning, SAFE_AUDIT_WARNING);
+
+          const serializedFailResp = JSON.stringify(dataFail);
+          assert.ok(!serializedFailResp.includes(SECRET_SMTP_PASS));
+          assert.ok(!serializedFailResp.includes(SECRET_SENDGRID_KEY));
+          assert.ok(!serializedFailResp.includes(SECRET_WHATSAPP_TOKEN));
+
+          // Case B: Audit write succeeds — inspect metadata for zero secrets
+          failAuditWrite = false;
+          capturedAuditEntries.length = 0;
+          const resOk = await fetch(`${baseUrl}/api/settings/communication/providers`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const dataOk = (await resOk.json()) as any;
+          assert.strictEqual(resOk.status, 200);
+          assert.strictEqual(dataOk.success, true);
+          assert.strictEqual(dataOk.auditPersisted, undefined);
+          assert.strictEqual(capturedAuditEntries.length, 1);
+
+          const serializedAudit = JSON.stringify(capturedAuditEntries[0]);
+          assert.ok(!serializedAudit.includes(SECRET_SMTP_PASS), 'SMTP password must never enter audit metadata');
+          assert.ok(!serializedAudit.includes(SECRET_SENDGRID_KEY), 'SendGrid API key must never enter audit metadata');
+          assert.ok(!serializedAudit.includes(SECRET_WHATSAPP_TOKEN), 'WhatsApp token must never enter audit metadata');
+          assert.deepStrictEqual(capturedAuditEntries[0].metadata?.updatedFields, Object.keys(payload));
+        });
+
+        await runCase('Test 28: All 4 locationRoutes mutations preserve success without retry if audit persistence fails', async () => {
+          failAuditWrite = true;
+          capturedAuditEntries.length = 0;
+
+          LocationRepository.addCity = async (_provinceName: string, _cityName: string) => {
+            addCityCalls++;
+            return { success: true, message: 'City added', locations: [] };
+          };
+          LocationRepository.updateCity = async (_oldName: string, _newName: string, _targetProvince: string) => {
+            updateCityCalls++;
+            return { success: true, message: 'City updated', locations: [] };
+          };
+          LocationRepository.deleteCity = async (_cityName: string) => {
+            deleteCityCalls++;
+            return { success: true, message: 'City deleted', locations: [] };
+          };
+          LocationRepository.addProvince = async (_provinceName: string) => {
+            addProvinceCalls++;
+            return { success: true, message: 'Province added', locations: [] };
+          };
+
+          const rAddCity = await fetch(`${baseUrl}/api/locations/cities`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provinceName: 'Punjab', cityName: 'StepD13City' })
+          });
+          const jAddCity = (await rAddCity.json()) as any;
+          assert.strictEqual(rAddCity.status, 201);
+          assert.strictEqual(jAddCity.success, true);
+          assert.strictEqual(jAddCity.auditPersisted, false);
+          assert.strictEqual(jAddCity.auditWarning, SAFE_AUDIT_WARNING);
+          assert.strictEqual(addCityCalls, 1);
+
+          const rUpdateCity = await fetch(`${baseUrl}/api/locations/cities/StepD13City`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newCityName: 'StepD13CityRenamed', targetProvince: 'Punjab' })
+          });
+          const jUpdateCity = (await rUpdateCity.json()) as any;
+          assert.strictEqual(rUpdateCity.status, 200);
+          assert.strictEqual(jUpdateCity.success, true);
+          assert.strictEqual(jUpdateCity.auditPersisted, false);
+          assert.strictEqual(jUpdateCity.auditWarning, SAFE_AUDIT_WARNING);
+          assert.strictEqual(updateCityCalls, 1);
+
+          const rDeleteCity = await fetch(`${baseUrl}/api/locations/cities/StepD13CityRenamed`, {
+            method: 'DELETE'
+          });
+          const jDeleteCity = (await rDeleteCity.json()) as any;
+          assert.strictEqual(rDeleteCity.status, 200);
+          assert.strictEqual(jDeleteCity.success, true);
+          assert.strictEqual(jDeleteCity.auditPersisted, false);
+          assert.strictEqual(jDeleteCity.auditWarning, SAFE_AUDIT_WARNING);
+          assert.strictEqual(deleteCityCalls, 1);
+
+          const rAddProv = await fetch(`${baseUrl}/api/locations/provinces`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provinceName: 'StepD13Province' })
+          });
+          const jAddProv = (await rAddProv.json()) as any;
+          assert.strictEqual(rAddProv.status, 201);
+          assert.strictEqual(jAddProv.success, true);
+          assert.strictEqual(jAddProv.auditPersisted, false);
+          assert.strictEqual(jAddProv.auditWarning, SAFE_AUDIT_WARNING);
+          assert.strictEqual(addProvinceCalls, 1);
+
+          assert.strictEqual(capturedAuditEntries.length, 4);
+        });
+
+        await runCase('Test 29: Source verification confirms zero direct JSON or unawaited audit calls in applySettings, communicationProvider, and location routes', async () => {
+          const filesToCheck = [
+            'server/routes/applySettingsRoutes.ts',
+            'server/routes/communicationProviderRoutes.ts',
+            'server/routes/locationRoutes.ts'
+          ];
+          for (const relPath of filesToCheck) {
+            const content = fs.readFileSync(path.resolve(process.cwd(), relPath), 'utf-8');
+            assert.strictEqual(content.includes('Database.addAuditLog('), false, `${relPath} must not call Database.addAuditLog`);
+            assert.strictEqual(/\bAuditRepository\.add\(/.test(content), false, `${relPath} must not have direct/unawaited AuditRepository.add calls`);
+            assert.strictEqual(content.includes('await AuditRepository.addAfterPrimaryOperation('), true, `${relPath} must await AuditRepository.addAfterPrimaryOperation`);
+          }
+        });
+      } finally {
+        AuditRepository.add = origAuditAdd;
+        Database.addAuditLog = origDbAddAuditLog;
+        Database.getApplySettings = origGetApplySettings;
+        Database.saveApplySettings = origSaveApplySettings;
+        CommunicationProviderRepository.saveConfig = origCommSave;
+        LocationRepository.addCity = origLocAddCity;
+        LocationRepository.updateCity = origLocUpdateCity;
+        LocationRepository.deleteCity = origLocDeleteCity;
+        LocationRepository.addProvince = origLocAddProvince;
+        UserRepository.getByIdAsync = origUserGetById;
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
     })();

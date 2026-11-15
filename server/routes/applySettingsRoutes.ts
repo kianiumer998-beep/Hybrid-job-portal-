@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { Database } from '../db/database';
+import { AuditRepository } from '../db/repositories/AuditRepository';
 import { requireAdminPermission } from '../auth/authManager';
 
 export const ALLOWED_MODAL_FIELDS: Record<string, string[]> = {
@@ -168,7 +169,7 @@ applySettingsRouter.get('/', (req, res) => {
 });
 
 // 2. Update Apply Flow & Button Configuration (Admin Only)
-applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, res) => {
+applySettingsRouter.put('/', requireAdminPermission('settings.manage'), async (req, res) => {
   try {
     const current = Database.getApplySettings();
     const updated = {
@@ -224,15 +225,20 @@ applySettingsRouter.put('/', requireAdminPermission('settings.manage'), (req, re
 
     Database.saveApplySettings(updated);
 
-    Database.addAuditLog({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
       role: (req as any).user?.role || 'Content Manager',
       action: 'Apply Settings & Form Flow Updated',
       target: 'Candidate Application Experience',
       status: 'Success'
-    });
+    }, 'PUT /api/apply-settings');
 
-    res.json({ success: true, settings: updated, message: 'Application settings and form flow updated successfully!' });
+    res.json({
+      success: true,
+      settings: updated,
+      message: 'Application settings and form flow updated successfully!',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating apply settings' });
   }

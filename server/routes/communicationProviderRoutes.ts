@@ -76,7 +76,7 @@ communicationProviderRouter.put('/', requireAdminPermission('settings.manage'), 
       changedFieldNames.push(`cleared:${clearSecrets.join(',')}`);
     }
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: user?.name || user?.email || 'Administrator',
       role: user?.role || 'System Manager',
       action: 'Communication Provider Settings Updated',
@@ -85,12 +85,13 @@ communicationProviderRouter.put('/', requireAdminPermission('settings.manage'), 
       metadata: {
         updatedFields: changedFieldNames
       }
-    });
+    }, 'PUT /api/settings/communication/providers');
 
     return res.json({
       success: true,
       config: updatedConfig,
-      message: 'Communication provider settings saved successfully.'
+      message: 'Communication provider settings saved successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     if (err?.message?.includes('Validation Error') || err?.message?.includes('Unknown configuration field')) {

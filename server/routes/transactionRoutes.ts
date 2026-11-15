@@ -1212,7 +1212,7 @@ transactionRouter.post('/', async (req, res) => {
         }
       }
 
-      await AuditRepository.add({
+      const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
         user: effectiveUserName || 'User',
         role: 'Member',
         action: finalStatus === 'Success' ? 'Payment Completed (Wallet)' : 'Payment Proof Submitted',
@@ -1226,7 +1226,7 @@ transactionRouter.post('/', async (req, res) => {
           paymentMethodName: resolvedPaymentMethodName,
           type: effectiveType
         }
-      });
+      }, 'POST /api/transactions');
 
       if (effectiveUserId) {
         try {
@@ -1251,7 +1251,8 @@ transactionRouter.post('/', async (req, res) => {
         transaction: newTx,
         message: finalStatus === 'Success'
           ? 'Payment processed and verified immediately via wallet balance!'
-          : 'Payment proof submitted successfully! Administrator verification is pending.'
+          : 'Payment proof submitted successfully! Administrator verification is pending.',
+        ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
       });
     } finally {
       activeUserTransactionLocks.delete(userLockKey);
@@ -1293,14 +1294,14 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
         });
       }
 
-      await AuditRepository.add({
+      const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
         user: 'Administrator',
         role: 'Payment Manager',
         action: action === 'approve' ? 'Payment Approved' : 'Payment Rejected',
         target: `Transaction ID ${tx.transactionId || tx.id} (${tx.amount} ${tx.currency})`,
         status: action === 'approve' ? 'Success' : 'Warning',
         metadata: { action, note, reason }
-      });
+      }, 'PATCH /api/transactions/:id/verify');
 
       if (tx.userId) {
         try {
@@ -1325,7 +1326,8 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
       return res.json({
         success: true,
         transaction: tx,
-        message: `Transaction ${tx.transactionId || tx.id} has been ${action === 'approve' ? 'approved and activated' : 'rejected'}.`
+        message: `Transaction ${tx.transactionId || tx.id} has been ${action === 'approve' ? 'approved and activated' : 'rejected'}.`,
+        ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
       });
     } finally {
       activeTransactionVerificationLocks.delete(verifyLockKey);

@@ -137,14 +137,14 @@ applicationRouter.post('/upload-cv', async (req, res) => {
     const downloadToken = generateCvDownloadToken(storedFileName, 24); // 24 hours
     const fileUrl = `${storageResult.relativeUrl}?token=${downloadToken}`;
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Candidate',
       role: (req as any).user?.role || 'Applicant',
       action: 'CV Uploaded Securely',
       target: fileName,
       status: 'Success',
       metadata: { storedFileName, sizeBytes: buffer.length }
-    });
+    }, 'POST /api/applications/cv/upload');
 
     res.status(201).json({
       success: true,
@@ -154,7 +154,8 @@ applicationRouter.post('/upload-cv', async (req, res) => {
       fileName,
       storedFileName,
       fileSize: buffer.length,
-      message: 'CV uploaded and validated securely.'
+      message: 'CV uploaded and validated securely.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('CV Upload Error:', err);
@@ -233,16 +234,17 @@ applicationRouter.get('/cv/:filename', async (req, res) => {
     }
 
     if (!isAuthorized) {
-      await AuditRepository.add({
+      const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
         user: user?.name || 'Anonymous',
         role: user?.role || 'Guest',
         action: 'Unauthorized CV Access Attempt Blocked',
         target: safeFileName,
         status: 'Error'
-      });
+      }, 'GET /api/applications/cv/:filename');
       return res.status(403).json({
         success: false,
-        message: 'Access Denied: You do not have authorization to access or download this candidate CV.'
+        message: 'Access Denied: You do not have authorization to access or download this candidate CV.',
+        ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
       });
     }
 
@@ -597,18 +599,19 @@ applicationRouter.post('/', requireAuth, async (req, res) => {
       console.error(`Failed to dispatch application notification for app ${newApp.id}:`, notifErr);
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user.name,
       role: (req as any).user.role,
       action: 'Job Application Submitted',
       target: `${jobTitle} at ${companyName}`,
       status: 'Success'
-    });
+    }, 'POST /api/applications');
 
     res.status(201).json({
       success: true,
       application: newApp,
-      message: settings.successMessage || 'Application submitted successfully!'
+      message: settings.successMessage || 'Application submitted successfully!',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error submitting application' });
@@ -713,15 +716,19 @@ applicationRouter.patch('/:id/status', requireAuth, async (req, res) => {
       }
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: (req as any).user?.role || 'Hiring Manager',
       action: 'Application Status Updated',
       target: `Application ID ${req.params.id} -> ${status}`,
       status: 'Success'
-    });
+    }, 'PATCH /api/applications/:id/status');
 
-    res.json({ success: true, application: updated });
+    res.json({
+      success: true,
+      application: updated,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating application status' });
   }

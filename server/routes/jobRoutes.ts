@@ -254,14 +254,19 @@ jobRouter.post('/queue/pending/:id/approve', requireAdminPermission('jobs.manage
     if (!approved) {
       return res.status(404).json({ success: false, message: 'Pending job not found.' });
     }
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Moderator',
       action: 'Job Approved & Published Live',
       target: `${approved.title} at ${approved.company}`,
       status: 'Success'
+    }, 'POST /api/jobs/queue/pending/:id/approve');
+    res.json({
+      success: true,
+      job: approved,
+      message: 'Job approved and live on portal!',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, job: approved, message: 'Job approved and live on portal!' });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/queue/pending/:id/approve:', err);
     res.status(500).json({ success: false, message: err.message || 'Error approving job' });
@@ -314,7 +319,7 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
       }
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Moderator',
       action: 'Job Rejected',
@@ -326,13 +331,14 @@ jobRouter.post('/queue/pending/:id/reject', requireAdminPermission('jobs.manage'
         notificationSent,
         notificationSkipped: !notificationSent
       }
-    });
+    }, 'POST /api/jobs/queue/pending/:id/reject');
 
     res.json({
       success: true,
       message: 'Job rejected.',
       notificationSent,
-      sourceType: isScraped ? 'scraped' : sourceType
+      sourceType: isScraped ? 'scraped' : sourceType,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/queue/pending/:id/reject:', err);
@@ -405,7 +411,7 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
       }
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Deleted',
@@ -421,7 +427,7 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
         notificationsSent,
         notificationsSkipped
       }
-    });
+    }, 'POST /api/jobs/bulk-delete');
 
     res.json({
       success: true,
@@ -429,7 +435,8 @@ jobRouter.post('/bulk-delete', requireAdminPermission('jobs.manage'), async (req
       scrapedDeletedCount: result.scrapedCount,
       userPostedDeletedCount: result.userPostedCount,
       notificationsSent,
-      notificationsSkipped
+      notificationsSkipped,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-delete:', err);
@@ -497,13 +504,13 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
     const result = await JobRepository.bulkApprovePending(idsToApprove);
     const combinedErrors = [...unresolvedErrors, ...result.errors];
     const totalFailureCount = combinedErrors.length;
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Approved',
       target: `${result.successCount} jobs approved (${totalFailureCount} failed, ${duplicateWarnings.length} duplicates skipped, ${missingFieldWarnings.length} missing fields skipped)`,
       status: totalFailureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/jobs/bulk-approve');
     const hasFailures = totalFailureCount > 0;
     const isFullySuccessful = !hasFailures && result.successCount > 0;
     res.json({
@@ -517,7 +524,8 @@ jobRouter.post('/bulk-approve', requireAdminPermission('jobs.manage'), async (re
       errors: combinedErrors,
       approvedCount: result.successCount,
       approvedJobs: result.approvedJobs,
-      message: `${result.successCount} jobs approved.${hasFailures ? ` (${totalFailureCount} failed)` : ''}${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}${missingFieldWarnings.length > 0 ? ` (${missingFieldWarnings.length} skipped with missing fields)` : ''}`
+      message: `${result.successCount} jobs approved.${hasFailures ? ` (${totalFailureCount} failed)` : ''}${duplicateWarnings.length > 0 ? ` (${duplicateWarnings.length} duplicates skipped)` : ''}${missingFieldWarnings.length > 0 ? ` (${missingFieldWarnings.length} skipped with missing fields)` : ''}`,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-approve:', err);
@@ -589,7 +597,7 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
       }
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Rejected',
@@ -604,7 +612,7 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
         notificationsSkipped,
         failureCount: result.failureCount
       }
-    });
+    }, 'POST /api/jobs/bulk-reject');
 
     res.json({
       success: true,
@@ -615,7 +623,8 @@ jobRouter.post('/bulk-reject', requireAdminPermission('jobs.manage'), async (req
       notificationsSent,
       notificationsSkipped,
       failureCount: result.failureCount,
-      errors: result.errors
+      errors: result.errors,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-reject:', err);
@@ -631,18 +640,19 @@ jobRouter.post('/bulk-delete-duplicates', requireAdminPermission('jobs.manage'),
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.bulkDeleteDuplicates(ids);
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Duplicate Jobs Deleted',
       target: `${result.successCount} duplicate jobs deleted (${result.failureCount} failed)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/jobs/bulk-delete-duplicates');
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
-      errors: result.errors
+      errors: result.errors,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-delete-duplicates:', err);
@@ -661,18 +671,19 @@ jobRouter.post('/duplicates/bulk-delete', requireAdminPermission('jobs.manage'),
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.bulkDeleteDuplicates(ids);
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Duplicate Jobs Deleted',
       target: `${result.successCount} duplicate jobs deleted (${result.failureCount} failed)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/jobs/duplicates/bulk-delete');
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
-      errors: result.errors
+      errors: result.errors,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/duplicates/bulk-delete:', err);
@@ -693,18 +704,19 @@ jobRouter.post('/keep-original-delete-duplicates', requireAdminPermission('jobs.
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.keepOriginalAndDeleteDuplicates(ids);
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Keep Original + Delete Duplicates Processed',
       target: `${result.successCount} duplicates removed while original preserved (${result.failureCount} failed)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/jobs/keep-original-delete-duplicates');
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
-      errors: result.errors
+      errors: result.errors,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/keep-original-delete-duplicates:', err);
@@ -723,18 +735,19 @@ jobRouter.post('/duplicates/keep-original', requireAdminPermission('jobs.manage'
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.keepOriginalAndDeleteDuplicates(ids);
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Keep Original + Delete Duplicates Processed',
       target: `${result.successCount} duplicates removed while original preserved (${result.failureCount} failed)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/jobs/duplicates/keep-original');
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
-      errors: result.errors
+      errors: result.errors,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/duplicates/keep-original:', err);
@@ -755,18 +768,19 @@ jobRouter.post('/overwrite-original', requireAdminPermission('jobs.manage'), asy
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.overwriteOriginalWithDuplicates(ids);
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Overwrite Original with Duplicate Data',
       target: `${result.successCount} originals overwritten with duplicate data (${result.failureCount} failed)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/jobs/overwrite-original');
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
-      errors: result.errors
+      errors: result.errors,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/overwrite-original:', err);
@@ -785,18 +799,19 @@ jobRouter.post('/duplicates/overwrite-original', requireAdminPermission('jobs.ma
       return res.status(400).json({ success: false, message: 'Array of duplicate job IDs is required.' });
     }
     const result = await JobRepository.overwriteOriginalWithDuplicates(ids);
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Overwrite Original with Duplicate Data',
       target: `${result.successCount} originals overwritten with duplicate data (${result.failureCount} failed)`,
       status: result.failureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/jobs/duplicates/overwrite-original');
     res.json({
       success: true,
       successCount: result.successCount,
       failureCount: result.failureCount,
-      errors: result.errors
+      errors: result.errors,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/duplicates/overwrite-original:', err);
@@ -873,13 +888,13 @@ jobRouter.post('/batch', requireAdminPermission('jobs.manage'), async (req, res)
       pendingRes = await JobRepository.addPendingBatch(toPending);
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Job Batch Importer',
       action: 'Batch Ingestion & Persistence',
       target: `${batchJobs.length} Jobs (${toLive.length} Live, ${toPending.length} Pending)`,
       status: 'Success'
-    });
+    }, 'POST /api/jobs/batch');
 
     res.json({
       success: true,
@@ -889,7 +904,8 @@ jobRouter.post('/batch', requireAdminPermission('jobs.manage'), async (req, res)
       insertedLive: liveRes.inserted,
       updatedLive: liveRes.updated,
       insertedPending: pendingRes.inserted,
-      updatedPending: pendingRes.updated
+      updatedPending: pendingRes.updated,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/batch:', err);
@@ -1532,19 +1548,20 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
     const processed = importedCount + skippedDuplicateCount + failedCount;
     const partialSuccess = importedCount > 0 && (failedCount > 0 || skippedDuplicateCount > 0);
 
+    let auditOutcome: { persisted: boolean; auditWarning?: string } = { persisted: true };
     if (importedCount > 0) {
-      try {
-        await await AuditRepository.add({
-          user: (req as any).user?.name || 'Administrator',
-          role: (req as any).user?.role || 'Admin',
-          action: 'Admin Bulk Job Import',
-          target: `Imported ${importedCount}/${requestedCount} jobs (${skippedDuplicateCount} duplicate(s) skipped, ${failedCount} failed)`,
-          status: partialSuccess ? 'Warning' : 'Success'
-        });
-      } catch (auditErr) {
-        console.warn('[admin-import] Audit logging failed (non-blocking):', auditErr);
-      }
+      auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+        user: (req as any).user?.name || 'Administrator',
+        role: (req as any).user?.role || 'Admin',
+        action: 'Admin Bulk Job Import',
+        target: `Imported ${importedCount}/${requestedCount} jobs (${skippedDuplicateCount} duplicate(s) skipped, ${failedCount} failed)`,
+        status: partialSuccess ? 'Warning' : 'Success'
+      }, 'POST /api/jobs/admin-import');
     }
+
+    const auditFields = auditOutcome.persisted
+      ? {}
+      : { auditPersisted: false, auditWarning: auditOutcome.auditWarning };
 
     if (importedCount === 0 && failedCount > 0) {
       return res.status(500).json({
@@ -1556,7 +1573,8 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
         failedCount,
         skippedDuplicateCount,
         errors,
-        partialSuccess: false
+        partialSuccess: false,
+        ...auditFields
       });
     }
 
@@ -1570,7 +1588,8 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
         failedCount: 0,
         skippedDuplicateCount,
         errors,
-        partialSuccess: false
+        partialSuccess: false,
+        ...auditFields
       });
     }
 
@@ -1589,7 +1608,8 @@ jobRouter.post('/admin-import', requireAdminPermission('jobs.manage'), async (re
       failedCount,
       skippedDuplicateCount,
       errors,
-      partialSuccess
+      partialSuccess,
+      ...auditFields
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/admin-import:', err);
@@ -1654,19 +1674,20 @@ jobRouter.post('/override-duplicate', requireAdminPermission('jobs.manage'), asy
       await JobRepository.update(jobId, updates);
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Quality Assurance',
       action: 'Duplicate Decision Overridden',
       target: `Job ${job.title} (${jobId})`,
       status: 'Success',
       metadata: { reason }
-    });
+    }, 'POST /api/jobs/override-duplicate');
 
     res.json({
       success: true,
       message: 'Duplicate status cleared successfully. Job is now classified as unique.',
-      job: { ...job, ...updates }
+      job: { ...job, ...updates },
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error overriding duplicate' });
@@ -1690,16 +1711,21 @@ jobRouter.post('/merge', requireAdminPermission('jobs.manage'), async (req, res)
     await JobRepository.delete(secondaryJobId);
     await JobRepository.rejectPending(secondaryJobId, `Merged into job ${primaryJobId}`);
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Jobs Merged Intelligently',
       target: `Merged ${secondary.title} (${secondaryJobId}) into ${primary.title} (${primaryJobId})`,
       status: 'Success',
       metadata: { primaryJobId, secondaryJobId }
-    });
+    }, 'POST /api/jobs/merge');
 
-    res.json({ success: true, job: merged, message: 'Jobs merged successfully.' });
+    res.json({
+      success: true,
+      job: merged,
+      message: 'Jobs merged successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error merging jobs' });
   }
@@ -1785,19 +1811,20 @@ jobRouter.post('/attachments/upload', requireAdminPermission('jobs.manage'), asy
       isPublic
     };
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Document Attachment Uploaded',
       target: fileName,
       status: 'Success',
       metadata: { storedFileName: storageRes.storedFileName, sizeBytes: buffer.length, isPublic }
-    });
+    }, 'POST /api/jobs/attachments/upload');
 
     res.status(201).json({
       success: true,
       attachment,
-      message: 'Document attachment uploaded successfully.'
+      message: 'Document attachment uploaded successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error uploading job attachment:', err);
@@ -1881,20 +1908,21 @@ jobRouter.post('/:id/attachments', requireAdminPermission('jobs.manage'), async 
     const updatedAttachments = [...currentAttachments, newAttachment];
     const updatedJob = await JobRepository.update(id, { attachments: updatedAttachments });
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Document Attached to Job',
       target: `Job ${existingJob.title} (${id}) - Attachment: ${newAttachment.name} (${isPublic ? 'Public' : 'Private'})`,
       status: 'Success'
-    });
+    }, 'POST /api/jobs/:id/attachments');
 
     res.json({
       success: true,
       message: 'Attachment saved to job successfully.',
       attachment: newAttachment,
       attachments: updatedAttachments,
-      job: updatedJob
+      job: updatedJob,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error attaching document to job:', err);
@@ -1932,20 +1960,21 @@ jobRouter.patch('/:id/attachments/:attachmentId/visibility', requireAdminPermiss
 
     const updatedJob = await JobRepository.update(id, { attachments: currentAttachments });
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Attachment Visibility Changed',
       target: `Job ${existingJob.title} (${id}) - Attachment ${targetAtt.name}: ${isPublic ? 'PUBLIC (Show to Users)' : 'PRIVATE (Admin Only)'}`,
       status: 'Success'
-    });
+    }, 'PATCH /api/jobs/:id/attachments/:attachmentId/visibility');
 
     res.json({
       success: true,
       message: `Attachment visibility set to ${isPublic ? 'Public' : 'Private'}.`,
       attachment: targetAtt,
       attachments: currentAttachments,
-      job: updatedJob
+      job: updatedJob,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error toggling attachment visibility:', err);
@@ -1982,19 +2011,20 @@ jobRouter.delete('/:id/attachments/:attachmentId', requireAdminPermission('jobs.
       deleteAttachmentFile(targetAtt.fileUrl);
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Document Attachment Removed from Job',
       target: `Job ${existingJob.title} (${id}) - Removed: ${targetAtt.name}`,
       status: 'Success'
-    });
+    }, 'DELETE /api/jobs/:id/attachments/:attachmentId');
 
     res.json({
       success: true,
       message: 'Attachment removed successfully.',
       attachments: updatedAttachments,
-      job: updatedJob
+      job: updatedJob,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error removing attachment from job:', err);
@@ -2097,16 +2127,17 @@ jobRouter.post('/', async (req, res) => {
     };
 
     let savedJob: any;
+    let auditOutcome: { persisted: boolean; auditWarning?: string };
     if (canCreateApproved) {
       newJob.status = 'Approved';
       savedJob = await JobRepository.create(newJob);
-      await AuditRepository.add({
+      auditOutcome = await AuditRepository.addAfterPrimaryOperation({
         user: user?.name || 'Administrator',
         role: user?.role || 'Admin',
         action: 'Job Created & Published (Admin Direct)',
         target: `${savedJob.title} at ${savedJob.company}`,
         status: 'Success'
-      });
+      }, 'POST /api/jobs (admin)');
     } else {
       // Non-admin / guest / user / employer submissions MUST always become Pending -> MongoDB.pending_jobs
       // Strictly ignore any client-supplied status: 'Approved' and strip client-controlled ID / owner-alias / scraper fields
@@ -2135,19 +2166,20 @@ jobRouter.post('/', async (req, res) => {
       newJob.priorityTier = 'standard';
       newJob.isVerified = false;
       savedJob = await JobRepository.addPending(newJob);
-      await AuditRepository.add({
+      auditOutcome = await AuditRepository.addAfterPrimaryOperation({
         user: user?.name || 'Guest Employer',
         role: user?.role || 'Employer',
         action: 'Job Submitted for Review',
         target: `${savedJob.title} at ${savedJob.company}`,
         status: 'Success'
-      });
+      }, 'POST /api/jobs (pending)');
     }
 
     res.status(201).json({
       success: true,
       job: savedJob,
-      message: canCreateApproved ? 'Job published live!' : 'Job submitted for verification and review.'
+      message: canCreateApproved ? 'Job published live!' : 'Job submitted for verification and review.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in POST /api/jobs:', err);
@@ -2162,14 +2194,18 @@ jobRouter.put('/:id', requireAdminPermission('jobs.manage'), async (req, res) =>
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
     }
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Updated',
       target: `${updated.title} (${updated.id})`,
       status: 'Success'
+    }, 'PUT /api/jobs/:id');
+    res.json({
+      success: true,
+      job: updated,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, job: updated });
   } catch (err: any) {
     console.error('Error in PUT /api/jobs/:id:', err);
     res.status(500).json({ success: false, message: err.message || 'Error updating job' });
@@ -2217,15 +2253,20 @@ jobRouter.delete('/:id', requireAdminPermission('jobs.manage'), async (req, res)
       }
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Deleted',
       target: `Job ID ${id} (${existing ? (isScrapedJob(existing) ? 'scraped' : deriveJobSourceType(existing)) : 'unknown'})`,
       status: 'Success',
       metadata: { jobId: id, notificationSent }
+    }, 'DELETE /api/jobs/:id');
+    res.json({
+      success: true,
+      message: 'Job deleted successfully.',
+      notificationSent,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, message: 'Job deleted successfully.', notificationSent });
   } catch (err: any) {
     console.error('Error in DELETE /api/jobs/:id:', err);
     res.status(500).json({ success: false, message: err.message || 'Error deleting job' });
@@ -2239,14 +2280,19 @@ jobRouter.post('/restore-expired/:id', requireAdminPermission('jobs.manage'), as
     if (!restored) {
       return res.status(404).json({ success: false, message: 'Job not found.' });
     }
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Expired Job Restored to Live',
       target: `${restored.title} (${restored.id})`,
       status: 'Success'
+    }, 'POST /api/jobs/restore-expired/:id');
+    res.json({
+      success: true,
+      job: restored,
+      message: 'Job restored to live status successfully. Original deadline preserved.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, job: restored, message: 'Job restored to live status successfully. Original deadline preserved.' });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/restore-expired/:id:', err);
     res.status(500).json({ success: false, message: err.message || 'Error restoring expired job' });
@@ -2261,14 +2307,19 @@ jobRouter.post('/bulk-restore-expired', requireAdminPermission('jobs.manage'), a
       return res.status(400).json({ success: false, message: 'Array of job IDs required' });
     }
     const count = await JobRepository.bulkRestoreJobs(ids);
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Expired Jobs Restored to Live',
       target: `${count} Jobs`,
       status: 'Success'
+    }, 'POST /api/jobs/bulk-restore-expired');
+    res.json({
+      success: true,
+      count,
+      message: `${count} expired jobs restored to live successfully.`,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, count, message: `${count} expired jobs restored to live successfully.` });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-restore-expired:', err);
     res.status(500).json({ success: false, message: err.message || 'Error bulk restoring expired jobs' });
@@ -2316,15 +2367,20 @@ jobRouter.delete('/permanent/:id', requireAdminPermission('jobs.manage'), async 
       }
     }
 
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Job Permanently Deleted',
       target: `Job ID ${id} (${existing ? (isScrapedJob(existing) ? 'scraped' : deriveJobSourceType(existing)) : 'unknown'})`,
       status: 'Success',
       metadata: { jobId: id, notificationSent }
+    }, 'DELETE /api/jobs/permanent/:id');
+    res.json({
+      success: true,
+      message: 'Job permanently deleted from system.',
+      notificationSent,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, message: 'Job permanently deleted from system.', notificationSent });
   } catch (err: any) {
     console.error('Error in DELETE /api/jobs/permanent/:id:', err);
     res.status(500).json({ success: false, message: err.message || 'Error deleting job permanently' });
@@ -2339,14 +2395,19 @@ jobRouter.post('/bulk-update-location', requireAdminPermission('jobs.manage'), a
       return res.status(400).json({ success: false, message: 'Array of job IDs required' });
     }
     const result = await JobRepository.bulkUpdateLocation(jobIds, locationData || {});
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Job Location Updated',
       target: `${result.successCount} Jobs`,
       status: 'Success'
+    }, 'POST /api/jobs/bulk-update-location');
+    res.json({
+      success: true,
+      ...result,
+      message: `Updated location for ${result.successCount} jobs.`,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, ...result, message: `Updated location for ${result.successCount} jobs.` });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-update-location:', err);
     res.status(500).json({ success: false, message: err.message || 'Error bulk updating job location' });
@@ -2361,14 +2422,19 @@ jobRouter.post('/bulk-mark-non-job', requireAdminPermission('jobs.manage'), asyn
       return res.status(400).json({ success: false, message: 'Array of job IDs required' });
     }
     const result = await JobRepository.bulkMarkNonJob(ids, reason || 'Marked as Non-Job by administrator');
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Bulk Jobs Marked as Non-Job',
       target: `${result.successCount} Jobs marked as Non-Job`,
       status: 'Success'
+    }, 'POST /api/jobs/bulk-mark-non-job');
+    res.json({
+      success: true,
+      ...result,
+      message: `${result.successCount} records retained as Non-Job.`,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, ...result, message: `${result.successCount} records retained as Non-Job.` });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/bulk-mark-non-job:', err);
     res.status(500).json({ success: false, message: err.message || 'Error marking records as non-job' });
@@ -2386,14 +2452,18 @@ jobRouter.post('/convert-to-job', requireAdminPermission('jobs.manage'), async (
     if (!success) {
       return res.status(404).json({ success: false, message: 'Job not found in pending queue.' });
     }
-    await AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
       role: 'Admin',
       action: 'Record Converted to Job',
       target: `Job ID ${id}`,
       status: 'Success'
+    }, 'POST /api/jobs/convert-to-job');
+    res.json({
+      success: true,
+      message: 'Record converted to standard Job successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, message: 'Record converted to standard Job successfully.' });
   } catch (err: any) {
     console.error('Error in POST /api/jobs/convert-to-job:', err);
     res.status(500).json({ success: false, message: err.message || 'Error converting record to job' });

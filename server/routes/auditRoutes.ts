@@ -4,7 +4,12 @@ import { requireAdminPermission, requireAuth, authMiddleware } from '../auth/aut
 
 export const auditRouter = Router();
 
-auditRouter.use(authMiddleware);
+auditRouter.use((req: any, res, next) => {
+  if (req.user) {
+    return next();
+  }
+  return authMiddleware(req, res, next);
+});
 
 // Get audit logs (Admin Only)
 auditRouter.get('/', requireAdminPermission('audit.view'), async (req, res) => {
@@ -12,6 +17,7 @@ auditRouter.get('/', requireAdminPermission('audit.view'), async (req, res) => {
     const logs = await AuditRepository.getAll();
     res.json({ success: true, logs });
   } catch (err: any) {
+    console.error('[AuditRoutes] Failed to fetch durable audit logs:', err?.message || err);
     res.status(500).json({ success: false, message: err.message || 'Error fetching audit logs' });
   }
 });
@@ -25,7 +31,7 @@ auditRouter.post('/', requireAuth, async (req: any, res) => {
     const { action, target, status, details, metadata } = req.body || {};
 
     // Ignore any client-supplied actor identity fields (user, role, userId, admin, etc.)
-    await AuditRepository.add({
+    const saved = await AuditRepository.add({
       user: actorUser,
       role: actorRole,
       action: typeof action === 'string' && action.trim() ? action.trim() : 'General Action',
@@ -33,8 +39,9 @@ auditRouter.post('/', requireAuth, async (req: any, res) => {
       status: status === 'Warning' || status === 'Error' ? status : 'Success',
       details: details || metadata
     });
-    res.json({ success: true });
+    res.json({ success: true, log: saved });
   } catch (err: any) {
+    console.error('[AuditRoutes] Failed to persist durable audit log:', err?.message || err);
     res.status(500).json({ success: false, message: err.message || 'Error persisting audit log' });
   }
 });

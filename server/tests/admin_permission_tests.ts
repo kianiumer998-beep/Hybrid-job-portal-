@@ -469,7 +469,7 @@ async function runAdminPermissionTests() {
 
     await runTest('Concurrent Cross-Demotion Race: at least 1 Super Admin strictly preserved & failed request writes no audit log', async () => {
       // Ensure ONLY sa1 and sa2 are Super Admins right now
-      const beforeAuditCount = AuditRepository.getAll().length;
+      const beforeAuditCount = (await AuditRepository.getAll()).length;
 
       // Fire 2 simultaneous demotion requests targeting sa1 and sa2 simultaneously
       const [resA, resB] = await Promise.all([
@@ -496,7 +496,8 @@ async function runAdminPermissionTests() {
       const remainingSuperAdmins = allUsersAfter.filter(u => u && u.role === 'Super Admin');
       assert.strictEqual(remainingSuperAdmins.length, 1, 'Exactly 1 Super Admin must remain after concurrent cross-demotion');
 
-      const roleUpdateAudits = AuditRepository.getAll().slice(0, Math.max(0, AuditRepository.getAll().length - beforeAuditCount))
+      const afterAuditLogs = await AuditRepository.getAll();
+      const roleUpdateAudits = afterAuditLogs.slice(0, Math.max(0, afterAuditLogs.length - beforeAuditCount))
         .filter((e: any) => e.action === 'User Role Updated');
       assert.strictEqual(roleUpdateAudits.length, 1, 'Only the committed role update may produce an audit log entry');
 

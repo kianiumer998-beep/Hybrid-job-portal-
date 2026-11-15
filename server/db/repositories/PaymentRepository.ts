@@ -281,6 +281,8 @@ export class PaymentRepository {
     transaction: any | null;
     refundReferenceId?: string;
     reason?: string;
+    auditPersisted?: boolean;
+    auditWarning?: string;
   }> {
     const lookupKey = String(txIdOrRef || options?.idempotencyKey || '').trim();
     if (!lookupKey) {
@@ -486,35 +488,34 @@ export class PaymentRepository {
         adminNote: `Wallet payment of ${originalAmount} ${tx.currency || 'PKR'} automatically restored due to campaign creation failure (${effectiveReason}). Ref: ${refundReferenceId}`
       });
 
-      try {
-        AuditRepository.add({
-          user: options?.actorName || tx.userName || user.name || 'Advertiser',
-          role: 'Advertiser',
-          action: 'Ad Payment Compensated (Wallet Refund)',
-          target: `Transaction ${tx.transactionId || tx.id} (${originalAmount} ${tx.currency || 'PKR'})`,
-          status: 'Warning',
-          metadata: {
-            walletTxId: tx.id,
-            transactionId: tx.transactionId,
-            refundReferenceId,
-            userId: tx.userId,
-            originalChargedAmount: originalAmount,
-            restoredAmount: originalAmount,
-            balanceBeforeRefund: currentBal,
-            balanceAfterRefund: restoredBalance,
-            failureReason: effectiveReason,
-            adIdRef: options?.adIdRef || tx.adIdRef,
-            idempotencyKey: options?.idempotencyKey || tx.idempotencyKey
-          }
-        });
-      } catch {}
+      const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+        user: options?.actorName || tx.userName || user.name || 'Advertiser',
+        role: 'Advertiser',
+        action: 'Ad Payment Compensated (Wallet Refund)',
+        target: `Transaction ${tx.transactionId || tx.id} (${originalAmount} ${tx.currency || 'PKR'})`,
+        status: 'Warning',
+        metadata: {
+          walletTxId: tx.id,
+          transactionId: tx.transactionId,
+          refundReferenceId,
+          userId: tx.userId,
+          originalChargedAmount: originalAmount,
+          restoredAmount: originalAmount,
+          balanceBeforeRefund: currentBal,
+          balanceAfterRefund: restoredBalance,
+          failureReason: effectiveReason,
+          adIdRef: options?.adIdRef || tx.adIdRef,
+          idempotencyKey: options?.idempotencyKey || tx.idempotencyKey
+        }
+      }, 'PaymentRepository.compensateAdvertisementPayment');
 
       return {
         compensated: true,
         alreadyCompensated: false,
         restoredAmount: originalAmount,
         transaction: updatedTx,
-        refundReferenceId
+        refundReferenceId,
+        ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
       };
     } finally {
       activeCompensationLocks.delete(lockKey);

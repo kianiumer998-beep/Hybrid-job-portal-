@@ -602,33 +602,37 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
+    let auditOutcome: { persisted: boolean; auditWarning?: string } | null = null;
     if (isAdmin) {
       const membershipChanged = ['plan', 'membershipStatus', 'paymentStatus', 'autoRenew', 'expiryDate', 'activationDate', 'renewalCount']
         .some(field => Object.prototype.hasOwnProperty.call(finalUpdates, field));
-      try {
-        AuditRepository.add({
-          user: req.user?.name || req.user?.email || 'Administrator',
-          role: req.user?.role || 'Admin',
-          action: membershipChanged ? 'Admin User Membership Updated' : 'Admin User Profile Updated',
-          target: `${updated.email || updated.id} (${updated.id})`,
-          status: 'Success',
-          metadata: {
-            actorId: currentUserId,
-            targetUserId: updated.id,
-            updatedFields: Object.keys(finalUpdates),
-            plan: updated.plan,
-            membershipStatus: updated.membershipStatus,
-            paymentStatus: updated.paymentStatus,
-            expiryDate: updated.expiryDate
-          }
-        });
-      } catch (auditErr) {
-        console.warn('[userRoutes] Failed to log user update audit entry:', auditErr);
-      }
+      auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+        user: req.user?.name || req.user?.email || 'Administrator',
+        role: req.user?.role || 'Admin',
+        action: membershipChanged ? 'Admin User Membership Updated' : 'Admin User Profile Updated',
+        target: `${updated.email || updated.id} (${updated.id})`,
+        status: 'Success',
+        metadata: {
+          actorId: currentUserId,
+          targetUserId: updated.id,
+          updatedFields: Object.keys(finalUpdates),
+          plan: updated.plan,
+          membershipStatus: updated.membershipStatus,
+          paymentStatus: updated.paymentStatus,
+          expiryDate: updated.expiryDate
+        }
+      }, 'PUT /api/users/:id');
     }
 
     const { passwordHash, salt, password, ...safeUser } = updated;
-    res.json({ success: true, user: safeUser, message: 'User profile updated successfully!' });
+    res.json({
+      success: true,
+      user: safeUser,
+      message: 'User profile updated successfully!',
+      ...(auditOutcome && !auditOutcome.persisted
+        ? { auditPersisted: false, auditWarning: auditOutcome.auditWarning }
+        : {})
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating user' });
   }
@@ -690,27 +694,24 @@ userRouter.delete('/:id', requireAdminPermission('users.manage'), async (req: an
       return res.status(404).json({ success: false, message: 'User not found or already deleted.' });
     }
 
-    try {
-      AuditRepository.add({
-        user: req.user?.name || req.user?.email || 'Administrator',
-        role: req.user?.role || 'Admin',
-        action: 'User Account Deleted',
-        target: `${targetUser.email || targetId} (${targetId})`,
-        status: 'Success',
-        metadata: {
-          actorId,
-          targetUserId: targetId,
-          targetRole: targetUser.role
-        }
-      });
-    } catch (auditErr) {
-      console.warn('[userRoutes] Failed to log user deletion audit entry:', auditErr);
-    }
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: req.user?.name || req.user?.email || 'Administrator',
+      role: req.user?.role || 'Admin',
+      action: 'User Account Deleted',
+      target: `${targetUser.email || targetId} (${targetId})`,
+      status: 'Success',
+      metadata: {
+        actorId,
+        targetUserId: targetId,
+        targetRole: targetUser.role
+      }
+    }, 'DELETE /api/users/:id');
 
     return res.json({
       success: true,
       deletedId: targetId,
-      message: 'User account permanently deleted.'
+      message: 'User account permanently deleted.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message || 'Error deleting user' });

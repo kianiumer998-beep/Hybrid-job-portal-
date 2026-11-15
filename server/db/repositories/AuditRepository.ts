@@ -10,6 +10,8 @@ let inMemoryAuditStore: any[] = [];
 let indexInitPromise: Promise<void> | null = null;
 let migrationPromise: Promise<number> | null = null;
 
+export const SAFE_AUDIT_WARNING = 'Audit log could not be saved. The primary operation was completed.';
+
 export interface AuditWriteOutcome {
   persisted: boolean;
   record?: any;
@@ -212,6 +214,29 @@ export class AuditRepository {
         const useTimeout = AuditRepository.useRealMongo();
         let migratedCount = 0;
 
+        const verifyExistingMatches = async (
+          index: number,
+          record: Record<string, any>,
+          contextLabel: string
+        ) => {
+          const findPromise = coll.findOne({ id: record.id });
+          const existing = useTimeout
+            ? await withMongoTimeout(findPromise, 10000, 'verify existing migration audit record')
+            : await findPromise;
+
+          if (!existing) {
+            throw new Error(
+              `Data Integrity Error: ${contextLabel} at index ${index} (id: ${record.id}), but existing record was not found.`
+            );
+          }
+
+          if (!auditRecordsMatch(existing, record)) {
+            throw new Error(
+              `Data Integrity Error: ${contextLabel} conflict at index ${index} (id: ${record.id}): existing record does not match legacy source record.`
+            );
+          }
+        };
+
         for (const { index, record } of normalizedRecords) {
           let res: any;
           try {
@@ -234,23 +259,7 @@ export class AuditRepository {
               );
             }
 
-            const findPromise = coll.findOne({ id: record.id });
-            const existing = useTimeout
-              ? await withMongoTimeout(findPromise, 10000, 'verify concurrent migration audit record')
-              : await findPromise;
-
-            if (!existing) {
-              throw new Error(
-                `Data Integrity Error: Duplicate-key reported at index ${index} (id: ${record.id}), but existing record was not found.`
-              );
-            }
-
-            if (!auditRecordsMatch(existing, record)) {
-              throw new Error(
-                `Data Integrity Error: Duplicate-key conflict at index ${index} (id: ${record.id}): existing record does not match source record.`
-              );
-            }
-
+            await verifyExistingMatches(index, record, 'Duplicate-key');
             // Concurrent instance already persisted the exact expected record
             continue;
           }
@@ -267,6 +276,11 @@ export class AuditRepository {
             throw new Error(
               `Migration Verification Error: Legacy audit record at index ${index} (id: ${record.id}) was neither inserted nor matched.`
             );
+          }
+
+          if (upserted === 0 && matched > 0) {
+            await verifyExistingMatches(index, record, 'Existing audit record');
+            continue;
           }
 
           if (upserted > 0) {
@@ -400,7 +414,7 @@ export class AuditRepository {
       console.error(`${prefix} Durable audit log persistence failed for "${entry?.action}":`, errMsg);
       return {
         persisted: false,
-        auditWarning: `Audit log could not be persisted durably: ${errMsg}`
+        auditWarning: SAFE_AUDIT_WARNING
       };
     }
   }

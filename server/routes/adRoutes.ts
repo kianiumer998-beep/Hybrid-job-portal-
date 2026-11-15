@@ -297,7 +297,10 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
             restoredAmount: compensation.restoredAmount,
             refundReferenceId: compensation.refundReferenceId,
             transaction: compensation.transaction,
-            message: `${creationErr?.message || 'Error creating advertisement'} — Wallet payment of PKR ${verifiedTx.amount} has been safely restored.`
+            message: `${creationErr?.message || 'Error creating advertisement'} — Wallet payment of PKR ${verifiedTx.amount} has been safely restored.`,
+            ...(compensation.auditPersisted === false
+              ? { auditPersisted: false, auditWarning: compensation.auditWarning }
+              : {})
           });
         }
 
@@ -305,38 +308,42 @@ adRouter.post('/', requireAuth, async (req: any, res) => {
           PaymentRepository.linkAdvertisement(verifiedTx.id, newAd.id, newAd.title);
         } catch {}
 
-        try {
-          AuditRepository.add({
-            user: req.user?.name || 'Advertiser',
-            role: req.user?.role || 'Advertiser',
-            action: 'Ad Campaign Created',
-            target: newAd.title,
-            status: 'Success',
-            metadata: {
-              adId: newAd.id,
-              walletTxId: verifiedTx.id,
-              transactionId: verifiedTx.transactionId,
-              amount: calc.finalPrice
-            }
-          });
-        } catch {}
-
-        return res.status(201).json({ success: true, advertisement: newAd });
-      }
-
-      const newAd = await AdRepository.createAsync(adData);
-
-      try {
-        AuditRepository.add({
+        const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
           user: req.user?.name || 'Advertiser',
           role: req.user?.role || 'Advertiser',
           action: 'Ad Campaign Created',
           target: newAd.title,
-          status: 'Success'
-        });
-      } catch {}
+          status: 'Success',
+          metadata: {
+            adId: newAd.id,
+            walletTxId: verifiedTx.id,
+            transactionId: verifiedTx.transactionId,
+            amount: calc.finalPrice
+          }
+        }, 'POST /api/ads (wallet)');
 
-      return res.status(201).json({ success: true, advertisement: newAd });
+        return res.status(201).json({
+          success: true,
+          advertisement: newAd,
+          ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+        });
+      }
+
+      const newAd = await AdRepository.createAsync(adData);
+
+      const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+        user: req.user?.name || 'Advertiser',
+        role: req.user?.role || 'Advertiser',
+        action: 'Ad Campaign Created',
+        target: newAd.title,
+        status: 'Success'
+      }, 'POST /api/ads');
+
+      return res.status(201).json({
+        success: true,
+        advertisement: newAd,
+        ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+      });
     } finally {
       if (creationLockKey) {
         activeAdCreationLocks.delete(creationLockKey);

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { CurrencyRepository } from '../db/repositories/CurrencyRepository';
 import { requireAdminPermission } from '../auth/authManager';
-import { Database } from '../db/database';
+import { AuditRepository } from '../db/repositories/AuditRepository';
 
 export const currencyRouter = Router();
 
@@ -28,19 +28,20 @@ currencyRouter.put(['/', '/config'], requireAdminPermission('finance.manage'), a
   try {
     const savedConfig = await CurrencyRepository.saveConfig(req.body);
 
-    Database.addAuditLog({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
       role: (req as any).user?.role || 'Admin',
       action: 'Currency Exchange Configuration Updated',
       target: 'System Settings',
       status: 'Success'
-    });
+    }, 'PUT /api/currency/config');
 
     res.json({
       success: true,
       isConfigured: true,
       config: savedConfig,
-      message: 'Currency exchange configuration saved successfully to database.'
+      message: 'Currency exchange configuration saved successfully to database.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('[Currency Route Error] PUT /api/currency/config:', err);

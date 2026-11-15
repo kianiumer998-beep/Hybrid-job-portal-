@@ -39,15 +39,20 @@ pricingRouter.put('/', requireAdminPermission('finance.manage'), async (req, res
   try {
     const updated = await PricingRepository.update(req.body);
 
-    AuditRepository.add({
-      user: 'Administrator',
-      role: 'Finance Manager',
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+      user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+      role: (req as any).user?.role || 'Finance Manager',
       action: 'Pricing Configuration Updated',
       target: 'Dynamic Job & Ad Pricing Matrix',
       status: 'Success'
-    });
+    }, 'PUT /api/pricing');
 
-    res.json({ success: true, pricing: updated, message: 'Pricing configuration updated successfully!' });
+    res.json({
+      success: true,
+      pricing: updated,
+      message: 'Pricing configuration updated successfully!',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating pricing' });
   }

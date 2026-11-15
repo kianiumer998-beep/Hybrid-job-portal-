@@ -10,7 +10,7 @@ process.env.NODE_ENV = 'test';
 process.env.MONGODB_URI = '';
 process.env.MONGO_URI = '';
 
-import { AuditRepository } from '../db/repositories/AuditRepository';
+import { AuditRepository, SAFE_AUDIT_WARNING } from '../db/repositories/AuditRepository';
 import { UserRepository } from '../db/repositories/UserRepository';
 import { PaymentRepository } from '../db/repositories/PaymentRepository';
 import { PaymentSettingsRepository } from '../db/repositories/PaymentSettingsRepository';
@@ -18,13 +18,27 @@ import { ApplicationRepository } from '../db/repositories/ApplicationRepository'
 import { JobRepository } from '../db/repositories/JobRepository';
 import { JobVisibilityRepository } from '../db/repositories/JobVisibilityRepository';
 import { NotificationRepository } from '../db/repositories/NotificationRepository';
+import { AdRepository } from '../db/repositories/AdRepository';
+import { PricingRepository } from '../db/repositories/PricingRepository';
+import { CurrencyRepository } from '../db/repositories/CurrencyRepository';
+import { SeoRepository } from '../db/repositories/SeoRepository';
+import { SystemSettingsRepository } from '../db/repositories/SystemSettingsRepository';
 import { Database } from '../db/database';
 import { auditRouter } from '../routes/auditRoutes';
 import { transactionRouter } from '../routes/transactionRoutes';
 import { applicationRouter } from '../routes/applicationRoutes';
 import { jobRouter } from '../routes/jobRoutes';
+import { userRouter } from '../routes/userRoutes';
+import { adRouter } from '../routes/adRoutes';
+import { pricingRouter } from '../routes/pricingRoutes';
+import { currencyRouter } from '../routes/currencyRoutes';
+import { seoRouter } from '../routes/seoRoutes';
+import { paymentSettingsRouter } from '../routes/paymentSettingsRoutes';
+import { systemSettingsRouter } from '../routes/systemSettingsRoutes';
+import { jobVisibilityRouter } from '../routes/jobVisibilityRoutes';
 import { createToken } from '../auth/authManager';
 import { cvStorage } from '../services/cvStorage';
+import { INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
 
 const AUDIT_JSON_PATH = path.resolve(process.cwd(), 'data', 'audit_logs.json');
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -442,7 +456,7 @@ async function runAuditDurableTests() {
           await AuditRepository.migrateLegacyRecords();
         } catch (err: any) {
           conflictFailed = true;
-          assert.ok(err.message.includes('does not match source record'));
+          assert.ok(err.message.includes('does not match legacy source record'));
         }
         assert.strictEqual(conflictFailed, true);
         assert.strictEqual(AuditRepository.isMigrationComplete(), false);
@@ -617,7 +631,7 @@ async function runAuditDurableTests() {
           assert.strictEqual(jsonRes.success, true);
           assert.ok(Array.isArray(jsonRes.logs));
 
-          // Failing audit write on POST /api/audit reports explicit 500 failure
+          // Failing audit write on POST /api/audit reports explicit 500 failure without raw DB leakage
           mockColl.options.failInsert = true;
           const resFailPost = await fetch(baseUrl, {
             method: 'POST',
@@ -628,6 +642,10 @@ async function runAuditDurableTests() {
             body: JSON.stringify({ action: 'Fail Durable Write', target: 'Portal' })
           });
           assert.strictEqual(resFailPost.status, 500);
+          const failPostJson = (await resFailPost.json()) as any;
+          assert.strictEqual(failPostJson.success, false);
+          assert.strictEqual(failPostJson.message, 'Failed to persist audit log.');
+          assert.ok(!String(failPostJson.message).includes('Simulated MongoDB'));
         } finally {
           await new Promise<void>((resolve) => server.close(() => resolve()));
         }
@@ -695,9 +713,9 @@ async function runAuditDurableTests() {
       const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
 
       try {
-        // Force AuditRepository.add to reject (simulating MongoDB audit persistence failure)
+        // Force AuditRepository.add to reject (simulating raw MongoDB failure with internal host details)
         AuditRepository.add = async () => {
-          throw new Error('Simulated durable audit MongoDB write failure');
+          throw new Error('MongoServerSelectionError: connection timed out to primary-rs0.internal.mongo:27017');
         };
         NotificationRepository.createAsync = async (d: any) => d;
         JobVisibilityRepository.isUserPremiumAuthoritative = async () => true;
@@ -750,7 +768,8 @@ async function runAuditDurableTests() {
           assert.strictEqual(data.success, true);
           assert.ok(data.transaction?.id);
           assert.strictEqual(data.auditPersisted, false);
-          assert.ok(typeof data.auditWarning === 'string' && data.auditWarning.includes('Simulated durable audit'));
+          assert.strictEqual(data.auditWarning, SAFE_AUDIT_WARNING);
+          assert.ok(!String(data.auditWarning).includes('primary-rs0.internal.mongo'), 'Raw DB hostname must not leak publicly');
           assert.strictEqual(createdTransactions.length, 1, 'Payment must only be persisted once');
         });
 
@@ -797,7 +816,8 @@ async function runAuditDurableTests() {
           assert.strictEqual(data.success, true);
           assert.ok(data.application?.id);
           assert.strictEqual(data.auditPersisted, false);
-          assert.ok(typeof data.auditWarning === 'string' && data.auditWarning.includes('Simulated durable audit'));
+          assert.strictEqual(data.auditWarning, SAFE_AUDIT_WARNING);
+          assert.ok(!String(data.auditWarning).includes('primary-rs0.internal.mongo'), 'Raw DB hostname must not leak publicly');
           assert.strictEqual(createdApplications.length, 1, 'Application must only be created once');
         });
 
@@ -877,6 +897,348 @@ async function runAuditDurableTests() {
         ApplicationRepository.getAllAsync = origAppGetAll;
         UserRepository.getByIdAsync = origUserGetById;
         cvStorage.exists = origCvExists;
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    })();
+
+    // 20-23. Existing-ID migration matching vs conflict, incomplete state, and retry after resolution
+    await runCase('Test 20: Existing matching ID is accepted cleanly without duplicate insertion', async () => {
+      const legacyRec = {
+        id: 'existing-match-1',
+        timestamp: '2026-02-01T09:30:00.000Z',
+        user: 'Admin User',
+        role: 'Super Admin',
+        action: 'Existing Matched Action',
+        target: 'Portal Setting',
+        status: 'Success',
+        metadata: { version: 2, tag: 'alpha' },
+        extraLegacyNote: 'preserved'
+      };
+      Database.getAuditLogs = () => [legacyRec];
+      try {
+        AuditRepository.resetTestStore();
+        // Pre-populate Mongo collection with same logical record plus Mongo _id and different property ordering
+        const preExistingInDb = {
+          _id: 'mongo-objectid-xyz',
+          extraLegacyNote: 'preserved',
+          metadata: { tag: 'alpha', version: 2 },
+          status: 'Success',
+          target: 'Portal Setting',
+          action: 'Existing Matched Action',
+          role: 'Super Admin',
+          user: 'Admin User',
+          timestamp: '2026-02-01T09:30:00.000Z',
+          id: 'existing-match-1'
+        };
+        const mockColl = createMockAuditCollection([preExistingInDb]);
+        AuditRepository.setMockCollection(mockColl);
+
+        const migratedCount = await AuditRepository.migrateLegacyRecords();
+        assert.strictEqual(migratedCount, 0, 'Pre-existing matching record must not be newly inserted');
+        assert.strictEqual(AuditRepository.isMigrationComplete(), true);
+        assert.strictEqual(mockColl.store.size, 1);
+      } finally {
+        Database.getAuditLogs = origGetAuditLogs;
+      }
+    });
+
+    await runCase('Test 21: Existing conflicting ID stops migration, preserves existing doc, stays incomplete, and retries cleanly when resolved', async () => {
+      const legacyRec = {
+        id: 'existing-conflict-1',
+        timestamp: '2026-02-01T09:30:00.000Z',
+        user: 'Legacy Actor',
+        role: 'Admin',
+        action: 'Legacy Action Original',
+        target: 'Target A',
+        status: 'Success'
+      };
+      const conflictingDbDoc = {
+        _id: 'mongo-obj-conflict',
+        id: 'existing-conflict-1',
+        timestamp: '2026-02-01T09:30:00.000Z',
+        user: 'Other Actor',
+        role: 'Super Admin',
+        action: 'Different Conflicting Action',
+        target: 'Target B',
+        status: 'Warning'
+      };
+
+      Database.getAuditLogs = () => [legacyRec];
+      try {
+        AuditRepository.resetTestStore();
+        const mockColl = createMockAuditCollection([conflictingDbDoc]);
+        AuditRepository.setMockCollection(mockColl);
+
+        let conflictErrMsg = '';
+        try {
+          await AuditRepository.getAll();
+        } catch (err: any) {
+          conflictErrMsg = err.message;
+        }
+        assert.ok(conflictErrMsg.includes('Existing audit record conflict'), `Expected conflict error, got: ${conflictErrMsg}`);
+        assert.ok(conflictErrMsg.includes('existing-conflict-1'));
+        assert.strictEqual(AuditRepository.isMigrationComplete(), false, 'Migration MUST remain incomplete on conflict');
+        assert.strictEqual(mockColl.store.get('existing-conflict-1')?.action, 'Different Conflicting Action', 'Conflicting document must NOT be overwritten');
+
+        // Resolve conflict and verify retry succeeds cleanly
+        mockColl.store.set('existing-conflict-1', JSON.parse(JSON.stringify(legacyRec)));
+        const allAfterResolve = await AuditRepository.getAll();
+        assert.strictEqual(AuditRepository.isMigrationComplete(), true, 'Migration completes once conflict is resolved');
+        assert.strictEqual(allAfterResolve.length, 1);
+        assert.strictEqual(allAfterResolve[0].action, 'Legacy Action Original');
+      } finally {
+        Database.getAuditLogs = origGetAuditLogs;
+      }
+    });
+
+    // 22. Public audit warning sanitization & server-side diagnostic logging
+    await runCase('Test 22: Public auditWarning hides raw DB details while server logs retain diagnostics', async () => {
+      const origAuditAdd = AuditRepository.add;
+      const origConsoleError = console.error;
+      const capturedErrors: string[] = [];
+
+      try {
+        console.error = (...args: any[]) => {
+          capturedErrors.push(args.map((a) => String(a)).join(' '));
+        };
+        AuditRepository.add = async () => {
+          throw new Error('MongoNetworkError: failed to connect to cluster0-shard-00-01.abc.mongodb.net:27017');
+        };
+
+        const outcome = await AuditRepository.addAfterPrimaryOperation(
+          { action: 'Sensitive Op', target: 'Users', user: 'Admin', role: 'Super Admin' },
+          'PUT /api/users/:id'
+        );
+
+        assert.strictEqual(outcome.persisted, false);
+        assert.strictEqual(outcome.auditWarning, SAFE_AUDIT_WARNING);
+        assert.ok(!outcome.auditWarning!.includes('mongodb.net'));
+        assert.ok(!outcome.auditWarning!.includes('27017'));
+        assert.ok(!outcome.auditWarning!.includes('MongoNetworkError'));
+
+        const loggedText = capturedErrors.join('\n');
+        assert.ok(loggedText.includes('PUT /api/users/:id'), 'Server log must preserve route context');
+        assert.ok(loggedText.includes('cluster0-shard-00-01.abc.mongodb.net:27017'), 'Server log must preserve internal DB diagnostic detail');
+      } finally {
+        AuditRepository.add = origAuditAdd;
+        console.error = origConsoleError;
+      }
+    });
+
+    // 23-26. Remaining non-scraper routes & PaymentRepository compensation audit-failure safety
+    await (async () => {
+      const origAuditAdd = AuditRepository.add;
+      const origDbAddAuditLog = Database.addAuditLog;
+      const origUserGetById = UserRepository.getByIdAsync;
+      const origUserUpdate = UserRepository.updateAsync;
+      const origUserCredit = UserRepository.creditWalletBalanceAsync;
+      const origAdCreate = AdRepository.createAsync;
+      const origPricingUpdate = PricingRepository.update;
+      const origCurrencySave = CurrencyRepository.saveConfig;
+      const origSeoSave = SeoRepository.saveConfig;
+      const origPaySettingsUpdate = PaymentSettingsRepository.updateSettings;
+      const origSysWhatsAppSave = SystemSettingsRepository.saveWhatsAppSupportConfig;
+      const origSysWhatsAppGet = SystemSettingsRepository.getWhatsAppSupportConfig;
+      const origVisSavePolicy = JobVisibilityRepository.savePolicy;
+      const origPayGetById = PaymentRepository.getByIdAsync;
+      const origPayUpdate = PaymentRepository.updateAsync;
+      const origDbGetAds = Database.getAds;
+
+      let directJsonAuditCalls = 0;
+      let userUpdateCalls = 0;
+      let walletCreditCalls = 0;
+
+      const adminUser = {
+        id: 'stepd12-admin-1',
+        userId: 'stepd12-admin-1',
+        name: 'StepD12 Admin',
+        email: 'stepd12-admin@test.local',
+        role: 'Super Admin',
+        permissions: ['*']
+      };
+
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        (req as any).user = adminUser;
+        next();
+      });
+      app.use('/api/users', userRouter);
+      app.use('/api/ads', adRouter);
+      app.use('/api/pricing', pricingRouter);
+      app.use('/api/currency', currencyRouter);
+      app.use('/api/seo', seoRouter);
+      app.use('/api/payment-settings', paymentSettingsRouter);
+      app.use('/api/system-settings', systemSettingsRouter);
+      app.use('/api/visibility', jobVisibilityRouter);
+
+      const server: Server = createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, resolve));
+      const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+
+      try {
+        Database.addAuditLog = () => {
+          directJsonAuditCalls++;
+          throw new Error('Direct Database.addAuditLog must not be called by updated routes');
+        };
+        AuditRepository.add = async () => {
+          throw new Error('MongoWriteConcernError: replica set primary stepped down at db-node-2.internal:27017');
+        };
+        UserRepository.getByIdAsync = async (id: string) => {
+          if (id === adminUser.id) return adminUser;
+          if (id === 'target-user-1') {
+            return { id: 'target-user-1', name: 'Target User', email: 'target@test.local', role: 'Member', walletBalance: 500 };
+          }
+          return null;
+        };
+
+        await runCase('Test 23: Audit failure after PUT /api/users/:id preserves user update without false 500', async () => {
+          UserRepository.updateAsync = async (id: string, updates: any) => {
+            userUpdateCalls++;
+            return { id, name: updates.name || 'Target User', email: 'target@test.local', role: 'Member', ...updates };
+          };
+
+          const res = await fetch(`${baseUrl}/api/users/target-user-1`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'Updated Target User' })
+          });
+          const data = (await res.json()) as any;
+          assert.strictEqual(res.status, 200, `Expected 200, got ${res.status}: ${JSON.stringify(data)}`);
+          assert.strictEqual(data.success, true);
+          assert.strictEqual(data.user?.name, 'Updated Target User');
+          assert.strictEqual(data.auditPersisted, false);
+          assert.strictEqual(data.auditWarning, SAFE_AUDIT_WARNING);
+          assert.ok(!String(data.auditWarning).includes('db-node-2.internal'));
+          assert.strictEqual(userUpdateCalls, 1, 'User update must only execute once');
+        });
+
+        await runCase('Test 24: Audit failure after ad & configuration updates preserves success without direct JSON writes', async () => {
+          AdRepository.createAsync = async (payload: any) => ({ ...payload, id: 'ad-stepd12-1' });
+          PricingRepository.update = async (payload: any) => ({ ...payload, updatedAt: new Date().toISOString() });
+          CurrencyRepository.saveConfig = async (payload: any) => payload;
+          SeoRepository.saveConfig = async (payload: any) => ({ ...payload, siteTitle: payload.siteTitle || 'Updated Site' });
+          PaymentSettingsRepository.updateSettings = async (payload: any) => ({
+            isConfigured: true,
+            methods: { easypaisa: { enabled: true } },
+            ...payload
+          });
+          SystemSettingsRepository.getWhatsAppSupportConfig = async () => ({
+            enabled: false,
+            phoneNumber: '',
+            defaultMessage: 'Hi',
+            agentName: 'Support',
+            supportHoursText: '9-5',
+            position: 'bottom-right',
+            showGreetingBubble: false,
+            greetingText: 'Hello'
+          });
+          SystemSettingsRepository.saveWhatsAppSupportConfig = async (cfg: any) => cfg;
+          JobVisibilityRepository.savePolicy = async (source: any, rules: any) => ({
+            source,
+            fieldRules: rules,
+            updatedAt: new Date().toISOString()
+          });
+
+          const adRes = await fetch(`${baseUrl}/api/ads`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: 'StepD12 Banner Ad',
+              clientName: 'Acme',
+              placement: 'sidebar-top',
+              targetUrl: 'https://example.com',
+              type: 'banner'
+            })
+          });
+          const adData = (await adRes.json()) as any;
+          assert.strictEqual(adRes.status, 201, `Ad create failed: ${JSON.stringify(adData)}`);
+          assert.strictEqual(adData.success, true);
+          assert.strictEqual(adData.auditPersisted, false);
+          assert.strictEqual(adData.auditWarning, SAFE_AUDIT_WARNING);
+
+          const endpoints: Array<{ method: string; url: string; body: any }> = [
+            { method: 'PUT', url: `${baseUrl}/api/pricing`, body: { featuredJobPrice: 2500 } },
+            { method: 'PUT', url: `${baseUrl}/api/currency/config`, body: INITIAL_CURRENCY_CONFIG },
+            { method: 'PUT', url: `${baseUrl}/api/seo/config`, body: { siteTitle: 'PakJobs Portal' } },
+            { method: 'PUT', url: `${baseUrl}/api/payment-settings`, body: { defaultMethod: 'easypaisa' } },
+            { method: 'PUT', url: `${baseUrl}/api/system-settings/communication`, body: { whatsAppSupportConfig: { agentName: 'Support Team' } } },
+            { method: 'POST', url: `${baseUrl}/api/visibility/policies`, body: { source: 'user_posted', fieldRules: { company: 'Free' } } }
+          ];
+
+          for (const ep of endpoints) {
+            const r = await fetch(ep.url, {
+              method: ep.method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ep.body)
+            });
+            const j = (await r.json()) as any;
+            assert.strictEqual(r.status, 200, `${ep.method} ${ep.url} failed: ${r.status} ${JSON.stringify(j)}`);
+            assert.strictEqual(j.success, true);
+            assert.strictEqual(j.auditPersisted, false);
+            assert.strictEqual(j.auditWarning, SAFE_AUDIT_WARNING);
+          }
+
+          assert.strictEqual(directJsonAuditCalls, 0, 'Direct Database.addAuditLog must NOT be used by any updated route');
+        });
+
+        await runCase('Test 25: Audit failure in PaymentRepository.compensateAdvertisementPayment executes wallet refund once with safe warning', async () => {
+          const mockTxState: Record<string, any> = {
+            'tx-comp-1': {
+              id: 'tx-comp-1',
+              transactionId: 'TXN-COMP-1',
+              userId: 'target-user-1',
+              userName: 'Target User',
+              type: 'Advertisement',
+              paymentMethod: 'Wallet Balance',
+              amount: 300,
+              currency: 'PKR',
+              status: 'Success'
+            }
+          };
+
+          Database.getAds = () => [];
+          PaymentRepository.getByIdAsync = async (id: string) =>
+            mockTxState[id] ? { ...mockTxState[id] } : null;
+          PaymentRepository.updateAsync = async (id: string, updates: any) => {
+            if (!mockTxState[id]) return null;
+            mockTxState[id] = { ...mockTxState[id], ...updates };
+            return { ...mockTxState[id] };
+          };
+          UserRepository.creditWalletBalanceAsync = async (_userId: string, amt: number) => {
+            walletCreditCalls++;
+            return { id: 'target-user-1', walletBalance: 500 + amt };
+          };
+
+          const compResult = await PaymentRepository.compensateAdvertisementPayment('tx-comp-1', {
+            authenticatedUserId: 'target-user-1',
+            isAdmin: false,
+            failureReason: 'Simulated ad creation failure'
+          });
+
+          assert.strictEqual(compResult.compensated, true);
+          assert.strictEqual(compResult.restoredAmount, 300);
+          assert.strictEqual(compResult.auditPersisted, false);
+          assert.strictEqual(compResult.auditWarning, SAFE_AUDIT_WARNING);
+          assert.strictEqual(walletCreditCalls, 1, 'Wallet refund credit must execute strictly once');
+        });
+      } finally {
+        AuditRepository.add = origAuditAdd;
+        Database.addAuditLog = origDbAddAuditLog;
+        UserRepository.getByIdAsync = origUserGetById;
+        UserRepository.updateAsync = origUserUpdate;
+        UserRepository.creditWalletBalanceAsync = origUserCredit;
+        AdRepository.createAsync = origAdCreate;
+        PricingRepository.update = origPricingUpdate;
+        CurrencyRepository.saveConfig = origCurrencySave;
+        SeoRepository.saveConfig = origSeoSave;
+        PaymentSettingsRepository.updateSettings = origPaySettingsUpdate;
+        SystemSettingsRepository.saveWhatsAppSupportConfig = origSysWhatsAppSave;
+        SystemSettingsRepository.getWhatsAppSupportConfig = origSysWhatsAppGet;
+        JobVisibilityRepository.savePolicy = origVisSavePolicy;
+        PaymentRepository.getByIdAsync = origPayGetById;
+        PaymentRepository.updateAsync = origPayUpdate;
+        Database.getAds = origDbGetAds;
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
     })();

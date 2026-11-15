@@ -56,15 +56,20 @@ jobVisibilityRouter.post('/policies', requireAdminPermission('settings.manage'),
     }
 
     const saved = await JobVisibilityRepository.savePolicy(source as JobSourceType, fieldRules, sourceKey);
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
+      role: (req as any).user?.role || 'Admin',
       action: 'Visibility Default Policy Updated',
       target: `Source: ${source}${sourceKey ? ` (${sourceKey})` : ''}`,
       status: 'Success'
-    });
+    }, 'POST /api/visibility/policies');
 
-    res.json({ success: true, policy: saved, message: 'Visibility policy saved successfully.' });
+    res.json({
+      success: true,
+      policy: saved,
+      message: 'Visibility policy saved successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
   } catch (err: any) {
     console.error('Error saving visibility policy:', err);
     res.status(500).json({ success: false, message: 'Failed to persist visibility policy.' });
@@ -92,15 +97,20 @@ jobVisibilityRouter.patch('/jobs/:id/visibility', requireAdminPermission('jobs.m
     }
 
     const updated = await JobRepository.update(id, { fieldVisibility });
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
+      role: (req as any).user?.role || 'Admin',
       action: 'Individual Job Visibility Updated',
       target: `Job: ${job.title} (${id})`,
       status: 'Success'
-    });
+    }, 'PATCH /api/visibility/jobs/:id/visibility');
 
-    res.json({ success: true, job: updated, message: 'Job visibility updated successfully.' });
+    res.json({
+      success: true,
+      job: updated,
+      message: 'Job visibility updated successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+    });
   } catch (err: any) {
     console.error('Error updating individual job visibility:', err);
     res.status(500).json({ success: false, message: 'Failed to update job visibility record.' });
@@ -162,20 +172,21 @@ jobVisibilityRouter.post('/jobs/bulk-visibility', requireAdminPermission('jobs.m
       }
     }
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || 'Administrator',
-      role: 'Admin',
+      role: (req as any).user?.role || 'Admin',
       action: 'Bulk Job Visibility Updated',
       target: `${successCount} jobs updated successfully (${failureCount} failed)`,
       status: failureCount === 0 ? 'Success' : 'Warning'
-    });
+    }, 'POST /api/visibility/jobs/bulk-visibility');
 
     res.json({
       success: failureCount === 0,
       successCount,
       failureCount,
       errors,
-      message: `Successfully updated visibility for ${successCount} jobs.${failureCount > 0 ? ` (${failureCount} failed)` : ''}`
+      message: `Successfully updated visibility for ${successCount} jobs.${failureCount > 0 ? ` (${failureCount} failed)` : ''}`,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('Error in bulk visibility update:', err);

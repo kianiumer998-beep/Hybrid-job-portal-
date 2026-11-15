@@ -39,7 +39,7 @@ paymentSettingsRouter.put('/', requireAdminPermission('payments.manage'), async 
     const user = (req as any).user;
     const updatedSettings = await PaymentSettingsRepository.updateSettings(req.body, user);
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: user?.name || user?.email || 'Administrator',
       role: user?.role || 'Payment Manager',
       action: 'Payment Settings Updated',
@@ -51,13 +51,14 @@ paymentSettingsRouter.put('/', requireAdminPermission('payments.manage'), async 
           .filter(([_, m]) => m.enabled)
           .map(([k]) => k)
       }
-    });
+    }, 'PUT /api/payment-settings');
 
     return res.json({
       success: true,
       configured: updatedSettings.isConfigured,
       settings: updatedSettings,
-      message: 'Payment settings saved and published successfully!'
+      message: 'Payment settings saved and published successfully!',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     const msg = err?.message || 'Failed to update payment settings.';

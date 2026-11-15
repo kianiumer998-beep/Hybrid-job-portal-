@@ -497,14 +497,19 @@ seoRouter.get('/config', async (req, res) => {
 seoRouter.put('/config', requireAdminPermission('seo.manage'), async (req, res) => {
   try {
     const updated = await SeoRepository.saveConfig(req.body);
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
       role: (req as any).user?.role || 'SEO Manager',
       action: 'SEO Configuration Updated',
       target: updated.siteTitle || 'Meta Settings',
       status: 'Success'
+    }, 'PUT /api/seo/config');
+    res.json({
+      success: true,
+      config: updated,
+      message: 'SEO configuration updated successfully!',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
-    res.json({ success: true, config: updated, message: 'SEO configuration updated successfully!' });
   } catch (err: any) {
     const isValidationError = Boolean(err?.message && err.message.startsWith('Validation Error'));
     res.status(isValidationError ? 400 : 500).json({ success: false, message: err.message || 'Error saving SEO config' });

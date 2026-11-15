@@ -156,7 +156,7 @@ systemSettingsRouter.put('/communication', requireAdminPermission('settings.mana
 
     const savedConfig = await SystemSettingsRepository.saveWhatsAppSupportConfig(sanitizedConfig);
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: user?.name || user?.email || 'Administrator',
       role: user?.role || 'System Manager',
       action: 'WhatsApp Support Settings Updated',
@@ -165,12 +165,13 @@ systemSettingsRouter.put('/communication', requireAdminPermission('settings.mana
       metadata: {
         updatedFields: Object.keys(sanitizedConfig)
       }
-    });
+    }, 'PUT /api/system-settings/communication');
 
     return res.json({
       success: true,
       whatsAppSupportConfig: savedConfig,
-      message: 'WhatsApp support configuration updated successfully.'
+      message: 'WhatsApp support configuration updated successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('[SystemSettingsRoutes] Error updating communication settings:', err);
@@ -311,7 +312,7 @@ systemSettingsRouter.put('/custom-form-fields', requireAdminPermission('settings
 
     const savedFields = await SystemSettingsRepository.saveCustomFormFields(validation.fields);
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: user?.name || user?.email || 'Administrator',
       role: user?.role || 'System Manager',
       action: 'Custom Registration Form Fields Updated',
@@ -320,12 +321,13 @@ systemSettingsRouter.put('/custom-form-fields', requireAdminPermission('settings
       metadata: {
         fieldCount: savedFields.length
       }
-    });
+    }, 'PUT /api/system-settings/custom-form-fields');
 
     return res.json({
       success: true,
       customFormFields: savedFields,
-      message: 'Custom registration form fields updated successfully.'
+      message: 'Custom registration form fields updated successfully.',
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     console.error('[SystemSettingsRoutes] Error updating custom form fields:', err);
@@ -352,8 +354,9 @@ systemSettingsRouter.post('/custom-form-fields/import-legacy', requireAdminPermi
 
     const result = await SystemSettingsRepository.importCustomFormFieldsIfUnconfigured(validation.fields);
 
+    let auditOutcome: { persisted: boolean; auditWarning?: string } | null = null;
     if (result.saved) {
-      AuditRepository.add({
+      auditOutcome = await AuditRepository.addAfterPrimaryOperation({
         user: user?.name || user?.email || 'Administrator',
         role: user?.role || 'System Manager',
         action: 'Legacy Custom Registration Form Fields Imported',
@@ -362,7 +365,7 @@ systemSettingsRouter.post('/custom-form-fields/import-legacy', requireAdminPermi
         metadata: {
           fieldCount: result.fields.length
         }
-      });
+      }, 'POST /api/system-settings/custom-form-fields/import-legacy');
     }
 
     return res.json({
@@ -371,7 +374,10 @@ systemSettingsRouter.post('/custom-form-fields/import-legacy', requireAdminPermi
       customFormFields: result.fields,
       message: result.saved
         ? 'Legacy custom registration form fields imported successfully.'
-        : 'System settings already configured. Existing configuration preserved.'
+        : 'System settings already configured. Existing configuration preserved.',
+      ...(auditOutcome && !auditOutcome.persisted
+        ? { auditPersisted: false, auditWarning: auditOutcome.auditWarning }
+        : {})
     });
   } catch (err: any) {
     console.error('[SystemSettingsRoutes] Error importing legacy custom form fields:', err);

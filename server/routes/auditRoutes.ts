@@ -18,7 +18,7 @@ auditRouter.get('/', requireAdminPermission('audit.view'), async (req, res) => {
     res.json({ success: true, logs });
   } catch (err: any) {
     console.error('[AuditRoutes] Failed to fetch durable audit logs:', err?.message || err);
-    res.status(500).json({ success: false, message: err.message || 'Error fetching audit logs' });
+    res.status(500).json({ success: false, message: 'Failed to fetch audit logs.' });
   }
 });
 
@@ -42,6 +42,6 @@ auditRouter.post('/', requireAuth, async (req: any, res) => {
     res.json({ success: true, log: saved });
   } catch (err: any) {
     console.error('[AuditRoutes] Failed to persist durable audit log:', err?.message || err);
-    res.status(500).json({ success: false, message: err.message || 'Error persisting audit log' });
+    res.status(500).json({ success: false, message: 'Failed to persist audit log.' });
   }
 });

@@ -366,6 +366,13 @@ async function runSuite() {
       name: 'Ayesha Khan',
       email: 'ayesha@example.pk',
       password: 'PlaintextSecretPassword123!',
+      passwordHash: '$2b$10$hashvalue999',
+      salt: 'randomSaltXYZ',
+      accessToken: 'jwt-access-abc',
+      refreshToken: 'jwt-refresh-def',
+      resetToken: 'reset-tok-123',
+      verificationToken: 'verify-tok-456',
+      sessionToken: 'sess-tok-789',
       password_hash: 'hash-1',
       'PASSWORD-HASH': 'hash-2',
       hashedPassword: 'hash-3',
@@ -414,6 +421,19 @@ async function runSuite() {
           paymentMethod: 'JazzCash'
         }
       ],
+      appliedJobs: [
+        {
+          id: 'app-user-1',
+          jobId: 'job-99',
+          jobTitle: 'Staff Engineer',
+          companyName: 'Indus Cloud',
+          applicantId: 'user-sec-1',
+          applicantName: 'Ayesha Khan',
+          applicantEmail: 'ayesha@example.pk',
+          appliedAt: '2026-11-14T12:00:00Z',
+          status: 'Applied'
+        }
+      ],
       customFieldsData: { ntn: 'NTN-445566' },
       createdAt: '2026-01-10T00:00:00.000Z'
     };
@@ -424,11 +444,19 @@ async function runSuite() {
     // Original user object must remain completely untouched (source non-mutation)
     assert.strictEqual(JSON.stringify(rawUser), rawCopyBefore);
     assert.strictEqual(rawUser.password, 'PlaintextSecretPassword123!');
+    assert.strictEqual(rawUser.passwordHash, '$2b$10$hashvalue999');
     assert.strictEqual(rawUser.clientSecret, 'clientsec-1');
 
     // All required sensitive keys and aliases must NEVER appear in sanitized result
     const sensitiveKeysToCheck = [
       'password',
+      'passwordHash',
+      'salt',
+      'accessToken',
+      'refreshToken',
+      'resetToken',
+      'verificationToken',
+      'sessionToken',
       'password_hash',
       'PASSWORD-HASH',
       'hashedPassword',
@@ -462,14 +490,25 @@ async function runSuite() {
     assert.strictEqual(sanitized.name, 'Ayesha Khan');
     assert.strictEqual(sanitized.email, 'ayesha@example.pk');
     assert.strictEqual(sanitized.companyName, 'Indus Cloud');
+    assert.strictEqual(sanitized.plan, 'Premium');
     assert.strictEqual(sanitized.walletBalance, 4500);
+    assert.strictEqual(sanitized.verificationStatus, 'Verified');
+    assert.strictEqual(sanitized.kycStatus, 'Approved');
     assert.strictEqual(sanitized.transactions?.length, 1);
+    assert.strictEqual(sanitized.appliedJobs?.length, 1);
     assert.deepStrictEqual(sanitized.customFieldsData, { ntn: 'NTN-445566' });
 
     // Verify full snapshot JSON excludes all sensitive aliases and values
     const snapshot = buildAdminSnapshotPayload({ users: [rawUser] });
     const serialized = JSON.stringify(snapshot);
     assert.strictEqual(serialized.includes('PlaintextSecretPassword123!'), false);
+    assert.strictEqual(serialized.includes('$2b$10$hashvalue999'), false);
+    assert.strictEqual(serialized.includes('randomSaltXYZ'), false);
+    assert.strictEqual(serialized.includes('jwt-access-abc'), false);
+    assert.strictEqual(serialized.includes('jwt-refresh-def'), false);
+    assert.strictEqual(serialized.includes('reset-tok-123'), false);
+    assert.strictEqual(serialized.includes('verify-tok-456'), false);
+    assert.strictEqual(serialized.includes('sess-tok-789'), false);
     assert.strictEqual(serialized.includes('clientsec-1'), false);
     assert.strictEqual(serialized.includes('nested-secret-1'), false);
     assert.strictEqual(serialized.includes('deep-secret-1'), false);

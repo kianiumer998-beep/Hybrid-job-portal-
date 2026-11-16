@@ -19,10 +19,22 @@ import { ApplicationRepository } from '../db/repositories/ApplicationRepository'
 import { PaymentRepository } from '../db/repositories/PaymentRepository';
 import { SubscriberRepository } from '../db/repositories/SubscriberRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
   buildBulkMembershipEnforcementPlan,
   executeBulkMembershipEnforcement
 } from '../../src/App';
+import {
+  formatAuditUserActivationDate,
+  formatAuditUserExpiryDate,
+  formatAuditUserRenewalCount,
+  computeExtendedExpiry30Days,
+  getUserAuditTransactions,
+  getAuditUserTransactionStatusClass,
+  executeAdminAuditSubscriptionAction,
+  AdminUserAuditProfileModal
+} from '../../src/components/AdminDashboard';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 
@@ -761,7 +773,489 @@ async function runUserManagementIntegrityTests() {
       assert.ok(new Date(persisted!.expiryDate!).getTime() < Date.now(), 'Unpaid user expiry must be moved to the past');
     });
 
-    await runTest('14. Protected files and data/*.json checksums remain byte-for-byte identical', async () => {
+    await runTest('14. STEP-D.5.1 Missing or invalid activationDate displays "Not recorded" (no fake 2026-07-25 09:00 fallback)', async () => {
+      assert.strictEqual(formatAuditUserActivationDate(undefined), 'Not recorded');
+      assert.strictEqual(formatAuditUserActivationDate(null), 'Not recorded');
+      assert.strictEqual(formatAuditUserActivationDate('   '), 'Not recorded');
+      assert.strictEqual(formatAuditUserActivationDate('invalid-date-value'), 'Not recorded');
+      assert.strictEqual(formatAuditUserActivationDate('2026-03-14 11:30'), '2026-03-14 11:30');
+
+      const htmlMissing = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: {
+            id: 'usr-d5-1',
+            name: 'No Activation User',
+            email: 'no.act@test.local',
+            role: 'Employer',
+            plan: 'Free',
+            autoRenew: false,
+            createdAt: '2026-01-01T00:00:00.000Z'
+          },
+          transactions: [],
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+      assert.ok(htmlMissing.includes('Activation Date'), 'Activation Date label must render');
+      assert.ok(htmlMissing.includes('Not recorded'), 'Missing activationDate must display Not recorded');
+      assert.strictEqual(htmlMissing.includes('2026-07-25'), false, 'Fake activation date 2026-07-25 must never appear');
+    });
+
+    await runTest('15. STEP-D.5.1 Missing expiryDate displays "Not recorded" (no fake 2026-08-24 09:00 fallback in modal or source)', async () => {
+      assert.strictEqual(formatAuditUserExpiryDate(undefined), 'Not recorded');
+      assert.strictEqual(formatAuditUserExpiryDate(null), 'Not recorded');
+      assert.strictEqual(formatAuditUserExpiryDate('  '), 'Not recorded');
+      assert.strictEqual(formatAuditUserExpiryDate('2027-01-15 09:00'), '2027-01-15 09:00');
+
+      const htmlMissing = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: {
+            id: 'usr-d5-2',
+            name: 'No Expiry User',
+            email: 'no.exp@test.local',
+            role: 'Employer',
+            plan: 'Free',
+            autoRenew: false,
+            createdAt: '2026-01-01T00:00:00.000Z'
+          },
+          transactions: [],
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+      assert.ok(htmlMissing.includes('Expiry Date'), 'Expiry Date label must render');
+      assert.ok(htmlMissing.includes('Not recorded'), 'Missing expiryDate must display Not recorded');
+      assert.strictEqual(htmlMissing.includes('2026-08-24'), false, 'Fake expiry date 2026-08-24 must never appear');
+
+      const adminDashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+      assert.strictEqual(adminDashSource.includes('2026-07-25 09:00'), false, 'Fake activation fallback must not exist in AdminDashboard.tsx');
+      assert.strictEqual(adminDashSource.includes('2026-08-24 09:00'), false, 'Fake expiry fallback must not exist in AdminDashboard.tsx');
+      assert.strictEqual(adminDashSource.includes('tx-audit-default'), false, 'Fake tx-audit-default fallback must not exist in AdminDashboard.tsx');
+    });
+
+    await runTest('16. STEP-D.5.1 Missing renewalCount displays "Not recorded" while 0 and positive counts render accurately', async () => {
+      assert.strictEqual(formatAuditUserRenewalCount(undefined), 'Not recorded');
+      assert.strictEqual(formatAuditUserRenewalCount(null), 'Not recorded');
+      assert.strictEqual(formatAuditUserRenewalCount(Number.NaN), 'Not recorded');
+      assert.strictEqual(formatAuditUserRenewalCount(-1), 'Not recorded');
+      assert.strictEqual(formatAuditUserRenewalCount(0), '0');
+      assert.strictEqual(formatAuditUserRenewalCount(4), '4');
+
+      const htmlZero = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: {
+            id: 'usr-d5-3a',
+            name: 'Zero Renewals User',
+            email: 'zero.renew@test.local',
+            role: 'Employer',
+            plan: 'Premium',
+            autoRenew: false,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            renewalCount: 0
+          },
+          transactions: [],
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+      assert.ok(htmlZero.includes('Total Renewals</span><span class="font-bold text-indigo-400">0</span>'), 'renewalCount 0 must display 0 cleanly');
+    });
+
+    await runTest('17. STEP-D.5.1 Missing or invalid expiryDate blocks "+ Extend +30 Days" instead of inventing a date', async () => {
+      assert.strictEqual(computeExtendedExpiry30Days(undefined).ok, false);
+      assert.strictEqual(computeExtendedExpiry30Days('').ok, false);
+      assert.strictEqual(computeExtendedExpiry30Days('Not recorded').ok, false);
+      assert.strictEqual(computeExtendedExpiry30Days('2026-02-31 09:00').ok, false);
+
+      const validExt = computeExtendedExpiry30Days('2026-10-01 09:00');
+      assert.strictEqual(validExt.ok, true);
+      if (validExt.ok) {
+        assert.strictEqual((validExt as { ok: true; nextExpiry: string }).nextExpiry, '2026-10-31 09:00');
+      }
+
+      let updateCalled = false;
+      const blockedAction = await executeAdminAuditSubscriptionAction({
+        action: 'extend30',
+        auditUser: {
+          id: 'usr-d5-4',
+          name: 'Missing Expiry User',
+          email: 'missing.exp@test.local',
+          role: 'Employer',
+          plan: 'Premium',
+          autoRenew: false,
+          createdAt: '2026-01-01T00:00:00.000Z'
+        },
+        onUpdateUserExpiry: async () => {
+          updateCalled = true;
+          return { success: true };
+        },
+        onToggleUserPlan: async () => ({ success: true })
+      });
+      assert.strictEqual(blockedAction.success, false, 'Missing expiry must not succeed');
+      assert.strictEqual(updateCalled, false, 'onUpdateUserExpiry must NOT be called when expiryDate is missing');
+      assert.ok(blockedAction.message.toLowerCase().includes('set a valid expiry date first'));
+    });
+
+    await runTest('18. STEP-D.5.1 No fabricated PKR 300 / JazzCash transaction appears in timeline', async () => {
+      const htmlEmpty = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: {
+            id: 'usr-d5-5',
+            name: 'No Fake Tx User',
+            email: 'nofaketx@test.local',
+            role: 'Job Seeker',
+            plan: 'Free',
+            autoRenew: false,
+            createdAt: '2026-01-01T00:00:00.000Z'
+          },
+          transactions: [],
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+      assert.strictEqual(htmlEmpty.includes('PKR 300'), false, 'Fake PKR 300 transaction must never appear');
+      assert.strictEqual(htmlEmpty.includes('JazzCash'), false, 'Fake JazzCash method must never appear');
+      assert.strictEqual(htmlEmpty.includes('Monthly Pro Subscription'), false, 'Fake Monthly Pro Subscription must never appear');
+    });
+
+    await runTest('19. STEP-D.5.1 Actual transactions for selected user display accurately (userId exact match + normalized email fallback when userId absent)', async () => {
+      const targetUser = {
+        id: 'usr-d5-6',
+        name: 'Real Buyer',
+        email: 'Real.Buyer@Test.Local',
+        role: 'Employer' as const,
+        plan: 'Premium' as const,
+        autoRenew: false,
+        createdAt: '2026-01-01T00:00:00.000Z'
+      };
+      const txs: any[] = [
+        {
+          id: 'tx-real-1',
+          userId: 'usr-d5-6',
+          userEmail: 'different.historic@test.local',
+          dateTime: '2026-04-02 14:20',
+          type: 'Job Posting Fee',
+          amount: 1500,
+          currency: 'PKR',
+          paymentMethod: 'Bank Transfer',
+          status: 'Success'
+        },
+        {
+          id: 'tx-real-email-only',
+          userEmail: '  real.buyer@test.local ',
+          dateTime: '2026-04-05 10:00',
+          type: 'Subscription',
+          amount: 750,
+          currency: 'PKR',
+          paymentMethod: 'EasyPaisa',
+          status: 'Pending'
+        }
+      ];
+
+      const matched = getUserAuditTransactions(targetUser, txs);
+      assert.deepStrictEqual(matched.map(t => t.id), ['tx-real-1', 'tx-real-email-only']);
+
+      const html = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: targetUser,
+          transactions: txs,
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+      assert.ok(html.includes('2026-04-02 14:20'));
+      assert.ok(html.includes('Job Posting Fee'));
+      assert.ok(html.includes('1,500'));
+      assert.ok(html.includes('Bank Transfer'));
+      assert.ok(html.includes('Subscription'));
+      assert.ok(html.includes('EasyPaisa'));
+    });
+
+    await runTest('20. STEP-D.5.1 Transactions belonging to another userId never appear even when userEmail matches', async () => {
+      const targetUser = {
+        id: 'usr-d5-7-target',
+        name: 'Target User',
+        email: 'shared.alias@test.local',
+        role: 'Employer' as const,
+        plan: 'Free' as const,
+        autoRenew: false,
+        createdAt: '2026-01-01T00:00:00.000Z'
+      };
+      const txs: any[] = [
+        {
+          id: 'tx-other-user-same-email',
+          userId: 'usr-other-owner',
+          userEmail: 'shared.alias@test.local',
+          dateTime: '2026-04-10 08:15',
+          type: 'Subscription',
+          amount: 9900,
+          currency: 'PKR',
+          paymentMethod: 'Bank Transfer',
+          status: 'Success'
+        },
+        {
+          id: 'tx-other-user-other-email',
+          userId: 'usr-another',
+          userEmail: 'someone.else@test.local',
+          dateTime: '2026-04-11 09:00',
+          type: 'Wallet Deposit',
+          amount: 500,
+          currency: 'PKR',
+          paymentMethod: 'EasyPaisa',
+          status: 'Success'
+        }
+      ];
+
+      const matched = getUserAuditTransactions(targetUser, txs);
+      assert.strictEqual(matched.length, 0, 'Transactions owned by a different userId must never match by email');
+
+      const html = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: targetUser,
+          transactions: txs,
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+      assert.strictEqual(html.includes('9,900'), false);
+      assert.ok(html.includes('No payment transactions recorded for this user.'));
+    });
+
+    await runTest('21. STEP-D.5.1 Empty transaction history displays "No payment transactions recorded for this user."', async () => {
+      const html = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: {
+            id: 'usr-d5-8',
+            name: 'Empty History User',
+            email: 'empty.tx@test.local',
+            role: 'Employer',
+            plan: 'Free',
+            autoRenew: false,
+            createdAt: '2026-01-01T00:00:00.000Z'
+          },
+          transactions: [
+            {
+              id: 'tx-someone-else',
+              userId: 'usr-different',
+              userName: 'Different User',
+              userEmail: 'diff@test.local',
+              dateTime: '2026-04-12 12:00',
+              type: 'Subscription',
+              amount: 1200,
+              currency: 'PKR',
+              paymentMethod: 'EasyPaisa',
+              status: 'Success'
+            }
+          ],
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+      assert.ok(html.includes('No payment transactions recorded for this user.'));
+    });
+
+    await runTest('22. STEP-D.5.1 Pending, Verifying, Success, and Failed transaction statuses render accurately with distinct badge styles', async () => {
+      const statuses = ['Pending', 'Verifying', 'Success', 'Failed'] as const;
+      const badgeClasses = statuses.map((s) => getAuditUserTransactionStatusClass(s));
+      assert.strictEqual(new Set(badgeClasses).size, 4, 'Each status should have a distinct badge style');
+
+      const user = {
+        id: 'usr-d5-9',
+        name: 'Multi Status User',
+        email: 'statuses@test.local',
+        role: 'Employer' as const,
+        plan: 'Premium' as const,
+        autoRenew: false,
+        createdAt: '2026-01-01T00:00:00.000Z'
+      };
+      const txs: any[] = statuses.map((status, idx) => ({
+        id: `tx-status-${idx}`,
+        userId: user.id,
+        userEmail: user.email,
+        dateTime: `2026-05-0${idx + 1} 10:00`,
+        type: 'Subscription',
+        amount: 100 * (idx + 1),
+        currency: 'PKR',
+        paymentMethod: 'Bank Transfer',
+        status
+      }));
+
+      const html = renderToStaticMarkup(
+        React.createElement(AdminUserAuditProfileModal, {
+          auditUser: user,
+          transactions: txs,
+          customExpiryInput: '',
+          onChangeCustomExpiryInput: () => {},
+          onClose: () => {},
+          onExtend30Days: () => {},
+          onRevokeNow: () => {},
+          onSwitchPlan: () => {},
+          onSetCustomDate: () => {}
+        })
+      );
+
+      for (const status of statuses) {
+        assert.ok(html.includes(`>${status}</span>`), `Status "${status}" must be rendered in transaction timeline`);
+      }
+      assert.ok(html.includes('text-amber-300'), 'Pending status badge style');
+      assert.ok(html.includes('text-sky-300'), 'Verifying status badge style');
+      assert.ok(html.includes('text-emerald-300'), 'Success status badge style');
+      assert.ok(html.includes('text-rose-300'), 'Failed status badge style');
+    });
+
+    await runTest('23. STEP-D.5.1 Failed backend subscription actions never report success or invent renewalCount/dates; successful actions sync authoritative user only', async () => {
+      const initialUser: any = {
+        id: 'usr-d5-10',
+        name: 'Mutation Safety User',
+        email: 'mutation.safety@test.local',
+        role: 'Employer',
+        plan: 'Premium',
+        expiryDate: '2026-09-01 09:00',
+        renewalCount: 2
+      };
+
+      const failureModes: Array<() => Promise<any>> = [
+        async () => ({ success: false, message: 'Server rejected expiry update' }),
+        async () => false,
+        async () => undefined,
+        async () => {
+          throw new Error('Network connection lost');
+        }
+      ];
+
+      for (const failingHandler of failureModes) {
+        let syncedLocally = false;
+        const failRes = await executeAdminAuditSubscriptionAction({
+          action: 'extend30',
+          auditUser: initialUser,
+          onUpdateUserExpiry: failingHandler,
+          onToggleUserPlan: failingHandler,
+          onSyncAuthoritativeUser: () => {
+            syncedLocally = true;
+          }
+        });
+        assert.strictEqual(failRes.success, false, 'Failure response/void/throw must return success: false');
+        assert.strictEqual(syncedLocally, false, 'Failed operation must never mutate local user state');
+      }
+
+      // Also verify revoke, togglePlan, and customExpiry failure safety
+      let revokeSynced = false;
+      const revokeFail = await executeAdminAuditSubscriptionAction({
+        action: 'revoke',
+        auditUser: initialUser,
+        onUpdateUserExpiry: async () => ({ success: false, message: 'Revoke denied' }),
+        onToggleUserPlan: async () => ({ success: true }),
+        onSyncAuthoritativeUser: () => {
+          revokeSynced = true;
+        }
+      });
+      assert.strictEqual(revokeFail.success, false);
+      assert.strictEqual(revokeFail.message, 'Revoke denied');
+      assert.strictEqual(revokeSynced, false);
+
+      let toggleSynced = false;
+      const toggleFail = await executeAdminAuditSubscriptionAction({
+        action: 'togglePlan',
+        auditUser: initialUser,
+        onUpdateUserExpiry: async () => ({ success: true }),
+        onToggleUserPlan: async () => ({ success: false, message: 'Plan toggle denied' }),
+        onSyncAuthoritativeUser: () => {
+          toggleSynced = true;
+        }
+      });
+      assert.strictEqual(toggleFail.success, false);
+      assert.strictEqual(toggleFail.message, 'Plan toggle denied');
+      assert.strictEqual(toggleSynced, false);
+
+      let customSynced = false;
+      const customFail = await executeAdminAuditSubscriptionAction({
+        action: 'customExpiry',
+        auditUser: initialUser,
+        customExpiryInput: '2027-06-01 09:00',
+        onUpdateUserExpiry: async () => ({ success: false, message: 'Invalid date on server' }),
+        onToggleUserPlan: async () => ({ success: true }),
+        onSyncAuthoritativeUser: () => {
+          customSynced = true;
+        }
+      });
+      assert.strictEqual(customFail.success, false);
+      assert.strictEqual(customFail.message, 'Invalid date on server');
+      assert.strictEqual(customSynced, false);
+
+      // Verify authoritative user returned by backend is synced without inventing renewalCount
+      let syncedFromResponse: any = null;
+      const authServerUser = { ...initialUser, expiryDate: '2026-10-01 09:00', renewalCount: 2 };
+      const okWithUser = await executeAdminAuditSubscriptionAction({
+        action: 'extend30',
+        auditUser: initialUser,
+        onUpdateUserExpiry: async () => ({ success: true, user: authServerUser }),
+        onToggleUserPlan: async () => ({ success: true }),
+        onSyncAuthoritativeUser: (u) => {
+          syncedFromResponse = u;
+        }
+      });
+      assert.strictEqual(okWithUser.success, true);
+      assert.strictEqual(okWithUser.usedAuthoritativeUser, true);
+      assert.strictEqual(syncedFromResponse?.renewalCount, 2, 'Must preserve server renewalCount rather than inventing renewalCount + 1');
+      assert.strictEqual(syncedFromResponse?.expiryDate, '2026-10-01 09:00');
+
+      // Verify fallback reload via fetchAuthoritativeUser when response omits user
+      let syncedFromReload: any = null;
+      const okWithoutUser = await executeAdminAuditSubscriptionAction({
+        action: 'togglePlan',
+        auditUser: initialUser,
+        onUpdateUserExpiry: async () => ({ success: true }),
+        onToggleUserPlan: async () => ({ success: true }),
+        fetchAuthoritativeUser: async (uid) => ({
+          success: true,
+          user: { ...initialUser, id: uid, plan: 'Free', renewalCount: 2 }
+        }),
+        onSyncAuthoritativeUser: (u) => {
+          syncedFromReload = u;
+        }
+      });
+      assert.strictEqual(okWithoutUser.success, true);
+      assert.strictEqual(okWithoutUser.reloadedAuthoritativeUser, true);
+      assert.strictEqual(syncedFromReload?.plan, 'Free');
+      assert.strictEqual(syncedFromReload?.renewalCount, 2);
+    });
+
+    await runTest('24. Protected files and data/*.json checksums remain byte-for-byte identical', async () => {
       const postDataSnapshot = getDataSnapshot();
       const postMongoHash = getFileHash('server/db/mongodb.ts');
       assert.strictEqual(postMongoHash, preMongoHash, 'server/db/mongodb.ts must remain untouched');

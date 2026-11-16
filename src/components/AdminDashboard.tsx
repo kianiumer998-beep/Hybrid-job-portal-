@@ -466,6 +466,425 @@ export function formatChatUserRoleLabel(role?: unknown): string {
   return firstWord || 'Member';
 }
 
+export function formatAuditUserActivationDate(activationDate?: string | null): string {
+  if (typeof activationDate !== 'string') return 'Not recorded';
+  const trimmed = activationDate.trim();
+  if (!trimmed) return 'Not recorded';
+  const normalized = trimmed.includes(' ') && !trimmed.includes('T')
+    ? trimmed.replace(' ', 'T')
+    : trimmed;
+  const parsed = Date.parse(normalized);
+  if (Number.isNaN(parsed)) return 'Not recorded';
+  return trimmed;
+}
+
+export function formatAuditUserExpiryDate(expiryDate?: string | null): string {
+  if (typeof expiryDate !== 'string') return 'Not recorded';
+  const trimmed = expiryDate.trim();
+  return trimmed.length > 0 ? trimmed : 'Not recorded';
+}
+
+export function formatAuditUserRenewalCount(renewalCount?: number | null): string {
+  if (typeof renewalCount !== 'number' || !Number.isFinite(renewalCount) || renewalCount < 0) {
+    return 'Not recorded';
+  }
+  return String(renewalCount);
+}
+
+export function computeExtendedExpiry30Days(
+  expiryDate?: string | null
+): { ok: true; nextExpiry: string } | { ok: false; message: string } {
+  if (typeof expiryDate !== 'string' || !expiryDate.trim()) {
+    return {
+      ok: false,
+      message: 'No valid expiry date is recorded for this user. Please set a valid expiry date first using "Set Custom Date".'
+    };
+  }
+
+  const trimmed = expiryDate.trim();
+  const ymdMatch = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2})(?::\d{2})?)?$/.exec(trimmed);
+  if (ymdMatch) {
+    const year = Number(ymdMatch[1]);
+    const month = Number(ymdMatch[2]);
+    const day = Number(ymdMatch[3]);
+    const timePart = ymdMatch[4] || '09:00';
+    const candidate = new Date(year, month - 1, day);
+    if (
+      candidate.getFullYear() !== year ||
+      candidate.getMonth() !== month - 1 ||
+      candidate.getDate() !== day
+    ) {
+      return {
+        ok: false,
+        message: 'Recorded expiry date is invalid. Please set a valid expiry date first using "Set Custom Date".'
+      };
+    }
+    candidate.setDate(candidate.getDate() + 30);
+    const nextExpiry = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, '0')}-${String(candidate.getDate()).padStart(2, '0')} ${timePart}`;
+    return { ok: true, nextExpiry };
+  }
+
+  const parsedMs = Date.parse(trimmed);
+  if (Number.isNaN(parsedMs)) {
+    return {
+      ok: false,
+      message: 'Recorded expiry date could not be parsed. Please set a valid expiry date first using "Set Custom Date".'
+    };
+  }
+  const isoDate = new Date(parsedMs);
+  isoDate.setDate(isoDate.getDate() + 30);
+  const nextExpiry = `${isoDate.getFullYear()}-${String(isoDate.getMonth() + 1).padStart(2, '0')}-${String(isoDate.getDate()).padStart(2, '0')} ${String(isoDate.getHours()).padStart(2, '0')}:${String(isoDate.getMinutes()).padStart(2, '0')}`;
+  return { ok: true, nextExpiry };
+}
+
+export function getUserAuditTransactions(
+  auditUser: Pick<UserAccount, 'id' | 'email'> | null | undefined,
+  transactions: PaymentTransaction[] | null | undefined
+): PaymentTransaction[] {
+  if (!auditUser || !Array.isArray(transactions) || transactions.length === 0) {
+    return [];
+  }
+
+  const targetUserId = typeof auditUser.id === 'string'
+    ? auditUser.id.trim()
+    : String(auditUser.id ?? '').trim();
+  const targetEmail = typeof auditUser.email === 'string'
+    ? auditUser.email.trim().toLowerCase()
+    : '';
+
+  return transactions.filter((tx) => {
+    if (!tx || typeof tx !== 'object') return false;
+    const rawTxUserId = tx.userId;
+    const txUserId = typeof rawTxUserId === 'string'
+      ? rawTxUserId.trim()
+      : rawTxUserId !== undefined && rawTxUserId !== null
+      ? String(rawTxUserId).trim()
+      : '';
+
+    if (txUserId) {
+      return Boolean(targetUserId) && txUserId === targetUserId;
+    }
+
+    const txEmail = typeof tx.userEmail === 'string' ? tx.userEmail.trim().toLowerCase() : '';
+    return Boolean(targetEmail && txEmail && txEmail === targetEmail);
+  });
+}
+
+export function getAuditUserTransactionStatusClass(status?: string): string {
+  switch (status) {
+    case 'Success':
+      return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+    case 'Pending':
+      return 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
+    case 'Verifying':
+      return 'bg-sky-500/20 text-sky-300 border border-sky-500/30';
+    case 'Failed':
+      return 'bg-rose-500/20 text-rose-300 border border-rose-500/30';
+    default:
+      return 'bg-slate-800 text-slate-300 border border-slate-700';
+  }
+}
+
+export interface AuditSubscriptionActionResult {
+  success: boolean;
+  user?: UserAccount;
+  message: string;
+  usedAuthoritativeUser?: boolean;
+  reloadedAuthoritativeUser?: boolean;
+}
+
+export async function executeAdminAuditSubscriptionAction(params: {
+  action: 'extend30' | 'revoke' | 'togglePlan' | 'customExpiry';
+  auditUser: UserAccount;
+  customExpiryInput?: string;
+  onUpdateUserExpiry: (userId: string, newExpiryDate: string) => Promise<{ success: boolean; user?: UserAccount; message?: string } | boolean | void> | void;
+  onToggleUserPlan: (userId: string) => Promise<{ success: boolean; user?: UserAccount; message?: string } | boolean | void> | void;
+  fetchAuthoritativeUser?: (userId: string) => Promise<{ success?: boolean; user?: UserAccount } | null | undefined>;
+  onSyncAuthoritativeUser?: (user: UserAccount) => void;
+}): Promise<AuditSubscriptionActionResult> {
+  const {
+    action,
+    auditUser,
+    customExpiryInput,
+    onUpdateUserExpiry,
+    onToggleUserPlan,
+    fetchAuthoritativeUser,
+    onSyncAuthoritativeUser
+  } = params;
+
+  let rawResponse: any;
+  let successMessage = '';
+
+  try {
+    if (action === 'extend30') {
+      const ext = computeExtendedExpiry30Days(auditUser.expiryDate);
+      if (ext.ok === false) {
+        return { success: false, message: (ext as { ok: false; message: string }).message };
+      }
+      const nextExpiry = (ext as { ok: true; nextExpiry: string }).nextExpiry;
+      rawResponse = await onUpdateUserExpiry(auditUser.id, nextExpiry);
+      successMessage = `Subscription for ${auditUser.name} extended by +30 Days! New Expiry: ${nextExpiry}`;
+    } else if (action === 'revoke') {
+      rawResponse = await onUpdateUserExpiry(auditUser.id, '2020-01-01 00:00');
+      successMessage = `Subscription for ${auditUser.name} revoked/expired immediately.`;
+    } else if (action === 'togglePlan') {
+      rawResponse = await onToggleUserPlan(auditUser.id);
+      successMessage = `Plan update completed for ${auditUser.name}.`;
+    } else {
+      const trimmed = (customExpiryInput || '').trim();
+      if (!trimmed) {
+        return { success: false, message: 'Please enter a valid custom expiry date first.' };
+      }
+      rawResponse = await onUpdateUserExpiry(auditUser.id, trimmed);
+      successMessage = `Expiry date updated to ${trimmed}.`;
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Subscription update failed. No local changes were applied.'
+    };
+  }
+
+  const isExplicitSuccess =
+    rawResponse === true ||
+    (rawResponse !== null && typeof rawResponse === 'object' && rawResponse.success === true);
+
+  if (!isExplicitSuccess) {
+    const errMsg =
+      rawResponse && typeof rawResponse === 'object' && typeof rawResponse.message === 'string' && rawResponse.message.trim()
+        ? rawResponse.message
+        : 'Backend subscription update failed. Please try again.';
+    return { success: false, message: errMsg };
+  }
+
+  if (rawResponse && typeof rawResponse === 'object' && rawResponse.user && typeof rawResponse.user === 'object') {
+    const authoritativeUser = rawResponse.user as UserAccount;
+    onSyncAuthoritativeUser?.(authoritativeUser);
+    return {
+      success: true,
+      user: authoritativeUser,
+      message: successMessage,
+      usedAuthoritativeUser: true
+    };
+  }
+
+  if (fetchAuthoritativeUser) {
+    try {
+      const refreshed = await fetchAuthoritativeUser(auditUser.id);
+      if (refreshed && refreshed.success !== false && refreshed.user && typeof refreshed.user === 'object') {
+        const refreshedUser = refreshed.user as UserAccount;
+        onSyncAuthoritativeUser?.(refreshedUser);
+        return {
+          success: true,
+          user: refreshedUser,
+          message: successMessage,
+          reloadedAuthoritativeUser: true
+        };
+      }
+    } catch {
+      // Do not fabricate fields if authoritative refresh fails after backend accepted the mutation
+    }
+  }
+
+  return {
+    success: true,
+    message: `${successMessage} Refresh user list to view updated server fields.`
+  };
+}
+
+export interface AdminUserAuditProfileModalProps {
+  auditUser: UserAccount;
+  transactions: PaymentTransaction[];
+  customExpiryInput: string;
+  onChangeCustomExpiryInput: (value: string) => void;
+  isSubmitting?: boolean;
+  notice?: { type: 'success' | 'error'; message: string } | null;
+  onClose: () => void;
+  onExtend30Days: () => void | Promise<void>;
+  onRevokeNow: () => void | Promise<void>;
+  onSwitchPlan: () => void | Promise<void>;
+  onSetCustomDate: () => void | Promise<void>;
+}
+
+export const AdminUserAuditProfileModal: React.FC<AdminUserAuditProfileModalProps> = ({
+  auditUser,
+  transactions,
+  customExpiryInput,
+  onChangeCustomExpiryInput,
+  isSubmitting = false,
+  notice = null,
+  onClose,
+  onExtend30Days,
+  onRevokeNow,
+  onSwitchPlan,
+  onSetCustomDate
+}) => {
+  const userTransactions = getUserAuditTransactions(auditUser, transactions);
+  const activationDisplay = formatAuditUserActivationDate(auditUser.activationDate);
+  const expiryDisplay = formatAuditUserExpiryDate(auditUser.expiryDate);
+  const renewalDisplay = formatAuditUserRenewalCount(auditUser.renewalCount);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-6 text-white shadow-2xl relative max-h-[90vh] overflow-y-auto">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="flex items-center space-x-4 border-b border-slate-800 pb-4">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-emerald-500 p-0.5 flex items-center justify-center">
+            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-xl text-amber-400">
+              {auditUser.name ? auditUser.name.charAt(0).toUpperCase() : '?'}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xl font-black">{auditUser.name}</h3>
+            <p className="text-xs text-slate-400 font-mono">{auditUser.email} • {auditUser.phone || 'No phone'}</p>
+          </div>
+        </div>
+
+        {/* Live Metrics Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+            <span className="text-[10px] uppercase text-slate-400 block font-bold">Current Plan</span>
+            <span className="font-bold text-emerald-400">{auditUser.plan}</span>
+          </div>
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+            <span className="text-[10px] uppercase text-slate-400 block font-bold">Activation Date</span>
+            <span className="font-mono font-semibold text-white">{activationDisplay}</span>
+          </div>
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+            <span className="text-[10px] uppercase text-slate-400 block font-bold">Expiry Date</span>
+            <span className="font-mono font-bold text-amber-400">{expiryDisplay}</span>
+          </div>
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+            <span className="text-[10px] uppercase text-slate-400 block font-bold">Total Renewals</span>
+            <span className="font-bold text-indigo-400">{renewalDisplay}</span>
+          </div>
+        </div>
+
+        {/* Manual Expiry Date Controls */}
+        <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
+          <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
+            Admin Manual Subscription Controls
+          </span>
+
+          {notice && (
+            <div
+              className={`p-3 rounded-xl border text-xs font-semibold flex items-start space-x-2 ${
+                notice.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                  : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+              }`}
+            >
+              {notice.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              )}
+              <span>{notice.message}</span>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={onExtend30Days}
+              className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+            >
+              + Extend +30 Days
+            </button>
+
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={onRevokeNow}
+              className="px-3.5 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+            >
+              ⛔ Revoke / Expire Now
+            </button>
+
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={onSwitchPlan}
+              className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+            >
+              Switch Plan ({auditUser.plan === 'Premium' ? 'Free' : 'Premium'})
+            </button>
+          </div>
+
+          <div className="pt-2 flex items-center space-x-2">
+            <input
+              type="text"
+              value={customExpiryInput}
+              onChange={(e) => onChangeCustomExpiryInput(e.target.value)}
+              placeholder="Custom Expiry e.g. 2027-12-31 23:59"
+              className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
+            />
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={onSetCustomDate}
+              className="px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl cursor-pointer disabled:opacity-50"
+            >
+              Set Custom Date
+            </button>
+          </div>
+        </div>
+
+        {/* User Transactions Table */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-bold uppercase text-slate-400">User Payment Transaction Timeline</h4>
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-900 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
+                <tr>
+                  <th className="p-3">Date & Time</th>
+                  <th className="p-3">Type</th>
+                  <th className="p-3">Amount</th>
+                  <th className="p-3">Method</th>
+                  <th className="p-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {userTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-slate-400 font-sans">
+                      No payment transactions recorded for this user.
+                    </td>
+                  </tr>
+                ) : (
+                  userTransactions.map((tx) => (
+                    <tr key={tx.id} className="font-mono">
+                      <td className="p-3">{tx.dateTime || 'Not recorded'}</td>
+                      <td className="p-3 font-bold text-emerald-400 font-sans">{tx.type}</td>
+                      <td className="p-3 font-bold text-white">
+                        {tx.currency || 'PKR'} {typeof tx.amount === 'number' && Number.isFinite(tx.amount) ? tx.amount.toLocaleString() : '—'}
+                      </td>
+                      <td className="p-3 font-sans">{tx.paymentMethod || 'Not recorded'}</td>
+                      <td className="p-3 font-sans">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${getAuditUserTransactionStatusClass(tx.status)}`}>
+                          {tx.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   jobs,
   pendingJobs,
@@ -1390,6 +1809,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Audit Selected User State
   const [auditUser, setAuditUser] = useState<UserAccount | null>(null);
   const [customExpiryInput, setCustomExpiryInput] = useState('');
+  const [auditActionNotice, setAuditActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isAuditSubUpdating, setIsAuditSubUpdating] = useState(false);
 
   useEffect(() => {
     if (selectedUserForModal) {
@@ -4469,7 +4890,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
                           <td className="p-3 font-mono text-xs">
                             <span className={isInactiveOrUnpaid ? 'text-rose-400 font-bold' : 'text-slate-300'}>
-                              {u.expiryDate || '2026-08-24 09:00'}
+                              {formatAuditUserExpiryDate(u.expiryDate)}
                             </span>
                           </td>
                           <td className="p-3 text-center">
@@ -7224,194 +7645,61 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* USER AUDIT DETAILED CONTROL MODAL */}
-      {auditUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-6 text-white shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            
-            <button
-              onClick={() => setAuditUser(null)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg"
-            >
-              <X className="w-5 h-5" />
-            </button>
+      {auditUser && (() => {
+        const handleAuditSubscriptionAction = async (
+          action: 'extend30' | 'revoke' | 'togglePlan' | 'customExpiry'
+        ) => {
+          if (isAuditSubUpdating) return;
+          setIsAuditSubUpdating(true);
+          setAuditActionNotice(null);
+          try {
+            const result = await executeAdminAuditSubscriptionAction({
+              action,
+              auditUser,
+              customExpiryInput,
+              onUpdateUserExpiry,
+              onToggleUserPlan,
+              fetchAuthoritativeUser: (userId) => api.users.getProfile(userId),
+              onSyncAuthoritativeUser: (authoritativeUser) => {
+                setAuditUser(authoritativeUser);
+                if (onUpdateUser) {
+                  onUpdateUser(authoritativeUser);
+                }
+              }
+            });
 
-            <div className="flex items-center space-x-4 border-b border-slate-800 pb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-emerald-500 p-0.5 flex items-center justify-center">
-                <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-black text-xl text-amber-400">
-                  {auditUser.name.charAt(0).toUpperCase()}
-                </div>
-              </div>
-              <div>
-                <h3 className="text-xl font-black">{auditUser.name}</h3>
-                <p className="text-xs text-slate-400 font-mono">{auditUser.email} • {auditUser.phone || 'No phone'}</p>
-              </div>
-            </div>
+            if (result.success) {
+              setAuditActionNotice({ type: 'success', message: result.message });
+              if (action === 'customExpiry') {
+                setCustomExpiryInput('');
+              }
+            } else {
+              setAuditActionNotice({ type: 'error', message: result.message });
+            }
+          } finally {
+            setIsAuditSubUpdating(false);
+          }
+        };
 
-            {/* Live Metrics Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                <span className="text-[10px] uppercase text-slate-400 block font-bold">Current Plan</span>
-                <span className="font-bold text-emerald-400">{auditUser.plan}</span>
-              </div>
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                <span className="text-[10px] uppercase text-slate-400 block font-bold">Activation Date</span>
-                <span className="font-mono font-semibold text-white">{auditUser.activationDate || '2026-07-25 09:00'}</span>
-              </div>
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                <span className="text-[10px] uppercase text-slate-400 block font-bold">Expiry Date</span>
-                <span className="font-mono font-bold text-amber-400">{auditUser.expiryDate || '2026-08-24 09:00'}</span>
-              </div>
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                <span className="text-[10px] uppercase text-slate-400 block font-bold">Total Renewals</span>
-                <span className="font-bold text-indigo-400">{auditUser.renewalCount || 1}</span>
-              </div>
-            </div>
-
-            {/* Manual Expiry Date Controls */}
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
-                Admin Manual Subscription Controls
-              </span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const currentExp = auditUser.expiryDate || '2026-08-24 09:00';
-                    const parts = currentExp.split(' ');
-                    const dateParts = parts[0].split('-');
-                    const d = new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]));
-                    d.setDate(d.getDate() + 30);
-                    const newExp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${parts[1] || '09:00'}`;
-                    const res = await onUpdateUserExpiry(auditUser.id, newExp);
-                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
-                    if (res === false) return;
-                    setAuditUser(
-                      res && typeof res === 'object' && res.user
-                        ? { ...auditUser, ...res.user }
-                        : { ...auditUser, expiryDate: newExp, renewalCount: (auditUser.renewalCount || 1) + 1 }
-                    );
-                    alert(`Subscription for ${auditUser.name} extended by +30 Days! New Expiry: ${newExp}`);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + Extend +30 Days
-                </button>
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const revExp = '2020-01-01 00:00';
-                    const res = await onUpdateUserExpiry(auditUser.id, revExp);
-                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
-                    if (res === false) return;
-                    setAuditUser(
-                      res && typeof res === 'object' && res.user
-                        ? { ...auditUser, ...res.user }
-                        : { ...auditUser, expiryDate: revExp, plan: 'Free', membershipStatus: 'Expired', autoRenew: false }
-                    );
-                    alert(`Subscription for ${auditUser.name} revoked/expired immediately.`);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-bold transition-all cursor-pointer"
-                >
-                  ⛔ Revoke / Expire Now
-                </button>
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const res = await onToggleUserPlan(auditUser.id);
-                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
-                    if (res === false) return;
-                    const newPlan = auditUser.plan === 'Premium' ? 'Free' : 'Premium';
-                    setAuditUser(
-                      res && typeof res === 'object' && res.user
-                        ? { ...auditUser, ...res.user }
-                        : { ...auditUser, plan: newPlan }
-                    );
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer"
-                >
-                  Switch Plan ({auditUser.plan === 'Premium' ? 'Free' : 'Premium'})
-                </button>
-              </div>
-
-              <div className="pt-2 flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={customExpiryInput}
-                  onChange={(e) => setCustomExpiryInput(e.target.value)}
-                  placeholder="Custom Expiry e.g. 2027-12-31 23:59"
-                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const trimmed = customExpiryInput.trim();
-                    if (!trimmed) return;
-                    const res = await onUpdateUserExpiry(auditUser.id, trimmed);
-                    if (res && typeof res === 'object' && 'success' in res && !res.success) return;
-                    if (res === false) return;
-                    setAuditUser(
-                      res && typeof res === 'object' && res.user
-                        ? { ...auditUser, ...res.user }
-                        : { ...auditUser, expiryDate: trimmed }
-                    );
-                    alert(`Expiry date updated to ${trimmed}`);
-                    setCustomExpiryInput('');
-                  }}
-                  className="px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl cursor-pointer"
-                >
-                  Set Custom Date
-                </button>
-              </div>
-            </div>
-
-            {/* User Transactions Table */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase text-slate-400">User Payment Transaction Timeline</h4>
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-900 uppercase text-[10px] text-slate-400 font-bold border-b border-slate-800">
-                    <tr>
-                      <th className="p-3">Date & Time</th>
-                      <th className="p-3">Type</th>
-                      <th className="p-3">Amount</th>
-                      <th className="p-3">Method</th>
-                      <th className="p-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {(auditUser.transactions || [
-                      {
-                        id: 'tx-audit-default',
-                        dateTime: auditUser.activationDate || '2026-07-25 09:00',
-                        amount: 300,
-                        currency: 'PKR',
-                        type: 'Subscription',
-                        status: 'Success',
-                        paymentMethod: 'JazzCash'
-                      }
-                    ]).map((tx) => (
-                      <tr key={tx.id} className="font-mono">
-                        <td className="p-3">{tx.dateTime}</td>
-                        <td className="p-3 font-bold text-emerald-400 font-sans">{tx.type}</td>
-                        <td className="p-3 font-bold text-white">{tx.currency} {tx.amount.toLocaleString()}</td>
-                        <td className="p-3 font-sans">{tx.paymentMethod}</td>
-                        <td className="p-3 font-sans">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                            {tx.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
+        return (
+          <AdminUserAuditProfileModal
+            auditUser={auditUser}
+            transactions={currentTransactions}
+            customExpiryInput={customExpiryInput}
+            onChangeCustomExpiryInput={setCustomExpiryInput}
+            isSubmitting={isAuditSubUpdating}
+            notice={auditActionNotice}
+            onClose={() => {
+              setAuditUser(null);
+              setAuditActionNotice(null);
+            }}
+            onExtend30Days={() => handleAuditSubscriptionAction('extend30')}
+            onRevokeNow={() => handleAuditSubscriptionAction('revoke')}
+            onSwitchPlan={() => handleAuditSubscriptionAction('togglePlan')}
+            onSetCustomDate={() => handleAuditSubscriptionAction('customExpiry')}
+          />
+        );
+      })()}
 
       {/* USER DETAIL MODAL POP-UP */}
       {selectedUserForModal && (

@@ -201,7 +201,17 @@ export const SENSITIVE_USER_AUTH_FIELD_KEYS = new Set<string>([
   'emailverificationtoken',
   'authtoken',
   'twofactorsecret',
-  'mfasecret'
+  'mfasecret',
+  'hashedpassword',
+  'passworddigest',
+  'apikey',
+  'privatekey',
+  'otpsecret',
+  'mfarecoverycodes',
+  'bearertoken',
+  'idtoken',
+  'clientsecret',
+  'authorization'
 ]);
 
 const SANITIZED_USER_FIELD_LABELS = [
@@ -212,7 +222,20 @@ const SANITIZED_USER_FIELD_LABELS = [
   'refreshToken',
   'resetToken',
   'verificationToken',
-  'sessionToken'
+  'sessionToken',
+  'password_hash',
+  'hashedPassword',
+  'passwordDigest',
+  'apiKey',
+  'api_key',
+  'privateKey',
+  'private_key',
+  'otpSecret',
+  'mfaRecoveryCodes',
+  'bearerToken',
+  'idToken',
+  'clientSecret',
+  'authorization'
 ];
 
 export const EXCLUDED_BACKUP_CATEGORIES = [
@@ -263,6 +286,12 @@ export const EXCLUDED_BACKUP_CATEGORIES = [
   }
 ];
 
+function isSensitiveKey(key: string): boolean {
+  if (!key || typeof key !== 'string') return false;
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SENSITIVE_USER_AUTH_FIELD_KEYS.has(normalized);
+}
+
 function cloneSanitizedValue(value: unknown, seen: WeakSet<object>): unknown {
   if (value === null || typeof value !== 'object') {
     return value;
@@ -283,7 +312,7 @@ function cloneSanitizedValue(value: unknown, seen: WeakSet<object>): unknown {
   seen.add(value);
   const out: Record<string, unknown> = {};
   for (const [key, entryVal] of Object.entries(value as Record<string, unknown>)) {
-    if (SENSITIVE_USER_AUTH_FIELD_KEYS.has(key.toLowerCase())) {
+    if (isSensitiveKey(key)) {
       continue;
     }
     out[key] = cloneSanitizedValue(entryVal, seen);
@@ -905,7 +934,7 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
     });
 
     const dateStamp = new Date().toISOString().substring(0, 10);
-    const filename = `careerpak_complete_system_backup_${dateStamp}.json`;
+    const filename = `careerpak_selected_admin_data_snapshot_${dateStamp}.json`;
     triggerBlobDownload(JSON.stringify(snapshot, null, 2), 'application/json;charset=utf-8;', filename);
     setExportNoticeMessage(
       `Downloaded selected admin data snapshot (${filename}) with ${snapshot.totalPaymentTransactions} payment transactions, ${snapshot.totalFeeLogs} fee logs, and ${snapshot.totalUsers} sanitized user records.`
@@ -915,7 +944,7 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
   // Selected Admin Data Snapshot JSON Download (requires explicit sensitive data warning confirmation)
   const handleDownloadFullSnapshot = () => {
     const dateStamp = new Date().toISOString().substring(0, 10);
-    const filename = `careerpak_complete_system_backup_${dateStamp}.json`;
+    const filename = `careerpak_selected_admin_data_snapshot_${dateStamp}.json`;
     setPendingExportConfirmation({
       title: 'Confirm Sensitive Admin Data Snapshot Export',
       filename,

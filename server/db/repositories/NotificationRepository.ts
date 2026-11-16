@@ -130,7 +130,8 @@ function resolveNotificationLimit(rawLimit?: number): number {
   if (typeof rawLimit !== 'number' || !Number.isFinite(rawLimit) || rawLimit <= 0) {
     return MAX_NOTIFICATION_RESULTS;
   }
-  return Math.min(Math.floor(rawLimit), MAX_NOTIFICATION_RESULTS);
+  const normalized = Math.max(1, Math.floor(rawLimit));
+  return Math.min(normalized, MAX_NOTIFICATION_RESULTS);
 }
 
 function canonicalizeValue(val: any): any {
@@ -576,6 +577,7 @@ export class NotificationRepository {
   }
 
   static clearInMemoryStore(): void {
+    assertSyncInMemoryAllowed('clearInMemoryStore');
     inMemoryNotifications = [];
   }
 }

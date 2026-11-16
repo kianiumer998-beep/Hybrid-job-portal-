@@ -1002,7 +1002,7 @@ async function runTests() {
                 return 0;
               });
             }
-            if (typeof limitNum === 'number' && limitNum >= 0) {
+            if (typeof limitNum === 'number' && limitNum > 0) {
               matched = matched.slice(0, limitNum);
             }
             return matched;
@@ -1145,13 +1145,17 @@ async function runTests() {
           );
         }
 
-        // 16b: Sync in-memory methods must throw in production
+        // 16b: Sync in-memory methods (including clearInMemoryStore) must throw in production and preserve store
         assert.throws(() => NotificationRepository.getAll({ userId: 'sentinel-user' }), /disabled in production/i);
         assert.throws(() => NotificationRepository.create({ userId: 'sentinel-user', title: 'S', message: 'S' }), /disabled in production/i);
         assert.throws(() => NotificationRepository.markAsRead('mem-sentinel-1'), /disabled in production/i);
         assert.throws(() => NotificationRepository.markAllAsRead('sentinel-user'), /disabled in production/i);
         assert.throws(() => NotificationRepository.delete('mem-sentinel-1', 'sentinel-user'), /disabled in production/i);
         assert.throws(() => NotificationRepository.send({ userId: 'sentinel-user', title: 'S', message: 'S' }), /disabled in production/i);
+        assert.throws(() => NotificationRepository.clearInMemoryStore(), /disabled in production/i);
+        process.env.IS_TEST = 'true';
+        assert.throws(() => NotificationRepository.clearInMemoryStore(), /disabled in production/i);
+        process.env.IS_TEST = 'false';
 
         // 16c: setMockCollection strictly rejected in production or when IS_TEST !== 'true'
         assert.throws(
@@ -1181,10 +1185,13 @@ async function runTests() {
         process.env.MONGO_URI = savedMongoUriAlt;
         NotificationRepository.setMockCollection(null);
         NotificationRepository.clearInMemoryStore();
+        // Verify sentinel remained untouched across production clearInMemoryStore attempts until non-production cleanup
+        // (and non-production clearInMemoryStore successfully clears the store)
+        assert.strictEqual((await NotificationRepository.getAllAsync({ userId: 'sentinel-user' })).length, 0);
       }
     }
     passCount++;
-    console.log('✓ Test 16: Production fails closed without URI, ignores IS_TEST=true, blocks sync methods, rejects unauthorized mock injection, and never falls back to memory on DB failure.');
+    console.log('✓ Test 16: Production fails closed without URI, ignores IS_TEST=true, blocks sync methods + clearInMemoryStore(), rejects unauthorized mock injection, and never falls back to memory on DB failure.');
 
     // Test 17: Controlled Fake MongoDB Indexes, Retry After Failure & Duplicate Pre-Existing Data Protection (Category B)
     testCount++;
@@ -1648,6 +1655,109 @@ async function runTests() {
     }
     passCount++;
     console.log('✓ Test 23: In-memory metadata comparison is key-order-independent and rejects actual diffs.');
+
+    // Test 24: STEP-D.2.1-C.1 Strictly Positive Bounded Limit Edge Cases & clearInMemoryStore() Non-Clearance Proof
+    testCount++;
+    {
+      // 24a: Prove production clearInMemoryStore() throws WITHOUT wiping existing in-memory records
+      NotificationRepository.setMockCollection(null);
+      NotificationRepository.clearInMemoryStore();
+      await NotificationRepository.createAsync({
+        id: 'clear-guard-sentinel',
+        userId: 'clear-guard-user',
+        title: 'Keep Me',
+        message: 'Must not be cleared in production'
+      });
+
+      const savedEnv = process.env.NODE_ENV;
+      const savedIsTest = process.env.IS_TEST;
+      try {
+        process.env.NODE_ENV = 'production';
+        process.env.IS_TEST = 'true';
+        assert.throws(() => NotificationRepository.clearInMemoryStore(), /disabled in production/i);
+      } finally {
+        process.env.NODE_ENV = savedEnv;
+        process.env.IS_TEST = savedIsTest;
+      }
+      assert.strictEqual(
+        (await NotificationRepository.getAllAsync({ userId: 'clear-guard-user' })).length,
+        1,
+        'Blocked production clearInMemoryStore() must leave in-memory store intact'
+      );
+      NotificationRepository.clearInMemoryStore();
+      assert.strictEqual(
+        (await NotificationRepository.getAllAsync({ userId: 'clear-guard-user' })).length,
+        0,
+        'Non-production clearInMemoryStore() must continue clearing normally'
+      );
+
+      // 24b: Verify FakeMongoNotificationCollection simulates MongoDB .limit(0) = no limit
+      const limitTestColl = new FakeMongoNotificationCollection();
+      const baseLimitTs = Date.parse('2026-03-01T00:00:00.000Z');
+      for (let i = 0; i < 510; i++) {
+        limitTestColl.docs.push({
+          id: `lim-${String(i).padStart(4, '0')}`,
+          userId: 'lim-user',
+          title: `Limit Test ${i}`,
+          message: `Msg ${i}`,
+          isRead: false,
+          read: false,
+          createdAt: new Date(baseLimitTs + i * 1000).toISOString()
+        });
+      }
+      const rawLimitZeroDocs = await limitTestColl.find({ userId: 'lim-user' }).limit(0).toArray();
+      assert.strictEqual(
+        rawLimitZeroDocs.length,
+        510,
+        'FakeMongoNotificationCollection.limit(0) must simulate MongoDB unbounded semantics'
+      );
+
+      // 24c: Test all required edge-case limits across BOTH fake MongoDB and in-memory branches
+      for (const branch of ['mongo-branch', 'in-memory-branch'] as const) {
+        if (branch === 'mongo-branch') {
+          NotificationRepository.setMockCollection(limitTestColl);
+        } else {
+          NotificationRepository.setMockCollection(null);
+          NotificationRepository.clearInMemoryStore();
+          for (const d of limitTestColl.docs) {
+            await NotificationRepository.createAsync({ ...d });
+          }
+        }
+
+        const rHalf = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: 0.5 });
+        assert.strictEqual(rHalf.length, 1, `${branch}: limit 0.5 must resolve to 1, not 0`);
+        assert.strictEqual(rHalf[0].id, 'lim-0509', `${branch}: limit 0.5 must return the latest notification`);
+
+        const rOne = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: 1 });
+        assert.strictEqual(rOne.length, 1, `${branch}: limit 1 must return 1`);
+
+        const r499 = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: 499 });
+        assert.strictEqual(r499.length, 499, `${branch}: limit 499 must return 499`);
+
+        const r500 = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: 500 });
+        assert.strictEqual(r500.length, 500, `${branch}: limit 500 must return 500`);
+
+        const r501 = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: 501 });
+        assert.strictEqual(r501.length, 500, `${branch}: limit 501 must clamp to 500`);
+
+        const rZero = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: 0 });
+        assert.strictEqual(rZero.length, 500, `${branch}: limit 0 must default to 500`);
+
+        const rNeg = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: -15 });
+        assert.strictEqual(rNeg.length, 500, `${branch}: negative limit must default to 500`);
+
+        const rNaN = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: Number.NaN });
+        assert.strictEqual(rNaN.length, 500, `${branch}: NaN limit must default to 500`);
+
+        const rInf = await NotificationRepository.getAllAsync({ userId: 'lim-user', limit: Number.POSITIVE_INFINITY });
+        assert.strictEqual(rInf.length, 500, `${branch}: Infinity limit must default to 500`);
+
+        NotificationRepository.setMockCollection(null);
+        NotificationRepository.clearInMemoryStore();
+      }
+    }
+    passCount++;
+    console.log('✓ Test 24: clearInMemoryStore() production guard & strictly positive bounded limits (0.5->1, 1, 499, 500, 501->500, 0/-15/NaN/Infinity->500) verified with Mongo .limit(0) semantics.');
 
   } catch (err: any) {
     console.error('\n[TEST SCENARIO FAILURE]', err);

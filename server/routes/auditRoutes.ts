@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AuditRepository } from '../db/repositories/AuditRepository';
-import { requireAdminPermission, requireAuth, authMiddleware } from '../auth/authManager';
+import { requireAdminPermission, authMiddleware } from '../auth/authManager';
 
 export const auditRouter = Router();
 
@@ -22,8 +22,8 @@ auditRouter.get('/', requireAdminPermission('audit.view'), async (req, res) => {
   }
 });
 
-// Append audit log (Requires authentication, derives actor identity strictly from authenticated token)
-auditRouter.post('/', requireAuth, async (req: any, res) => {
+// Append audit log (Requires users.manage, derives actor identity strictly from authenticated token)
+auditRouter.post('/', requireAdminPermission('users.manage'), async (req: any, res) => {
   try {
     const authUser = req.user;
     const actorUser = authUser?.name || authUser?.email || 'Authenticated User';

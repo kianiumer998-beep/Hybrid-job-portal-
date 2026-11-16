@@ -6,7 +6,7 @@ import { FeatureFlagsRepository } from './server/db/repositories/FeatureFlagsRep
 import { isMongoConfigured } from './server/db/mongodb';
 import { createServer as createViteServer } from 'vite';
 
-import { Database } from './server/db/database';
+import { AuditRepository } from './server/db/repositories/AuditRepository';
 import { authMiddleware, requireAdminPermission } from './server/auth/authManager';
 import { authRouter } from './server/routes/authRoutes';
 import { jobRouter } from './server/routes/jobRoutes';
@@ -123,14 +123,19 @@ async function startServer() {
         updated = updateFeatureFlags(req.body);
       }
 
-      Database.addAuditLog({
-        user: 'Administrator',
-        role: 'Admin',
+      const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
+        user: (req as any).user?.name || (req as any).user?.email || 'Administrator',
+        role: (req as any).user?.role || 'Admin',
         action: 'Feature Flags Updated',
         target: 'System Configuration',
         status: 'Success'
+      }, 'POST /api/admin/feature-flags');
+
+      res.json({
+        success: true,
+        featureFlags,
+        ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
       });
-      res.json({ success: true, featureFlags });
     } catch (err: any) {
       console.error('[API Error] Failed to update feature flags:', err);
       res.status(500).json({ success: false, message: err?.message || 'Failed to persist feature flags.' });

@@ -41,7 +41,8 @@ import { jobVisibilityRouter } from '../routes/jobVisibilityRoutes';
 import { applySettingsRouter } from '../routes/applySettingsRoutes';
 import { communicationProviderRouter } from '../routes/communicationProviderRoutes';
 import { locationRouter } from '../routes/locationRoutes';
-import { createToken } from '../auth/authManager';
+import { authRouter } from '../routes/authRoutes';
+import { createToken, hashPassword } from '../auth/authManager';
 import { cvStorage } from '../services/cvStorage';
 import { INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
 
@@ -609,7 +610,7 @@ async function runAuditDurableTests() {
           const resForbid = await fetch(baseUrl, { headers: { Authorization: `Bearer ${normalToken}` } });
           assert.strictEqual(resForbid.status, 403);
 
-          const resPost = await fetch(baseUrl, {
+          const resDeniedPost = await fetch(baseUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -618,6 +619,21 @@ async function runAuditDurableTests() {
             body: JSON.stringify({
               user: 'Spoofed SuperAdmin',
               role: 'Super Admin',
+              action: 'Unauthorized Audit Attempt',
+              target: 'Portal'
+            })
+          });
+          assert.strictEqual(resDeniedPost.status, 403, 'Non-admin Member must receive 403 on POST /api/audit');
+
+          const resPost = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${adminToken}`
+            },
+            body: JSON.stringify({
+              user: 'Spoofed SuperAdmin',
+              role: 'Member',
               action: 'Spoof Attempt',
               target: 'Portal'
             })
@@ -627,8 +643,8 @@ async function runAuditDurableTests() {
           const logs = await AuditRepository.getAll();
           const entry = logs.find((l) => l.action === 'Spoof Attempt');
           assert.ok(entry);
-          assert.strictEqual(entry.user, 'Normal User');
-          assert.strictEqual(entry.role, 'Member');
+          assert.strictEqual(entry.user, 'Real Admin');
+          assert.strictEqual(entry.role, 'Super Admin');
 
           const resAdminGet = await fetch(baseUrl, { headers: { Authorization: `Bearer ${adminToken}` } });
           assert.strictEqual(resAdminGet.status, 200);
@@ -642,7 +658,7 @@ async function runAuditDurableTests() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${normalToken}`
+              Authorization: `Bearer ${adminToken}`
             },
             body: JSON.stringify({ action: 'Fail Durable Write', target: 'Portal' })
           });
@@ -1502,6 +1518,266 @@ async function runAuditDurableTests() {
         LocationRepository.deleteCity = origLocDeleteCity;
         LocationRepository.addProvince = origLocAddProvince;
         UserRepository.getByIdAsync = origUserGetById;
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    })();
+
+    // 30-32. STEP-D.4.1: addAfterPrimaryOperation, authRoutes durable audit safety & feature-flags source guard
+    await runCase('Test 30: AuditRepository.addAfterPrimaryOperation() succeeds cleanly and handles simulated failure safely without throwing', async () => {
+      Database.getAuditLogs = () => [];
+      AuditRepository.resetTestStore();
+      const mockColl = createMockAuditCollection();
+      AuditRepository.setMockCollection(mockColl);
+
+      try {
+        const okOutcome = await AuditRepository.addAfterPrimaryOperation(
+          {
+            user: 'StepD41 Admin',
+            role: 'Super Admin',
+            action: 'Feature Flags Updated',
+            target: 'System Configuration',
+            status: 'Success'
+          },
+          'Test 30 success'
+        );
+        assert.strictEqual(okOutcome.persisted, true);
+        assert.strictEqual(okOutcome.auditWarning, undefined);
+        assert.ok(okOutcome.record && okOutcome.record.action === 'Feature Flags Updated');
+
+        mockColl.options.failInsert = true;
+        const failOutcome = await AuditRepository.addAfterPrimaryOperation(
+          {
+            user: 'StepD41 Admin',
+            role: 'Super Admin',
+            action: 'Feature Flags Updated',
+            target: 'System Configuration',
+            status: 'Success'
+          },
+          'Test 30 simulated failure'
+        );
+        assert.strictEqual(failOutcome.persisted, false);
+        assert.strictEqual(failOutcome.record, undefined);
+        assert.strictEqual(failOutcome.auditWarning, SAFE_AUDIT_WARNING);
+        assert.ok(!String(failOutcome.auditWarning).includes('Simulated MongoDB'));
+      } finally {
+        Database.getAuditLogs = origGetAuditLogs;
+        AuditRepository.resetTestStore();
+      }
+    });
+
+    await (async () => {
+      const origAuditAdd = AuditRepository.add;
+      const origUserGetByEmail = UserRepository.getByEmailAsync;
+      const origUserGetById = UserRepository.getByIdAsync;
+      const origUserCreate = UserRepository.createAsync;
+      const origUserUpdate = UserRepository.updateAsync;
+      const origRoleGuard = UserRepository.updateRoleWithLastSuperAdminGuard;
+      const origBootstrapEnabled = process.env.ADMIN_BOOTSTRAP_ENABLED;
+      const origBootstrapKey = process.env.ADMIN_BOOTSTRAP_KEY;
+
+      const adminActor = {
+        id: 'stepd41-admin-1',
+        userId: 'stepd41-admin-1',
+        name: 'StepD41 Admin',
+        email: 'stepd41-admin@test.local',
+        role: 'Super Admin',
+        permissions: ['*']
+      };
+      const memberActor = {
+        id: 'stepd41-member-1',
+        userId: 'stepd41-member-1',
+        name: 'StepD41 Member',
+        email: 'stepd41-member@test.local',
+        role: 'Job Seeker'
+      };
+      const { hash: validHash, salt: validSalt } = hashPassword('StrongPass123!');
+
+      let currentReqUser: any = null;
+      let failAuditWrite = true;
+      const capturedAuthAudits: any[] = [];
+
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        if (currentReqUser) {
+          (req as any).user = currentReqUser;
+        }
+        next();
+      });
+      app.use('/api/auth', authRouter);
+
+      const server: Server = createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, resolve));
+      const baseUrl = `http://127.0.0.1:${(server.address() as any).port}/api/auth`;
+
+      try {
+        AuditRepository.add = async (entry: any) => {
+          capturedAuthAudits.push(entry);
+          if (failAuditWrite) {
+            throw new Error('MongoTimeoutError: internal-auth-audit-replica:27017');
+          }
+          return { id: `auth-audit-${capturedAuthAudits.length}`, timestamp: new Date().toISOString(), ...entry };
+        };
+
+        await runCase('Test 31: All 7 authRoutes audit call-sites succeed cleanly under audit persistence failure without unhandled rejections', async () => {
+          failAuditWrite = true;
+          capturedAuthAudits.length = 0;
+
+          // 1. Register
+          currentReqUser = null;
+          UserRepository.getByEmailAsync = async () => null;
+          UserRepository.createAsync = async (data: any) => ({ id: 'reg-d41-1', ...data });
+          const regRes = await fetch(`${baseUrl}/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'New Member', email: 'new-d41@test.local', password: 'StrongPassword1!' })
+          });
+          const regJson = (await regRes.json()) as any;
+          assert.strictEqual(regRes.status, 201);
+          assert.strictEqual(regJson.success, true);
+          assert.ok(regJson.token);
+          assert.strictEqual(regJson.auditPersisted, false);
+          assert.strictEqual(regJson.auditWarning, SAFE_AUDIT_WARNING);
+
+          // 2. Login
+          UserRepository.getByEmailAsync = async (email: string) => ({
+            ...memberActor,
+            email,
+            passwordHash: validHash,
+            salt: validSalt
+          });
+          const loginRes = await fetch(`${baseUrl}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: memberActor.email, password: 'StrongPass123!' })
+          });
+          const loginJson = (await loginRes.json()) as any;
+          assert.strictEqual(loginRes.status, 200);
+          assert.strictEqual(loginJson.success, true);
+          assert.ok(loginJson.token);
+          assert.strictEqual(loginJson.auditPersisted, false);
+          assert.strictEqual(loginJson.auditWarning, SAFE_AUDIT_WARNING);
+
+          // 3. Admin Login
+          UserRepository.getByEmailAsync = async (email: string) => ({
+            ...adminActor,
+            email,
+            passwordHash: validHash,
+            salt: validSalt
+          });
+          const adminLoginRes = await fetch(`${baseUrl}/admin-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: adminActor.email, password: 'StrongPass123!' })
+          });
+          const adminLoginJson = (await adminLoginRes.json()) as any;
+          assert.strictEqual(adminLoginRes.status, 200);
+          assert.strictEqual(adminLoginJson.success, true);
+          assert.ok(adminLoginJson.token);
+          assert.strictEqual(adminLoginJson.auditPersisted, false);
+          assert.strictEqual(adminLoginJson.auditWarning, SAFE_AUDIT_WARNING);
+
+          // 4. Change Password
+          currentReqUser = { ...memberActor };
+          UserRepository.getByIdAsync = async () => ({
+            ...memberActor,
+            passwordHash: validHash,
+            salt: validSalt
+          });
+          UserRepository.updateAsync = async (id: string, updates: any) => ({
+            ...memberActor,
+            id,
+            ...updates
+          });
+          const cpRes = await fetch(`${baseUrl}/change-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ currentPassword: 'StrongPass123!', newPassword: 'NewStrongPass123!' })
+          });
+          const cpJson = (await cpRes.json()) as any;
+          assert.strictEqual(cpRes.status, 200);
+          assert.strictEqual(cpJson.success, true);
+          assert.ok(cpJson.token);
+          assert.strictEqual(cpJson.auditPersisted, false);
+          assert.strictEqual(cpJson.auditWarning, SAFE_AUDIT_WARNING);
+
+          // 5. Admin Bootstrap
+          currentReqUser = null;
+          process.env.ADMIN_BOOTSTRAP_ENABLED = 'true';
+          process.env.ADMIN_BOOTSTRAP_KEY = 'stepd41-bootstrap-secret-key';
+          UserRepository.getByEmailAsync = async () => null;
+          UserRepository.createAsync = async (data: any) => ({ id: 'boot-d41-1', ...data });
+          const bootRes = await fetch(`${baseUrl}/admin-bootstrap`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-bootstrap-key': 'stepd41-bootstrap-secret-key'
+            },
+            body: JSON.stringify({ email: 'boot-d41@test.local', password: 'BootstrapPassword123!' })
+          });
+          const bootJson = (await bootRes.json()) as any;
+          assert.strictEqual(bootRes.status, 200);
+          assert.strictEqual(bootJson.success, true);
+          assert.strictEqual(bootJson.auditPersisted, false);
+          assert.strictEqual(bootJson.auditWarning, SAFE_AUDIT_WARNING);
+
+          // 6. Role Update
+          currentReqUser = { ...adminActor };
+          UserRepository.getByIdAsync = async (id: string) =>
+            id === adminActor.id ? { ...adminActor } : { ...memberActor };
+          UserRepository.updateRoleWithLastSuperAdminGuard = async () => ({
+            ok: true,
+            status: 200,
+            message: 'Role updated',
+            actor: adminActor,
+            actorRole: 'Super Admin',
+            oldRole: 'Job Seeker',
+            user: { ...memberActor, role: 'Job Moderator' }
+          });
+          const roleRes = await fetch(`${baseUrl}/users/${memberActor.id}/role`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'Job Moderator' })
+          });
+          const roleJson = (await roleRes.json()) as any;
+          assert.strictEqual(roleRes.status, 200);
+          assert.strictEqual(roleJson.success, true);
+          assert.strictEqual(roleJson.auditPersisted, false);
+          assert.strictEqual(roleJson.auditWarning, SAFE_AUDIT_WARNING);
+
+          // 7. Logout (async, awaited audit)
+          const logoutRes = await fetch(`${baseUrl}/logout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          const logoutJson = (await logoutRes.json()) as any;
+          assert.strictEqual(logoutRes.status, 200);
+          assert.strictEqual(logoutJson.success, true);
+          assert.strictEqual(logoutJson.auditPersisted, false);
+          assert.strictEqual(logoutJson.auditWarning, SAFE_AUDIT_WARNING);
+
+          assert.strictEqual(capturedAuthAudits.length, 7, 'All 7 auth audit events must be attempted');
+        });
+
+        await runCase('Test 32: Source verification confirms zero direct JSON or unawaited AuditRepository.add calls in server.ts and authRoutes.ts', async () => {
+          for (const relPath of ['server.ts', 'server/routes/authRoutes.ts']) {
+            const content = fs.readFileSync(path.resolve(process.cwd(), relPath), 'utf-8');
+            assert.strictEqual(content.includes('Database.addAuditLog('), false, `${relPath} must not call Database.addAuditLog`);
+            assert.strictEqual(/\bAuditRepository\.add\(/.test(content), false, `${relPath} must not call AuditRepository.add directly`);
+            assert.strictEqual(content.includes('await AuditRepository.addAfterPrimaryOperation('), true, `${relPath} must await AuditRepository.addAfterPrimaryOperation`);
+          }
+        });
+      } finally {
+        AuditRepository.add = origAuditAdd;
+        UserRepository.getByEmailAsync = origUserGetByEmail;
+        UserRepository.getByIdAsync = origUserGetById;
+        UserRepository.createAsync = origUserCreate;
+        UserRepository.updateAsync = origUserUpdate;
+        UserRepository.updateRoleWithLastSuperAdminGuard = origRoleGuard;
+        if (origBootstrapEnabled === undefined) delete process.env.ADMIN_BOOTSTRAP_ENABLED;
+        else process.env.ADMIN_BOOTSTRAP_ENABLED = origBootstrapEnabled;
+        if (origBootstrapKey === undefined) delete process.env.ADMIN_BOOTSTRAP_KEY;
+        else process.env.ADMIN_BOOTSTRAP_KEY = origBootstrapKey;
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
     })();

@@ -373,6 +373,11 @@ async function runSuite() {
       resetToken: 'reset-tok-123',
       verificationToken: 'verify-tok-456',
       sessionToken: 'sess-tok-789',
+      passwordResetToken: 'pw-reset-alias-111',
+      emailVerificationToken: 'email-verify-alias-222',
+      authToken: 'auth-tok-alias-333',
+      twoFactorSecret: '2fa-secret-alias-444',
+      mfaSecret: 'mfa-secret-alias-555',
       password_hash: 'hash-1',
       'PASSWORD-HASH': 'hash-2',
       hashedPassword: 'hash-3',
@@ -398,15 +403,20 @@ async function runSuite() {
       nestedProfileMeta: {
         secureNotes: 'keep me',
         clientSecret: 'nested-secret-1',
-        api_key: 'nested-apikey-1'
+        api_key: 'nested-apikey-1',
+        passwordResetToken: 'nested-pw-reset-111',
+        twoFactorSecret: 'nested-2fa-secret-444'
       },
       employmentHistory: [
         {
           company: 'Tech Corp',
           title: 'Engineer',
           apiKey: 'array-secret-1',
+          authToken: 'array-auth-tok-333',
           nestedDetails: {
-            private_key: 'deep-secret-1'
+            private_key: 'deep-secret-1',
+            emailVerificationToken: 'deep-email-verify-222',
+            mfaSecret: 'deep-mfa-secret-555'
           }
         }
       ],
@@ -446,6 +456,8 @@ async function runSuite() {
     assert.strictEqual(rawUser.password, 'PlaintextSecretPassword123!');
     assert.strictEqual(rawUser.passwordHash, '$2b$10$hashvalue999');
     assert.strictEqual(rawUser.clientSecret, 'clientsec-1');
+    assert.strictEqual(rawUser.passwordResetToken, 'pw-reset-alias-111');
+    assert.strictEqual(rawUser.mfaSecret, 'mfa-secret-alias-555');
 
     // All required sensitive keys and aliases must NEVER appear in sanitized result
     const sensitiveKeysToCheck = [
@@ -457,6 +469,11 @@ async function runSuite() {
       'resetToken',
       'verificationToken',
       'sessionToken',
+      'passwordResetToken',
+      'emailVerificationToken',
+      'authToken',
+      'twoFactorSecret',
+      'mfaSecret',
       'password_hash',
       'PASSWORD-HASH',
       'hashedPassword',
@@ -479,10 +496,15 @@ async function runSuite() {
 
     assert.strictEqual(sanitized.nestedProfileMeta.clientSecret, undefined);
     assert.strictEqual(sanitized.nestedProfileMeta.api_key, undefined);
+    assert.strictEqual(sanitized.nestedProfileMeta.passwordResetToken, undefined);
+    assert.strictEqual(sanitized.nestedProfileMeta.twoFactorSecret, undefined);
     assert.strictEqual(sanitized.nestedProfileMeta.secureNotes, 'keep me');
 
     assert.strictEqual(sanitized.employmentHistory[0].apiKey, undefined);
+    assert.strictEqual(sanitized.employmentHistory[0].authToken, undefined);
     assert.strictEqual(sanitized.employmentHistory[0].nestedDetails.private_key, undefined);
+    assert.strictEqual(sanitized.employmentHistory[0].nestedDetails.emailVerificationToken, undefined);
+    assert.strictEqual(sanitized.employmentHistory[0].nestedDetails.mfaSecret, undefined);
     assert.strictEqual(sanitized.employmentHistory[0].company, 'Tech Corp');
 
     // Legitimate profile, company, wallet, transactions, and customFieldsData fields must be preserved
@@ -498,8 +520,20 @@ async function runSuite() {
     assert.strictEqual(sanitized.appliedJobs?.length, 1);
     assert.deepStrictEqual(sanitized.customFieldsData, { ntn: 'NTN-445566' });
 
-    // Verify full snapshot JSON excludes all sensitive aliases and values
+    // Verify full snapshot JSON excludes all sensitive aliases/values and manifest lists all required labels
     const snapshot = buildAdminSnapshotPayload({ users: [rawUser] });
+    for (const expectedLabel of [
+      'passwordResetToken',
+      'emailVerificationToken',
+      'authToken',
+      'twoFactorSecret',
+      'mfaSecret'
+    ]) {
+      assert.ok(
+        snapshot.manifest.sanitizationApplied.strippedUserFields.includes(expectedLabel),
+        `Expected manifest.sanitizationApplied.strippedUserFields to include "${expectedLabel}"`
+      );
+    }
     const serialized = JSON.stringify(snapshot);
     assert.strictEqual(serialized.includes('PlaintextSecretPassword123!'), false);
     assert.strictEqual(serialized.includes('$2b$10$hashvalue999'), false);
@@ -509,6 +543,16 @@ async function runSuite() {
     assert.strictEqual(serialized.includes('reset-tok-123'), false);
     assert.strictEqual(serialized.includes('verify-tok-456'), false);
     assert.strictEqual(serialized.includes('sess-tok-789'), false);
+    assert.strictEqual(serialized.includes('pw-reset-alias-111'), false);
+    assert.strictEqual(serialized.includes('email-verify-alias-222'), false);
+    assert.strictEqual(serialized.includes('auth-tok-alias-333'), false);
+    assert.strictEqual(serialized.includes('2fa-secret-alias-444'), false);
+    assert.strictEqual(serialized.includes('mfa-secret-alias-555'), false);
+    assert.strictEqual(serialized.includes('nested-pw-reset-111'), false);
+    assert.strictEqual(serialized.includes('nested-2fa-secret-444'), false);
+    assert.strictEqual(serialized.includes('array-auth-tok-333'), false);
+    assert.strictEqual(serialized.includes('deep-email-verify-222'), false);
+    assert.strictEqual(serialized.includes('deep-mfa-secret-555'), false);
     assert.strictEqual(serialized.includes('clientsec-1'), false);
     assert.strictEqual(serialized.includes('nested-secret-1'), false);
     assert.strictEqual(serialized.includes('deep-secret-1'), false);

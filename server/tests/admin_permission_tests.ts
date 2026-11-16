@@ -24,6 +24,7 @@ import { paymentSettingsRouter } from '../routes/paymentSettingsRoutes';
 import { pricingRouter } from '../routes/pricingRoutes';
 import { scraperRouter } from '../routes/scraperRoutes';
 import { jobRouter } from '../routes/jobRoutes';
+import { auditRouter } from '../routes/auditRoutes';
 import { INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -79,6 +80,7 @@ async function runAdminPermissionTests() {
   app.use('/api/pricing', pricingRouter);
   app.use('/api/scraper', scraperRouter);
   app.use('/api/jobs', jobRouter);
+  app.use('/api/audit-logs', auditRouter);
 
   const server: Server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -648,6 +650,100 @@ async function runAdminPermissionTests() {
         true,
         'Scraper Manager must keep scraper.manage and never receive jobs.manage'
       );
+    });
+
+    // -----------------------------------------------------------------
+    // 9. AUDIT ROUTES RBAC: POST requires users.manage; GET requires audit.view
+    // -----------------------------------------------------------------
+    await runTest('Audit Logs: POST /api/audit-logs enforces users.manage and GET enforces audit.view', async () => {
+      const origGetAuditLogs = Database.getAuditLogs;
+      Database.getAuditLogs = () => [];
+      AuditRepository.resetTestStore();
+
+      try {
+        const unauthPost = await fetch(`${baseUrl}/audit-logs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'Unauth Audit Write', target: 'Portal' })
+        });
+        assert.strictEqual(unauthPost.status, 401, 'Unauthenticated POST /api/audit-logs must return 401');
+
+        const unauthGet = await fetch(`${baseUrl}/audit-logs`);
+        assert.strictEqual(unauthGet.status, 401, 'Unauthenticated GET /api/audit-logs must return 401');
+
+        for (const [label, tok] of [
+          ['Job Seeker', tokens.seeker],
+          ['Job Moderator', tokens.mod],
+          ['Scraper Manager', tokens.scraper],
+          ['Payment Manager', tokens.pay],
+          ['Finance Manager', tokens.fin],
+          ['SEO Manager', tokens.seo],
+          ['Advertisement Manager', tokens.ad]
+        ] as const) {
+          const deniedPost = await fetch(`${baseUrl}/audit-logs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+            body: JSON.stringify({ action: 'Unauthorized Audit Write', target: 'Portal' })
+          });
+          assert.strictEqual(
+            deniedPost.status,
+            403,
+            `${label} lacks users.manage and must receive 403 on POST /api/audit-logs, got ${deniedPost.status}`
+          );
+
+          const deniedGet = await fetch(`${baseUrl}/audit-logs`, {
+            headers: { Authorization: `Bearer ${tok}` }
+          });
+          assert.strictEqual(
+            deniedGet.status,
+            403,
+            `${label} lacks audit.view and must receive 403 on GET /api/audit-logs, got ${deniedGet.status}`
+          );
+        }
+
+        const adminPost = await fetch(`${baseUrl}/audit-logs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens.admin}` },
+          body: JSON.stringify({
+            user: 'Spoofed Actor',
+            role: 'Member',
+            action: 'Authorized Bulk Audit',
+            target: 'Member Accounts'
+          })
+        });
+        assert.strictEqual(adminPost.status, 200, 'Admin with users.manage must be permitted on POST /api/audit-logs');
+        const adminPostJson = (await adminPost.json()) as any;
+        assert.strictEqual(adminPostJson.success, true);
+        assert.strictEqual(adminPostJson.log?.user, adminUser.name);
+        assert.strictEqual(adminPostJson.log?.role, adminUser.role);
+
+        const saPost = await fetch(`${baseUrl}/audit-logs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens.sa1}` },
+          body: JSON.stringify({ action: 'SA Authorized Audit', target: 'Member Accounts' })
+        });
+        assert.strictEqual(saPost.status, 200, 'Super Admin with users.manage must be permitted on POST /api/audit-logs');
+        const saPostJson = (await saPost.json()) as any;
+        assert.strictEqual(saPostJson.success, true);
+        assert.strictEqual(saPostJson.log?.user, sa1.name);
+        assert.strictEqual(saPostJson.log?.role, sa1.role);
+
+        const adminGet = await fetch(`${baseUrl}/audit-logs`, {
+          headers: { Authorization: `Bearer ${tokens.admin}` }
+        });
+        assert.strictEqual(adminGet.status, 200, 'Admin with audit.view must be permitted on GET /api/audit-logs');
+        const adminGetJson = (await adminGet.json()) as any;
+        assert.strictEqual(adminGetJson.success, true);
+        assert.ok(Array.isArray(adminGetJson.logs));
+
+        const saGet = await fetch(`${baseUrl}/audit-logs`, {
+          headers: { Authorization: `Bearer ${tokens.sa1}` }
+        });
+        assert.strictEqual(saGet.status, 200, 'Super Admin with audit.view must be permitted on GET /api/audit-logs');
+      } finally {
+        Database.getAuditLogs = origGetAuditLogs;
+        AuditRepository.resetTestStore();
+      }
     });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -164,19 +164,20 @@ authRouter.post('/register', async (req, res) => {
 
     const { passwordHash, salt: _, password: _p, ...safeUser } = newUser;
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: safeUser.name,
       role: safeUser.role,
       action: 'User Registered',
       target: safeUser.email,
       status: 'Success'
-    });
+    }, 'POST /api/auth/register');
 
     res.status(201).json({
       success: true,
       message: 'Account created successfully!',
       token,
-      user: safeUser
+      user: safeUser,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Internal registration error' });
@@ -230,19 +231,20 @@ authRouter.post('/login', async (req, res) => {
 
     const { passwordHash, salt, password: _, ...safeUser } = user;
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: safeUser.name,
       role: safeUser.role,
       action: 'User Login',
       target: safeUser.email,
       status: 'Success'
-    });
+    }, 'POST /api/auth/login');
 
     res.json({
       success: true,
       message: 'Login successful!',
       token,
-      user: safeUser
+      user: safeUser,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Login error' });
@@ -309,19 +311,20 @@ authRouter.post('/admin-login', async (req, res) => {
     const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = user;
     safeUser.permissions = resolvedPermissions;
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: safeUser.name,
       role: safeUser.role,
       action: 'Admin Panel Authenticated',
       target: 'System Management Suite',
       status: 'Success'
-    });
+    }, 'POST /api/auth/admin-login');
 
     return res.json({
       success: true,
       message: 'Admin access authorized successfully.',
       token,
-      user: safeUser
+      user: safeUser,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: 'Admin authentication error.' });
@@ -398,13 +401,13 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
       permissions: resolvedPermissions
     }, ADMIN_ROLES.includes(updatedUser.role) ? 168 : 72);
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: updatedUser.name,
       role: updatedUser.role,
       action: 'Password Changed',
       target: updatedUser.email,
       status: 'Success'
-    });
+    }, 'POST /api/auth/change-password');
 
     const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = updatedUser;
 
@@ -412,7 +415,8 @@ authRouter.post('/change-password', requireAuth, async (req: any, res) => {
       success: true,
       message: 'Password changed successfully.',
       token: freshToken,
-      user: safeUser
+      user: safeUser,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Error updating password.' });
@@ -496,20 +500,21 @@ authRouter.post('/admin-bootstrap', async (req, res) => {
       });
     }
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: 'System Bootstrap',
       role: 'Super Admin',
       action: 'Admin Account Bootstrapped',
       target: bootstrapEmail,
       status: 'Success'
-    });
+    }, 'POST /api/auth/admin-bootstrap');
 
     const { passwordHash: _ph, salt: _s, password: _p, ...safeUser } = finalAdmin;
 
     return res.json({
       success: true,
       message: 'Super Admin account successfully bootstrapped! Disable ADMIN_BOOTSTRAP_ENABLED in production.',
-      user: safeUser
+      user: safeUser,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message || 'Bootstrap failed.' });
@@ -581,7 +586,7 @@ authRouter.patch('/users/:id/role', requireAdminPermission('users.manage'), asyn
     const oldRole = mutation.oldRole || 'Job Seeker';
     const actorRole = mutation.actorRole || req.user?.role;
 
-    AuditRepository.add({
+    const auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: mutation.actor?.name || req.user?.name || req.user?.email || 'Administrator',
       role: actorRole,
       action: 'User Role Updated',
@@ -596,7 +601,7 @@ authRouter.patch('/users/:id/role', requireAdminPermission('users.manage'), asyn
         newRole,
         permissions: updatedPermissions
       }
-    });
+    }, 'PATCH /api/auth/users/:id/role');
 
     const { passwordHash, salt, password, ...safeUser } = updatedUser;
     safeUser.permissions = updatedPermissions;
@@ -604,7 +609,8 @@ authRouter.patch('/users/:id/role', requireAdminPermission('users.manage'), asyn
     return res.json({
       success: true,
       message: `Role for ${safeUser.name || safeUser.email} updated from '${oldRole}' to '${newRole}'.`,
-      user: safeUser
+      user: safeUser,
+      ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message || 'Error updating user role.' });
@@ -612,15 +618,20 @@ authRouter.patch('/users/:id/role', requireAdminPermission('users.manage'), asyn
 });
 
 // 7. Logout
-authRouter.post('/logout', (req: any, res) => {
+authRouter.post('/logout', async (req: any, res) => {
+  let auditOutcome: { persisted: boolean; auditWarning?: string } = { persisted: true };
   if (req.user) {
-    AuditRepository.add({
+    auditOutcome = await AuditRepository.addAfterPrimaryOperation({
       user: req.user.name || 'User',
       role: req.user.role || 'Member',
       action: 'Session Logged Out',
       target: req.user.email || 'App Client',
       status: 'Success'
-    });
+    }, 'POST /api/auth/logout');
   }
-  res.json({ success: true, message: 'Logged out successfully.' });
+  res.json({
+    success: true,
+    message: 'Logged out successfully.',
+    ...(auditOutcome.persisted ? {} : { auditPersisted: false, auditWarning: auditOutcome.auditWarning })
+  });
 });

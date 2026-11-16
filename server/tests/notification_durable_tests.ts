@@ -263,6 +263,7 @@ async function runTests() {
   const databaseDescriptors = Object.getOwnPropertyDescriptors(Database);
   const paymentRepoDescriptors = Object.getOwnPropertyDescriptors(PaymentSettingsRepository);
   const visibilityRepoDescriptors = Object.getOwnPropertyDescriptors(JobVisibilityRepository);
+  const notificationRepoDescriptors = Object.getOwnPropertyDescriptors(NotificationRepository);
 
   // --- 2. Complete Persistence & Read-Path Isolation Mocks ---
   
@@ -913,6 +914,741 @@ async function runTests() {
     passCount++;
     console.log('✓ Test 15: Actual restoration mismatch correctly returns restored=false, captures failures, and produces FAILURE with exit code 1.');
 
+    console.log('\n--- 7. STEP-D.2.1 Production Fail-Closed, MongoDB Branch, Bounded Reads, User Isolation, Read-State & API Error Security ---');
+
+    // Controlled Fake MongoDB Collection implementing indexes, find/sort/limit/toArray, findOne, countDocuments, insertOne, updateOne, updateMany, deleteOne
+    class FakeMongoNotificationCollection {
+      docs: any[] = [];
+      indexes: Array<{ key: Record<string, any>; options: Record<string, any> }> = [];
+      createIndexCalls = 0;
+      failCreateIndexTimes = 0;
+      forcedOperationError: Error | null = null;
+      onBeforeInsert?: (doc: any, coll: FakeMongoNotificationCollection) => Promise<void> | void;
+
+      private matchesFilter(doc: any, filter: Record<string, any>): boolean {
+        if (!filter || Object.keys(filter).length === 0) return true;
+        for (const [k, v] of Object.entries(filter)) {
+          if (k === '$or' && Array.isArray(v)) {
+            if (!v.some((sub) => this.matchesFilter(doc, sub))) return false;
+            continue;
+          }
+          if (k === '$and' && Array.isArray(v)) {
+            if (!v.every((sub) => this.matchesFilter(doc, sub))) return false;
+            continue;
+          }
+          if (v && typeof v === 'object' && !Array.isArray(v) && '$ne' in v) {
+            if (doc[k] === v.$ne) return false;
+            continue;
+          }
+          if (doc[k] !== v) return false;
+        }
+        return true;
+      }
+
+      async createIndex(key: Record<string, any>, options: Record<string, any> = {}): Promise<string> {
+        this.createIndexCalls++;
+        if (this.failCreateIndexTimes > 0) {
+          this.failCreateIndexTimes--;
+          throw new Error('Simulated temporary index initialization failure on mongo-rs0.internal:27017');
+        }
+        if (options.unique) {
+          const field = Object.keys(key)[0];
+          const seen = new Set<any>();
+          for (const d of this.docs) {
+            const val = d[field];
+            if (options.sparse && (val === undefined || val === null)) continue;
+            if (seen.has(val)) {
+              const dupErr: any = new Error(`E11000 duplicate key error collection: portal.notifications index: ${field}_1 dup key: { ${field}: "${val}" }`);
+              dupErr.code = 11000;
+              throw dupErr;
+            }
+            seen.add(val);
+          }
+        }
+        const sig = JSON.stringify({ key, options });
+        if (!this.indexes.some((idx) => JSON.stringify(idx) === sig)) {
+          this.indexes.push({ key, options });
+        }
+        return Object.keys(key).join('_');
+      }
+
+      find(query: Record<string, any> = {}) {
+        const self = this;
+        let sortSpec: Record<string, 1 | -1> | null = null;
+        let limitNum: number | null = null;
+        const cursor = {
+          sort(spec: Record<string, 1 | -1>) {
+            sortSpec = spec;
+            return cursor;
+          },
+          limit(n: number) {
+            limitNum = n;
+            return cursor;
+          },
+          async toArray(): Promise<any[]> {
+            if (self.forcedOperationError) throw self.forcedOperationError;
+            let matched = self.docs.filter((d) => self.matchesFilter(d, query)).map((d) => ({ ...d }));
+            if (sortSpec) {
+              const entries = Object.entries(sortSpec);
+              matched.sort((a, b) => {
+                for (const [field, dir] of entries) {
+                  const va = a[field] ?? '';
+                  const vb = b[field] ?? '';
+                  if (va !== vb) {
+                    if (va < vb) return dir === 1 ? -1 : 1;
+                    return dir === 1 ? 1 : -1;
+                  }
+                }
+                return 0;
+              });
+            }
+            if (typeof limitNum === 'number' && limitNum >= 0) {
+              matched = matched.slice(0, limitNum);
+            }
+            return matched;
+          }
+        };
+        return cursor;
+      }
+
+      async findOne(query: Record<string, any>): Promise<any | null> {
+        if (this.forcedOperationError) throw this.forcedOperationError;
+        const found = this.docs.find((d) => this.matchesFilter(d, query));
+        return found ? { ...found } : null;
+      }
+
+      async countDocuments(query: Record<string, any>): Promise<number> {
+        if (this.forcedOperationError) throw this.forcedOperationError;
+        return this.docs.filter((d) => this.matchesFilter(d, query)).length;
+      }
+
+      async insertOne(doc: any): Promise<{ acknowledged: boolean; insertedId: string }> {
+        if (this.forcedOperationError) throw this.forcedOperationError;
+        if (this.onBeforeInsert) {
+          await this.onBeforeInsert(doc, this);
+        }
+        // Enforce all unique indexes registered on collection
+        for (const idx of this.indexes) {
+          if (!idx.options.unique) continue;
+          const field = Object.keys(idx.key)[0];
+          const val = doc[field];
+          if (idx.options.sparse && (val === undefined || val === null)) continue;
+          if (this.docs.some((existing) => existing[field] === val)) {
+            const dupErr: any = new Error(`E11000 duplicate key error index: ${field}_1`);
+            dupErr.code = 11000;
+            throw dupErr;
+          }
+        }
+        const stored = { _id: `mongo-oid-${this.docs.length + 1}`, ...doc };
+        this.docs.push(stored);
+        return { acknowledged: true, insertedId: stored._id };
+      }
+
+      async updateOne(filter: Record<string, any>, update: { $set?: Record<string, any> }): Promise<{ matchedCount: number; modifiedCount: number }> {
+        if (this.forcedOperationError) throw this.forcedOperationError;
+        const target = this.docs.find((d) => this.matchesFilter(d, filter));
+        if (!target) return { matchedCount: 0, modifiedCount: 0 };
+        let modified = 0;
+        if (update?.$set) {
+          for (const [k, v] of Object.entries(update.$set)) {
+            if (target[k] !== v) {
+              target[k] = v;
+              modified = 1;
+            }
+          }
+        }
+        return { matchedCount: 1, modifiedCount: modified };
+      }
+
+      async updateMany(filter: Record<string, any>, update: { $set?: Record<string, any> }): Promise<{ matchedCount: number; modifiedCount: number }> {
+        if (this.forcedOperationError) throw this.forcedOperationError;
+        let matchedCount = 0;
+        let modifiedCount = 0;
+        for (const target of this.docs) {
+          if (!this.matchesFilter(target, filter)) continue;
+          matchedCount++;
+          if (update?.$set) {
+            let changed = false;
+            for (const [k, v] of Object.entries(update.$set)) {
+              if (target[k] !== v) {
+                target[k] = v;
+                changed = true;
+              }
+            }
+            if (changed) modifiedCount++;
+          }
+        }
+        return { matchedCount, modifiedCount };
+      }
+
+      async deleteOne(filter: Record<string, any>): Promise<{ deletedCount: number }> {
+        if (this.forcedOperationError) throw this.forcedOperationError;
+        const idx = this.docs.findIndex((d) => this.matchesFilter(d, filter));
+        if (idx === -1) return { deletedCount: 0 };
+        this.docs.splice(idx, 1);
+        return { deletedCount: 1 };
+      }
+    }
+
+    // Test 16: Production Storage Fail-Closed & Security Guards (Category A)
+    testCount++;
+    {
+      NotificationRepository.setMockCollection(null);
+      NotificationRepository.clearInMemoryStore();
+      await NotificationRepository.createAsync({
+        id: 'mem-sentinel-1',
+        userId: 'sentinel-user',
+        title: 'Sentinel',
+        message: 'In-memory sentinel must never leak into production'
+      });
+
+      const savedNodeEnv = process.env.NODE_ENV;
+      const savedIsTest = process.env.IS_TEST;
+      const savedMongoUri = process.env.MONGODB_URI;
+      const savedMongoUriAlt = process.env.MONGO_URI;
+      try {
+        // 16a: Missing Mongo URI in production fails closed (even when IS_TEST=true!)
+        process.env.NODE_ENV = 'production';
+        process.env.MONGODB_URI = '';
+        process.env.MONGO_URI = '';
+
+        for (const testFlag of ['false', 'true']) {
+          process.env.IS_TEST = testFlag;
+          await assert.rejects(
+            () => NotificationRepository.getAllAsync({ userId: 'sentinel-user' }),
+            /unavailable|not configured/i,
+            `Production getAllAsync must fail closed when Mongo URI is missing (IS_TEST=${testFlag})`
+          );
+          await assert.rejects(
+            () => NotificationRepository.getUnreadCountAsync('sentinel-user'),
+            /unavailable|not configured/i
+          );
+          await assert.rejects(
+            () => NotificationRepository.createAsync({ userId: 'sentinel-user', title: 'X', message: 'Y' }),
+            /unavailable|not configured/i
+          );
+          await assert.rejects(
+            () => NotificationRepository.markAsReadAsync('mem-sentinel-1', 'sentinel-user'),
+            /unavailable|not configured/i
+          );
+          await assert.rejects(
+            () => NotificationRepository.markAllAsReadAsync('sentinel-user'),
+            /unavailable|not configured/i
+          );
+          await assert.rejects(
+            () => NotificationRepository.deleteAsync('mem-sentinel-1', 'sentinel-user'),
+            /unavailable|not configured/i
+          );
+          await assert.rejects(
+            () => NotificationRepository.sendAsync({ userId: 'sentinel-user', title: 'X', message: 'Y' }),
+            /unavailable|not configured/i
+          );
+        }
+
+        // 16b: Sync in-memory methods must throw in production
+        assert.throws(() => NotificationRepository.getAll({ userId: 'sentinel-user' }), /disabled in production/i);
+        assert.throws(() => NotificationRepository.create({ userId: 'sentinel-user', title: 'S', message: 'S' }), /disabled in production/i);
+        assert.throws(() => NotificationRepository.markAsRead('mem-sentinel-1'), /disabled in production/i);
+        assert.throws(() => NotificationRepository.markAllAsRead('sentinel-user'), /disabled in production/i);
+        assert.throws(() => NotificationRepository.delete('mem-sentinel-1', 'sentinel-user'), /disabled in production/i);
+        assert.throws(() => NotificationRepository.send({ userId: 'sentinel-user', title: 'S', message: 'S' }), /disabled in production/i);
+
+        // 16c: setMockCollection strictly rejected in production or when IS_TEST !== 'true'
+        assert.throws(
+          () => NotificationRepository.setMockCollection(new FakeMongoNotificationCollection()),
+          /Security violation/i
+        );
+        process.env.NODE_ENV = 'test';
+        process.env.IS_TEST = 'false';
+        assert.throws(
+          () => NotificationRepository.setMockCollection(new FakeMongoNotificationCollection()),
+          /Security violation/i
+        );
+
+        // 16d: Configured-but-broken MongoDB in production throws instead of falling back to memory
+        process.env.NODE_ENV = 'production';
+        process.env.IS_TEST = 'false';
+        process.env.MONGODB_URI = 'invalid-scheme://internal-bad-mongo:27017/portal';
+        await assert.rejects(
+          () => NotificationRepository.getAllAsync({ userId: 'sentinel-user' }),
+          /Invalid scheme|index initialization failed|operation failed/i,
+          'Production with failing MongoDB must throw instead of silently returning in-memory sentinel'
+        );
+      } finally {
+        process.env.NODE_ENV = savedNodeEnv;
+        process.env.IS_TEST = savedIsTest;
+        process.env.MONGODB_URI = savedMongoUri;
+        process.env.MONGO_URI = savedMongoUriAlt;
+        NotificationRepository.setMockCollection(null);
+        NotificationRepository.clearInMemoryStore();
+      }
+    }
+    passCount++;
+    console.log('✓ Test 16: Production fails closed without URI, ignores IS_TEST=true, blocks sync methods, rejects unauthorized mock injection, and never falls back to memory on DB failure.');
+
+    // Test 17: Controlled Fake MongoDB Indexes, Retry After Failure & Duplicate Pre-Existing Data Protection (Category B)
+    testCount++;
+    {
+      const fakeColl = new FakeMongoNotificationCollection();
+      fakeColl.failCreateIndexTimes = 1;
+      NotificationRepository.setMockCollection(fakeColl);
+
+      // First call fails during index init and must NOT cache rejected promise
+      await assert.rejects(
+        () => NotificationRepository.getAllAsync({ userId: 'u-idx' }),
+        /index initialization failed/i
+      );
+
+      // Second call retries index initialization and succeeds
+      const emptyList = await NotificationRepository.getAllAsync({ userId: 'u-idx' });
+      assert.deepStrictEqual(emptyList, []);
+
+      // Verify all 4 required indexes exist
+      const hasUniqueId = fakeColl.indexes.some((i) => i.key.id === 1 && i.options.unique === true);
+      const hasUniqueSparseEventId = fakeColl.indexes.some((i) => i.key.eventId === 1 && i.options.unique === true && i.options.sparse === true);
+      const hasUniqueSparseIdemp = fakeColl.indexes.some((i) => i.key.idempotencyKey === 1 && i.options.unique === true && i.options.sparse === true);
+      const hasUserCreatedIdx = fakeColl.indexes.some((i) => i.key.userId === 1 && i.key.createdAt === -1);
+      assert.strictEqual(hasUniqueId, true, 'Must create unique index on id');
+      assert.strictEqual(hasUniqueSparseEventId, true, 'Must create unique sparse index on eventId');
+      assert.strictEqual(hasUniqueSparseIdemp, true, 'Must create unique sparse index on idempotencyKey');
+      assert.strictEqual(hasUserCreatedIdx, true, 'Must create { userId: 1, createdAt: -1 } index');
+
+      // Duplicate existing data preventing unique index must fail safely WITHOUT deleting or rewriting existing records
+      const dupColl = new FakeMongoNotificationCollection();
+      dupColl.docs.push(
+        { id: 'dup-id-1', userId: 'u1', title: 'A', message: 'M1', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'dup-id-1', userId: 'u1', title: 'B', message: 'M2', createdAt: '2026-01-02T00:00:00.000Z' }
+      );
+      NotificationRepository.setMockCollection(dupColl);
+      await assert.rejects(
+        () => NotificationRepository.getAllAsync({ userId: 'u1' }),
+        /existing duplicate records.*Manual investigation/i
+      );
+      assert.strictEqual(dupColl.docs.length, 2, 'Duplicate records must NOT be deleted or rewritten automatically');
+      NotificationRepository.setMockCollection(null);
+    }
+    passCount++;
+    console.log('✓ Test 17: Controlled MongoDB verifies all 4 indexes, retries after failed index init, and preserves duplicate data on unique index conflict.');
+
+    // Test 18: Controlled MongoDB Unique ID, Concurrency E11000 Race & Collision Checks (Category B & G)
+    testCount++;
+    {
+      const fakeColl = new FakeMongoNotificationCollection();
+      NotificationRepository.setMockCollection(fakeColl);
+
+      // Unique ID enforcement (explicit duplicate id without shared eventId)
+      const explicit1 = await NotificationRepository.createAsync({
+        id: 'notif-unique-fixed-1',
+        userId: 'mongo-u1',
+        title: 'First',
+        message: 'Body 1'
+      });
+      assert.strictEqual(explicit1.id, 'notif-unique-fixed-1');
+      await assert.rejects(
+        () => NotificationRepository.createAsync({
+          id: 'notif-unique-fixed-1',
+          userId: 'mongo-u1',
+          title: 'Second',
+          message: 'Body 2'
+        }),
+        /duplicate key/i
+      );
+
+      // Canonical metadata comparison (property order independence + actual diff rejection)
+      const evtMeta = `evt-meta-${Date.now()}`;
+      const metaA = await NotificationRepository.createAsync({
+        userId: 'mongo-u1',
+        title: 'Meta Test',
+        message: 'Same message',
+        type: 'info',
+        channel: 'in-app',
+        eventId: evtMeta,
+        metadata: { z: 2, a: 1, nested: { second: 'b', first: 'a' } }
+      });
+      const metaB = await NotificationRepository.createAsync({
+        userId: 'mongo-u1',
+        title: 'Meta Test',
+        message: 'Same message',
+        type: 'info',
+        channel: 'in-app',
+        eventId: evtMeta,
+        metadata: { a: 1, nested: { first: 'a', second: 'b' }, z: 2 }
+      });
+      assert.strictEqual(metaB.id, metaA.id, 'Same metadata with different property order must match existing record');
+      await assert.rejects(
+        () => NotificationRepository.createAsync({
+          userId: 'mongo-u1',
+          title: 'Meta Test',
+          message: 'Same message',
+          type: 'info',
+          channel: 'in-app',
+          eventId: evtMeta,
+          metadata: { a: 1, nested: { first: 'a', second: 'CHANGED' }, z: 2 }
+        }),
+        /idempotency collision/i
+      );
+
+      // Concurrent duplicate event race (two findOne calls before insertOne runs -> second hits E11000 and recovers)
+      const evtRace = `evt-race-${Date.now()}`;
+      let insertBarrierCount = 0;
+      let releaseRace!: () => void;
+      const barrierReady = new Promise<void>((resolve) => {
+        releaseRace = resolve;
+      });
+      fakeColl.onBeforeInsert = async () => {
+        insertBarrierCount++;
+        if (insertBarrierCount === 1) {
+          // Wait a microtask/tick so second caller also finishes findOne before first inserts
+          await new Promise((r) => setTimeout(r, 15));
+          releaseRace();
+        } else {
+          await barrierReady;
+        }
+      };
+
+      const [r1, r2] = await Promise.all([
+        NotificationRepository.createAsync({
+          userId: 'mongo-u1',
+          title: 'Concurrent Alert',
+          message: 'Order #123',
+          type: 'success',
+          channel: 'in-app',
+          eventId: evtRace,
+          metadata: { orderId: '123', step: 1 }
+        }),
+        NotificationRepository.createAsync({
+          userId: 'mongo-u1',
+          title: 'Concurrent Alert',
+          message: 'Order #123',
+          type: 'success',
+          channel: 'in-app',
+          eventId: evtRace,
+          metadata: { step: 1, orderId: '123' }
+        })
+      ]);
+      fakeColl.onBeforeInsert = undefined;
+      assert.strictEqual(r1.id, r2.id, 'Concurrent duplicate event must resolve to same notification');
+      assert.strictEqual(
+        fakeColl.docs.filter((d) => d.eventId === evtRace).length,
+        1,
+        'Concurrent duplicate event must only persist 1 document in MongoDB'
+      );
+
+      // Different user & different content collision against MongoDB record
+      await assert.rejects(
+        () => NotificationRepository.createAsync({
+          userId: 'mongo-u2',
+          title: 'Concurrent Alert',
+          message: 'Order #123',
+          type: 'success',
+          channel: 'in-app',
+          eventId: evtRace,
+          metadata: { orderId: '123', step: 1 }
+        }),
+        /idempotency collision/i
+      );
+      await assert.rejects(
+        () => NotificationRepository.createAsync({
+          userId: 'mongo-u1',
+          title: 'Tampered Title',
+          message: 'Order #123',
+          type: 'success',
+          channel: 'in-app',
+          eventId: evtRace,
+          metadata: { orderId: '123', step: 1 }
+        }),
+        /idempotency collision/i
+      );
+
+      NotificationRepository.setMockCollection(null);
+    }
+    passCount++;
+    console.log('✓ Test 18: MongoDB branch enforces unique id, canonical metadata matching, E11000 race recovery, and collision rejection.');
+
+    // Test 19: Bounded 500-Result Read Limit, Deterministic Ordering, Filters & Independent Unread Count (Category C — MongoDB & In-Memory)
+    testCount++;
+    {
+      for (const modeLabel of ['mongo-branch', 'in-memory-branch'] as const) {
+        let fakeColl: FakeMongoNotificationCollection | null = null;
+        if (modeLabel === 'mongo-branch') {
+          fakeColl = new FakeMongoNotificationCollection();
+          NotificationRepository.setMockCollection(fakeColl);
+        } else {
+          NotificationRepository.setMockCollection(null);
+          NotificationRepository.clearInMemoryStore();
+        }
+
+        const heavyUser = `heavy-user-${modeLabel}`;
+        const baseTs = Date.parse('2026-01-01T00:00:00.000Z');
+        // Insert 550 notifications for heavyUser (530 unread, 20 read); include identical-timestamp tiebreaker docs
+        for (let i = 0; i < 550; i++) {
+          const isRead = i < 20;
+          const isTie = i >= 545; // Last 5 share exact same createdAt to test secondary id desc tiebreak
+          const ts = isTie
+            ? new Date(baseTs + 600 * 1000).toISOString()
+            : new Date(baseTs + i * 1000).toISOString();
+          await NotificationRepository.createAsync({
+            id: `n-${String(i).padStart(4, '0')}`,
+            userId: heavyUser,
+            title: `Notice ${i}`,
+            message: `Body ${i}`,
+            type: i % 2 === 0 ? 'info' : 'warning',
+            isRead,
+            createdAt: ts
+          });
+        }
+        // Also insert a record for another user
+        await NotificationRepository.createAsync({
+          id: 'n-other-user',
+          userId: 'other-user-only',
+          title: 'Other',
+          message: 'Other',
+          type: 'warning',
+          isRead: false,
+          createdAt: new Date(baseTs + 999 * 1000).toISOString()
+        });
+
+        const defaultLimited = await NotificationRepository.getAllAsync({ userId: heavyUser });
+        assert.strictEqual(defaultLimited.length, 500, `${modeLabel}: Default getAllAsync must cap at 500`);
+
+        const overRequested = await NotificationRepository.getAllAsync({ userId: heavyUser, limit: 1000 });
+        assert.strictEqual(overRequested.length, 500, `${modeLabel}: Caller must never exceed 500`);
+
+        // Verify deterministic descending order + secondary id desc tiebreak on latest 5
+        assert.deepStrictEqual(
+          defaultLimited.slice(0, 5).map((n) => n.id),
+          ['n-0549', 'n-0548', 'n-0547', 'n-0546', 'n-0545'],
+          `${modeLabel}: Must sort deterministically descending by createdAt then id`
+        );
+
+        // Verify unreadCount remains independent of 500-item list limit (530 unread!)
+        const unreadCount = await NotificationRepository.getUnreadCountAsync(heavyUser);
+        assert.strictEqual(unreadCount, 530, `${modeLabel}: Unread count must reflect all 530 unread records beyond 500-cap`);
+
+        // Verify type and unreadOnly filters remain effective
+        const warningUnread = await NotificationRepository.getAllAsync({
+          userId: heavyUser,
+          type: 'warning',
+          unreadOnly: true
+        });
+        assert.strictEqual(warningUnread.every((n) => n.userId === heavyUser && n.type === 'warning' && !n.isRead && !n.read), true);
+        assert.strictEqual(warningUnread.length, 265, `${modeLabel}: Expected 265 unread warning notifications`);
+
+        // Verify HTTP route also enforces max 500 even when ?limit=1000 is requested
+        if (modeLabel === 'mongo-branch') {
+          activeTestUser = { userId: heavyUser, role: 'Member' };
+          const httpListRes = await fetch(`${baseUrl}/api/notifications?limit=1000`);
+          const httpListData = await httpListRes.json();
+          assert.strictEqual(httpListRes.status, 200);
+          assert.strictEqual(httpListData.notifications.length, 500);
+
+          const httpCountRes = await fetch(`${baseUrl}/api/notifications/unread-count`);
+          const httpCountData = await httpCountRes.json();
+          assert.strictEqual(httpCountRes.status, 200);
+          assert.strictEqual(httpCountData.unreadCount, 530);
+        }
+
+        NotificationRepository.setMockCollection(null);
+        NotificationRepository.clearInMemoryStore();
+      }
+    }
+    passCount++;
+    console.log('✓ Test 19: Bounded 500-record reads, deterministic descending ordering, filters, and independent unreadCount verified in both MongoDB and in-memory modes.');
+
+    // Test 20: User Isolation & Scoped Delete Security (Category D — MongoDB & In-Memory & HTTP)
+    testCount++;
+    {
+      for (const modeLabel of ['mongo-branch', 'in-memory-branch'] as const) {
+        if (modeLabel === 'mongo-branch') {
+          NotificationRepository.setMockCollection(new FakeMongoNotificationCollection());
+        } else {
+          NotificationRepository.setMockCollection(null);
+          NotificationRepository.clearInMemoryStore();
+        }
+
+        const nA1 = await NotificationRepository.createAsync({ id: `iso-a1-${modeLabel}`, userId: 'iso-user-A', title: 'A1', message: 'M' });
+        const nB1 = await NotificationRepository.createAsync({ id: `iso-b1-${modeLabel}`, userId: 'iso-user-B', title: 'B1', message: 'M' });
+        const nB2 = await NotificationRepository.createAsync({ id: `iso-b2-${modeLabel}`, userId: 'iso-user-B', title: 'B2', message: 'M' });
+
+        // User A cannot mark User B's notification read
+        const crossMarkRepo = await NotificationRepository.markAsReadAsync(nB1.id, 'iso-user-A');
+        assert.strictEqual(crossMarkRepo, false, `${modeLabel}: Cross-user markAsReadAsync must fail`);
+
+        activeTestUser = { userId: 'iso-user-A', role: 'Member' };
+        const crossMarkHttp = await fetch(`${baseUrl}/api/notifications/${encodeURIComponent(nB1.id)}/read`, { method: 'PATCH' });
+        assert.strictEqual(crossMarkHttp.status, 404, `${modeLabel}: Cross-user PATCH /:id/read must return 404`);
+
+        // GET /api/notifications returns only authenticated user's notifications even if query tries ?userId=iso-user-B
+        const getAuthRes = await fetch(`${baseUrl}/api/notifications?userId=iso-user-B`);
+        const getAuthData = await getAuthRes.json();
+        assert.strictEqual(getAuthRes.status, 200);
+        assert.deepStrictEqual(getAuthData.notifications.map((n: any) => n.id), [nA1.id]);
+
+        // markAllAsRead for User A cannot change User B's records
+        const patchAllRes = await fetch(`${baseUrl}/api/notifications/read-all`, { method: 'PATCH' });
+        const patchAllData = await patchAllRes.json();
+        assert.strictEqual(patchAllRes.status, 200);
+        assert.strictEqual(patchAllData.updatedCount, 1);
+        assert.strictEqual(await NotificationRepository.getUnreadCountAsync('iso-user-B'), 2);
+
+        // User A cannot delete User B's notification
+        assert.strictEqual(await NotificationRepository.deleteAsync(nB1.id, 'iso-user-A'), false);
+        // Missing / empty / whitespace userId must NOT perform unscoped deletion
+        assert.strictEqual(await NotificationRepository.deleteAsync(nB1.id), false);
+        assert.strictEqual(await NotificationRepository.deleteAsync(nB1.id, ''), false);
+        assert.strictEqual(await NotificationRepository.deleteAsync(nB1.id, '   '), false);
+        assert.strictEqual((await NotificationRepository.getAllAsync({ userId: 'iso-user-B' })).length, 2);
+
+        // Correct user-scoped delete succeeds only for owner
+        assert.strictEqual(await NotificationRepository.deleteAsync(nB2.id, 'iso-user-B'), true);
+        assert.deepStrictEqual(
+          (await NotificationRepository.getAllAsync({ userId: 'iso-user-B' })).map((n) => n.id),
+          [nB1.id]
+        );
+
+        NotificationRepository.setMockCollection(null);
+        NotificationRepository.clearInMemoryStore();
+      }
+    }
+    passCount++;
+    console.log('✓ Test 20: User isolation for GET, markAsRead, markAllAsRead, and user-scoped deleteAsync verified in MongoDB and in-memory modes.');
+
+    // Test 21: Read-State Compatibility (isRead + read Dual Write & Legacy Documents) (Category E)
+    testCount++;
+    {
+      const fakeColl = new FakeMongoNotificationCollection();
+      // Seed legacy docs directly into MongoDB:
+      // 1) legacy-read-only-true: { read: true } (no isRead) -> already read!
+      // 2) legacy-isread-only-true: { isRead: true } (no read) -> already read!
+      // 3) legacy-read-only-false: { read: false } (no isRead) -> unread!
+      // 4) legacy-isread-only-false: { isRead: false } (no read) -> unread!
+      fakeColl.docs.push(
+        { id: 'leg-r-true', userId: 'leg-user', title: 'R1', message: 'M', read: true, createdAt: '2026-02-01T00:00:00.000Z' },
+        { id: 'leg-ir-true', userId: 'leg-user', title: 'R2', message: 'M', isRead: true, createdAt: '2026-02-02T00:00:00.000Z' },
+        { id: 'leg-r-false', userId: 'leg-user', title: 'U1', message: 'M', read: false, createdAt: '2026-02-03T00:00:00.000Z' },
+        { id: 'leg-ir-false', userId: 'leg-user', title: 'U2', message: 'M', isRead: false, createdAt: '2026-02-04T00:00:00.000Z' }
+      );
+      NotificationRepository.setMockCollection(fakeColl);
+
+      assert.strictEqual(await NotificationRepository.getUnreadCountAsync('leg-user'), 2);
+      const unreadOnlyDocs = await NotificationRepository.getAllAsync({ userId: 'leg-user', unreadOnly: true });
+      assert.deepStrictEqual(unreadOnlyDocs.map((d) => d.id), ['leg-ir-false', 'leg-r-false']);
+
+      // markAsReadAsync sets BOTH isRead: true and read: true
+      assert.strictEqual(await NotificationRepository.markAsReadAsync('leg-r-false', 'leg-user'), true);
+      const updatedOne = fakeColl.docs.find((d) => d.id === 'leg-r-false');
+      assert.strictEqual(updatedOne.isRead, true);
+      assert.strictEqual(updatedOne.read, true);
+
+      // Idempotent call on already-read doc still returns true and preserves read state
+      assert.strictEqual(await NotificationRepository.markAsReadAsync('leg-r-true', 'leg-user'), true);
+
+      // markAllAsReadAsync updates ONLY the remaining unread doc (count === 1) and sets both isRead & read
+      const bulkUpdatedCount = await NotificationRepository.markAllAsReadAsync('leg-user');
+      assert.strictEqual(bulkUpdatedCount, 1, 'markAllAsReadAsync must update only records that are actually unread');
+      const updatedBulk = fakeColl.docs.find((d) => d.id === 'leg-ir-false');
+      assert.strictEqual(updatedBulk.isRead, true);
+      assert.strictEqual(updatedBulk.read, true);
+      assert.strictEqual(await NotificationRepository.getUnreadCountAsync('leg-user'), 0);
+
+      NotificationRepository.setMockCollection(null);
+    }
+    passCount++;
+    console.log('✓ Test 21: Read-state compatibility sets both read & isRead and handles legacy single-field documents consistently.');
+
+    // Test 22: API Error Sanitization & Safe Input Validation (Category F)
+    testCount++;
+    {
+      const fakeColl = new FakeMongoNotificationCollection();
+      NotificationRepository.setMockCollection(fakeColl);
+      await NotificationRepository.getAllAsync({ userId: 'sec-user' }); // initialize indexes first
+
+      const internalHost = 'mongo-primary-secret.internal.prod:27017';
+      const secretMarker = 'SECRET_SCRAM_CREDENTIAL_MARKER_987';
+      fakeColl.forcedOperationError = new Error(`MongoServerSelectionError: connection failed to ${internalHost} with auth ${secretMarker}`);
+
+      activeTestUser = { userId: 'sec-user', role: 'Member' };
+      const endpoints = [
+        { method: 'GET', url: `${baseUrl}/api/notifications` },
+        { method: 'GET', url: `${baseUrl}/api/notifications/unread-count` },
+        { method: 'PATCH', url: `${baseUrl}/api/notifications/read-all` },
+        { method: 'PATCH', url: `${baseUrl}/api/notifications/notif-1/read` }
+      ];
+
+      for (const ep of endpoints) {
+        const res = await fetch(ep.url, { method: ep.method });
+        const rawText = await res.text();
+        assert.strictEqual(res.status, 500, `${ep.method} ${ep.url} must return 500 on DB failure`);
+        assert.strictEqual(rawText.includes(internalHost), false, `${ep.url} must NOT expose internal hostname`);
+        assert.strictEqual(rawText.includes(secretMarker), false, `${ep.url} must NOT expose secret marker`);
+        assert.strictEqual(rawText.includes('MongoServerSelectionError'), false, `${ep.url} must NOT expose driver class`);
+        const parsed = JSON.parse(rawText);
+        assert.strictEqual(parsed.success, false);
+        assert.ok(typeof parsed.message === 'string' && parsed.message.length > 0);
+      }
+
+      // Clear error and verify safe 400 validation without breaking valid calls
+      fakeColl.forcedOperationError = null;
+      const badTypeRes = await fetch(`${baseUrl}/api/notifications?type=invalidType`);
+      assert.strictEqual(badTypeRes.status, 400);
+      const badUnreadRes = await fetch(`${baseUrl}/api/notifications?unreadOnly=notABool`);
+      assert.strictEqual(badUnreadRes.status, 400);
+      const badLimitRes = await fetch(`${baseUrl}/api/notifications?limit=-10`);
+      assert.strictEqual(badLimitRes.status, 400);
+      const badIdRes = await fetch(`${baseUrl}/api/notifications/${encodeURIComponent('$ne')}/read`, { method: 'PATCH' });
+      assert.strictEqual(badIdRes.status, 400);
+
+      // Valid query params work normally
+      const okFilterRes = await fetch(`${baseUrl}/api/notifications?type=info&unreadOnly=true&limit=10`);
+      assert.strictEqual(okFilterRes.status, 200);
+
+      NotificationRepository.setMockCollection(null);
+    }
+    passCount++;
+    console.log('✓ Test 22: API endpoints sanitize internal MongoDB errors on all 4 routes and reject malformed inputs with 400.');
+
+    // Test 23: Canonical Metadata Comparison in In-Memory Mode Too (Category G)
+    testCount++;
+    {
+      NotificationRepository.setMockCollection(null);
+      NotificationRepository.clearInMemoryStore();
+      const evtMemMeta = `evt-mem-meta-${Date.now()}`;
+      const m1 = await NotificationRepository.createAsync({
+        userId: 'mem-meta-user',
+        title: 'Mem Meta',
+        message: 'Same',
+        type: 'info',
+        channel: 'in-app',
+        eventId: evtMemMeta,
+        metadata: { k2: 'v2', k1: 'v1', deep: { b: 2, a: 1 } }
+      });
+      const m2 = await NotificationRepository.createAsync({
+        userId: 'mem-meta-user',
+        title: 'Mem Meta',
+        message: 'Same',
+        type: 'info',
+        channel: 'in-app',
+        eventId: evtMemMeta,
+        metadata: { k1: 'v1', deep: { a: 1, b: 2 }, k2: 'v2' }
+      });
+      assert.strictEqual(m2.id, m1.id);
+      await assert.rejects(
+        () => NotificationRepository.createAsync({
+          userId: 'mem-meta-user',
+          title: 'Mem Meta',
+          message: 'Same',
+          type: 'info',
+          channel: 'in-app',
+          eventId: evtMemMeta,
+          metadata: { k1: 'v1', deep: { a: 1, b: 999 }, k2: 'v2' }
+        }),
+        /idempotency collision/i
+      );
+      NotificationRepository.clearInMemoryStore();
+    }
+    passCount++;
+    console.log('✓ Test 23: In-memory metadata comparison is key-order-independent and rejects actual diffs.');
+
   } catch (err: any) {
     console.error('\n[TEST SCENARIO FAILURE]', err);
     suiteError = err;
@@ -951,29 +1687,44 @@ async function runTests() {
         visibilityRepoDescriptors,
         'JobVisibilityRepository'
       );
+      const notifRestore = restoreAndVerifyDescriptors(
+        NotificationRepository,
+        notificationRepoDescriptors,
+        'NotificationRepository'
+      );
 
-      const allRestored = dbRestore.restored && paymentRestore.restored && visibilityRestore.restored;
+      const allRestored =
+        dbRestore.restored &&
+        paymentRestore.restored &&
+        visibilityRestore.restored &&
+        notifRestore.restored;
       if (!allRestored) {
         restorationFailed = true;
         const allMismatches = [
           ...dbRestore.mismatches,
           ...paymentRestore.mismatches,
-          ...visibilityRestore.mismatches
+          ...visibilityRestore.mismatches,
+          ...notifRestore.mismatches
         ];
         console.error('\n[METHOD RESTORATION VERIFICATION FAILURE]\n' + allMismatches.map((m) => ` - ${m}`).join('\n'));
       } else {
-        console.log('✓ Full method-restoration verification passed for Database, PaymentSettingsRepository, and JobVisibilityRepository.');
+        console.log('✓ Full method-restoration verification passed for Database, PaymentSettingsRepository, JobVisibilityRepository, and NotificationRepository.');
       }
     } catch (restoreErr) {
       console.error('! Error during method descriptor restoration:', restoreErr);
       restorationFailed = true;
     }
 
-    // Clear Notification memory store
+    // Clear Notification mock collection, index init state, and memory store BEFORE env restoration
     try {
+      process.env.IS_TEST = 'true';
+      process.env.NODE_ENV = 'test';
+      NotificationRepository.setMockCollection(null);
+      NotificationRepository.resetIndexInitStateForTests();
       NotificationRepository.clearInMemoryStore();
     } catch (clearErr) {
-      console.error('! Error clearing notification in-memory store:', clearErr);
+      console.error('! Error clearing notification mock/in-memory store:', clearErr);
+      restorationFailed = true;
     }
 
     // Take post-test snapshot
@@ -1002,6 +1753,7 @@ async function runTests() {
       }
     } catch (envErr) {
       console.error('! Error restoring environment variables:', envErr);
+      restorationFailed = true;
     }
 
     // Evaluate final suite outcome

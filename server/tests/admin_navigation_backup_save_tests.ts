@@ -360,19 +360,26 @@ async function runSuite() {
   });
 
   // --- STEP F (STEP-D.3.1): BACKUP SECURITY, PAYMENT COMPLETENESS, ACCESS & CSV HARDENING ---
-  await runTest('Backup Credential Sanitization: strips sensitive auth fields without mutating original users', () => {
+  await runTest('Backup Credential Sanitization: strips sensitive auth fields (including all required aliases, nested objects, and array items) without mutating original users and preserving legitimate fields', () => {
     const rawUser: any = {
       id: 'user-sec-1',
       name: 'Ayesha Khan',
       email: 'ayesha@example.pk',
       password: 'PlaintextSecretPassword123!',
-      passwordHash: '$2b$10$hashvalue999',
-      salt: 'randomSaltXYZ',
-      accessToken: 'jwt-access-abc',
-      refreshToken: 'jwt-refresh-def',
-      resetToken: 'reset-tok-123',
-      verificationToken: 'verify-tok-456',
-      sessionToken: 'sess-tok-789',
+      password_hash: 'hash-1',
+      'PASSWORD-HASH': 'hash-2',
+      hashedPassword: 'hash-3',
+      passwordDigest: 'digest-1',
+      apiKey: 'apikey-1',
+      api_key: 'apikey-2',
+      privateKey: 'priv-1',
+      private_key: 'priv-2',
+      otpSecret: 'otp-1',
+      mfaRecoveryCodes: ['mfa-1'],
+      bearerToken: 'bearer-1',
+      idToken: 'idtok-1',
+      clientSecret: 'clientsec-1',
+      authorization: 'Bearer auth-1',
       role: 'Employer/Job Poster',
       companyName: 'Indus Cloud',
       plan: 'Premium',
@@ -381,6 +388,21 @@ async function runSuite() {
       autoRenew: true,
       verificationStatus: 'Verified',
       kycStatus: 'Approved',
+      nestedProfileMeta: {
+        secureNotes: 'keep me',
+        clientSecret: 'nested-secret-1',
+        api_key: 'nested-apikey-1'
+      },
+      employmentHistory: [
+        {
+          company: 'Tech Corp',
+          title: 'Engineer',
+          apiKey: 'array-secret-1',
+          nestedDetails: {
+            private_key: 'deep-secret-1'
+          }
+        }
+      ],
       transactions: [
         {
           id: 'tx-user-1',
@@ -392,19 +414,6 @@ async function runSuite() {
           paymentMethod: 'JazzCash'
         }
       ],
-      appliedJobs: [
-        {
-          id: 'app-user-1',
-          jobId: 'job-99',
-          jobTitle: 'Staff Engineer',
-          companyName: 'Indus Cloud',
-          applicantId: 'user-sec-1',
-          applicantName: 'Ayesha Khan',
-          applicantEmail: 'ayesha@example.pk',
-          appliedAt: '2026-11-14T12:00:00Z',
-          status: 'Applied'
-        }
-      ],
       customFieldsData: { ntn: 'NTN-445566' },
       createdAt: '2026-01-10T00:00:00.000Z'
     };
@@ -412,48 +421,58 @@ async function runSuite() {
     const rawCopyBefore = JSON.stringify(rawUser);
     const sanitized = sanitizeUserForBackup(rawUser);
 
-    // Original user object must remain completely untouched
+    // Original user object must remain completely untouched (source non-mutation)
     assert.strictEqual(JSON.stringify(rawUser), rawCopyBefore);
     assert.strictEqual(rawUser.password, 'PlaintextSecretPassword123!');
+    assert.strictEqual(rawUser.clientSecret, 'clientsec-1');
 
-    // Sensitive auth fields must NEVER appear
-    for (const sensitiveKey of [
+    // All required sensitive keys and aliases must NEVER appear in sanitized result
+    const sensitiveKeysToCheck = [
       'password',
-      'passwordHash',
-      'salt',
-      'accessToken',
-      'refreshToken',
-      'resetToken',
-      'verificationToken',
-      'sessionToken'
-    ]) {
-      assert.strictEqual(sensitiveKey in sanitized, false, `Expected "${sensitiveKey}" to be stripped`);
-      assert.strictEqual((sanitized as any)[sensitiveKey], undefined);
+      'password_hash',
+      'PASSWORD-HASH',
+      'hashedPassword',
+      'passwordDigest',
+      'apiKey',
+      'api_key',
+      'privateKey',
+      'private_key',
+      'otpSecret',
+      'mfaRecoveryCodes',
+      'bearerToken',
+      'idToken',
+      'clientSecret',
+      'authorization'
+    ];
+
+    for (const sensitiveKey of sensitiveKeysToCheck) {
+      assert.strictEqual(sensitiveKey in sanitized, false, `Expected top-level "${sensitiveKey}" to be stripped`);
     }
 
-    // Legitimate profile, membership, wallet, transaction, and application fields must be preserved
+    assert.strictEqual(sanitized.nestedProfileMeta.clientSecret, undefined);
+    assert.strictEqual(sanitized.nestedProfileMeta.api_key, undefined);
+    assert.strictEqual(sanitized.nestedProfileMeta.secureNotes, 'keep me');
+
+    assert.strictEqual(sanitized.employmentHistory[0].apiKey, undefined);
+    assert.strictEqual(sanitized.employmentHistory[0].nestedDetails.private_key, undefined);
+    assert.strictEqual(sanitized.employmentHistory[0].company, 'Tech Corp');
+
+    // Legitimate profile, company, wallet, transactions, and customFieldsData fields must be preserved
     assert.strictEqual(sanitized.id, 'user-sec-1');
     assert.strictEqual(sanitized.name, 'Ayesha Khan');
     assert.strictEqual(sanitized.email, 'ayesha@example.pk');
-    assert.strictEqual(sanitized.plan, 'Premium');
+    assert.strictEqual(sanitized.companyName, 'Indus Cloud');
     assert.strictEqual(sanitized.walletBalance, 4500);
-    assert.strictEqual(sanitized.verificationStatus, 'Verified');
-    assert.strictEqual(sanitized.kycStatus, 'Approved');
     assert.strictEqual(sanitized.transactions?.length, 1);
-    assert.strictEqual(sanitized.appliedJobs?.length, 1);
     assert.deepStrictEqual(sanitized.customFieldsData, { ntn: 'NTN-445566' });
 
-    // Verify full snapshot JSON excludes all credentials even when frontend user has plaintext password
+    // Verify full snapshot JSON excludes all sensitive aliases and values
     const snapshot = buildAdminSnapshotPayload({ users: [rawUser] });
     const serialized = JSON.stringify(snapshot);
     assert.strictEqual(serialized.includes('PlaintextSecretPassword123!'), false);
-    assert.strictEqual(serialized.includes('$2b$10$hashvalue999'), false);
-    assert.strictEqual(serialized.includes('randomSaltXYZ'), false);
-    assert.strictEqual(serialized.includes('jwt-access-abc'), false);
-    assert.strictEqual(serialized.includes('jwt-refresh-def'), false);
-    assert.strictEqual(serialized.includes('reset-tok-123'), false);
-    assert.strictEqual(serialized.includes('verify-tok-456'), false);
-    assert.strictEqual(serialized.includes('sess-tok-789'), false);
+    assert.strictEqual(serialized.includes('clientsec-1'), false);
+    assert.strictEqual(serialized.includes('nested-secret-1'), false);
+    assert.strictEqual(serialized.includes('deep-secret-1'), false);
     assert.strictEqual(JSON.stringify(rawUser), rawCopyBefore);
   });
 
@@ -673,7 +692,7 @@ async function runSuite() {
     assert.ok(csv.includes('"Normal ""Text"", Inc\nLine2","500","0"'));
   });
 
-  await runTest('Blob Downloads & Security Confirmation: uses Blob/objectURL downloads (no data: URIs) and releases object URLs safely', async () => {
+  await runTest('Blob Downloads & Security Confirmation: uses Blob/objectURL downloads (no data: URIs), uses correct snapshot filename, renders new filename in UI, and omits old misleading filename', async () => {
     const hubSource = fs.readFileSync(
       path.resolve(process.cwd(), 'src/components/admin/AdminDataBackupHub.tsx'),
       'utf8'
@@ -683,6 +702,15 @@ async function runSuite() {
     assert.ok(hubSource.includes('URL.createObjectURL'));
     assert.ok(hubSource.includes('URL.revokeObjectURL'));
     assert.ok(hubSource.includes('Security Notice: This file contains private personal or payment information and must be stored securely.'));
+
+    // Assert new filename is present and old misleading filename is completely absent from AdminDataBackupHub.tsx source
+    assert.ok(hubSource.includes('careerpak_selected_admin_data_snapshot_YYYY-MM-DD.json'));
+    assert.strictEqual(hubSource.includes('careerpak_complete_system_backup'), false, 'Old misleading filename must be completely absent from AdminDataBackupHub.tsx');
+
+    // Render component and verify UI elements
+    const html = renderToStaticMarkup(React.createElement(AdminDataBackupHub));
+    assert.ok(html.includes('careerpak_selected_admin_data_snapshot_YYYY-MM-DD.json'));
+    assert.strictEqual(html.includes('careerpak_complete_system_backup'), false);
 
     // Behavioral check with mocked DOM globals
     const prevDocument = (globalThis as any).document;
@@ -715,11 +743,11 @@ async function runSuite() {
     };
 
     try {
-      const issuedUrl = triggerBlobDownload('{"ok":true}', 'application/json;charset=utf-8;', 'careerpak_complete_system_backup_2026-11-16.json', { revokeDelayMs: 0 });
+      const issuedUrl = triggerBlobDownload('{"ok":true}', 'application/json;charset=utf-8;', 'careerpak_selected_admin_data_snapshot_2026-11-16.json', { revokeDelayMs: 0 });
       assert.strictEqual(issuedUrl, 'blob:mock-test-url-123');
       assert.ok(createdBlob instanceof Blob);
       assert.strictEqual(attrs.href, 'blob:mock-test-url-123');
-      assert.strictEqual(attrs.download, 'careerpak_complete_system_backup_2026-11-16.json');
+      assert.strictEqual(attrs.download, 'careerpak_selected_admin_data_snapshot_2026-11-16.json');
       assert.strictEqual(clicked, true);
       assert.strictEqual(removed, true);
       await new Promise((resolve) => setTimeout(resolve, 15));

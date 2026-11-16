@@ -1257,7 +1257,7 @@ export const AdminDataBackupHub: React.FC<AdminDataBackupHubProps> = ({
               </p>
               
               <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] font-mono space-y-1 text-slate-300">
-                <div>📦 File: careerpak_complete_system_backup_YYYY-MM-DD.json</div>
+                <div>📦 File: careerpak_selected_admin_data_snapshot_YYYY-MM-DD.json</div>
                 <div>🧬 Schema: {BACKUP_SNAPSHOT_SCHEMA_VERSION} (Blob Export + Manifest)</div>
                 <div>💳 Payment Transactions: {safePaymentTransactions.length} | Fee Logs: {safeFeeLogs.length}</div>
                 <div>🔒 User Auth Sanitization: Passwords, hashes, salts &amp; tokens stripped</div>

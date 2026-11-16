@@ -288,6 +288,9 @@ export function checkAdminTabPermission(
   tabId: string
 ): boolean {
   if (!isVerifiedAdmin || !effectiveAdminRole) return false;
+  if (tabId === 'data-backup') {
+    return effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin';
+  }
   if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
   const perms = Array.isArray(effectiveAdminPerms) ? effectiveAdminPerms : [];
   const hasPerm = (perm: string) => perms.includes('*') || perms.includes(perm);
@@ -326,7 +329,6 @@ export function checkAdminTabPermission(
       'job-visibility',
       'settings',
       'form-customizer',
-      'data-backup',
       'analytics',
       'whatsapp-manager',
       'broadcast-center',
@@ -3426,19 +3428,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       )}
 
-      {/* TAB: DATA VAULT & 1-CLICK SYSTEM SNAPSHOT BACKUP */}
-      {adminTab === 'data-backup' && (
+      {/* TAB: DATA VAULT & SELECTED ADMIN DATA EXPORT */}
+      {adminTab === 'data-backup' && canAccessAdminTab('data-backup') && (
         <AdminDataBackupHub
           jobs={jobs}
           pendingJobs={pendingJobs}
           users={users}
           subscribers={subscribers}
           feeLogs={jobPostingFeeLogs}
+          paymentTransactions={currentTransactions}
           ads={ads}
           auditLogs={scrapedAuditLogs}
           batchRuns={scraperBatchRuns}
           customFormFields={customFormFields}
           featureFlags={featureFlags}
+          jobPostingPricing={jobPostingPricing}
+          adPricingConfig={pricingConfig}
+          landingConfig={landingConfig}
+          seoConfig={effectiveSeoConfig}
+          whatsAppSupportConfig={currentWhatsAppConfig}
           onRestoreSnapshot={handleRestoreSnapshot}
           onImportBulkJobs={handleImportBulkJobs}
         />

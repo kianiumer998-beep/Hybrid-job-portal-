@@ -1,4 +1,22 @@
-import { Currency, Job, JobPostingFeeLog, Region, ScrapedJobAuditEntry, ScraperBatchRun, Subscriber, UserAccount, CustomFormField, AdminFeatureFlags } from './job';
+import {
+  Currency,
+  Job,
+  JobPostingFeeLog,
+  JobPostingPricingConfig,
+  PaymentTransaction,
+  Region,
+  ScrapedJobAuditEntry,
+  ScraperBatchRun,
+  Subscriber,
+  UserAccount,
+  CustomFormField,
+  AdminFeatureFlags
+} from './job';
+import { AdPricingConfig } from './ad';
+import { LandingPageConfig } from './landing';
+import type { WhatsAppSupportConfig } from '../components/WhatsAppStickyButton';
+
+export const BACKUP_SNAPSHOT_SCHEMA_VERSION = '3.0.0-ADMIN-EXPORT';
 
 export interface SiteSeoConfig {
   siteTitle: string;
@@ -175,20 +193,62 @@ export interface AiJobAuditReport {
   enhancedDescriptionPreview?: string;
 }
 
+export interface SnapshotManifestCategoryInfo {
+  key: string;
+  label: string;
+  description: string;
+  recordCount: number;
+}
+
+export interface SnapshotManifestExcludedCategory {
+  key: string;
+  label: string;
+  reason: string;
+}
+
+export interface SnapshotManifest {
+  schemaVersion: string;
+  createdAt: string;
+  exportScope: string;
+  isCompleteDatabaseBackup: false;
+  sanitizationApplied: {
+    usersCredentialsStripped: boolean;
+    strippedUserFields: string[];
+    secretsExcluded: boolean;
+  };
+  includedCategories: SnapshotManifestCategoryInfo[];
+  excludedCategories: SnapshotManifestExcludedCategory[];
+  recordCounts: Record<string, number>;
+}
+
+export interface SnapshotAdminConfig {
+  jobPostingPricing?: JobPostingPricingConfig;
+  adPricingConfig?: AdPricingConfig;
+  landingConfig?: LandingPageConfig;
+  seoConfig?: SiteSeoConfig;
+  whatsAppSupportConfig?: WhatsAppSupportConfig;
+}
+
 export interface SystemSnapshotPayload {
   snapshotVersion: string;
   createdAt: string;
   platformName: string;
+  manifest: SnapshotManifest;
   totalJobs: number;
+  totalPendingJobs: number;
   totalUsers: number;
+  totalPaymentTransactions: number;
+  totalFeeLogs: number;
   jobs: Job[];
   pendingJobs: Job[];
-  users: UserAccount[];
+  users: Array<Omit<UserAccount, 'password'> & Record<string, any>>;
   subscribers: Subscriber[];
   feeLogs: JobPostingFeeLog[];
+  paymentTransactions: PaymentTransaction[];
   ads: any[];
-  auditLogs: ScrapedJobAuditEntry[];
-  batchRuns: ScraperBatchRun[];
+  scraperAuditLogs: ScrapedJobAuditEntry[];
+  scraperBatchRuns: ScraperBatchRun[];
   customFormFields: CustomFormField[];
   featureFlags: AdminFeatureFlags;
+  adminConfig: SnapshotAdminConfig;
 }

@@ -230,16 +230,14 @@ export function isTimestampInRange(
   const parsedRef =
     referenceDate !== undefined ? parseAnalyticsTimestamp(referenceDate) : Date.now();
   const refMs = parsedRef !== null ? parsedRef : Date.now();
-  const { pktDayStartMs, pktDayEndMs } = getPktDayBoundsMs(refMs);
-
   if (timeRange === 'today') {
+    const { pktDayStartMs, pktDayEndMs } = getPktDayBoundsMs(refMs);
     return timestampMs >= pktDayStartMs && timestampMs <= pktDayEndMs;
   }
 
   const days = timeRange === '7days' ? 7 : 30;
   const windowStart = refMs - days * MS_PER_DAY;
-  const windowEnd = Math.max(refMs, pktDayEndMs);
-  return timestampMs >= windowStart && timestampMs <= windowEnd;
+  return timestampMs >= windowStart && timestampMs <= refMs;
 }
 
 export function convertRecordAmountToPkr(

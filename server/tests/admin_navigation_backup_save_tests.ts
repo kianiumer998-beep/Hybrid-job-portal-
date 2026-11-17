@@ -2802,6 +2802,68 @@ async function runSuite() {
     assert.strictEqual(ambiguousLegacySub.totalGrossRevenuePkr, null);
   });
 
+  await runTest('AUDIT-33 [Rolling Range Upper/Lower Bounds & PKT/All-Time Preservation]: 7 Days and 30 Days cap at refMs (excluding future-dated same-PKT-day records) while keeping exact lower bounds, PKT Today midnight bounds, and All Time undated inclusion', () => {
+    const refNowIso = '2026-11-17T12:00:00.000Z'; // 2026-11-17 17:00:00 PKT
+    const refMs = Date.parse(refNowIso);
+    const msPerDay = 24 * 60 * 60 * 1000;
+
+    // 1. Direct helper checks for refMs upper bound (even when still inside same PKT calendar day before 18:59:59.999Z)
+    assert.strictEqual(isTimestampInRange(refMs - 1, '7days', refNowIso), true, 'Just before refMs must be included in 7days');
+    assert.strictEqual(isTimestampInRange(refMs, '7days', refNowIso), true, 'Exact refMs must be included in 7days');
+    assert.strictEqual(isTimestampInRange(refMs + 1, '7days', refNowIso), false, 'Just after refMs (even same PKT day) must be excluded from 7days');
+    assert.strictEqual(isTimestampInRange(refMs + 60 * 60 * 1000, '7days', refNowIso), false, 'Future timestamp +1h same PKT day must be excluded from 7days');
+
+    assert.strictEqual(isTimestampInRange(refMs - 1, '30days', refNowIso), true, 'Just before refMs must be included in 30days');
+    assert.strictEqual(isTimestampInRange(refMs, '30days', refNowIso), true, 'Exact refMs must be included in 30days');
+    assert.strictEqual(isTimestampInRange(refMs + 1, '30days', refNowIso), false, 'Just after refMs (even same PKT day) must be excluded from 30days');
+
+    // 2. Exact lower boundaries for 7 Days and 30 Days
+    const sevenDaysStart = refMs - 7 * msPerDay;
+    const thirtyDaysStart = refMs - 30 * msPerDay;
+    assert.strictEqual(isTimestampInRange(sevenDaysStart, '7days', refNowIso), true, 'Exact 7-day lower bound must be included');
+    assert.strictEqual(isTimestampInRange(sevenDaysStart - 1, '7days', refNowIso), false, '1ms before 7-day lower bound must be excluded');
+    assert.strictEqual(isTimestampInRange(thirtyDaysStart, '30days', refNowIso), true, 'Exact 30-day lower bound must be included');
+    assert.strictEqual(isTimestampInRange(thirtyDaysStart - 1, '30days', refNowIso), false, '1ms before 30-day lower bound must be excluded');
+
+    // 3. Today preserves Asia/Karachi (PKT, UTC+5) midnight boundaries
+    assert.strictEqual(isTimestampInRange(Date.parse('2026-11-16T18:59:59.999Z'), 'today', refNowIso), false, 'Nov 16 23:59:59.999 PKT excluded from Nov 17 PKT Today');
+    assert.strictEqual(isTimestampInRange(Date.parse('2026-11-16T19:00:00.000Z'), 'today', refNowIso), true, 'Nov 17 00:00:00.000 PKT included in Nov 17 PKT Today');
+    assert.strictEqual(isTimestampInRange(Date.parse('2026-11-17T18:59:59.999Z'), 'today', refNowIso), true, 'Nov 17 23:59:59.999 PKT included in Nov 17 PKT Today');
+    assert.strictEqual(isTimestampInRange(Date.parse('2026-11-17T19:00:00.000Z'), 'today', refNowIso), false, 'Nov 18 00:00:00.000 PKT excluded from Nov 17 PKT Today');
+
+    // 4. All Time still includes undated records
+    assert.strictEqual(isTimestampInRange(null, 'all', refNowIso), true, 'All Time must include null/undated timestamp');
+
+    // 5. End-to-end computeAnalyticsMetrics verification across all ranges
+    const txs: PaymentTransaction[] = [
+      { id: 'tx-just-before', dateTime: new Date(refMs - 1000).toISOString(), amount: 1000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'JazzCash' },
+      { id: 'tx-just-after-same-pkt-day', dateTime: new Date(refMs + 1000).toISOString(), amount: 9000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'JazzCash' },
+      { id: 'tx-7d-lower-ok', dateTime: new Date(sevenDaysStart).toISOString(), amount: 2000, currency: 'PKR', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'Wallet' },
+      { id: 'tx-7d-lower-out', dateTime: new Date(sevenDaysStart - 1000).toISOString(), amount: 4000, currency: 'PKR', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'Wallet' },
+      { id: 'tx-30d-lower-ok', dateTime: new Date(thirtyDaysStart).toISOString(), amount: 8000, currency: 'PKR', type: 'Ad Campaign Fee', status: 'Success', paymentMethod: 'Bank Transfer' },
+      { id: 'tx-30d-lower-out', dateTime: new Date(thirtyDaysStart - 1000).toISOString(), amount: 16000, currency: 'PKR', type: 'Ad Campaign Fee', status: 'Success', paymentMethod: 'Bank Transfer' }
+    ];
+
+    const m7 = computeAnalyticsMetrics({ paymentTransactions: txs, timeRange: '7days', referenceDate: refNowIso });
+    assert.strictEqual(m7.totalTransactionsRevenuePkr, 3000);
+    assert.strictEqual(m7.totalGrossRevenuePkr, 3000);
+
+    const m30 = computeAnalyticsMetrics({ paymentTransactions: txs, timeRange: '30days', referenceDate: refNowIso });
+    assert.strictEqual(m30.totalTransactionsRevenuePkr, 15000);
+    assert.strictEqual(m30.totalGrossRevenuePkr, 15000);
+
+    const undatedAllTime = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-dated', dateTime: new Date(refMs - 1000).toISOString(), amount: 1000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'JazzCash' },
+        { id: 'tx-undated', dateTime: '', amount: 5000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'Easypaisa' }
+      ],
+      timeRange: 'all',
+      referenceDate: refNowIso
+    });
+    assert.strictEqual(undatedAllTime.totalTransactionsRevenuePkr, 6000);
+    assert.strictEqual(undatedAllTime.totalGrossRevenuePkr, 6000);
+  });
+
   console.log('------------------------------------------------------------------');
   console.log(`Summary: Passed=${counts.passed}, Failed=${counts.failed}, Skipped=${counts.skipped}`);
   console.log('==================================================================');

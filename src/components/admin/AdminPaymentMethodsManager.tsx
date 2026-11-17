@@ -61,29 +61,56 @@ const createDefaultMethod = (id: string, name: string): PublicPaymentMethodConfi
   customFields: []
 });
 
+export const CAMPAIGN_DURATION_PRESETS_KEY = 'hybrid_campaign_duration_presets';
+
+export function saveDurationPresetsToStorage(
+  storage: Pick<Storage, 'setItem'> | null | undefined,
+  config: AdminReceivingPaymentConfig
+): { ok: boolean; error?: string } {
+  if (!storage || typeof storage.setItem !== 'function') {
+    return {
+      ok: false,
+      error: 'Browser localStorage is unavailable — campaign duration presets were not saved. Your unsaved edits remain on screen.'
+    };
+  }
+  try {
+    storage.setItem(CAMPAIGN_DURATION_PRESETS_KEY, JSON.stringify(config));
+    return { ok: true };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: err?.message
+        ? `Failed to save campaign duration presets to browser storage: ${err.message}. Your unsaved edits remain on screen.`
+        : 'Failed to save campaign duration presets to browser storage (quota exceeded or storage blocked). Your unsaved edits remain on screen.'
+    };
+  }
+}
+
 export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProps> = ({
   initialConfig,
   onSaveConfig
 }) => {
   // Campaign duration preset configuration (kept separate from payment accounts)
   const [durationConfig, setDurationConfig] = useState<AdminReceivingPaymentConfig>(() => {
-    try {
-      const savedNew = localStorage.getItem('hybrid_campaign_duration_presets');
-      if (savedNew) {
-        const parsed = JSON.parse(savedNew);
-        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.activeDurationOptions)) {
-          return parsed;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const savedNew = localStorage.getItem(CAMPAIGN_DURATION_PRESETS_KEY);
+        if (savedNew) {
+          const parsed = JSON.parse(savedNew);
+          if (parsed && typeof parsed === 'object' && Array.isArray(parsed.activeDurationOptions)) {
+            return parsed;
+          }
         }
-      }
-      const savedLegacy = localStorage.getItem('admin_receiving_payment_config');
-      if (savedLegacy) {
-        const parsedLegacy = JSON.parse(savedLegacy);
-        if (parsedLegacy && typeof parsedLegacy === 'object' && Array.isArray(parsedLegacy.activeDurationOptions)) {
-          return parsedLegacy;
+        const savedLegacy = localStorage.getItem('admin_receiving_payment_config');
+        if (savedLegacy) {
+          const parsedLegacy = JSON.parse(savedLegacy);
+          if (parsedLegacy && typeof parsedLegacy === 'object' && Array.isArray(parsedLegacy.activeDurationOptions)) {
+            return parsedLegacy;
+          }
         }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
     }
     return initialConfig || DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG;
   });
@@ -108,6 +135,7 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [durationSaveSuccess, setDurationSaveSuccess] = useState<boolean>(false);
+  const [durationSaveError, setDurationSaveError] = useState<string | null>(null);
 
   // New duration preset inputs
   const [newDurationDays, setNewDurationDays] = useState('');
@@ -409,16 +437,24 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
 
   // Save campaign duration presets locally
   const handleSaveDurations = () => {
-    try {
-      localStorage.setItem('hybrid_campaign_duration_presets', JSON.stringify(durationConfig));
-      if (onSaveConfig) {
-        onSaveConfig(durationConfig);
-      }
-      setDurationSaveSuccess(true);
-      setTimeout(() => setDurationSaveSuccess(false), 3000);
-    } catch (e) {
-      console.error(e);
+    setDurationSaveError(null);
+    setDurationSaveSuccess(false);
+
+    const storageRef = typeof localStorage !== 'undefined' ? localStorage : null;
+    const writeResult = saveDurationPresetsToStorage(storageRef, durationConfig);
+    if (!writeResult.ok) {
+      setDurationSaveError(
+        writeResult.error ||
+          'Failed to save campaign duration presets to browser storage. Unsaved edits remain in place.'
+      );
+      return;
     }
+
+    if (onSaveConfig) {
+      onSaveConfig(durationConfig);
+    }
+    setDurationSaveSuccess(true);
+    setTimeout(() => setDurationSaveSuccess(false), 3000);
   };
 
   const handleAddCustomDuration = (e: React.FormEvent) => {
@@ -548,9 +584,22 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
       )}
 
       {durationSaveSuccess && (
-        <div className="p-4 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 font-bold text-xs flex items-center space-x-2 animate-in fade-in">
+        <div
+          role="status"
+          className="p-4 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 font-bold text-xs flex items-center space-x-2 animate-in fade-in"
+        >
           <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
           <span>Campaign duration presets saved in browser localStorage only (not synced to backend database).</span>
+        </div>
+      )}
+
+      {durationSaveError && (
+        <div
+          role="alert"
+          className="p-4 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-200 font-bold text-xs flex items-center space-x-2 animate-in fade-in"
+        >
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{durationSaveError}</span>
         </div>
       )}
 

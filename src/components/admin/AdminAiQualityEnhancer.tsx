@@ -11,7 +11,14 @@ import { Job } from '../../types/job';
 import { AiJobAuditReport } from '../../types/adminSuite';
 
 export type JobUpdateOutcome =
-  | { success: boolean; job?: Job; message?: string }
+  | {
+      success: boolean;
+      job?: Job;
+      message?: string;
+      refreshWarning?: string;
+      auditPersisted?: boolean;
+      auditWarning?: string;
+    }
   | boolean
   | void;
 
@@ -99,7 +106,14 @@ export async function applyRuleBasedEnhancement(params: {
   activeJob: Job | undefined;
   activeReport: AiJobAuditReport | null;
   onUpdateJob?: (updatedJob: Job) => Promise<JobUpdateOutcome> | JobUpdateOutcome;
-}): Promise<{ ok: boolean; updatedJob?: Job; message: string }> {
+}): Promise<{
+  ok: boolean;
+  updatedJob?: Job;
+  message: string;
+  auditPersisted?: boolean;
+  auditWarning?: string;
+  refreshWarning?: string;
+}> {
   const { activeJob, activeReport, onUpdateJob } = params;
   if (!activeJob) {
     return { ok: false, message: 'No job selected for update.' };
@@ -119,10 +133,11 @@ export async function applyRuleBasedEnhancement(params: {
       ? activeReport.enhancedDescriptionPreview
       : activeJob.description;
 
-  // Preserve activeJob.id and all unrelated/factual fields; never overwrite missing salary with invented values
+  // Preserve activeJob.id, status (e.g. Pending), and all unrelated/factual fields; never overwrite missing salary
   const updatedJob: Job = {
     ...activeJob,
     id: activeJob.id,
+    status: activeJob.status,
     tags:
       activeReport.suggestedTags.length > 0
         ? activeReport.suggestedTags
@@ -142,13 +157,28 @@ export async function applyRuleBasedEnhancement(params: {
           : 'Job update could not be confirmed by the server.';
       return { ok: false, message: errMsg };
     }
+
+    const resultObj = result && typeof result === 'object' ? (result as any) : null;
+    const savedJob: Job = resultObj?.job ? resultObj.job : updatedJob;
+    const auditPersisted = resultObj?.auditPersisted === false ? false : undefined;
+    const auditWarning =
+      typeof resultObj?.auditWarning === 'string' && resultObj.auditWarning.trim()
+        ? resultObj.auditWarning.trim()
+        : auditPersisted === false
+        ? 'Job update was saved, but audit log persistence failed.'
+        : undefined;
+    const refreshWarning =
+      typeof resultObj?.refreshWarning === 'string' && resultObj.refreshWarning.trim()
+        ? resultObj.refreshWarning.trim()
+        : undefined;
+
     return {
       ok: true,
-      updatedJob:
-        result && typeof result === 'object' && (result as any).job
-          ? (result as any).job
-          : updatedJob,
-      message: `Rule-based formatting and tags saved for "${activeJob.title}".`
+      updatedJob: savedJob,
+      message: `Rule-based formatting and tags saved for "${activeJob.title}".`,
+      ...(auditPersisted === false ? { auditPersisted: false } : {}),
+      ...(auditWarning ? { auditWarning } : {}),
+      ...(refreshWarning ? { refreshWarning } : {})
     };
   } catch (err: any) {
     return {
@@ -171,7 +201,11 @@ export const AdminAiQualityEnhancer: React.FC<AdminAiQualityEnhancerProps> = ({
   const [selectedJobId, setSelectedJobId] = useState<string>(allJobs[0]?.id || '');
   const [isAuditing, setIsAuditing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
-  const [applyStatus, setApplyStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [applyStatus, setApplyStatus] = useState<{
+    type: 'success' | 'error';
+    message: string;
+    warnings?: string[];
+  } | null>(null);
 
   useEffect(() => {
     if (allJobs.length === 0) {
@@ -204,9 +238,13 @@ export const AdminAiQualityEnhancer: React.FC<AdminAiQualityEnhancerProps> = ({
       activeReport,
       onUpdateJob
     });
+    const warnings = [outcome.auditWarning, outcome.refreshWarning].filter(
+      (w): w is string => Boolean(w && w.trim())
+    );
     setApplyStatus({
       type: outcome.ok ? 'success' : 'error',
-      message: outcome.message
+      message: outcome.message,
+      ...(warnings.length > 0 ? { warnings } : {})
     });
     setIsApplying(false);
   };
@@ -250,20 +288,35 @@ export const AdminAiQualityEnhancer: React.FC<AdminAiQualityEnhancerProps> = ({
       )}
 
       {applyStatus && (
-        <div
-          role={applyStatus.type === 'error' ? 'alert' : 'status'}
-          className={`p-4 rounded-2xl border text-xs font-bold flex items-center space-x-2 ${
-            applyStatus.type === 'success'
-              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
-              : 'bg-rose-500/15 border-rose-500/40 text-rose-200'
-          }`}
-        >
-          {applyStatus.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+        <div className="space-y-2">
+          <div
+            role={applyStatus.type === 'error' ? 'alert' : 'status'}
+            className={`p-4 rounded-2xl border text-xs font-bold flex items-center space-x-2 ${
+              applyStatus.type === 'success'
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                : 'bg-rose-500/15 border-rose-500/40 text-rose-200'
+            }`}
+          >
+            {applyStatus.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{applyStatus.message}</span>
+          </div>
+          {applyStatus.warnings && applyStatus.warnings.length > 0 && (
+            <div
+              role="alert"
+              className="p-3.5 rounded-2xl border bg-amber-500/15 border-amber-500/40 text-amber-200 text-xs font-semibold flex items-start space-x-2"
+            >
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                {applyStatus.warnings.map((w, idx) => (
+                  <div key={idx}>{w}</div>
+                ))}
+              </div>
+            </div>
           )}
-          <span>{applyStatus.message}</span>
         </div>
       )}
 

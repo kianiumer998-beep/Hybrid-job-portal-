@@ -30,13 +30,242 @@ export interface BulkNotificationBroadcast {
   status: 'Delivered' | 'Scheduled' | 'Failed' | 'Draft';
 }
 
-export function parseStoredNotificationDrafts(raw: string | null): BulkNotificationBroadcast[] {
-  if (!raw) return [];
+export const NOTIFICATION_DRAFTS_STORAGE_KEY = 'hybrid_admin_broadcast_history';
+
+const VALID_DRAFT_CHANNELS = new Set<BulkNotificationBroadcast['channel']>([
+  'In-App',
+  'Email',
+  'WhatsApp',
+  'Multi-Channel'
+]);
+const VALID_DRAFT_STATUSES = new Set<BulkNotificationBroadcast['status']>([
+  'Delivered',
+  'Scheduled',
+  'Failed',
+  'Draft'
+]);
+const VALID_DRAFT_PRIORITIES = new Set<BulkNotificationBroadcast['priority']>([
+  'normal',
+  'high',
+  'urgent'
+]);
+
+export interface NotificationDraftStorageInspection {
+  drafts: BulkNotificationBroadcast[];
+  hasCorruptJson: boolean;
+  invalidItemsCount: number;
+  warningMessage: string | null;
+}
+
+function validateAndNormalizeNotificationDraft(rawItem: unknown): BulkNotificationBroadcast | null {
+  if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) {
+    return null;
+  }
+  const item = rawItem as Record<string, unknown>;
+
+  const requiredStrings = [
+    'id',
+    'title',
+    'category',
+    'targetAudience',
+    'messageBody',
+    'timestamp'
+  ] as const;
+  for (const field of requiredStrings) {
+    if (typeof item[field] !== 'string' || item[field].trim().length === 0) {
+      return null;
+    }
+  }
+
+  if (
+    typeof item.recipientsCount !== 'number' ||
+    !Number.isFinite(item.recipientsCount) ||
+    item.recipientsCount < 0
+  ) {
+    return null;
+  }
+
+  if (
+    typeof item.channel !== 'string' ||
+    !VALID_DRAFT_CHANNELS.has(item.channel as BulkNotificationBroadcast['channel'])
+  ) {
+    return null;
+  }
+
+  if (
+    typeof item.status !== 'string' ||
+    !VALID_DRAFT_STATUSES.has(item.status as BulkNotificationBroadcast['status'])
+  ) {
+    return null;
+  }
+
+  const normalizedPriority: BulkNotificationBroadcast['priority'] =
+    typeof item.priority === 'string' &&
+    VALID_DRAFT_PRIORITIES.has(item.priority as BulkNotificationBroadcast['priority'])
+      ? (item.priority as BulkNotificationBroadcast['priority'])
+      : 'normal';
+
+  const normalizedOpenRate =
+    typeof item.openRatePercent === 'number' &&
+    Number.isFinite(item.openRatePercent) &&
+    item.openRatePercent >= 0
+      ? item.openRatePercent
+      : 0;
+
+  const normalizedClickRate =
+    typeof item.clickRatePercent === 'number' &&
+    Number.isFinite(item.clickRatePercent) &&
+    item.clickRatePercent >= 0
+      ? item.clickRatePercent
+      : 0;
+
+  return {
+    id: (item.id as string).trim(),
+    timestamp: (item.timestamp as string).trim(),
+    title: (item.title as string).trim(),
+    category: (item.category as string).trim(),
+    priority: normalizedPriority,
+    channel: item.channel as BulkNotificationBroadcast['channel'],
+    targetAudience: (item.targetAudience as string).trim(),
+    messageBody: (item.messageBody as string).trim(),
+    ctaText:
+      typeof item.ctaText === 'string' && item.ctaText.trim().length > 0
+        ? item.ctaText.trim()
+        : undefined,
+    ctaUrl:
+      typeof item.ctaUrl === 'string' && item.ctaUrl.trim().length > 0
+        ? item.ctaUrl.trim()
+        : undefined,
+    recipientsCount: item.recipientsCount,
+    openRatePercent: normalizedOpenRate,
+    clickRatePercent: normalizedClickRate,
+    status: item.status as BulkNotificationBroadcast['status']
+  };
+}
+
+export function inspectStoredNotificationDrafts(
+  raw: string | null
+): NotificationDraftStorageInspection {
+  if (!raw || !raw.trim()) {
+    return {
+      drafts: [],
+      hasCorruptJson: false,
+      invalidItemsCount: 0,
+      warningMessage: null
+    };
+  }
+
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    parsed = JSON.parse(raw);
   } catch {
-    return [];
+    return {
+      drafts: [],
+      hasCorruptJson: true,
+      invalidItemsCount: 0,
+      warningMessage:
+        'Stored local drafts JSON is corrupted and could not be parsed. Existing localStorage data was preserved without overwriting.'
+    };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return {
+      drafts: [],
+      hasCorruptJson: true,
+      invalidItemsCount: 0,
+      warningMessage:
+        'Stored local drafts data has an invalid format (expected array). Existing localStorage data was preserved without overwriting.'
+    };
+  }
+
+  const drafts: BulkNotificationBroadcast[] = [];
+  let invalidItemsCount = 0;
+
+  for (const entry of parsed) {
+    const valid = validateAndNormalizeNotificationDraft(entry);
+    if (valid) {
+      drafts.push(valid);
+    } else {
+      invalidItemsCount++;
+    }
+  }
+
+  const warningMessage =
+    invalidItemsCount > 0
+      ? `${invalidItemsCount} malformed local draft entry(ies) in browser storage failed schema validation and were ignored. Original localStorage data was preserved.`
+      : null;
+
+  return {
+    drafts,
+    hasCorruptJson: false,
+    invalidItemsCount,
+    warningMessage
+  };
+}
+
+export function parseStoredNotificationDrafts(raw: string | null): BulkNotificationBroadcast[] {
+  return inspectStoredNotificationDrafts(raw).drafts;
+}
+
+export function saveNotificationDraftToStorage(
+  storage: Pick<Storage, 'setItem'> | null | undefined,
+  currentDrafts: BulkNotificationBroadcast[],
+  newDraft: BulkNotificationBroadcast
+): { ok: boolean; drafts: BulkNotificationBroadcast[]; error?: string } {
+  if (!storage || typeof storage.setItem !== 'function') {
+    return {
+      ok: false,
+      drafts: currentDrafts,
+      error: 'Browser localStorage is unavailable — local draft could not be saved.'
+    };
+  }
+
+  const nextDrafts = [newDraft, ...currentDrafts];
+  try {
+    storage.setItem(NOTIFICATION_DRAFTS_STORAGE_KEY, JSON.stringify(nextDrafts));
+    return {
+      ok: true,
+      drafts: nextDrafts
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      drafts: currentDrafts,
+      error: err?.message
+        ? `Failed to save local draft to browser storage: ${err.message}`
+        : 'Failed to save local draft to browser storage (quota exceeded or access blocked).'
+    };
+  }
+}
+
+export function deleteNotificationDraftFromStorage(
+  storage: Pick<Storage, 'setItem'> | null | undefined,
+  currentDrafts: BulkNotificationBroadcast[],
+  draftId: string
+): { ok: boolean; drafts: BulkNotificationBroadcast[]; error?: string } {
+  if (!storage || typeof storage.setItem !== 'function') {
+    return {
+      ok: false,
+      drafts: currentDrafts,
+      error: 'Browser localStorage is unavailable — local draft could not be deleted.'
+    };
+  }
+
+  const nextDrafts = currentDrafts.filter((item) => item.id !== draftId);
+  try {
+    storage.setItem(NOTIFICATION_DRAFTS_STORAGE_KEY, JSON.stringify(nextDrafts));
+    return {
+      ok: true,
+      drafts: nextDrafts
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      drafts: currentDrafts,
+      error: err?.message
+        ? `Failed to update local drafts in browser storage: ${err.message}`
+        : 'Failed to delete local draft from browser storage (quota or access blocked).'
+    };
   }
 }
 
@@ -108,13 +337,24 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   const isWhatsAppEnabled = featureFlags?.enableWhatsAppAlerts === true;
   const isMultiChannelEnabled = isEmailEnabled && isWhatsAppEnabled;
 
-  const [history, setHistory] = useState<BulkNotificationBroadcast[]>(() => {
+  const [initialStorageState] = useState<NotificationDraftStorageInspection>(() => {
+    if (typeof localStorage === 'undefined') {
+      return { drafts: [], hasCorruptJson: false, invalidItemsCount: 0, warningMessage: null };
+    }
     try {
-      return parseStoredNotificationDrafts(localStorage.getItem('hybrid_admin_broadcast_history'));
+      return inspectStoredNotificationDrafts(localStorage.getItem(NOTIFICATION_DRAFTS_STORAGE_KEY));
     } catch {
-      return [];
+      return {
+        drafts: [],
+        hasCorruptJson: false,
+        invalidItemsCount: 0,
+        warningMessage: 'Could not read local drafts from browser storage.'
+      };
     }
   });
+
+  const [history, setHistory] = useState<BulkNotificationBroadcast[]>(initialStorageState.drafts);
+  const [storageWarning, setStorageWarning] = useState<string | null>(initialStorageState.warningMessage);
 
   // Form State
   const [targetAudience, setTargetAudience] = useState<string>('all_users');
@@ -145,11 +385,6 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
     }
   }, [channel, isEmailEnabled, isWhatsAppEnabled, isMultiChannelEnabled]);
 
-  React.useEffect(() => {
-    try {
-      localStorage.setItem('hybrid_admin_broadcast_history', JSON.stringify(history));
-    } catch {}
-  }, [history]);
 
   const audienceEstimate = useMemo(() => {
     const safeUsers = Array.isArray(users) ? users : [];
@@ -230,7 +465,7 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
       id: `notif-${Date.now()}`,
       timestamp: nowStr,
       title: title.trim(),
-      category: category.trim(),
+      category: category.trim() || 'General Alert',
       priority,
       channel,
       targetAudience: getAudienceLabel(targetAudience),
@@ -243,7 +478,18 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
       status: 'Draft'
     };
 
-    setHistory((prev) => [newDraft, ...prev]);
+    const storageRef = typeof localStorage !== 'undefined' ? localStorage : null;
+    const writeResult = saveNotificationDraftToStorage(storageRef, history, newDraft);
+    if (!writeResult.ok) {
+      setSaveNotice({
+        type: 'error',
+        message: writeResult.error || 'Failed to save local draft to browser storage.'
+      });
+      return;
+    }
+
+    setHistory(writeResult.drafts);
+    setStorageWarning(null);
     if (onBroadcastSent) {
       onBroadcastSent(newDraft);
     }
@@ -256,7 +502,18 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
   };
 
   const handleDeleteDraft = (draftId: string) => {
-    setHistory((prev) => prev.filter((item) => item.id !== draftId));
+    const storageRef = typeof localStorage !== 'undefined' ? localStorage : null;
+    const writeResult = deleteNotificationDraftFromStorage(storageRef, history, draftId);
+    if (!writeResult.ok) {
+      setSaveNotice({
+        type: 'error',
+        message: writeResult.error || 'Failed to delete local draft from browser storage.'
+      });
+      return;
+    }
+
+    setHistory(writeResult.drafts);
+    setStorageWarning(null);
   };
 
   return (
@@ -285,6 +542,17 @@ export const AdminBulkNotificationTool: React.FC<AdminBulkNotificationToolProps>
           <span className="font-mono font-black text-emerald-400">{audienceEstimate.toLocaleString()} Records</span>
         </div>
       </div>
+
+      {/* Non-destructive Storage Recovery Warning */}
+      {storageWarning && (
+        <div
+          role="alert"
+          className="p-4 rounded-2xl border-2 bg-amber-500/15 border-amber-500/40 text-amber-200 flex items-center space-x-3 shadow-xl"
+        >
+          <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+          <span className="text-xs sm:text-sm font-bold">{storageWarning}</span>
+        </div>
+      )}
 
       {/* Save / Validation Status */}
       {saveNotice && (

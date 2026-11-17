@@ -79,6 +79,72 @@ const ADMIN_ROLES = [
   'Advertisement Manager'
 ] as const;
 
+export interface JobUpdateResult {
+  success: boolean;
+  job?: Job;
+  message?: string;
+  refreshWarning?: string;
+  auditPersisted?: boolean;
+  auditWarning?: string;
+}
+
+export async function executeAuthoritativeJobUpdate(params: {
+  updatedJob: Job;
+  updateJobApi: (jobId: string, job: Job) => Promise<any>;
+  reloadJobs: () => Promise<{ success?: boolean; message?: string } | void | any>;
+}): Promise<JobUpdateResult> {
+  const { updatedJob, updateJobApi, reloadJobs } = params;
+
+  let res: any;
+  try {
+    res = await updateJobApi(updatedJob.id, updatedJob);
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Error updating job on backend.'
+    };
+  }
+
+  if (!res || !res.success) {
+    return {
+      success: false,
+      message: res?.message || 'Job update was not confirmed by the server.'
+    };
+  }
+
+  // Server mutation is confirmed. Isolate reload so a refresh error cannot convert a confirmed save into failure.
+  let refreshWarning: string | undefined;
+  try {
+    const reloadRes = await reloadJobs();
+    if (reloadRes && typeof reloadRes === 'object' && reloadRes.success === false) {
+      refreshWarning =
+        reloadRes.message ||
+        'Job update was saved on the server, but refreshing the job list failed.';
+    }
+  } catch (reloadErr: any) {
+    refreshWarning =
+      reloadErr?.message ||
+      'Job update was saved on the server, but refreshing the job list failed.';
+  }
+
+  const auditPersisted = res.auditPersisted === false ? false : undefined;
+  const auditWarning =
+    typeof res.auditWarning === 'string' && res.auditWarning.trim()
+      ? res.auditWarning.trim()
+      : auditPersisted === false
+      ? 'Job update was saved on the server, but the audit log could not be persisted.'
+      : undefined;
+
+  return {
+    success: true,
+    job: res.job || updatedJob,
+    ...(refreshWarning ? { refreshWarning } : {}),
+    ...(auditPersisted === false ? { auditPersisted: false } : {}),
+    ...(auditWarning ? { auditWarning } : {}),
+    ...(auditWarning ? { message: auditWarning } : {})
+  };
+}
+
 function decodeStoredAuthTokenPayload(): Record<string, any> | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -1202,7 +1268,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [postsPerPage, setPostsPerPage] = useState<number>(10);
 
-  const loadBackendJobs = useCallback(async (targetPage?: number, targetLimit?: number) => {
+  const loadBackendJobs = useCallback(async (targetPage?: number, targetLimit?: number): Promise<{ success: boolean; message?: string }> => {
     const pageToFetch = targetPage ?? pendingPage;
     const limitToFetch = targetLimit ?? pendingLimit;
     setIsLoadingJobs(true);
@@ -1264,12 +1330,22 @@ export default function App() {
 
       if (errorDetected) {
         setDbError(errorDesc);
+        return { success: false, message: errorDesc };
       } else {
         setDbError(null);
+        const partialRefreshError =
+          (liveRes && typeof liveRes === 'object' && liveRes.success === false && liveRes.message) ||
+          (pendingRes && typeof pendingRes === 'object' && pendingRes.success === false && pendingRes.message);
+        if (partialRefreshError) {
+          return { success: false, message: String(partialRefreshError) };
+        }
+        return { success: true };
       }
     } catch (err: any) {
       console.error('[App] Failed to load jobs from backend /api/jobs:', err);
-      setDbError(err?.message || 'Network error communicating with database');
+      const errMsg = err?.message || 'Network error communicating with database';
+      setDbError(errMsg);
+      return { success: false, message: errMsg };
     } finally {
       setIsLoadingJobs(false);
     }
@@ -3264,16 +3340,15 @@ export default function App() {
     }
   };
 
-  const handleUpdateJob = async (updatedJob: Job): Promise<{ success: boolean; job?: Job; message?: string }> => {
+  const handleUpdateJob = async (updatedJob: Job): Promise<JobUpdateResult> => {
     try {
-      const res = await api.jobs.update(updatedJob.id, updatedJob);
-      await loadBackendJobs();
+      const res = await executeAuthoritativeJobUpdate({
+        updatedJob,
+        updateJobApi: api.jobs.update,
+        reloadJobs: () => loadBackendJobs()
+      });
       if (res && res.success) {
-        return {
-          success: true,
-          job: res.job || updatedJob,
-          ...(res.auditWarning ? { message: res.auditWarning } : {})
-        };
+        return res;
       }
       return {
         success: false,
@@ -3281,7 +3356,6 @@ export default function App() {
       };
     } catch (err: any) {
       console.error('Error updating job on backend:', err);
-      await loadBackendJobs().catch(() => {});
       return {
         success: false,
         message: err?.message || 'Error updating job on backend.'

@@ -40,7 +40,13 @@ import {
 import {
   AdminAnalyticsOverview,
   ANALYTICS_SHORTCUT_TAB_IDS,
-  computeAnalyticsMetrics
+  computeAnalyticsMetrics,
+  AnalyticsTimeRange,
+  parseAnalyticsTimestamp,
+  isTimestampInRange,
+  convertRecordAmountToPkr,
+  convertPkrAmount,
+  formatAnalyticsCurrency
 } from '../../src/components/admin/AdminAnalyticsOverview';
 import {
   AdminAiQualityEnhancer,
@@ -49,10 +55,17 @@ import {
 } from '../../src/components/admin/AdminAiQualityEnhancer';
 import {
   AdminBulkNotificationTool,
-  parseStoredNotificationDrafts
+  BulkNotificationBroadcast,
+  NOTIFICATION_DRAFTS_STORAGE_KEY,
+  inspectStoredNotificationDrafts,
+  parseStoredNotificationDrafts,
+  saveNotificationDraftToStorage,
+  deleteNotificationDraftFromStorage
 } from '../../src/components/admin/AdminBulkNotificationTool';
 import {
-  AdminPaymentMethodsManager
+  AdminPaymentMethodsManager,
+  CAMPAIGN_DURATION_PRESETS_KEY,
+  saveDurationPresetsToStorage
 } from '../../src/components/admin/AdminPaymentMethodsManager';
 import {
   AdminDataBackupHub,
@@ -66,16 +79,25 @@ import {
   BACKUP_EXPORT_SCOPE
 } from '../../src/components/admin/AdminDataBackupHub';
 import {
-  BACKUP_SNAPSHOT_SCHEMA_VERSION
+  BACKUP_SNAPSHOT_SCHEMA_VERSION,
+  CurrencyExchangeConfig
 } from '../../src/types/adminSuite';
 import {
   executeFeeConfigSave
 } from '../../src/components/admin/AdminFeeManager';
+import { executeAuthoritativeJobUpdate } from '../../src/App';
 import { DEFAULT_LANDING_PAGE_CONFIG } from '../../src/types/landing';
-import { DEFAULT_JOB_POSTING_PRICING_CONFIG } from '../../src/types/job';
-import { DEFAULT_AD_PRICING_CONFIG } from '../../src/types/ad';
+import {
+  DEFAULT_JOB_POSTING_PRICING_CONFIG,
+  Job,
+  JobPostingFeeLog,
+  PaymentTransaction,
+  Subscriber
+} from '../../src/types/job';
+import { Advertisement, DEFAULT_AD_PRICING_CONFIG } from '../../src/types/ad';
+import { DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG } from '../../src/types/adminPayment';
 import { DEFAULT_WHATSAPP_CONFIG } from '../../src/components/WhatsAppStickyButton';
-import { INITIAL_SITE_SEO_CONFIG } from '../../src/data/mockAdminSuiteData';
+import { INITIAL_SITE_SEO_CONFIG, INITIAL_CURRENCY_CONFIG } from '../../src/data/mockAdminSuiteData';
 
 interface TestCounts {
   passed: number;
@@ -1494,7 +1516,7 @@ async function runSuite() {
         { id: 'a1', status: 'Approved Live' } as any,
         { id: 'a2', status: 'Pending Review' } as any
       ],
-      ads: [{ id: 'ad1', status: 'active', totalCostPkr: 5000 }]
+      ads: [{ id: 'ad1', status: 'active', paymentStatus: 'Paid', campaignCostPkr: 5000 } as unknown as Advertisement]
     });
     assert.strictEqual(adMetrics.scraperSuccessRate, 50);
     assert.strictEqual(adMetrics.totalAdsPkr, 5000);
@@ -1515,7 +1537,24 @@ async function runSuite() {
     assert.deepStrictEqual(parseStoredNotificationDrafts(null), []);
     assert.deepStrictEqual(parseStoredNotificationDrafts('{invalid json'), []);
     assert.deepStrictEqual(parseStoredNotificationDrafts('{"not":"array"}'), []);
-    assert.strictEqual(parseStoredNotificationDrafts('[{"id":"d1"}]').length, 1);
+    assert.strictEqual(parseStoredNotificationDrafts('[{"id":"d1"}]').length, 0);
+    const validDraftJson = JSON.stringify([
+      {
+        id: 'd1',
+        timestamp: '2026-11-17 09:00',
+        title: 'Valid Local Draft',
+        category: 'Career Alert',
+        priority: 'high',
+        channel: 'In-App',
+        targetAudience: 'All Registered Users & Subscribers',
+        messageBody: 'Sample draft message body',
+        recipientsCount: 12,
+        openRatePercent: 0,
+        clickRatePercent: 0,
+        status: 'Draft'
+      }
+    ]);
+    assert.strictEqual(parseStoredNotificationDrafts(validDraftJson).length, 1);
 
     const html = renderToStaticMarkup(React.createElement(AdminBulkNotificationTool, { users: [], subscribers: [] }));
     assert.ok(html.includes('Bulk Notification Draft Builder'));
@@ -1563,6 +1602,661 @@ async function runSuite() {
         );
       }
     }
+  });
+
+  // --- STEP 7 (AUDIT-08 TO AUDIT-22): 15 COMPREHENSIVE REGRESSION TESTS ---
+  await runTest('AUDIT-08 [Fee Logs Filtering]: Paid fee logs are summed while Pending, Failed, and Refunded logs are excluded', () => {
+    const feeLogs: JobPostingFeeLog[] = [
+      {
+        id: 'log-1',
+        dateTime: '2026-11-16 10:00',
+        userId: 'u-1',
+        userName: 'Employer A',
+        userEmail: 'a@co.pk',
+        jobTitle: 'Backend Engineer',
+        amount: 2000,
+        currency: 'PKR',
+        paymentMethod: 'Easypaisa',
+        status: 'Paid'
+      },
+      {
+        id: 'log-2',
+        dateTime: '2026-11-16 11:00',
+        userId: 'u-2',
+        userName: 'Employer B',
+        userEmail: 'b@co.pk',
+        jobTitle: 'Pending Role',
+        amount: 3500,
+        currency: 'PKR',
+        paymentMethod: 'JazzCash',
+        status: 'Pending'
+      },
+      {
+        id: 'log-3',
+        dateTime: '2026-11-16 12:00',
+        userId: 'u-3',
+        userName: 'Employer C',
+        userEmail: 'c@co.pk',
+        jobTitle: 'Failed Role',
+        amount: 4000,
+        currency: 'PKR',
+        paymentMethod: 'Bank Transfer',
+        status: 'Failed'
+      },
+      {
+        id: 'log-4',
+        dateTime: '2026-11-16 13:00',
+        userId: 'u-4',
+        userName: 'Employer D',
+        userEmail: 'd@co.pk',
+        jobTitle: 'Refunded Role',
+        amount: 5000,
+        currency: 'PKR',
+        paymentMethod: 'Wallet',
+        status: 'Refunded'
+      }
+    ];
+
+    const metrics = computeAnalyticsMetrics({ feeLogs });
+    assert.strictEqual(metrics.paidFeeLogsCount, 1);
+    assert.strictEqual(metrics.totalFeeLogsPkr, 2000);
+    assert.strictEqual(metrics.totalGrossRevenuePkr, 2000);
+  });
+
+  await runTest('AUDIT-09 [Authoritative Transaction Revenue]: Counts Success revenue transactions and excludes Wallet Deposit, Refund, and refunded/compensated items', () => {
+    const txs: PaymentTransaction[] = [
+      {
+        id: 'tx-sub-1',
+        dateTime: '2026-11-16 09:00',
+        amount: 1500,
+        currency: 'PKR',
+        type: 'Subscription',
+        status: 'Success',
+        paymentMethod: 'JazzCash'
+      },
+      {
+        id: 'tx-job-1',
+        dateTime: '2026-11-16 09:30',
+        amount: 2500,
+        currency: 'PKR',
+        type: 'Job Posting Fee',
+        status: 'Success',
+        paymentMethod: 'Easypaisa'
+      },
+      {
+        id: 'tx-ad-1',
+        dateTime: '2026-11-16 09:45',
+        amount: 6000,
+        currency: 'PKR',
+        type: 'Advertisement',
+        status: 'Success',
+        paymentMethod: 'Bank Transfer'
+      },
+      {
+        id: 'tx-dep-1',
+        dateTime: '2026-11-16 10:00',
+        amount: 25000,
+        currency: 'PKR',
+        type: 'Wallet Deposit',
+        status: 'Success',
+        paymentMethod: 'Bank Transfer'
+      },
+      {
+        id: 'tx-ref-1',
+        dateTime: '2026-11-16 10:15',
+        amount: 3000,
+        currency: 'PKR',
+        type: 'Refund',
+        status: 'Success',
+        paymentMethod: 'Wallet'
+      },
+      {
+        id: 'tx-pending-1',
+        dateTime: '2026-11-16 10:30',
+        amount: 9000,
+        currency: 'PKR',
+        type: 'Subscription',
+        status: 'Pending',
+        paymentMethod: 'Easypaisa'
+      },
+      {
+        id: 'tx-comp-1',
+        dateTime: '2026-11-16 10:45',
+        amount: 4500,
+        currency: 'PKR',
+        type: 'Ad Campaign Fee',
+        status: 'Success',
+        paymentMethod: 'Wallet',
+        compensatedAt: '2026-11-16T11:00:00.000Z'
+      } as any
+    ];
+
+    const metrics = computeAnalyticsMetrics({ paymentTransactions: txs });
+    assert.strictEqual(metrics.countedTransactionsCount, 3);
+    assert.strictEqual(metrics.totalTransactionsRevenuePkr, 10000);
+    assert.strictEqual(metrics.totalGrossRevenuePkr, 10000);
+  });
+
+  await runTest('AUDIT-10 [Double-Count Prevention]: Linked Job Posting Fees, Subscriptions, and Ad Campaigns are NOT double-counted in totalGrossRevenuePkr', () => {
+    const paymentTransactions: PaymentTransaction[] = [
+      {
+        id: 'tx-job-linked',
+        transactionId: 'TID-JOB-100',
+        dateTime: '2026-11-16 09:00',
+        amount: 2000,
+        currency: 'PKR',
+        type: 'Job Posting Fee',
+        status: 'Success',
+        paymentMethod: 'Wallet',
+        userId: 'u-emp-1',
+        jobTitleRef: 'Cloud Architect'
+      },
+      {
+        id: 'tx-ad-linked',
+        transactionId: 'TID-AD-200',
+        dateTime: '2026-11-16 10:00',
+        amount: 6000,
+        currency: 'PKR',
+        type: 'Ad Campaign Fee',
+        status: 'Success',
+        paymentMethod: 'Wallet',
+        adIdRef: 'ad-linked-1'
+      },
+      {
+        id: 'tx-sub-linked',
+        transactionId: 'TID-SUB-300',
+        dateTime: '2026-11-16 11:00',
+        amount: 1200,
+        currency: 'PKR',
+        type: 'Subscription',
+        status: 'Success',
+        paymentMethod: 'JazzCash',
+        userId: 'u-seek-1',
+        userEmail: 'seeker@pk.test'
+      }
+    ];
+
+    const feeLogs: JobPostingFeeLog[] = [
+      {
+        id: 'log-tx-job-linked',
+        dateTime: '2026-11-16 09:00',
+        userId: 'u-emp-1',
+        userName: 'Employer One',
+        userEmail: 'emp1@co.pk',
+        jobTitle: 'Cloud Architect',
+        amount: 2000,
+        currency: 'PKR',
+        paymentMethod: 'Wallet',
+        status: 'Paid'
+      },
+      {
+        id: 'log-standalone',
+        dateTime: '2026-11-16 12:00',
+        userId: 'u-emp-2',
+        userName: 'Employer Two',
+        userEmail: 'emp2@co.pk',
+        jobTitle: 'DevOps Lead',
+        amount: 1500,
+        currency: 'PKR',
+        paymentMethod: 'Easypaisa',
+        status: 'Paid'
+      }
+    ];
+
+    const subscribers: Subscriber[] = [
+      {
+        id: 'sub-linked',
+        name: 'Seeker Linked',
+        email: 'seeker@pk.test',
+        phone: '03001112223',
+        plan: 'Monthly',
+        paymentMethod: 'JazzCash',
+        paymentTransactionId: 'tx-sub-linked',
+        amountPaid: 1200,
+        currency: 'PKR',
+        status: 'Active',
+        subscribedAt: '2026-11-16',
+        whatsappEnabled: true
+      }
+    ];
+
+    const ads = [
+      {
+        id: 'ad-linked-1',
+        status: 'active',
+        paymentStatus: 'Paid',
+        campaignCostPkr: 6000,
+        walletTxId: 'tx-ad-linked',
+        createdAt: '2026-11-16T10:00:00.000Z'
+      }
+    ] as unknown as Advertisement[];
+
+    const metrics = computeAnalyticsMetrics({
+      paymentTransactions,
+      feeLogs,
+      subscribers,
+      ads
+    });
+
+    // Individual breakdown totals reflect their full stream:
+    assert.strictEqual(metrics.totalTransactionsRevenuePkr, 9200);
+    assert.strictEqual(metrics.totalFeeLogsPkr, 3500);
+    assert.strictEqual(metrics.totalSubscribersPkr, 1200);
+    assert.strictEqual(metrics.totalAdsPkr, 6000);
+    // Deduplicated gross = 9200 (all linked txs) + 1500 (unlinked standalone fee log) = 10700
+    assert.strictEqual(metrics.totalGrossRevenuePkr, 10700);
+  });
+
+  await runTest('AUDIT-11 [Ads Financial Accuracy]: Rejects synthetic totalCostPkr, excludes unpaid/refunded/exempt, and returns null/N/A when paid ad lacks verified cost or status', () => {
+    // 1. Synthetic totalCostPkr with missing paymentStatus is NOT trusted and yields null (N/A)
+    const syntheticOnly = computeAnalyticsMetrics({
+      ads: [{ id: 'ad-synth', status: 'active', totalCostPkr: 9999 } as unknown as Advertisement]
+    });
+    assert.strictEqual(syntheticOnly.totalAdsPkr, null);
+
+    // 2. Paid ad with missing cost fields and no matching tx yields null (N/A)
+    const missingCostPaidAd = computeAnalyticsMetrics({
+      ads: [{ id: 'ad-nocost', status: 'active', paymentStatus: 'Paid' } as unknown as Advertisement]
+    });
+    assert.strictEqual(missingCostPaidAd.totalAdsPkr, null);
+
+    // 3. Real Advertisement fields (Paid + Pending Wallet Deduction + Refunded + Exempt)
+    const mixedAds = computeAnalyticsMetrics({
+      ads: [
+        { id: 'ad-paid-cost', status: 'active', paymentStatus: 'Paid', campaignCostPkr: 6000 } as unknown as Advertisement,
+        { id: 'ad-paid-budget', status: 'active', paymentStatus: 'Paid', budget: 4000 } as unknown as Advertisement,
+        { id: 'ad-pending', status: 'pending_approval', paymentStatus: 'Pending Wallet Deduction', campaignCostPkr: 8000 } as unknown as Advertisement,
+        { id: 'ad-refunded', status: 'rejected', paymentStatus: 'Refunded', campaignCostPkr: 7000 } as unknown as Advertisement,
+        { id: 'ad-exempt', status: 'active', paymentStatus: 'Exempt', campaignCostPkr: 5000 } as unknown as Advertisement
+      ]
+    });
+    assert.strictEqual(mixedAds.paidAdsCount, 2);
+    assert.strictEqual(mixedAds.totalAdsPkr, 10000);
+    assert.strictEqual(mixedAds.totalGrossRevenuePkr, 10000);
+
+    // 4. Paid ad referencing authoritative transaction via walletTxId recovers verified amount
+    const linkedCostAd = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-wallet-ad',
+          dateTime: '2026-11-16 08:00',
+          amount: 11000,
+          currency: 'PKR',
+          type: 'Ad Campaign Fee',
+          status: 'Success',
+          paymentMethod: 'Wallet'
+        }
+      ],
+      ads: [
+        { id: 'ad-wallet-ref', status: 'active', paymentStatus: 'Paid', walletTxId: 'tx-wallet-ad' } as unknown as Advertisement
+      ]
+    });
+    assert.strictEqual(linkedCostAd.totalAdsPkr, 11000);
+    assert.strictEqual(linkedCostAd.totalGrossRevenuePkr, 11000);
+  });
+
+  await runTest('AUDIT-12 [Analytics Time Ranges]: Filters metrics accurately across Today, 7 Days, 30 Days, and All Time using deterministic referenceDate', () => {
+    const refNow = '2026-11-17T12:00:00.000Z';
+    const feeLogs: JobPostingFeeLog[] = [
+      { id: 'f-today', dateTime: '2026-11-17 09:00', userId: 'u1', userName: 'U1', userEmail: 'u1@t.pk', jobTitle: 'Today Job', amount: 1000, currency: 'PKR', paymentMethod: 'Wallet', status: 'Paid' },
+      { id: 'f-5d', dateTime: '2026-11-12 09:00', userId: 'u2', userName: 'U2', userEmail: 'u2@t.pk', jobTitle: '5d Job', amount: 2000, currency: 'PKR', paymentMethod: 'Wallet', status: 'Paid' },
+      { id: 'f-20d', dateTime: '2026-10-28 09:00', userId: 'u3', userName: 'U3', userEmail: 'u3@t.pk', jobTitle: '20d Job', amount: 3000, currency: 'PKR', paymentMethod: 'Wallet', status: 'Paid' },
+      { id: 'f-60d', dateTime: '2026-09-18 09:00', userId: 'u4', userName: 'U4', userEmail: 'u4@t.pk', jobTitle: '60d Job', amount: 4000, currency: 'PKR', paymentMethod: 'Wallet', status: 'Paid' }
+    ];
+
+    const todayMetrics = computeAnalyticsMetrics({ feeLogs, timeRange: 'today', referenceDate: refNow });
+    const sevenDayMetrics = computeAnalyticsMetrics({ feeLogs, timeRange: '7days', referenceDate: refNow });
+    const thirtyDayMetrics = computeAnalyticsMetrics({ feeLogs, timeRange: '30days', referenceDate: refNow });
+    const allTimeMetrics = computeAnalyticsMetrics({ feeLogs, timeRange: 'all', referenceDate: refNow });
+
+    assert.strictEqual(todayMetrics.totalFeeLogsPkr, 1000);
+    assert.strictEqual(sevenDayMetrics.totalFeeLogsPkr, 3000);
+    assert.strictEqual(thirtyDayMetrics.totalFeeLogsPkr, 6000);
+    assert.strictEqual(allTimeMetrics.totalFeeLogsPkr, 10000);
+    assert.strictEqual(parseAnalyticsTimestamp('2026-11-17 09:00') !== null, true);
+    assert.strictEqual(isTimestampInRange(null, '7days' as AnalyticsTimeRange, refNow), false);
+  });
+
+  await runTest('AUDIT-13 [Analytics Missing Dates]: Never assumes undated records match bounded windows and preserves All Time', () => {
+    const refNow = '2026-11-17T12:00:00.000Z';
+    const datelessAds = [
+      { id: 'ad-no-date', status: 'active', paymentStatus: 'Paid', campaignCostPkr: 5000 }
+    ] as unknown as Advertisement[];
+    const datelessFeeLogs = [
+      { id: 'f-no-date', userId: 'u1', userName: 'U1', userEmail: 'u1@t.pk', jobTitle: 'Undated', amount: 2500, currency: 'PKR', paymentMethod: 'Wallet', status: 'Paid' }
+    ] as unknown as JobPostingFeeLog[];
+
+    const ranges: AnalyticsTimeRange[] = ['today', '7days', '30days'];
+    for (const r of ranges) {
+      const bounded = computeAnalyticsMetrics({ ads: datelessAds, feeLogs: datelessFeeLogs, timeRange: r, referenceDate: refNow });
+      assert.strictEqual(bounded.totalAdsPkr, null, `Undated ads in ${r} must return null (N/A)`);
+      assert.strictEqual(bounded.totalFeeLogsPkr, null, `Undated fee logs in ${r} must return null (N/A)`);
+      assert.strictEqual(bounded.totalGrossRevenuePkr, null, `All-undated financials in ${r} must return null (N/A)`);
+      assert.ok(bounded.missingDateRecordsCount >= 2);
+    }
+
+    const allTime = computeAnalyticsMetrics({ ads: datelessAds, feeLogs: datelessFeeLogs, timeRange: 'all', referenceDate: refNow });
+    assert.strictEqual(allTime.totalAdsPkr, 5000);
+    assert.strictEqual(allTime.totalFeeLogsPkr, 2500);
+    assert.strictEqual(allTime.totalGrossRevenuePkr, 7500);
+  });
+
+  await runTest('AUDIT-14 [Analytics Currency Safety]: Removes 0.0036 fallback and INITIAL_CURRENCY_CONFIG default, formats configured rates cleanly, and renders N/A when unconfigured/invalid', () => {
+    const analyticsSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminAnalyticsOverview.tsx'),
+      'utf8'
+    );
+    assert.strictEqual(analyticsSource.includes('0.0036'), false, 'Hardcoded 0.0036 USD rate must be removed from runtime logic');
+    assert.strictEqual(analyticsSource.includes('INITIAL_CURRENCY_CONFIG'), false, 'Mock INITIAL_CURRENCY_CONFIG must not be imported/used as fallback');
+
+    // Unconfigured or zero/negative/NaN currency rates yield N/A cleanly (PKR still works)
+    assert.strictEqual(convertRecordAmountToPkr(100, 'USD', undefined), null);
+    assert.strictEqual(convertPkrAmount(10000, 'USD', undefined), null);
+    assert.strictEqual(formatAnalyticsCurrency(10000, 'USD', undefined), 'N/A');
+    assert.strictEqual(formatAnalyticsCurrency(10000, 'PKR', undefined), 'PKR 10,000');
+
+    const badConfig: CurrencyExchangeConfig = {
+      baseCurrency: 'PKR',
+      supportedCurrencies: ['PKR', 'USD', 'AED', 'SAR'],
+      internationalPricingTiers: INITIAL_CURRENCY_CONFIG.internationalPricingTiers,
+      autoSyncEnabled: false,
+      lastSyncedAt: '2026-11-17',
+      rates: { PKR: 1, USD: 0, AED: -1, SAR: Number.NaN, EUR: 0.003, GBP: 0.0025, CAD: 0, AUD: 0 }
+    };
+    assert.strictEqual(formatAnalyticsCurrency(10000, 'USD', badConfig), 'N/A');
+    assert.strictEqual(formatAnalyticsCurrency(10000, 'AED', badConfig), 'N/A');
+    assert.strictEqual(formatAnalyticsCurrency(10000, 'SAR', badConfig), 'N/A');
+
+    // Valid configured rate converts cleanly in both directions
+    const validConfig: CurrencyExchangeConfig = {
+      baseCurrency: 'PKR',
+      supportedCurrencies: ['PKR', 'USD', 'AED', 'SAR'],
+      internationalPricingTiers: INITIAL_CURRENCY_CONFIG.internationalPricingTiers,
+      autoSyncEnabled: true,
+      lastSyncedAt: '2026-11-17',
+      rates: { PKR: 1, USD: 0.004, AED: 0.015, SAR: 0.015, EUR: 0.0035, GBP: 0.003, CAD: 0.0055, AUD: 0.006 }
+    };
+    assert.strictEqual(convertRecordAmountToPkr(40, 'USD', validConfig), 10000);
+    assert.strictEqual(convertPkrAmount(10000, 'USD', validConfig), 40);
+    assert.strictEqual(formatAnalyticsCurrency(10000, 'USD', validConfig), 'USD 40');
+    assert.strictEqual(formatAnalyticsCurrency(10000, 'AED', validConfig), 'AED 150');
+  });
+
+  await runTest('AUDIT-15 [Analytics paymentTransactions Wiring]: AdminDashboard wires paymentTransactions={currentTransactions} to AdminAnalyticsOverview', () => {
+    const dashSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'),
+      'utf8'
+    );
+    const analyticsBlockStart = dashSource.indexOf('<AdminAnalyticsOverview');
+    assert.ok(analyticsBlockStart !== -1, 'Expected <AdminAnalyticsOverview in AdminDashboard.tsx');
+    const analyticsBlockEnd = dashSource.indexOf('/>', analyticsBlockStart);
+    const analyticsBlock = dashSource.slice(analyticsBlockStart, analyticsBlockEnd);
+    assert.ok(
+      analyticsBlock.includes('paymentTransactions={currentTransactions}'),
+      'AdminAnalyticsOverview must receive authoritative paymentTransactions={currentTransactions} prop'
+    );
+  });
+
+  await runTest('AUDIT-16 [Bulk Notification Corrupt-Draft Rendering Safety]: SSR with valid + malformed drafts renders safely without crash and ignores invalid items', () => {
+    const prevStorage = (globalThis as any).localStorage;
+    const mixedRaw = JSON.stringify([
+      {
+        id: 'valid-1',
+        timestamp: '2026-11-17 08:30',
+        title: 'Legit Verified Broadcast',
+        category: 'Career Alert',
+        priority: 'invalid-priority',
+        channel: 'Email',
+        targetAudience: 'All Registered Users & Subscribers',
+        messageBody: 'Valid notification body text.',
+        recipientsCount: 42,
+        status: 'Draft'
+      },
+      { id: 'bad-missing-fields' },
+      { id: 'bad-channel', timestamp: '2026-11-17', title: 'Bad', category: 'Alert', channel: 'CarrierPigeon', targetAudience: 'All', messageBody: 'Body', recipientsCount: 5, status: 'Draft' },
+      'raw-string-entry'
+    ]);
+
+    (globalThis as any).localStorage = {
+      getItem: () => mixedRaw,
+      setItem: () => {
+        throw new Error('Should not overwrite storage on mount');
+      }
+    };
+
+    try {
+      const html = renderToStaticMarkup(React.createElement(AdminBulkNotificationTool, { users: [], subscribers: [] }));
+      assert.ok(html.includes('Legit Verified Broadcast'));
+      assert.ok(html.includes('1 Local Drafts'));
+      assert.ok(html.includes('malformed local draft entry(ies)'));
+      assert.strictEqual(html.includes('bad-missing-fields'), false);
+      assert.strictEqual(html.includes('CarrierPigeon'), false);
+    } finally {
+      (globalThis as any).localStorage = prevStorage;
+    }
+  });
+
+  await runTest('AUDIT-17 [Bulk Notification Storage Recovery]: Corrupt JSON or malformed drafts do NOT overwrite existing localStorage data on mount', () => {
+    const corruptRaw = '{corrupted_json_payload!!!';
+    const inspection = inspectStoredNotificationDrafts(corruptRaw);
+    assert.deepStrictEqual(inspection.drafts, []);
+    assert.strictEqual(inspection.hasCorruptJson, true);
+    assert.ok(inspection.warningMessage && inspection.warningMessage.includes('preserved'));
+
+    // Real component mount against mock storage must NEVER invoke setItem
+    const prevStorage = (globalThis as any).localStorage;
+    let storedValue = corruptRaw;
+    let setItemCalls = 0;
+
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => (key === NOTIFICATION_DRAFTS_STORAGE_KEY ? storedValue : null),
+      setItem: (key: string, val: string) => {
+        setItemCalls++;
+        if (key === NOTIFICATION_DRAFTS_STORAGE_KEY) storedValue = val;
+      }
+    };
+
+    try {
+      const html = renderToStaticMarkup(React.createElement(AdminBulkNotificationTool, { users: [], subscribers: [] }));
+      assert.strictEqual(setItemCalls, 0, 'Mount must NEVER overwrite corrupt localStorage');
+      assert.strictEqual(storedValue, corruptRaw, 'Original corrupt localStorage payload must remain intact');
+      assert.ok(html.includes('preserved without overwriting'));
+    } finally {
+      (globalThis as any).localStorage = prevStorage;
+    }
+  });
+
+  await runTest('AUDIT-18 [Bulk Notification Write Failures]: Failing localStorage.setItem on save or delete blocks false confirmation and preserves existing drafts', () => {
+    const existingDraft: BulkNotificationBroadcast = {
+      id: 'draft-existing',
+      timestamp: '2026-11-17 09:00',
+      title: 'Existing Draft',
+      category: 'Career Alert',
+      priority: 'normal',
+      channel: 'In-App',
+      targetAudience: 'All Registered Users & Subscribers',
+      messageBody: 'Existing body',
+      recipientsCount: 10,
+      openRatePercent: 0,
+      clickRatePercent: 0,
+      status: 'Draft'
+    };
+    const newDraft: BulkNotificationBroadcast = {
+      ...existingDraft,
+      id: 'draft-new',
+      title: 'New Unwritable Draft'
+    };
+
+    const failingStorage = {
+      setItem: () => {
+        throw new Error('QuotaExceededError: Storage full');
+      }
+    };
+
+    const saveRes = saveNotificationDraftToStorage(failingStorage, [existingDraft], newDraft);
+    assert.strictEqual(saveRes.ok, false);
+    assert.ok(saveRes.error && saveRes.error.includes('QuotaExceededError'));
+    assert.strictEqual(saveRes.drafts.length, 1);
+    assert.strictEqual(saveRes.drafts[0].id, 'draft-existing');
+
+    const delRes = deleteNotificationDraftFromStorage(failingStorage, [existingDraft], 'draft-existing');
+    assert.strictEqual(delRes.ok, false);
+    assert.ok(delRes.error && delRes.error.includes('QuotaExceededError'));
+    assert.strictEqual(delRes.drafts.length, 1);
+    assert.strictEqual(delRes.drafts[0].id, 'draft-existing');
+  });
+
+  await runTest('AUDIT-19 [Job Update Refresh Separation]: Confirmed server update + failed/throwing job refresh keeps success:true and attaches refreshWarning', async () => {
+    const jobToEdit = {
+      id: 'job-refresh-test',
+      title: 'Staff Data Engineer',
+      company: 'Indus Cloud',
+      status: 'Approved'
+    } as unknown as Job;
+
+    // 1. Throwing reloadJobs()
+    const throwReloadOutcome = await executeAuthoritativeJobUpdate({
+      updatedJob: jobToEdit,
+      updateJobApi: async (_id, j) => ({ success: true, job: j }),
+      reloadJobs: async () => {
+        throw new Error('GET /api/jobs timed out after save');
+      }
+    });
+    assert.strictEqual(throwReloadOutcome.success, true);
+    assert.strictEqual(throwReloadOutcome.job?.id, 'job-refresh-test');
+    assert.ok(throwReloadOutcome.refreshWarning?.includes('timed out'));
+
+    // 2. Non-throwing failed reloadJobs() response
+    const failedReloadOutcome = await executeAuthoritativeJobUpdate({
+      updatedJob: jobToEdit,
+      updateJobApi: async (_id, j) => ({ success: true, job: j }),
+      reloadJobs: async () => ({ success: false, message: 'Pending queue refresh returned 503' })
+    });
+    assert.strictEqual(failedReloadOutcome.success, true);
+    assert.ok(failedReloadOutcome.refreshWarning?.includes('503'));
+
+    // 3. Server mutation failure still returns success:false
+    const failedSaveOutcome = await executeAuthoritativeJobUpdate({
+      updatedJob: jobToEdit,
+      updateJobApi: async () => ({ success: false, message: 'Validation failed on server' }),
+      reloadJobs: async () => ({ success: true })
+    });
+    assert.strictEqual(failedSaveOutcome.success, false);
+    assert.strictEqual(failedSaveOutcome.message, 'Validation failed on server');
+  });
+
+  await runTest('AUDIT-20 [Pending Job Enhancement Preservation]: applyRuleBasedEnhancement on a Pending job preserves id, status Pending, and factual empty salary', async () => {
+    const pendingJob = {
+      id: 'pending-job-77',
+      title: 'Senior DevOps Engineer',
+      company: 'Karachi Fintech',
+      region: 'Pakistan',
+      jobType: 'Remote',
+      experienceLevel: 'Senior',
+      salary: '',
+      description: 'Manage Kubernetes and CI/CD pipelines across multi-region clusters.',
+      tags: ['Kubernetes'],
+      requirements: ['5+ years AWS'],
+      status: 'Pending'
+    } as unknown as Job;
+
+    const report = evaluateRuleBasedJobQuality(pendingJob);
+    let sentJob: Job | null = null;
+    const outcome = await applyRuleBasedEnhancement({
+      activeJob: pendingJob,
+      activeReport: report,
+      onUpdateJob: async (updated) => {
+        sentJob = updated;
+        return { success: true, job: updated };
+      }
+    });
+
+    assert.strictEqual(outcome.ok, true);
+    assert.ok(sentJob);
+    assert.strictEqual((sentJob as any).id, 'pending-job-77');
+    assert.strictEqual((sentJob as any).status, 'Pending');
+    assert.strictEqual((sentJob as any).salary, '');
+    assert.strictEqual(outcome.updatedJob?.status, 'Pending');
+  });
+
+  await runTest('AUDIT-21 [Audit Warning Surface]: Preserves ok:true while surfacing auditPersisted === false and auditWarning (and refreshWarning)', async () => {
+    const job = {
+      id: 'job-audit-warn-1',
+      title: 'Principal Security Engineer',
+      company: 'Lahore Cyber',
+      region: 'Pakistan',
+      jobType: 'On-site',
+      experienceLevel: 'Senior',
+      salary: 'PKR 450,000',
+      description: 'Lead security architecture and compliance programs.',
+      tags: ['AppSec', 'IAM'],
+      requirements: ['CISSP preferred'],
+      status: 'Pending'
+    } as unknown as Job;
+
+    const report = evaluateRuleBasedJobQuality(job);
+
+    // 1. End-to-end through executeAuthoritativeJobUpdate -> applyRuleBasedEnhancement
+    const outcome = await applyRuleBasedEnhancement({
+      activeJob: job,
+      activeReport: report,
+      onUpdateJob: async (updated) =>
+        executeAuthoritativeJobUpdate({
+          updatedJob: updated,
+          updateJobApi: async (_id, j) => ({
+            success: true,
+            job: j,
+            auditPersisted: false,
+            auditWarning: 'Job saved, but audit log write failed on MongoDB.'
+          }),
+          reloadJobs: async () => ({ success: false, message: 'Refresh timed out cleanly.' })
+        })
+    });
+
+    assert.strictEqual(outcome.ok, true);
+    assert.strictEqual(outcome.auditPersisted, false);
+    assert.ok(outcome.auditWarning?.includes('audit log write failed'));
+    assert.ok(outcome.refreshWarning?.includes('Refresh timed out'));
+  });
+
+  await runTest('AUDIT-22 [Duration Preset Storage Failure]: Failing localStorage.setItem surfaces visible error, suppresses success state, preserves edits, and keeps server payment settings untouched', () => {
+    const failingStorage = {
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      }
+    };
+
+    const customConfig = {
+      ...DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG,
+      activeDurationOptions: [
+        ...DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG.activeDurationOptions,
+        {
+          id: 'custom-10d',
+          label: '10 Days Sprint',
+          days: 10,
+          enabled: true,
+          pricePkr: 7500,
+          isApprovedForDisplay: true,
+          badge: 'Custom'
+        }
+      ]
+    };
+
+    const writeRes = saveDurationPresetsToStorage(failingStorage, customConfig);
+    assert.strictEqual(writeRes.ok, false);
+    assert.ok(writeRes.error && writeRes.error.includes('QuotaExceededError'));
+    assert.ok(writeRes.error.includes('unsaved edits remain on screen'));
+
+    // Also verify AdminPaymentMethodsManager.tsx wires error handling cleanly without touching server paymentSettings update
+    const paySource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminPaymentMethodsManager.tsx'),
+      'utf8'
+    );
+    assert.ok(paySource.includes(CAMPAIGN_DURATION_PRESETS_KEY));
+    assert.ok(paySource.includes('durationSaveError'));
+    assert.ok(paySource.includes('role="alert"'));
+    assert.ok(paySource.includes('saveDurationPresetsToStorage'));
+    assert.ok(paySource.includes('api.paymentSettings.update(payload)'));
   });
 
   console.log('------------------------------------------------------------------');

@@ -109,7 +109,7 @@ import { AdminSeoSettings } from './admin/AdminSeoSettings';
 import { AdminCurrencyManager } from './admin/AdminCurrencyManager';
 import { AdminBroadcastCenter } from './admin/AdminBroadcastCenter';
 import { AdminDataBackupHub, BulkJobImportResult } from './admin/AdminDataBackupHub';
-import { AdminAiQualityEnhancer } from './admin/AdminAiQualityEnhancer';
+import { AdminAiQualityEnhancer, JobUpdateOutcome } from './admin/AdminAiQualityEnhancer';
 import { AdminEmployerKycHub } from './admin/AdminEmployerKycHub';
 import { LandingPageCustomizer } from './admin/LandingPageCustomizer';
 import { AdminCampaignCenter } from './admin/AdminCampaignCenter';
@@ -183,7 +183,7 @@ interface AdminDashboardProps {
   onChangeJobPostingFee: (newFee: number) => void;
   jobPostingFeeLogs: JobPostingFeeLog[];
   allApplications?: JobApplication[];
-  onReloadJobs?: () => Promise<void>;
+  onReloadJobs?: () => Promise<any>;
   onApproveJob: (jobId: string) => void;
   onRejectJob: (jobId: string, reason: string) => void;
   onAddJob: (newJob: Job) => void;
@@ -192,7 +192,7 @@ interface AdminDashboardProps {
   onBulkAddPendingJobs?: (jobs: Job[]) => void;
   onImportBulkJobs?: (jobs: Job[]) => Promise<BulkJobImportResult>;
   onDeleteJob: (jobId: string) => void;
-  onUpdateJob?: (job: Job) => Promise<{ success: boolean; job?: Job; message?: string } | boolean | void> | boolean | void;
+  onUpdateJob?: (job: Job) => Promise<JobUpdateOutcome> | JobUpdateOutcome;
   onBulkDeleteJobs?: (jobIds: string[]) => void;
   onBulkUpdateJobs?: (jobs: Job[]) => void;
   onBulkApprovePendingJobs?: (jobIds: string[]) => void;
@@ -3709,6 +3709,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           users={users}
           subscribers={subscribers}
           feeLogs={jobPostingFeeLogs}
+          paymentTransactions={currentTransactions}
           ads={ads}
           auditLogs={scrapedAuditLogs}
           batchRuns={scraperBatchRuns}
@@ -7759,8 +7760,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setIsBulkJobEditOpen(false);
           setEditingJob(null);
         }}
-        onSaveJob={(updatedJob) => {
-          if (onUpdateJob) onUpdateJob(updatedJob);
+        onSaveJob={async (updatedJob) => {
+          if (onUpdateJob) {
+            const res = await onUpdateJob(updatedJob);
+            if (res === false || (res && typeof res === 'object' && (res as any).success === false)) {
+              throw new Error(
+                (res && typeof res === 'object' && (res as any).message) ||
+                  'Job update was not confirmed by the server.'
+              );
+            }
+          }
           setIsJobQuickEditOpen(false);
           setEditingJob(null);
         }}

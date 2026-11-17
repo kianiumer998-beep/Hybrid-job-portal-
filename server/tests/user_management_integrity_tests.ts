@@ -876,12 +876,12 @@ async function runUserManagementIntegrityTests() {
       assert.ok(htmlZero.includes('Total Renewals</span><span class="font-bold text-indigo-400">0</span>'), 'renewalCount 0 must display 0 cleanly');
     });
 
-    await runTest('17. STEP-D.5.1-R1 Strict date validation rejects impossible calendar dates (2026-02-31 09:00), invalid month/day/time values, missing expiry, and accepts valid existing formats', async () => {
+    await runTest('17. STEP-D.5.1-R2 Strict date and timezone validation rejects invalid timezone offsets (+99:99, +25:00, +05:99, -24:00), impossible calendar dates (2026-02-31), invalid month/day/time values, missing expiry, and accepts valid existing formats and timezone offsets', async () => {
       assert.strictEqual(computeExtendedExpiry30Days(undefined).ok, false);
       assert.strictEqual(computeExtendedExpiry30Days('').ok, false);
       assert.strictEqual(computeExtendedExpiry30Days('Not recorded').ok, false);
 
-      const invalidDates = [
+      const invalidDatesAndOffsets = [
         '2026-02-31 09:00',
         '2026-13-01 09:00',
         '2026-04-31 09:00',
@@ -890,26 +890,34 @@ async function runUserManagementIntegrityTests() {
         '2026-03-14 25:00',
         '2026-03-14 12:60',
         '2026-03-14 -1:30',
+        '2026-03-14T11:30:00+99:99',
+        '2026-03-14T11:30:00+25:00',
+        '2026-03-14T11:30:00+05:99',
+        '2026-03-14T11:30:00-24:00',
         'not-a-date',
         '   '
       ];
 
-      for (const bad of invalidDates) {
-        assert.strictEqual(formatAuditUserActivationDate(bad), 'Not recorded', `Activation date "${bad}" must be rejected as Not recorded`);
-        assert.strictEqual(formatAuditUserExpiryDate(bad), 'Not recorded', `Expiry date "${bad}" must be rejected as Not recorded`);
+      for (const bad of invalidDatesAndOffsets) {
+        assert.strictEqual(formatAuditUserActivationDate(bad), 'Not recorded', `Activation date/offset "${bad}" must be rejected as Not recorded`);
+        assert.strictEqual(formatAuditUserExpiryDate(bad), 'Not recorded', `Expiry date/offset "${bad}" must be rejected as Not recorded`);
         assert.strictEqual(computeExtendedExpiry30Days(bad).ok, false, `computeExtendedExpiry30Days must fail for "${bad}"`);
       }
 
-      const validDates = [
+      const validDatesAndOffsets = [
         '2026-03-14 11:30',
         '2026-12-31 23:59:59',
         '2026-01-15T00:00:00.000Z',
-        '2026-06-30 09:00'
+        '2026-06-30 09:00',
+        '2026-03-14T11:30:00+05:00',
+        '2026-03-14T11:30:00-0400',
+        '2026-03-14T11:30:00Z',
+        '2026-03-14T11:30:00+0530'
       ];
 
-      for (const okDate of validDates) {
-        assert.strictEqual(formatAuditUserActivationDate(okDate), okDate, `Valid activation date "${okDate}" must be preserved`);
-        assert.strictEqual(formatAuditUserExpiryDate(okDate), okDate, `Valid expiry date "${okDate}" must be preserved`);
+      for (const okDate of validDatesAndOffsets) {
+        assert.strictEqual(formatAuditUserActivationDate(okDate), okDate, `Valid activation date/offset "${okDate}" must be preserved`);
+        assert.strictEqual(formatAuditUserExpiryDate(okDate), okDate, `Valid expiry date/offset "${okDate}" must be preserved`);
       }
 
       const validExt = computeExtendedExpiry30Days('2026-10-01 09:00');

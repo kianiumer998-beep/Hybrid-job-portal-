@@ -471,42 +471,51 @@ export function isValidAuditDateTime(dateStr?: string | null): boolean {
   const trimmed = dateStr.trim();
   if (!trimmed) return false;
 
-  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/i.exec(trimmed);
-  if (match) {
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    if (year < 1000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) {
-      return false;
-    }
-    const daysInMo = new Date(year, month, 0).getDate();
-    if (day > daysInMo) {
-      return false;
-    }
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?(?:\.\d+)?(Z|[+-](?:\d{2}):?(?:\d{2})?)?$/i.exec(trimmed);
+  if (!match) return false;
 
-    if (match[4] !== undefined && match[5] !== undefined) {
-      const hour = Number(match[4]);
-      const minute = Number(match[5]);
-      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-        return false;
-      }
-      if (match[6] !== undefined) {
-        const second = Number(match[6]);
-        if (second < 0 || second > 59) {
-          return false;
-        }
-      }
-    }
-    return true;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (year < 1000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
   }
 
-  const normalized = trimmed.includes(' ') && !trimmed.includes('T')
-    ? trimmed.replace(' ', 'T')
-    : trimmed;
-  const parsed = Date.parse(normalized);
-  if (Number.isNaN(parsed)) return false;
-  const d = new Date(parsed);
-  return !Number.isNaN(d.getTime());
+  const daysInMo = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day > daysInMo) {
+    return false;
+  }
+
+  if (match[4] !== undefined && match[5] !== undefined) {
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return false;
+    }
+    if (match[6] !== undefined) {
+      const second = Number(match[6]);
+      if (second < 0 || second > 59) {
+        return false;
+      }
+    }
+  }
+
+  const tz = match[7];
+  if (tz) {
+    const upperTz = tz.toUpperCase();
+    if (upperTz !== 'Z') {
+      const tzMatch = /^([+-])(\d{2}):?(\d{2})?$/.exec(tz);
+      if (!tzMatch) return false;
+      const tzHour = Number(tzMatch[2]);
+      const tzMin = tzMatch[3] !== undefined ? Number(tzMatch[3]) : 0;
+      if (tzHour > 14 || tzMin > 59 || tzHour > 23) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 export function formatAuditUserActivationDate(activationDate?: string | null): string {

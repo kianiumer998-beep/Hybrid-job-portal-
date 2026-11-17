@@ -876,7 +876,7 @@ async function runUserManagementIntegrityTests() {
       assert.ok(htmlZero.includes('Total Renewals</span><span class="font-bold text-indigo-400">0</span>'), 'renewalCount 0 must display 0 cleanly');
     });
 
-    await runTest('17. STEP-D.5.1-R2 Strict date and timezone validation rejects invalid timezone offsets (+99:99, +25:00, +05:99, -24:00), impossible calendar dates (2026-02-31), invalid month/day/time values, missing expiry, and accepts valid existing formats and timezone offsets', async () => {
+    await runTest('17. STEP-D.5.1-R3 Final UTC offset boundary validation rejects hour 14 non-zero minutes (+14:01, -14:30), timezone without time (2026-03-14+05:00), accepts hour 14 zero minutes (+14:00, -14:00), date-only values (2026-03-14), and valid offsets (+05, -04, Z)', async () => {
       assert.strictEqual(computeExtendedExpiry30Days(undefined).ok, false);
       assert.strictEqual(computeExtendedExpiry30Days('').ok, false);
       assert.strictEqual(computeExtendedExpiry30Days('Not recorded').ok, false);
@@ -894,6 +894,12 @@ async function runUserManagementIntegrityTests() {
         '2026-03-14T11:30:00+25:00',
         '2026-03-14T11:30:00+05:99',
         '2026-03-14T11:30:00-24:00',
+        '2026-03-14T11:30:00+14:01',
+        '2026-03-14T11:30:00+14:30',
+        '2026-03-14T11:30:00-14:01',
+        '2026-03-14T11:30:00-14:59',
+        '2026-03-14+05:00',
+        '2026-03-14-0400',
         'not-a-date',
         '   '
       ];
@@ -905,6 +911,7 @@ async function runUserManagementIntegrityTests() {
       }
 
       const validDatesAndOffsets = [
+        '2026-03-14',
         '2026-03-14 11:30',
         '2026-12-31 23:59:59',
         '2026-01-15T00:00:00.000Z',
@@ -912,7 +919,11 @@ async function runUserManagementIntegrityTests() {
         '2026-03-14T11:30:00+05:00',
         '2026-03-14T11:30:00-0400',
         '2026-03-14T11:30:00Z',
-        '2026-03-14T11:30:00+0530'
+        '2026-03-14T11:30:00+0530',
+        '2026-03-14T11:30:00+14:00',
+        '2026-03-14T11:30:00-14:00',
+        '2026-03-14T11:30:00+05',
+        '2026-03-14T11:30:00-04'
       ];
 
       for (const okDate of validDatesAndOffsets) {

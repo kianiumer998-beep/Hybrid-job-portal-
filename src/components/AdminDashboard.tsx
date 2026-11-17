@@ -487,7 +487,8 @@ export function isValidAuditDateTime(dateStr?: string | null): boolean {
     return false;
   }
 
-  if (match[4] !== undefined && match[5] !== undefined) {
+  const hasTime = match[4] !== undefined && match[5] !== undefined;
+  if (hasTime) {
     const hour = Number(match[4]);
     const minute = Number(match[5]);
     if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
@@ -503,6 +504,10 @@ export function isValidAuditDateTime(dateStr?: string | null): boolean {
 
   const tz = match[7];
   if (tz) {
+    if (!hasTime) {
+      return false;
+    }
+
     const upperTz = tz.toUpperCase();
     if (upperTz !== 'Z') {
       const tzMatch = /^([+-])(\d{2}):?(\d{2})?$/.exec(tz);
@@ -510,6 +515,9 @@ export function isValidAuditDateTime(dateStr?: string | null): boolean {
       const tzHour = Number(tzMatch[2]);
       const tzMin = tzMatch[3] !== undefined ? Number(tzMatch[3]) : 0;
       if (tzHour > 14 || tzMin > 59 || tzHour > 23) {
+        return false;
+      }
+      if (tzHour === 14 && tzMin > 0) {
         return false;
       }
     }

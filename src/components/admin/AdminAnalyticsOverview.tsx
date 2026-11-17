@@ -349,6 +349,20 @@ function isRevenueTransaction(tx: any): boolean {
   );
 }
 
+function isEligiblePaidSubscriber(sub: any): boolean {
+  if (!sub || typeof sub !== 'object') return false;
+  const status = String(sub.status || '').trim();
+  if (status !== 'Active' && status !== 'Expiring Soon') return false;
+
+  const paymentMethod = String(sub.paymentMethod || '').trim().toLowerCase();
+  if (paymentMethod === 'free trial') return false;
+
+  const amount = Number(sub.amountPaid);
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+
+  return true;
+}
+
 function getAdvertisementVerifiedCostPkr(
   ad: any,
   txAmountByRef: Map<string, number>
@@ -702,7 +716,7 @@ export function computeAnalyticsMetrics(params: {
   // 3. Active Subscribers (strict ID/ref deduplication + ambiguous legacy detection)
   let subscribersHasUndatedEligible = false;
   for (const sub of rawSubscribers) {
-    if (!sub || typeof sub !== 'object' || (sub.status !== 'Active' && sub.status !== 'Expiring Soon')) {
+    if (!isEligiblePaidSubscriber(sub)) {
       continue;
     }
     const ts = getRecordTimestampMs(sub, ['subscribedAt', 'createdAt']);
@@ -724,7 +738,7 @@ export function computeAnalyticsMetrics(params: {
   }> = [];
 
   for (const sub of filteredSubscribers.items) {
-    if (!sub || (sub.status !== 'Active' && sub.status !== 'Expiring Soon')) continue;
+    if (!isEligiblePaidSubscriber(sub)) continue;
 
     const pkrVal = convertRecordAmountToPkr(sub.amountPaid, sub.currency, currencyConfig);
     if (pkrVal === null) {

@@ -2864,6 +2864,142 @@ async function runSuite() {
     assert.strictEqual(undatedAllTime.totalGrossRevenuePkr, 6000);
   });
 
+  await runTest('AUDIT-34 [Subscriber Paid Financial Eligibility & Free Trial Filtering]: Free Trial and zero-value subscribers are excluded from paid count, revenue, missing-date uncertainty, and ambiguous deduplication, while valid Active and Expiring Soon positive-value subscribers are counted correctly', () => {
+    const refNow = '2026-11-17T12:00:00.000Z';
+
+    const subscribers: Subscriber[] = [
+      // A. Active Free Trial with zero amount (Not counted as paid, no revenue)
+      {
+        id: 'sub-ft-zero',
+        name: 'Free Trial Zero',
+        email: 'ft0@t.pk',
+        phone: '03001111111',
+        plan: 'Basic',
+        paymentMethod: 'Free Trial',
+        amountPaid: 0,
+        currency: 'PKR',
+        status: 'Active',
+        subscribedAt: '2026-11-17 10:00',
+        whatsappEnabled: false
+      },
+      // B. Active Free Trial with a positive amount (Inconsistent legacy record, must not be treated as paid revenue)
+      {
+        id: 'sub-ft-positive',
+        name: 'Free Trial Positive',
+        email: 'ftp@t.pk',
+        phone: '03002222222',
+        plan: 'Pro',
+        paymentMethod: 'Free Trial',
+        amountPaid: 1500,
+        currency: 'PKR',
+        status: 'Active',
+        subscribedAt: '2026-11-17 10:00',
+        whatsappEnabled: true
+      },
+      // C. Active zero-value non-trial subscriber (Not counted as paid)
+      {
+        id: 'sub-zero-paid',
+        name: 'Zero Paid',
+        email: 'zp@t.pk',
+        phone: '03003333333',
+        plan: 'Basic',
+        paymentMethod: 'JazzCash',
+        amountPaid: 0,
+        currency: 'PKR',
+        status: 'Active',
+        subscribedAt: '2026-11-17 10:00',
+        whatsappEnabled: false
+      },
+      // D. Active positive-value paid subscriber (Counted correctly)
+      {
+        id: 'sub-active-paid',
+        name: 'Active Paid',
+        email: 'ap@t.pk',
+        phone: '03004444444',
+        plan: 'Pro Alerts',
+        paymentMethod: 'Easypaisa',
+        amountPaid: 1200,
+        currency: 'PKR',
+        status: 'Active',
+        subscribedAt: '2026-11-17 10:00',
+        whatsappEnabled: true
+      },
+      // E. Expiring Soon positive-value paid subscriber (Counted correctly)
+      {
+        id: 'sub-exp-paid',
+        name: 'Expiring Paid',
+        email: 'exp@t.pk',
+        phone: '03005555555',
+        plan: 'VIP',
+        paymentMethod: 'Bank Transfer',
+        amountPaid: 2500,
+        currency: 'PKR',
+        status: 'Expiring Soon',
+        subscribedAt: '2026-11-17 10:00',
+        whatsappEnabled: true
+      },
+      // F. Undated Free Trial (Must not make bounded-range financial totals N/A)
+      {
+        id: 'sub-ft-undated',
+        name: 'Undated FT',
+        email: 'uft@t.pk',
+        phone: '03006666666',
+        plan: 'Basic',
+        paymentMethod: 'Free Trial',
+        amountPaid: 0,
+        currency: 'PKR',
+        status: 'Active',
+        subscribedAt: '',
+        whatsappEnabled: false
+      }
+    ];
+
+    const metricsToday = computeAnalyticsMetrics({
+      subscribers,
+      timeRange: 'today',
+      referenceDate: refNow
+    });
+
+    assert.strictEqual(metricsToday.paidSubscribersCount, 2, 'Only Active Paid and Expiring Paid count as paid subscribers');
+    assert.strictEqual(metricsToday.totalSubscribersPkr, 3700, 'Total subscriber revenue is 1200 + 2500 = 3700');
+    assert.strictEqual(metricsToday.totalGrossRevenuePkr, 3700, 'Free trial and zero-value records do not corrupt gross revenue');
+    assert.strictEqual(metricsToday.missingEligibleFinancialDateCount, 0, 'Undated Free Trial does not create false financial date missing uncertainty');
+
+    // G. Existing linked paid subscriber retains correct transaction deduplication and gross revenue
+    const linkedMetrics = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-sub-linked-1',
+          dateTime: '2026-11-17 09:00',
+          amount: 1200,
+          currency: 'PKR',
+          type: 'Subscription',
+          status: 'Success',
+          paymentMethod: 'Easypaisa'
+        }
+      ],
+      subscribers: [
+        {
+          id: 'sub-linked-1',
+          name: 'Linked Sub',
+          email: 'linked@t.pk',
+          phone: '03007777777',
+          plan: 'Pro',
+          paymentMethod: 'Easypaisa',
+          paymentTransactionId: 'tx-sub-linked-1',
+          amountPaid: 1200,
+          currency: 'PKR',
+          status: 'Active',
+          subscribedAt: '2026-11-17 09:00',
+          whatsappEnabled: true
+        }
+      ]
+    });
+    assert.strictEqual(linkedMetrics.totalTransactionsRevenuePkr, 1200);
+    assert.strictEqual(linkedMetrics.totalSubscribersPkr, 1200);
+    assert.strictEqual(linkedMetrics.totalGrossRevenuePkr, 1200, 'Linked paid subscriber is deduplicated cleanly against authoritative transaction');
+  });
+
   console.log('------------------------------------------------------------------');
   console.log(`Summary: Passed=${counts.passed}, Failed=${counts.failed}, Skipped=${counts.skipped}`);
   console.log('==================================================================');

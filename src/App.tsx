@@ -3264,13 +3264,28 @@ export default function App() {
     }
   };
 
-  const handleUpdateJob = async (updatedJob: Job) => {
+  const handleUpdateJob = async (updatedJob: Job): Promise<{ success: boolean; job?: Job; message?: string }> => {
     try {
-      await api.jobs.update(updatedJob.id, updatedJob);
+      const res = await api.jobs.update(updatedJob.id, updatedJob);
       await loadBackendJobs();
-    } catch (err) {
+      if (res && res.success) {
+        return {
+          success: true,
+          job: res.job || updatedJob,
+          ...(res.auditWarning ? { message: res.auditWarning } : {})
+        };
+      }
+      return {
+        success: false,
+        message: res?.message || 'Job update was not confirmed by the server.'
+      };
+    } catch (err: any) {
       console.error('Error updating job on backend:', err);
-      await loadBackendJobs();
+      await loadBackendJobs().catch(() => {});
+      return {
+        success: false,
+        message: err?.message || 'Error updating job on backend.'
+      };
     }
   };
 

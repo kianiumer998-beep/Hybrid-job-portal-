@@ -133,6 +133,7 @@ import {
   AllModulesMenuItem,
   AllModulesMenuGroup,
   buildAllModulesMenuGroups,
+  buildProfessionalAllModulesMenuGroups,
   getClassicCategorySubTabs,
   getAdminModuleDefinition,
   matchesAdminModuleSearch,
@@ -145,7 +146,7 @@ import {
 } from './admin/AdminDashboardNavigation';
 
 export type { AdminCategory, AdminNavMode, AllModulesMenuItem, AllModulesMenuGroup };
-export { ADMIN_TAB_CATEGORIES, buildAllModulesMenuGroups };
+export { ADMIN_TAB_CATEGORIES, buildAllModulesMenuGroups, buildProfessionalAllModulesMenuGroups };
 import { getProvinceForCity } from '../utils/locationCatalog';
 import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
@@ -191,7 +192,7 @@ interface AdminDashboardProps {
   onBulkAddPendingJobs?: (jobs: Job[]) => void;
   onImportBulkJobs?: (jobs: Job[]) => Promise<BulkJobImportResult>;
   onDeleteJob: (jobId: string) => void;
-  onUpdateJob?: (job: Job) => void;
+  onUpdateJob?: (job: Job) => Promise<{ success: boolean; job?: Job; message?: string } | boolean | void> | boolean | void;
   onBulkDeleteJobs?: (jobIds: string[]) => void;
   onBulkUpdateJobs?: (jobs: Job[]) => void;
   onBulkApprovePendingJobs?: (jobIds: string[]) => void;
@@ -3479,7 +3480,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   {/* Modules Grid */}
                   <div className="flex-1 overflow-y-auto pr-1 space-y-5">
-                    {buildAllModulesMenuGroups(navCounts).map((cat, idx) => {
+                    {(navMode === 'professional'
+                      ? buildProfessionalAllModulesMenuGroups(navCounts)
+                      : buildAllModulesMenuGroups(navCounts)
+                    ).map((cat, idx) => {
                       const filteredItems = cat.items.filter((it) => {
                         if (!canAccessAdminTab(it.id)) return false;
                         const modDef = ADMIN_NAVIGATION_MODULES.find((m) => m.id === it.id);
@@ -3607,7 +3611,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
 
       {/* TAB: WHATSAPP SUPPORT & ALERTS MANAGER */}
-      {adminTab === 'whatsapp-manager' && (
+      {adminTab === 'whatsapp-manager' && canAccessAdminTab('whatsapp-manager') && (
         <AdminWhatsAppManager
           config={currentWhatsAppConfig}
           onUpdateConfig={handleUpdateWhatsApp}
@@ -3616,7 +3620,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: PAYMENT PROOFS & DEPOSIT VERIFICATION HUB */}
-      {adminTab === 'payment-proofs' && (
+      {adminTab === 'payment-proofs' && canAccessAdminTab('payment-proofs') && (
         <AdminPaymentVerificationHub
           transactions={currentTransactions}
           onApproveTransaction={handleApproveTx}
@@ -3627,12 +3631,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: ADMIN PAYMENT METHODS & DURATION PRESETS MANAGER */}
-      {adminTab === 'admin-payment-methods' && (
+      {adminTab === 'admin-payment-methods' && canAccessAdminTab('admin-payment-methods') && (
         <AdminPaymentMethodsManager />
       )}
 
       {/* TAB: LIVE LANDING PAGE VISUAL BUILDER & SEQUENCE EDITOR */}
-      {adminTab === 'landing-customizer' && landingConfig && onUpdateLandingConfig && (
+      {adminTab === 'landing-customizer' && canAccessAdminTab('landing-customizer') && landingConfig && onUpdateLandingConfig && (
         <LandingPageCustomizer
           config={landingConfig}
           onUpdateConfig={onUpdateLandingConfig}
@@ -3642,7 +3646,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: VISUAL CAMPAIGN COMMAND CENTER & GRANULAR DATES */}
-      {adminTab === 'campaign-center' && (
+      {adminTab === 'campaign-center' && canAccessAdminTab('campaign-center') && (
         <AdminCampaignCenter
           ads={ads || []}
           campaignConfig={
@@ -3660,22 +3664,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: UNIVERSAL PRICING CONTROLLER */}
-      {adminTab === 'pricing-controller' && (
+      {adminTab === 'pricing-controller' && canAccessAdminTab('pricing-controller') && (
         <AdminPricingController onPricingSaved={onSyncAuthoritativePricing} />
       )}
 
       {/* TAB: APPLICATION FLOW & BUTTON CUSTOMIZER */}
-      {adminTab === 'apply-settings' && (
+      {adminTab === 'apply-settings' && canAccessAdminTab('apply-settings') && (
         <AdminApplySettingsManager />
       )}
 
       {/* TAB: MODAL & POPUP CONTENT MANAGER */}
-      {adminTab === 'modal-content-manager' && (
+      {adminTab === 'modal-content-manager' && canAccessAdminTab('modal-content-manager') && (
         <AdminModalContentManager />
       )}
 
       {/* TAB: PER-CATEGORY POSTING FEES & 1-CLICK WAIVERS */}
-      {adminTab === 'fee-management' && (
+      {adminTab === 'fee-management' && canAccessAdminTab('fee-management') && (
         <AdminFeeManager
           landingConfig={landingConfig}
           onUpdateLandingConfig={onUpdateLandingConfig}
@@ -3698,7 +3702,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: EXECUTIVE ANALYTICS & REVENUE COMMAND CENTER (supports stats alias) */}
-      {(adminTab === 'analytics' || adminTab === 'stats') && (
+      {(adminTab === 'analytics' || adminTab === 'stats') && canAccessAdminTab('analytics') && (
         <AdminAnalyticsOverview
           jobs={jobs}
           pendingJobs={pendingJobs}
@@ -3714,7 +3718,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: GLOBAL SEO, METADATA & ANNOUNCEMENT ENGINE */}
-      {adminTab === 'seo-config' && (
+      {adminTab === 'seo-config' && canAccessAdminTab('seo-config') && (
         <AdminSeoSettings
           seoConfig={effectiveSeoConfig}
           onUpdateSeoConfig={handleUpdateSeoConfig}
@@ -3724,7 +3728,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onReload={onReloadSeoConfig}
         />
       )}
-      {adminTab === 'job-visibility' && (
+      {adminTab === 'job-visibility' && canAccessAdminTab('job-visibility') && (
         <JobVisibilityDefaultsManager />
       )}
       {adminTab === 'locations-manager' && canAccessAdminTab('locations-manager') && (
@@ -3732,7 +3736,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: MULTI-CURRENCY & INTERNATIONAL PRICING TIERS */}
-      {adminTab === 'currency-forex' && (
+      {adminTab === 'currency-forex' && canAccessAdminTab('currency-forex') && (
         <AdminCurrencyManager
           currencyConfig={currencyConfig}
           onUpdateCurrencyConfig={handleUpdateCurrencyConfig}
@@ -3743,7 +3747,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: MULTI-CHANNEL BROADCAST CENTER */}
-      {adminTab === 'broadcast-center' && (
+      {adminTab === 'broadcast-center' && canAccessAdminTab('broadcast-center') && (
         <AdminBroadcastCenter
           campaigns={broadcastCampaigns}
           users={users}
@@ -3760,7 +3764,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: ADVANCED BULK NOTIFICATION SUITE */}
-      {adminTab === 'bulk-notifications' && (
+      {adminTab === 'bulk-notifications' && canAccessAdminTab('bulk-notifications') && (
         <AdminBulkNotificationTool
           users={users}
           subscribers={subscribers}
@@ -3769,7 +3773,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB: AUDIT & ADMIN ACTIVITY LOGS */}
-      {adminTab === 'activity-logs' && (
+      {adminTab === 'activity-logs' && canAccessAdminTab('activity-logs') && (
         <AdminActivityLogs
           jobs={jobs}
           users={users}
@@ -3802,24 +3806,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       )}
 
-      {/* TAB: AI QUALITY SCORER, AUDIT & SPAM FILTER */}
-      {adminTab === 'ai-enhancer' && (
+      {/* TAB: RULE-BASED JOB QUALITY ANALYZER */}
+      {adminTab === 'ai-enhancer' && canAccessAdminTab('ai-enhancer') && (
         <AdminAiQualityEnhancer
           jobs={jobs}
           pendingJobs={pendingJobs}
-          onUpdateJob={(updatedJob) => {
-            onAddJob(updatedJob);
-          }}
+          onUpdateJob={onUpdateJob}
         />
       )}
 
       {/* TAB: EMPLOYER KYC & SECP IDENTITY VERIFICATION */}
-      {adminTab === 'employer-kyc' && (
+      {adminTab === 'employer-kyc' && canAccessAdminTab('employer-kyc') && (
         <AdminEmployerKycHub />
       )}
 
       {/* TAB: ADVERTISEMENT & CAMPAIGN ENGINE */}
-      {adminTab === 'advertisements' && (
+      {adminTab === 'advertisements' && canAccessAdminTab('advertisements') && (
         <AdminAdHub
           ads={ads}
           onAddAd={onAddAd || (() => {})}
@@ -3836,7 +3838,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 1: PENDING JOBS APPROVAL QUEUE */}
-      {adminTab === 'pending' && (() => {
+      {adminTab === 'pending' && canAccessAdminTab('pending') && (() => {
         // Pending jobs duplicate detection
         const pendingClusters = computeJobDuplicateClusters([...jobs, ...pendingJobs]);
         const liveTitleSet = new Set(jobs.map(j => `${(j.title || '').trim().toLowerCase()}|${(j.company || '').trim().toLowerCase()}`));
@@ -4406,7 +4408,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       })()}
 
       {/* TAB 2: USER DIRECTORY AUDIT & MANUAL SUBSCRIPTION CONTROL */}
-      {adminTab === 'user-audit' && (() => {
+      {adminTab === 'user-audit' && canAccessAdminTab('user-audit') && (() => {
         const userClusters = computeUserDuplicateClusters(users);
 
         const getUserMembershipFlags = (u: UserAccount) => {
@@ -4870,7 +4872,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       })()}
 
       {/* TAB 3: PER-JOB FEE PAYMENT LOG SHEET */}
-      {adminTab === 'fee-logs' && (() => {
+      {adminTab === 'fee-logs' && canAccessAdminTab('fee-logs') && (() => {
         const feeLogClusters = computeFeeLogDuplicateClusters(jobPostingFeeLogs);
 
         const filteredFeeLogs = jobPostingFeeLogs.filter(log => {
@@ -5159,7 +5161,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       })()}
 
       {/* CONSOLIDATED SCRAPER CENTER */}
-      {(adminTab === 'scraper' || adminTab === 'url-scraper' || adminTab === 'scraped-history') && (
+      {(adminTab === 'scraper' || adminTab === 'url-scraper' || adminTab === 'scraped-history') && canAccessAdminTab(adminTab) && (
         <AutomatedScraperHub
           scraperSources={scraperSources}
           setScraperSources={setScraperSources}
@@ -5194,7 +5196,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 5: USER CHAT HUB */}
-      {adminTab === 'chat-hub' && (
+      {adminTab === 'chat-hub' && canAccessAdminTab('chat-hub') && (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white shadow-2xl">
           <div className="md:col-span-4 border-r border-slate-800 pr-4 space-y-3">
             <h4 className="text-xs font-bold uppercase text-slate-400">Active User Threads</h4>
@@ -5278,7 +5280,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 6: FORM CUSTOMIZER */}
-      {adminTab === 'form-customizer' && (
+      {adminTab === 'form-customizer' && canAccessAdminTab('form-customizer') && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-white">
           <form onSubmit={handleCreateCustomField} className="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
             <h3 className="text-base font-bold border-b border-slate-800 pb-2">
@@ -5391,7 +5393,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 7: POST MANUAL JOB */}
-      {adminTab === 'add-job' && (
+      {adminTab === 'add-job' && canAccessAdminTab('add-job') && (
         <form onSubmit={handleCreateJob} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6 text-white max-w-4xl shadow-2xl">
           <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
             <div>
@@ -5906,7 +5908,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 8: LIVE LISTINGS */}
-      {adminTab === 'jobs' && (() => {
+      {adminTab === 'jobs' && canAccessAdminTab('jobs') && (() => {
         const liveJobClusters = computeJobDuplicateClusters([...jobs, ...pendingJobs]);
 
         const filteredLiveJobs = jobs.filter(job => {
@@ -6324,7 +6326,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       })()}
 
       {/* TAB 9: SUBSCRIBERS */}
-      {adminTab === 'subscribers' && (() => {
+      {adminTab === 'subscribers' && canAccessAdminTab('subscribers') && (() => {
         const subClusters = computeSubscriberDuplicateClusters(subscribers);
 
         const filteredSubscribers = subscribers.filter(sub => {
@@ -6704,6 +6706,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB 10: SETTINGS (MONTHLY SUBSCRIPTION & PER-JOB POSTING FEE) */}
       {adminTab === 'settings' && (
+        canAccessAdminTab('settings') && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-white">
           
           {/* LEGACY MONTHLY FEE INPUT REMOVED - NOW MANAGED VIA UNIVERSAL PRICING CONTROLLER */}
@@ -7571,6 +7574,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
         </div>
+        )
       )}
 
               </div>

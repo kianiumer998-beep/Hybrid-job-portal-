@@ -666,8 +666,8 @@ export interface AllModulesMenuItem {
   badge?: string;
 }
 
-export interface AllModulesMenuGroup {
-  catKey: AdminCategory;
+export interface AllModulesMenuGroup<K extends string = AdminCategory> {
+  catKey: K;
   catTitle: string;
   items: AllModulesMenuItem[];
 }
@@ -726,6 +726,28 @@ export function buildAllModulesMenuGroups(counts: AdminNavCounts): AllModulesMen
     return {
       catKey: cat.id,
       catTitle: cat.allModulesTitle,
+      items
+    };
+  });
+}
+
+export function buildProfessionalAllModulesMenuGroups(
+  counts: AdminNavCounts
+): AllModulesMenuGroup<ProAdminCategoryId>[] {
+  return PROFESSIONAL_ADMIN_CATEGORIES.map((cat) => {
+    const items = ADMIN_NAVIGATION_MODULES.filter((m) => m.proCategory === cat.id).map((m) => {
+      const badge = resolveModuleBadge(m, counts);
+      return {
+        id: m.id,
+        label: m.allModulesLabel ? m.allModulesLabel(counts) : m.label,
+        urdu: m.allModulesUrdu || m.urdu,
+        icon: m.icon,
+        ...(badge ? { badge } : {})
+      };
+    });
+    return {
+      catKey: cat.id,
+      catTitle: `${cat.label} (${cat.urdu})`,
       items
     };
   });

@@ -475,11 +475,11 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
         <div>
           <div className="flex items-center space-x-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-1">
             <CreditCard className="w-4 h-4" />
-            <span>Server-Persisted Payment Methods & Duration Presets</span>
+            <span>Server-Persisted Payment Accounts &amp; Local Duration Presets</span>
           </div>
           <h2 className="text-xl font-black text-white">Public Receiving Payment Accounts</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Configure authoritative manual receiving accounts (EasyPaisa, JazzCash, Bank / Raast, and Custom Gateways) shown to jobseekers and advertisers.
+            Payment methods and default account settings are saved on the backend (/api/payment-settings). Campaign duration presets are stored locally in this browser.
           </p>
         </div>
 
@@ -509,7 +509,7 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
             className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 cursor-pointer transition-all active:scale-95"
           >
             <Save className="w-4 h-4" />
-            <span>Save Duration Presets</span>
+            <span>Save Local Duration Presets</span>
           </button>
         )}
       </div>
@@ -548,9 +548,9 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
       )}
 
       {durationSaveSuccess && (
-        <div className="p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold text-xs flex items-center space-x-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Campaign duration presets saved successfully!</span>
+        <div className="p-4 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 font-bold text-xs flex items-center space-x-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Campaign duration presets saved in browser localStorage only (not synced to backend database).</span>
         </div>
       )}
 
@@ -1197,13 +1197,16 @@ export const AdminPaymentMethodsManager: React.FC<AdminPaymentMethodsManagerProp
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                  <span>Approved Campaign Duration Packages</span>
+                  <span>Campaign Duration Presets</span>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                    Browser Local Storage Only
+                  </span>
                   <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
-                    {durationConfig.activeDurationOptions.filter((d) => d.isApprovedForDisplay).length} Approved &amp; Live
+                    {durationConfig.activeDurationOptions.filter((d) => d.isApprovedForDisplay).length} Enabled Locally
                   </span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Toggle which run periods are approved for advertisers (1-day, 1-week, 15-days, 20-days). Any approved option will appear on the campaign creation form.
+                  These duration presets are stored in your browser (localStorage key: hybrid_campaign_duration_presets) and are separate from backend payment methods. Authoritative ad campaign pricing is configured in Universal Pricing Controller.
                 </p>
               </div>
             </div>

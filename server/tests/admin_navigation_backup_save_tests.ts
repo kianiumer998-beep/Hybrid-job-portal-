@@ -16,7 +16,8 @@ import {
   ADMIN_ROLE_DEFAULT_PERMS,
   checkAdminTabPermission,
   navigateWithAdminPermission,
-  buildAllModulesMenuGroups
+  buildAllModulesMenuGroups,
+  buildProfessionalAllModulesMenuGroups
 } from '../../src/components/AdminDashboard';
 import {
   ADMIN_NAVIGATION_MODULES,
@@ -38,8 +39,21 @@ import {
 } from '../../src/components/admin/AdminDashboardNavigation';
 import {
   AdminAnalyticsOverview,
-  ANALYTICS_SHORTCUT_TAB_IDS
+  ANALYTICS_SHORTCUT_TAB_IDS,
+  computeAnalyticsMetrics
 } from '../../src/components/admin/AdminAnalyticsOverview';
+import {
+  AdminAiQualityEnhancer,
+  evaluateRuleBasedJobQuality,
+  applyRuleBasedEnhancement
+} from '../../src/components/admin/AdminAiQualityEnhancer';
+import {
+  AdminBulkNotificationTool,
+  parseStoredNotificationDrafts
+} from '../../src/components/admin/AdminBulkNotificationTool';
+import {
+  AdminPaymentMethodsManager
+} from '../../src/components/admin/AdminPaymentMethodsManager';
 import {
   AdminDataBackupHub,
   isSystemSnapshotPayload,
@@ -1306,6 +1320,249 @@ async function runSuite() {
     const locationsInSettingsIdx = dashSource.indexOf('<AdminLocationManager />', settingsTabIdx);
     assert.ok(settingsTabIdx !== -1, 'Expected Classic settings tab render block in AdminDashboard.tsx');
     assert.ok(locationsInSettingsIdx > settingsTabIdx, 'Expected original <AdminLocationManager /> inside Classic settings screen');
+  });
+
+  await runTest('AUDIT-01: Professional All Modules modal exposes all 31 canonical modules grouped by PROFESSIONAL_ADMIN_CATEGORIES while Classic preserves 30', () => {
+    const sampleNavCounts: AdminNavCounts = {
+      activeJobsCount: 10,
+      pendingJobsCount: 2,
+      activeAdsCount: 3,
+      pendingProofsCount: 1,
+      feeLogsCount: 4,
+      usersCount: 20,
+      kycBadgeText: '2 KYC',
+      kycPendingCount: 2,
+      subscribersCount: 5,
+      chatMessagesCount: 6
+    };
+
+    const proMatrixGroups = buildProfessionalAllModulesMenuGroups(sampleNavCounts);
+    assert.strictEqual(proMatrixGroups.length, 8);
+    assert.deepStrictEqual(
+      proMatrixGroups.map((g) => g.catKey),
+      PROFESSIONAL_ADMIN_CATEGORIES.map((c) => c.id)
+    );
+    const proIds = proMatrixGroups.flatMap((g) => g.items.map((i) => i.id));
+    assert.strictEqual(proIds.length, 31, 'Professional All Modules must contain all 31 canonical modules');
+    assert.strictEqual(new Set(proIds).size, 31, 'Professional All Modules must have zero duplicate module IDs');
+    assert.ok(proIds.includes('locations-manager'), 'Professional All Modules must include locations-manager');
+
+    const classicMatrixGroups = buildAllModulesMenuGroups(sampleNavCounts);
+    const classicIds = classicMatrixGroups.flatMap((g) => g.items.map((i) => i.id));
+    assert.strictEqual(classicIds.length, 30, 'Classic All Modules must still contain exact 30 modules');
+    assert.strictEqual(classicIds.includes('locations-manager'), false);
+
+    const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    assert.ok(
+      dashSource.includes("navMode === 'professional'\n                      ? buildProfessionalAllModulesMenuGroups(navCounts)\n                      : buildAllModulesMenuGroups(navCounts)") ||
+        dashSource.includes('buildProfessionalAllModulesMenuGroups(navCounts)'),
+      'AdminDashboard modal must switch to buildProfessionalAllModulesMenuGroups in professional mode'
+    );
+  });
+
+  await runTest('AUDIT-02: AdminDashboard wires ai-enhancer to onUpdateJob (never onAddJob) and App.tsx handleUpdateJob returns explicit confirmation', () => {
+    const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    const aiBlockStart = dashSource.indexOf("adminTab === 'ai-enhancer'");
+    assert.ok(aiBlockStart !== -1, 'Expected ai-enhancer render branch in AdminDashboard.tsx');
+    const aiBlockEnd = dashSource.indexOf('/>', aiBlockStart);
+    const aiBlock = dashSource.slice(aiBlockStart, aiBlockEnd);
+    assert.ok(aiBlock.includes('onUpdateJob={onUpdateJob}'), 'ai-enhancer must receive real onUpdateJob callback');
+    assert.strictEqual(aiBlock.includes('onAddJob('), false, 'ai-enhancer must NEVER route updates to onAddJob');
+
+    const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+    const updateIdx = appSource.indexOf('const handleUpdateJob = async (updatedJob: Job)');
+    assert.ok(updateIdx !== -1);
+    const updateSnippet = appSource.slice(updateIdx, updateIdx + 700);
+    assert.ok(updateSnippet.includes('res && res.success'), 'handleUpdateJob must verify api.jobs.update success response');
+    assert.ok(updateSnippet.includes('success: false'), 'handleUpdateJob must return explicit { success: false } on failure');
+  });
+
+  await runTest('AUDIT-03: Rule-Based Quality Analyzer removes mock/AI fabrications, verifies update success/failure, preserves ID, and handles empty state cleanly', async () => {
+    const enhancerSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminAiQualityEnhancer.tsx'),
+      'utf8'
+    );
+    assert.strictEqual(enhancerSource.includes('INITIAL_AI_AUDIT_REPORTS'), false, 'Must not pre-populate with mock audit reports');
+    assert.strictEqual(enhancerSource.includes('120,000 - 180,000'), false, 'Must not fabricate salary benchmarks');
+    assert.strictEqual(enhancerSource.includes('Spearhead technical roadmap'), false, 'Must not fabricate job bullet deliverables');
+    assert.strictEqual(enhancerSource.includes('alert('), false, 'Must not use blocking window.alert');
+
+    const emptyHtml = renderToStaticMarkup(React.createElement(AdminAiQualityEnhancer, { jobs: [], pendingJobs: [] }));
+    assert.ok(emptyHtml.includes('Rule-Based Quality Analyzer'));
+    assert.ok(emptyHtml.includes('No jobs available to analyze'));
+    assert.ok(emptyHtml.includes('Update Unavailable') || emptyHtml.includes('read-only'));
+
+    const sampleJob: any = {
+      id: 'job-audit-test-1',
+      title: 'Senior Backend Engineer',
+      company: 'Acme Systems',
+      region: 'Pakistan',
+      jobType: 'Full-Time',
+      experienceLevel: 'Senior',
+      salary: '',
+      description: 'Build reliable backend APIs.',
+      tags: ['Node.js'],
+      requirements: ['4+ years TypeScript']
+    };
+
+    // Unscanned listing must show Not scanned instead of fake 88 / 85 fallback scores
+    const unscannedHtml = renderToStaticMarkup(
+      React.createElement(AdminAiQualityEnhancer, { jobs: [sampleJob], pendingJobs: [], onUpdateJob: async () => ({ success: true }) })
+    );
+    assert.ok(unscannedHtml.includes('Not scanned yet'));
+    assert.ok(unscannedHtml.includes('Not scanned'));
+    assert.strictEqual(unscannedHtml.includes('>88<'), false);
+    assert.strictEqual(unscannedHtml.includes('85/100'), false);
+
+    // Deterministic scoring & preservation of ID and empty salary
+    const report = evaluateRuleBasedJobQuality(sampleJob);
+    assert.strictEqual(report.jobId, 'job-audit-test-1');
+    assert.ok(!report.suggestedSalaryRange.includes('120,000'));
+    assert.ok(report.enhancedDescriptionPreview.includes('Build reliable backend APIs.'));
+
+    // Missing callback returns error without mutation
+    const missingOutcome = await applyRuleBasedEnhancement({
+      activeJob: sampleJob,
+      activeReport: report,
+      onUpdateJob: undefined
+    });
+    assert.strictEqual(missingOutcome.ok, false);
+
+    // Backend rejection / false must surface failure
+    const failedOutcome = await applyRuleBasedEnhancement({
+      activeJob: sampleJob,
+      activeReport: report,
+      onUpdateJob: async () => ({ success: false, message: 'Forbidden by role' })
+    });
+    assert.strictEqual(failedOutcome.ok, false);
+    assert.strictEqual(failedOutcome.message, 'Forbidden by role');
+
+    // Rejected promise must surface failure cleanly
+    const rejectedOutcome = await applyRuleBasedEnhancement({
+      activeJob: sampleJob,
+      activeReport: report,
+      onUpdateJob: async () => {
+        throw new Error('Network unreachable');
+      }
+    });
+    assert.strictEqual(rejectedOutcome.ok, false);
+    assert.strictEqual(rejectedOutcome.message, 'Network unreachable');
+
+    // Confirmed update preserves job ID and never invents salary
+    let receivedUpdate: any = null;
+    const okOutcome = await applyRuleBasedEnhancement({
+      activeJob: sampleJob,
+      activeReport: report,
+      onUpdateJob: async (j) => {
+        receivedUpdate = j;
+        return { success: true, job: j };
+      }
+    });
+    assert.strictEqual(okOutcome.ok, true);
+    assert.strictEqual(receivedUpdate.id, 'job-audit-test-1');
+    assert.strictEqual(receivedUpdate.salary, '');
+    assert.ok(receivedUpdate.tags.includes('Node.js'));
+    assert.ok(receivedUpdate.tags.includes('Full-Time'));
+  });
+
+  await runTest('AUDIT-04: Analytics Overview removes hardcoded +24.6%, 100% Retained, 18500, and 98% fallbacks and handles zero denominators safely', () => {
+    const analyticsSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminAnalyticsOverview.tsx'),
+      'utf8'
+    );
+    assert.strictEqual(analyticsSource.includes('+24.6%'), false);
+    assert.strictEqual(analyticsSource.includes('100% Retained'), false);
+    assert.strictEqual(analyticsSource.includes('18500'), false);
+    assert.strictEqual(analyticsSource.includes('Operational (All Clusters Active)'), false);
+
+    const zeroMetrics = computeAnalyticsMetrics({ jobs: [], users: [], subscribers: [], feeLogs: [], auditLogs: [], ads: [] });
+    assert.strictEqual(zeroMetrics.scraperSuccessRate, null);
+    assert.strictEqual(zeroMetrics.totalGrossRevenuePkr, 0);
+    assert.strictEqual(zeroMetrics.totalAdsPkr, 0);
+    assert.deepStrictEqual(zeroMetrics.regionBreakdown, []);
+
+    const zeroHtml = renderToStaticMarkup(
+      React.createElement(AdminAnalyticsOverview, { jobs: [], pendingJobs: [], users: [], subscribers: [], feeLogs: [], auditLogs: [], batchRuns: [], ads: [] })
+    );
+    assert.ok(zeroHtml.includes('N/A'));
+    assert.ok(zeroHtml.includes('Not Verified (No Telemetry Feed)'));
+    assert.ok(zeroHtml.includes('No live job listings loaded yet.'));
+
+    const adMetrics = computeAnalyticsMetrics({
+      jobs: [{ id: 'j1', region: 'Pakistan' } as any],
+      auditLogs: [
+        { id: 'a1', status: 'Approved Live' } as any,
+        { id: 'a2', status: 'Pending Review' } as any
+      ],
+      ads: [{ id: 'ad1', status: 'active', totalCostPkr: 5000 }]
+    });
+    assert.strictEqual(adMetrics.scraperSuccessRate, 50);
+    assert.strictEqual(adMetrics.totalAdsPkr, 5000);
+    assert.strictEqual(adMetrics.activeAdsCount, 1);
+    assert.deepStrictEqual(adMetrics.regionBreakdown, [{ regionName: 'Pakistan', count: 1, pct: 100 }]);
+  });
+
+  await runTest('AUDIT-05: Bulk Notification Draft Builder starts with empty drafts [], safely parses storage, and avoids fake delivery claims', () => {
+    const bulkSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminBulkNotificationTool.tsx'),
+      'utf8'
+    );
+    assert.strictEqual(bulkSource.includes('INITIAL_BROADCAST_HISTORY'), false);
+    assert.strictEqual(bulkSource.includes('Open Rate'), false);
+    assert.strictEqual(bulkSource.includes('Click Rate'), false);
+    assert.strictEqual(bulkSource.includes('alert('), false);
+
+    assert.deepStrictEqual(parseStoredNotificationDrafts(null), []);
+    assert.deepStrictEqual(parseStoredNotificationDrafts('{invalid json'), []);
+    assert.deepStrictEqual(parseStoredNotificationDrafts('{"not":"array"}'), []);
+    assert.strictEqual(parseStoredNotificationDrafts('[{"id":"d1"}]').length, 1);
+
+    const html = renderToStaticMarkup(React.createElement(AdminBulkNotificationTool, { users: [], subscribers: [] }));
+    assert.ok(html.includes('Bulk Notification Draft Builder'));
+    assert.ok(html.includes('Delivery Not Connected Here'));
+    assert.ok(html.includes('No local notification drafts saved yet'));
+    assert.strictEqual(html.includes('Open Rate'), false);
+  });
+
+  await runTest('AUDIT-06: Payment Methods Manager distinguishes server-persisted payment settings from browser-local duration presets', () => {
+    const paySource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminPaymentMethodsManager.tsx'),
+      'utf8'
+    );
+    assert.ok(paySource.includes('api.paymentSettings.get()'));
+    assert.ok(paySource.includes('api.paymentSettings.update(payload)'));
+    assert.ok(paySource.includes('Local Duration Presets'));
+    assert.ok(paySource.includes('Browser Local Storage Only'));
+    const html = renderToStaticMarkup(React.createElement(AdminPaymentMethodsManager));
+    assert.ok(html.includes('/api/payment-settings'));
+    assert.ok(html.includes('Save &amp; Publish Payment Settings'));
+  });
+
+  await runTest('AUDIT-07: All 31 canonical AdminDashboard tabs have explicit permission guards in source', () => {
+    const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    const canonicalIds = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
+    assert.strictEqual(canonicalIds.length, 31);
+    for (const id of canonicalIds) {
+      if (id === 'scraper') {
+        assert.ok(
+          dashSource.includes("(adminTab === 'scraper' || adminTab === 'url-scraper' || adminTab === 'scraped-history') && canAccessAdminTab(adminTab)"),
+          'Expected guarded scraper/alias branch'
+        );
+      } else if (id === 'analytics') {
+        assert.ok(
+          dashSource.includes("(adminTab === 'analytics' || adminTab === 'stats') && canAccessAdminTab('analytics')"),
+          'Expected guarded analytics/stats branch'
+        );
+      } else if (id === 'settings') {
+        const idx = dashSource.indexOf("{adminTab === 'settings' && (");
+        assert.ok(idx !== -1 && dashSource.slice(idx, idx + 80).includes("canAccessAdminTab('settings')"), 'Expected guarded settings branch');
+      } else {
+        assert.ok(
+          dashSource.includes(`adminTab === '${id}' && canAccessAdminTab('${id}')`),
+          `Expected permission guard on render branch for canonical tab "${id}"`
+        );
+      }
+    }
   });
 
   console.log('------------------------------------------------------------------');

@@ -21,6 +21,7 @@ import {
 import {
   ADMIN_NAVIGATION_MODULES,
   CLASSIC_ADMIN_CATEGORIES,
+  CLASSIC_CATEGORY_MODULE_ORDER,
   PROFESSIONAL_ADMIN_CATEGORIES,
   ADMIN_TAB_ALIASES,
   resolveCanonicalAdminTab,
@@ -908,12 +909,12 @@ async function runSuite() {
       );
     }
 
-    // All Modules matrix preserves parity with all 31 unique modules and zero duplicates
+    // Classic All Modules Matrix preserves original 30 modules and zero duplicates (excluding locations-manager)
     const allModulesGroups = buildAllModulesMenuGroups(sampleNavCounts);
     const matrixIds = allModulesGroups.flatMap((g) => g.items.map((i) => i.id));
-    assert.strictEqual(matrixIds.length, 31);
-    assert.strictEqual(new Set(matrixIds).size, 31);
-    assert.ok(matrixIds.includes('locations-manager'));
+    assert.strictEqual(matrixIds.length, 30);
+    assert.strictEqual(new Set(matrixIds).size, 30);
+    assert.strictEqual(matrixIds.includes('locations-manager'), false, 'Classic All Modules Matrix must NOT include locations-manager');
     assert.strictEqual(matrixIds.filter((id) => id === 'whatsapp-manager').length, 1);
 
     // Every module ID and alias exists in ADMIN_TAB_CATEGORIES
@@ -1080,9 +1081,17 @@ async function runSuite() {
     assert.ok(settingsIds.includes('analytics'));
     assert.strictEqual(settingsIds.includes('data-backup'), false, 'Non-Admin with settings.manage must NEVER see data-backup');
 
-    // Classic sub-tabs respect the same permission filter
+    // Classic sub-tabs respect permission filter AND omit locations-manager
     const classicSettingsTabs = getClassicCategorySubTabs('settings', sampleNavCounts, settingsCan).map((t) => t.id);
-    assert.ok(classicSettingsTabs.includes('locations-manager'));
+    assert.deepStrictEqual(classicSettingsTabs, [
+      'apply-settings',
+      'modal-content-manager',
+      'job-visibility',
+      'settings',
+      'form-customizer',
+      'analytics'
+    ]);
+    assert.strictEqual(classicSettingsTabs.includes('locations-manager'), false);
     assert.strictEqual(classicSettingsTabs.includes('data-backup'), false);
 
     // Unverified admin sees 0 categories/modules
@@ -1201,6 +1210,102 @@ async function runSuite() {
         assert.ok(content.includes(marker), `Expected untouched internal sub-tab marker "${marker}" in ${relPath}`);
       }
     }
+  });
+
+  await runTest('Classic Parity Restoration: preserves exact 7 categories, original 30-module Classic sub-tabs & All Modules Matrix order, and keeps Location Manager inside Classic Settings', () => {
+    const expectedClassicOrder: Record<AdminCategory, string[]> = {
+      jobs: ['jobs', 'pending', 'add-job', 'ai-enhancer'],
+      scraper: ['scraper'],
+      ads: ['campaign-center', 'advertisements', 'landing-customizer'],
+      payments: [
+        'pricing-controller',
+        'admin-payment-methods',
+        'payment-proofs',
+        'fee-management',
+        'fee-logs',
+        'currency-forex'
+      ],
+      users: ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
+      alerts: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
+      settings: [
+        'apply-settings',
+        'modal-content-manager',
+        'job-visibility',
+        'seo-config',
+        'settings',
+        'form-customizer',
+        'activity-logs',
+        'data-backup',
+        'analytics'
+      ]
+    };
+
+    assert.deepStrictEqual(
+      CLASSIC_ADMIN_CATEGORIES.map((c) => c.id),
+      ['jobs', 'scraper', 'ads', 'payments', 'users', 'alerts', 'settings']
+    );
+    assert.deepStrictEqual(CLASSIC_CATEGORY_MODULE_ORDER, expectedClassicOrder);
+
+    const superCan = (t: string) => checkAdminTabPermission('Super Admin', ['*'], true, t);
+
+    // Verify Classic sub-tabs for all 7 categories
+    for (const cat of CLASSIC_ADMIN_CATEGORIES) {
+      const subTabs = getClassicCategorySubTabs(cat.id, sampleNavCounts, superCan);
+      assert.deepStrictEqual(
+        subTabs.map((t) => t.id),
+        expectedClassicOrder[cat.id],
+        `Classic sub-tab order mismatch for category "${cat.id}"`
+      );
+    }
+
+    // Specifically verify Classic Settings has NO locations-manager entry and matches exact 9-item order
+    const classicSettingsIds = getClassicCategorySubTabs('settings', sampleNavCounts, superCan).map((t) => t.id);
+    assert.strictEqual(classicSettingsIds.includes('locations-manager'), false);
+    assert.deepStrictEqual(classicSettingsIds, expectedClassicOrder.settings);
+
+    // Verify All Modules Matrix preserves exact original 7 groups and 30 ordered module IDs
+    const allModules = buildAllModulesMenuGroups(sampleNavCounts);
+    assert.deepStrictEqual(
+      allModules.map((g) => g.catKey),
+      ['jobs', 'scraper', 'ads', 'payments', 'users', 'alerts', 'settings']
+    );
+    for (const group of allModules) {
+      assert.deepStrictEqual(
+        group.items.map((i) => i.id),
+        expectedClassicOrder[group.catKey],
+        `All Modules Matrix order mismatch for "${group.catKey}"`
+      );
+      assert.strictEqual(
+        group.items.some((i) => i.id === 'locations-manager'),
+        false,
+        `All Modules Matrix group "${group.catKey}" must not contain locations-manager`
+      );
+    }
+
+    // Verify Classic sub-tab counts, dynamic labels, and NEW badges match original behavior
+    const jobsSubTabs = getClassicCategorySubTabs('jobs', sampleNavCounts, superCan);
+    assert.strictEqual(jobsSubTabs[0].label, 'Live Listings (12)');
+    assert.strictEqual(jobsSubTabs[1].label, 'Pending Approvals (4)');
+    assert.strictEqual(jobsSubTabs[1].badge, 4);
+
+    const paySubTabs = getClassicCategorySubTabs('payments', sampleNavCounts, superCan);
+    assert.strictEqual(paySubTabs[0].isNew, true);
+    assert.strictEqual(paySubTabs[1].isNew, true);
+    assert.strictEqual(paySubTabs[2].label, 'Receipt Proofs Verification (2)');
+    assert.strictEqual(paySubTabs[4].label, 'Per-Job Fee Logs (9)');
+
+    const usersSubTabs = getClassicCategorySubTabs('users', sampleNavCounts, superCan);
+    assert.strictEqual(usersSubTabs[0].label, 'User Directory (25)');
+    assert.strictEqual(usersSubTabs[1].label, 'Employer KYC Verification (3)');
+    assert.strictEqual(usersSubTabs[2].label, 'Paid Subscribers (8)');
+    assert.strictEqual(usersSubTabs[3].label, 'User Support Chat Hub (6)');
+
+    // Verify existing <AdminLocationManager /> remains rendered inside Classic settings tab in AdminDashboard.tsx
+    const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    const settingsTabIdx = dashSource.indexOf("{adminTab === 'settings' && (");
+    const locationsInSettingsIdx = dashSource.indexOf('<AdminLocationManager />', settingsTabIdx);
+    assert.ok(settingsTabIdx !== -1, 'Expected Classic settings tab render block in AdminDashboard.tsx');
+    assert.ok(locationsInSettingsIdx > settingsTabIdx, 'Expected original <AdminLocationManager /> inside Classic settings screen');
   });
 
   console.log('------------------------------------------------------------------');

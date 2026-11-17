@@ -680,18 +680,49 @@ export function resolveModuleBadge(
   return mod.badge;
 }
 
+export const CLASSIC_CATEGORY_MODULE_ORDER: Record<AdminCategory, AdminCanonicalTabId[]> = {
+  jobs: ['jobs', 'pending', 'add-job', 'ai-enhancer'],
+  scraper: ['scraper'],
+  ads: ['campaign-center', 'advertisements', 'landing-customizer'],
+  payments: [
+    'pricing-controller',
+    'admin-payment-methods',
+    'payment-proofs',
+    'fee-management',
+    'fee-logs',
+    'currency-forex'
+  ],
+  users: ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
+  alerts: ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
+  settings: [
+    'apply-settings',
+    'modal-content-manager',
+    'job-visibility',
+    'seo-config',
+    'settings',
+    'form-customizer',
+    'activity-logs',
+    'data-backup',
+    'analytics'
+  ]
+};
+
 export function buildAllModulesMenuGroups(counts: AdminNavCounts): AllModulesMenuGroup[] {
   return CLASSIC_ADMIN_CATEGORIES.map((cat) => {
-    const items = ADMIN_NAVIGATION_MODULES.filter((m) => m.classicCategory === cat.id).map((m) => {
-      const badge = resolveModuleBadge(m, counts);
-      return {
-        id: m.id,
-        label: m.allModulesLabel ? m.allModulesLabel(counts) : m.label,
-        urdu: m.allModulesUrdu || m.urdu,
-        icon: m.icon,
-        ...(badge ? { badge } : {})
-      };
-    });
+    const orderedIds = CLASSIC_CATEGORY_MODULE_ORDER[cat.id] || [];
+    const items = orderedIds
+      .map((id) => ADMIN_NAVIGATION_MODULES.find((m) => m.id === id))
+      .filter((m): m is AdminNavModuleDefinition => Boolean(m))
+      .map((m) => {
+        const badge = resolveModuleBadge(m, counts);
+        return {
+          id: m.id,
+          label: m.allModulesLabel ? m.allModulesLabel(counts) : m.label,
+          urdu: m.allModulesUrdu || m.urdu,
+          icon: m.icon,
+          ...(badge ? { badge } : {})
+        };
+      });
     return {
       catKey: cat.id,
       catTitle: cat.allModulesTitle,
@@ -714,16 +745,19 @@ export function getClassicCategorySubTabs(
   counts: AdminNavCounts,
   canAccessTab: (tabId: string) => boolean
 ): ClassicSubTabItem[] {
-  return ADMIN_NAVIGATION_MODULES.filter(
-    (m) => m.classicCategory === category && canAccessTab(m.id)
-  ).map((m) => ({
-    id: m.id,
-    label: m.classicSubTabLabel ? m.classicSubTabLabel(counts) : m.label,
-    urdu: m.classicSubTabUrdu || m.urdu,
-    icon: m.icon,
-    badge: m.classicSubTabBadge ? m.classicSubTabBadge(counts) : undefined,
-    isNew: m.isNew
-  }));
+  const orderedIds = CLASSIC_CATEGORY_MODULE_ORDER[category] || [];
+  return orderedIds
+    .filter((id) => canAccessTab(id))
+    .map((id) => ADMIN_NAVIGATION_MODULES.find((m) => m.id === id))
+    .filter((m): m is AdminNavModuleDefinition => Boolean(m))
+    .map((m) => ({
+      id: m.id,
+      label: m.classicSubTabLabel ? m.classicSubTabLabel(counts) : m.label,
+      urdu: m.classicSubTabUrdu || m.urdu,
+      icon: m.icon,
+      badge: m.classicSubTabBadge ? m.classicSubTabBadge(counts) : undefined,
+      isNew: m.isNew
+    }));
 }
 
 export interface ProMenuModuleItem {

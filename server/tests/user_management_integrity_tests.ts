@@ -876,11 +876,41 @@ async function runUserManagementIntegrityTests() {
       assert.ok(htmlZero.includes('Total Renewals</span><span class="font-bold text-indigo-400">0</span>'), 'renewalCount 0 must display 0 cleanly');
     });
 
-    await runTest('17. STEP-D.5.1 Missing or invalid expiryDate blocks "+ Extend +30 Days" instead of inventing a date', async () => {
+    await runTest('17. STEP-D.5.1-R1 Strict date validation rejects impossible calendar dates (2026-02-31 09:00), invalid month/day/time values, missing expiry, and accepts valid existing formats', async () => {
       assert.strictEqual(computeExtendedExpiry30Days(undefined).ok, false);
       assert.strictEqual(computeExtendedExpiry30Days('').ok, false);
       assert.strictEqual(computeExtendedExpiry30Days('Not recorded').ok, false);
-      assert.strictEqual(computeExtendedExpiry30Days('2026-02-31 09:00').ok, false);
+
+      const invalidDates = [
+        '2026-02-31 09:00',
+        '2026-13-01 09:00',
+        '2026-04-31 09:00',
+        '2026-00-15 09:00',
+        '2026-01-32 09:00',
+        '2026-03-14 25:00',
+        '2026-03-14 12:60',
+        '2026-03-14 -1:30',
+        'not-a-date',
+        '   '
+      ];
+
+      for (const bad of invalidDates) {
+        assert.strictEqual(formatAuditUserActivationDate(bad), 'Not recorded', `Activation date "${bad}" must be rejected as Not recorded`);
+        assert.strictEqual(formatAuditUserExpiryDate(bad), 'Not recorded', `Expiry date "${bad}" must be rejected as Not recorded`);
+        assert.strictEqual(computeExtendedExpiry30Days(bad).ok, false, `computeExtendedExpiry30Days must fail for "${bad}"`);
+      }
+
+      const validDates = [
+        '2026-03-14 11:30',
+        '2026-12-31 23:59:59',
+        '2026-01-15T00:00:00.000Z',
+        '2026-06-30 09:00'
+      ];
+
+      for (const okDate of validDates) {
+        assert.strictEqual(formatAuditUserActivationDate(okDate), okDate, `Valid activation date "${okDate}" must be preserved`);
+        assert.strictEqual(formatAuditUserExpiryDate(okDate), okDate, `Valid expiry date "${okDate}" must be preserved`);
+      }
 
       const validExt = computeExtendedExpiry30Days('2026-10-01 09:00');
       assert.strictEqual(validExt.ok, true);

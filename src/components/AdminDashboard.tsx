@@ -466,22 +466,57 @@ export function formatChatUserRoleLabel(role?: unknown): string {
   return firstWord || 'Member';
 }
 
-export function formatAuditUserActivationDate(activationDate?: string | null): string {
-  if (typeof activationDate !== 'string') return 'Not recorded';
-  const trimmed = activationDate.trim();
-  if (!trimmed) return 'Not recorded';
+export function isValidAuditDateTime(dateStr?: string | null): boolean {
+  if (typeof dateStr !== 'string') return false;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return false;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/i.exec(trimmed);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (year < 1000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) {
+      return false;
+    }
+    const daysInMo = new Date(year, month, 0).getDate();
+    if (day > daysInMo) {
+      return false;
+    }
+
+    if (match[4] !== undefined && match[5] !== undefined) {
+      const hour = Number(match[4]);
+      const minute = Number(match[5]);
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return false;
+      }
+      if (match[6] !== undefined) {
+        const second = Number(match[6]);
+        if (second < 0 || second > 59) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   const normalized = trimmed.includes(' ') && !trimmed.includes('T')
     ? trimmed.replace(' ', 'T')
     : trimmed;
   const parsed = Date.parse(normalized);
-  if (Number.isNaN(parsed)) return 'Not recorded';
-  return trimmed;
+  if (Number.isNaN(parsed)) return false;
+  const d = new Date(parsed);
+  return !Number.isNaN(d.getTime());
+}
+
+export function formatAuditUserActivationDate(activationDate?: string | null): string {
+  if (!isValidAuditDateTime(activationDate)) return 'Not recorded';
+  return activationDate!.trim();
 }
 
 export function formatAuditUserExpiryDate(expiryDate?: string | null): string {
-  if (typeof expiryDate !== 'string') return 'Not recorded';
-  const trimmed = expiryDate.trim();
-  return trimmed.length > 0 ? trimmed : 'Not recorded';
+  if (!isValidAuditDateTime(expiryDate)) return 'Not recorded';
+  return expiryDate!.trim();
 }
 
 export function formatAuditUserRenewalCount(renewalCount?: number | null): string {
@@ -494,37 +529,69 @@ export function formatAuditUserRenewalCount(renewalCount?: number | null): strin
 export function computeExtendedExpiry30Days(
   expiryDate?: string | null
 ): { ok: true; nextExpiry: string } | { ok: false; message: string } {
-  if (typeof expiryDate !== 'string' || !expiryDate.trim()) {
+  if (!isValidAuditDateTime(expiryDate)) {
     return {
       ok: false,
       message: 'No valid expiry date is recorded for this user. Please set a valid expiry date first using "Set Custom Date".'
     };
   }
 
-  const trimmed = expiryDate.trim();
-  const ymdMatch = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2})(?::\d{2})?)?$/.exec(trimmed);
+  const trimmed = expiryDate!.trim();
+  const ymdMatch = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(trimmed);
   if (ymdMatch) {
     const year = Number(ymdMatch[1]);
     const month = Number(ymdMatch[2]);
     const day = Number(ymdMatch[3]);
-    const timePart = ymdMatch[4] || '09:00';
-    const candidate = new Date(year, month - 1, day);
+    const hour = ymdMatch[4] !== undefined ? Number(ymdMatch[4]) : 9;
+    const minute = ymdMatch[5] !== undefined ? Number(ymdMatch[5]) : 0;
+    const second = ymdMatch[6] !== undefined ? Number(ymdMatch[6]) : 0;
+    const timePart = ymdMatch[4] !== undefined && ymdMatch[5] !== undefined ? `${ymdMatch[4]}:${ymdMatch[5]}` : '09:00';
+
+    if (
+      year < 1000 || year > 9999 ||
+      month < 1 || month > 12 ||
+      day < 1 || day > 31 ||
+      hour < 0 || hour > 23 ||
+      minute < 0 || minute > 59 ||
+      second < 0 || second > 59
+    ) {
+      return {
+        ok: false,
+        message: 'Recorded expiry date or time component is invalid. Please set a valid expiry date first using "Set Custom Date".'
+      };
+    }
+
+    const daysInMo = new Date(year, month, 0).getDate();
+    if (day > daysInMo) {
+      return {
+        ok: false,
+        message: 'Recorded expiry calendar date is impossible. Please set a valid expiry date first using "Set Custom Date".'
+      };
+    }
+
+    const candidate = new Date(year, month - 1, day, hour, minute, second);
     if (
       candidate.getFullYear() !== year ||
       candidate.getMonth() !== month - 1 ||
-      candidate.getDate() !== day
+      candidate.getDate() !== day ||
+      candidate.getHours() !== hour ||
+      candidate.getMinutes() !== minute
     ) {
       return {
         ok: false,
         message: 'Recorded expiry date is invalid. Please set a valid expiry date first using "Set Custom Date".'
       };
     }
+
     candidate.setDate(candidate.getDate() + 30);
     const nextExpiry = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, '0')}-${String(candidate.getDate()).padStart(2, '0')} ${timePart}`;
     return { ok: true, nextExpiry };
   }
 
-  const parsedMs = Date.parse(trimmed);
+  const normalized = trimmed.includes(' ') && !trimmed.includes('T')
+    ? trimmed.replace(' ', 'T')
+    : trimmed;
+  const parsedMs = Date.parse(normalized);
   if (Number.isNaN(parsedMs)) {
     return {
       ok: false,

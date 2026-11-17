@@ -25,7 +25,7 @@ export type ExtractionCapability = 'PDF' | 'HTML' | 'Portal' | 'Detail Page' | '
  * High-level three-tier operational status.
  * Mutually exclusive derived summary of current health and historical reliability.
  */
-export type OverallSourceStatus = 'Working' | 'Partial' | 'Unavailable';
+export type OverallSourceStatus = 'Working' | 'Partial' | 'Unavailable' | 'Configured / Not Yet Verified';
 
 /**
  * Structural input interface for any classifiable scraper source.
@@ -64,6 +64,7 @@ export interface SourceClassification {
   /**
    * High-level operational status derived conservatively:
    * - Working: Verified working or credible historical success with no active serious failure.
+   * - Configured / Not Yet Verified: Newly configured source awaiting first verification / execution.
    * - Partial: Historically proven with a current recoverable error, or mixed/partial signals.
    * - Unavailable: Sustained unreachable/network failure. (May still be historically proven).
    */
@@ -314,7 +315,7 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
     httpStatus !== 404 &&
     httpStatus !== 403;
 
-  if (!isPaused && (isRecentSuccess || (historicallyProven && isZeroJobsWithoutError))) {
+  if (!isPaused && historicallyProven && (isRecentSuccess || isZeroJobsWithoutError)) {
     const reason = scrapedCount > 0
       ? `Working: Verified operational with ${scrapedCount} vacancies harvested`
       : 'Working: Online and verified healthy';
@@ -371,13 +372,13 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
     };
   }
 
-  // Default: unverified active source awaiting first run
+  // Default: unverified active source awaiting first run (Configured / Not Yet Verified)
   return {
-    overallStatus: 'Working',
+    overallStatus: 'Configured / Not Yet Verified',
     historicallyProven: false,
     provenCapabilities,
     configuredCapabilities,
-    statusReason: 'Working (Unverified): Configured and scheduled for execution'
+    statusReason: 'Configured / Not Yet Verified: Awaiting initial execution and successful extraction'
   };
 }
 

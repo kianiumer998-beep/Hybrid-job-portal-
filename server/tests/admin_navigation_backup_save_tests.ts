@@ -50,6 +50,12 @@ import {
   getPktDayBoundsMs
 } from '../../src/components/admin/AdminAnalyticsOverview';
 import {
+  deriveSourceClassification,
+  isHistoricallyProven,
+  getConfiguredCapabilities,
+  getProvenCapabilities
+} from '../../src/services/scraperClassification';
+import {
   AdminAiQualityEnhancer,
   evaluateRuleBasedJobQuality,
   applyRuleBasedEnhancement
@@ -2998,6 +3004,55 @@ async function runSuite() {
     assert.strictEqual(linkedMetrics.totalTransactionsRevenuePkr, 1200);
     assert.strictEqual(linkedMetrics.totalSubscribersPkr, 1200);
     assert.strictEqual(linkedMetrics.totalGrossRevenuePkr, 1200, 'Linked paid subscriber is deduplicated cleanly against authoritative transaction');
+  });
+
+  await runTest('Scraper Classification: newly configured source is Configured / Not Yet Verified and never Working', () => {
+    const unverifiedSource = {
+      id: 'portal-new-test',
+      name: 'New Test Portal',
+      url: 'https://example.com/careers',
+      status: 'Active Scheduled',
+      healthStatus: 'healthy',
+      scrapedCount: 0
+    };
+
+    const classification = deriveSourceClassification(unverifiedSource);
+    assert.strictEqual(classification.historicallyProven, false);
+    assert.strictEqual(classification.overallStatus, 'Configured / Not Yet Verified');
+    assert.notStrictEqual(classification.overallStatus, 'Working', 'Unverified source must not be classified as Working');
+  });
+
+  await runTest('Scraper Classification: historically proven successful source is Working', () => {
+    const provenSource = {
+      id: 'portal-proven-test',
+      name: 'Proven Portal',
+      url: 'https://example.com/careers',
+      status: 'Active Scheduled',
+      healthStatus: 'Jobs Found',
+      scrapedCount: 15,
+      lastSuccessfulScrapeAt: new Date().toISOString()
+    };
+
+    const classification = deriveSourceClassification(provenSource);
+    assert.strictEqual(classification.historicallyProven, true);
+    assert.strictEqual(classification.overallStatus, 'Working');
+  });
+
+  await runTest('Scraper Classification: historically proven source with transient error is Partial and maintains historical proof', () => {
+    const failingProvenSource = {
+      id: 'portal-failing-proven',
+      name: 'Failing Proven Portal',
+      url: 'https://example.com/careers',
+      status: 'Active Scheduled',
+      healthStatus: '404',
+      lastHttpStatus: 404,
+      scrapedCount: 10,
+      lastSuccessfulScrapeAt: '2026-11-01T00:00:00.000Z'
+    };
+
+    const classification = deriveSourceClassification(failingProvenSource);
+    assert.strictEqual(classification.historicallyProven, true, 'Transient error never clears historical success');
+    assert.strictEqual(classification.overallStatus, 'Partial');
   });
 
   console.log('------------------------------------------------------------------');

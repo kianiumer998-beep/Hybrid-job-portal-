@@ -539,7 +539,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const [sourceGroups, setSourceGroups] = useState<SourceGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
   const [healthFilter, setHealthFilter] = useState<string>('all');
-  const [classificationFilter, setClassificationFilter] = useState<'all' | 'working' | 'partial' | 'unavailable'>('all');
+  const [classificationFilter, setClassificationFilter] = useState<'all' | 'working' | 'unverified' | 'partial' | 'unavailable'>('all');
   const [capabilityFilter, setCapabilityFilter] = useState<'all' | 'configured-pdf' | 'proven-pdf' | 'configured-portal' | 'proven-portal'>('all');
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupModalMode, setGroupModalMode] = useState<'create' | 'edit'>('create');
@@ -829,6 +829,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       if (classificationFilter !== 'all') {
         const classification = classificationsMap.get(source.id);
         if (classificationFilter === 'working' && classification?.overallStatus !== 'Working') return false;
+        if (classificationFilter === 'unverified' && classification?.overallStatus !== 'Configured / Not Yet Verified') return false;
         if (classificationFilter === 'partial' && classification?.overallStatus !== 'Partial') return false;
         if (classificationFilter === 'unavailable' && classification?.overallStatus !== 'Unavailable') return false;
       }
@@ -2818,6 +2819,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
               >
                 <option value="all">All Classifications</option>
                 <option value="working">Working</option>
+                <option value="unverified">Configured / Not Yet Verified</option>
                 <option value="partial">Partial / Needs Attention</option>
                 <option value="unavailable">Unavailable</option>
               </select>
@@ -3133,18 +3135,18 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                       title={classification.statusReason}
                                       className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold w-fit cursor-help ${
                                         classification.overallStatus === 'Working'
-                                          ? classification.historicallyProven
-                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                            : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                          : classification.overallStatus === 'Configured / Not Yet Verified'
+                                          ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
                                           : classification.overallStatus === 'Partial'
                                           ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                                           : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                                       }`}
                                     >
                                       {classification.overallStatus === 'Working'
-                                        ? classification.historicallyProven
-                                          ? 'Working'
-                                          : 'Working (Unverified)'
+                                        ? 'Working'
+                                        : classification.overallStatus === 'Configured / Not Yet Verified'
+                                        ? 'Configured / Not Yet Verified'
                                         : classification.overallStatus === 'Partial'
                                         ? 'Partial'
                                         : 'Unavailable'}

@@ -75,10 +75,45 @@ export interface ComputedAnalyticsMetrics {
   employersCount: number;
   seekersCount: number;
   missingDateRecordsCount: number;
+  missingEligibleFinancialDateCount?: number;
+  ambiguousFinancialDeduplicationCount?: number;
   regionBreakdown: Array<{ regionName: string; count: number; pct: number }>;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const PKT_OFFSET_MS = 5 * 60 * 60 * 1000; // Asia/Karachi (PKT, UTC+5 fixed)
+const AMBIGUOUS_DEDUPE_TIME_WINDOW_MS = 5 * 60 * 1000;
+
+function isDateOnlyString(raw: unknown): boolean {
+  return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim());
+}
+
+function getPktCalendarDateKey(timestampMs: number): string {
+  const pktShifted = new Date(timestampMs + PKT_OFFSET_MS);
+  const year = pktShifted.getUTCFullYear();
+  const month = String(pktShifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(pktShifted.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getUtcCalendarDateKey(timestampMs: number): string {
+  const d = new Date(timestampMs);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getPktDayBoundsMs(referenceMs: number): { pktDayStartMs: number; pktDayEndMs: number; pktDateKey: string } {
+  const pktShifted = new Date(referenceMs + PKT_OFFSET_MS);
+  const year = pktShifted.getUTCFullYear();
+  const month = pktShifted.getUTCMonth();
+  const day = pktShifted.getUTCDate();
+  const pktDayStartMs = Date.UTC(year, month, day, 0, 0, 0, 0) - PKT_OFFSET_MS;
+  const pktDayEndMs = Date.UTC(year, month, day, 23, 59, 59, 999) - PKT_OFFSET_MS;
+  const pktDateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { pktDayStartMs, pktDayEndMs, pktDateKey };
+}
 
 export function parseAnalyticsTimestamp(raw: unknown): number | null {
   if (raw === null || raw === undefined) return null;
@@ -94,11 +129,21 @@ export function parseAnalyticsTimestamp(raw: unknown): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  // Normalize "YYYY-MM-DD HH:MM" or "YYYY-MM-DD HH:MM:SS" deterministically as UTC
-  const spaceDateTimeMatch = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?::(\d{2}))?$/.exec(trimmed);
+  // Support stored PKT suffix timestamps such as "2026-08-26 11:45 PKT" or "2026-10-15 14:30:00 PKT"
+  const pktMatch = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2})(?:\.(\d+))?)?\s*PKT$/i.exec(trimmed);
+  if (pktMatch) {
+    const sec = pktMatch[3] || '00';
+    const frac = pktMatch[4] ? `.${pktMatch[4]}` : '';
+    const ms = Date.parse(`${pktMatch[1]}T${pktMatch[2]}:${sec}${frac}+05:00`);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  // Normalize "YYYY-MM-DD HH:MM" or "YYYY-MM-DD HH:MM:SS" without timezone deterministically as UTC
+  const spaceDateTimeMatch = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?::(\d{2})(?:\.(\d+))?)?$/.exec(trimmed);
   if (spaceDateTimeMatch) {
     const sec = spaceDateTimeMatch[3] || '00';
-    const ms = Date.parse(`${spaceDateTimeMatch[1]}T${spaceDateTimeMatch[2]}:${sec}Z`);
+    const frac = spaceDateTimeMatch[4] ? `.${spaceDateTimeMatch[4]}` : '';
+    const ms = Date.parse(`${spaceDateTimeMatch[1]}T${spaceDateTimeMatch[2]}:${sec}${frac}Z`);
     return Number.isFinite(ms) ? ms : null;
   }
 
@@ -124,6 +169,52 @@ function getRecordTimestampMs(record: any, fields: string[]): number | null {
   return null;
 }
 
+function getRecordTimestampValues(record: any, fields: string[]): Array<{ ms: number; dateOnly: boolean; raw: string }> {
+  if (!record || typeof record !== 'object') return [];
+  const results: Array<{ ms: number; dateOnly: boolean; raw: string }> = [];
+  for (const field of fields) {
+    const rawVal = record[field];
+    const ms = parseAnalyticsTimestamp(rawVal);
+    if (ms !== null) {
+      results.push({
+        ms,
+        dateOnly: isDateOnlyString(rawVal),
+        raw: typeof rawVal === 'string' ? rawVal.trim() : ''
+      });
+    }
+  }
+  return results;
+}
+
+function areTimestampsPotentiallySamePayment(
+  recordTimestamps: Array<{ ms: number; dateOnly: boolean; raw: string }>,
+  txTimestamps: Array<{ ms: number; dateOnly: boolean; raw: string }>
+): boolean {
+  if (recordTimestamps.length === 0 || txTimestamps.length === 0) {
+    return true;
+  }
+  for (const rTs of recordTimestamps) {
+    for (const tTs of txTimestamps) {
+      if (rTs.dateOnly || tTs.dateOnly) {
+        if (rTs.dateOnly && !tTs.dateOnly) {
+          if (rTs.raw === getPktCalendarDateKey(tTs.ms) || rTs.raw === getUtcCalendarDateKey(tTs.ms)) {
+            return true;
+          }
+        } else if (tTs.dateOnly && !rTs.dateOnly) {
+          if (tTs.raw === getPktCalendarDateKey(rTs.ms) || tTs.raw === getUtcCalendarDateKey(rTs.ms)) {
+            return true;
+          }
+        } else if (rTs.raw === tTs.raw) {
+          return true;
+        }
+      } else if (Math.abs(rTs.ms - tTs.ms) <= AMBIGUOUS_DEDUPE_TIME_WINDOW_MS) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function isTimestampInRange(
   timestampMs: number | null,
   timeRange: AnalyticsTimeRange,
@@ -139,33 +230,15 @@ export function isTimestampInRange(
   const parsedRef =
     referenceDate !== undefined ? parseAnalyticsTimestamp(referenceDate) : Date.now();
   const refMs = parsedRef !== null ? parsedRef : Date.now();
-  const refDate = new Date(refMs);
-  const utcDayStart = Date.UTC(
-    refDate.getUTCFullYear(),
-    refDate.getUTCMonth(),
-    refDate.getUTCDate(),
-    0,
-    0,
-    0,
-    0
-  );
-  const utcDayEnd = Date.UTC(
-    refDate.getUTCFullYear(),
-    refDate.getUTCMonth(),
-    refDate.getUTCDate(),
-    23,
-    59,
-    59,
-    999
-  );
+  const { pktDayStartMs, pktDayEndMs } = getPktDayBoundsMs(refMs);
 
   if (timeRange === 'today') {
-    return timestampMs >= utcDayStart && timestampMs <= utcDayEnd;
+    return timestampMs >= pktDayStartMs && timestampMs <= pktDayEndMs;
   }
 
   const days = timeRange === '7days' ? 7 : 30;
   const windowStart = refMs - days * MS_PER_DAY;
-  const windowEnd = Math.max(refMs, utcDayEnd);
+  const windowEnd = Math.max(refMs, pktDayEndMs);
   return timestampMs >= windowStart && timestampMs <= windowEnd;
 }
 
@@ -179,8 +252,10 @@ export function convertRecordAmountToPkr(
   const numericAmount = Number(amount);
   if (!Number.isFinite(numericAmount) || numericAmount < 0) return null;
 
-  const normalizedCurr =
-    typeof currency === 'string' && currency.trim() ? currency.trim().toUpperCase() : 'PKR';
+  if (typeof currency !== 'string' || !currency.trim()) {
+    return null;
+  }
+  const normalizedCurr = currency.trim().toUpperCase();
 
   if (normalizedCurr === 'PKR') {
     return numericAmount;
@@ -346,25 +421,40 @@ export function computeAnalyticsMetrics(params: {
   const rawAds = Array.isArray(params.ads) ? params.ads : [];
 
   // Combine authoritative central paymentTransactions + user-embedded transactions without duplicates
-  const mergedTxMap = new Map<string, PaymentTransaction>();
+  const allCombinedTransactions: PaymentTransaction[] = [];
+  const seenTxIds = new Set<string>();
+  const seenTxTids = new Set<string>();
+
   for (const tx of rawPaymentTransactions) {
     if (!tx || typeof tx !== 'object') continue;
-    const key = String(tx.id || tx.transactionId || '').trim();
-    if (key && !mergedTxMap.has(key)) {
-      mergedTxMap.set(key, tx);
+    const txId = tx.id ? String(tx.id).trim() : '';
+    const txTid = tx.transactionId ? String(tx.transactionId).trim() : '';
+    if ((txId && seenTxIds.has(txId)) || (txTid && seenTxTids.has(txTid))) {
+      continue;
     }
+    if (txId) seenTxIds.add(txId);
+    if (txTid) seenTxTids.add(txTid);
+    allCombinedTransactions.push(tx);
   }
   for (const user of rawUsers) {
     if (!user || !Array.isArray(user.transactions)) continue;
     for (const tx of user.transactions) {
       if (!tx || typeof tx !== 'object') continue;
-      const key = String(tx.id || tx.transactionId || '').trim();
-      if (key && !mergedTxMap.has(key)) {
-        mergedTxMap.set(key, { ...tx, userId: tx.userId || user.id, userEmail: tx.userEmail || user.email });
+      const txId = tx.id ? String(tx.id).trim() : '';
+      const txTid = tx.transactionId ? String(tx.transactionId).trim() : '';
+      if (!txId && !txTid) continue;
+      if ((txId && seenTxIds.has(txId)) || (txTid && seenTxTids.has(txTid))) {
+        continue;
       }
+      if (txId) seenTxIds.add(txId);
+      if (txTid) seenTxTids.add(txTid);
+      allCombinedTransactions.push({
+        ...tx,
+        userId: tx.userId || user.id,
+        userEmail: tx.userEmail || user.email
+      });
     }
   }
-  const allCombinedTransactions = Array.from(mergedTxMap.values());
 
   const filteredJobs = filterRecordsByTimeRange(rawJobs, ['createdAt', 'postedAt', 'scrapedAt'], timeRange, referenceDate);
   const filteredPending = filterRecordsByTimeRange(
@@ -406,12 +496,49 @@ export function computeAnalyticsMetrics(params: {
     referenceDate
   );
 
+  // Lookup map of verified revenue transaction amounts across all loaded transactions for ad cost recovery
+  const allTxAmountByRef = new Map<string, number>();
+  for (const tx of allCombinedTransactions) {
+    if (!isRevenueTransaction(tx)) continue;
+    const pkrVal = convertRecordAmountToPkr(tx.amount, tx.currency, currencyConfig);
+    if (pkrVal === null) continue;
+    const txId = tx.id ? String(tx.id).trim() : '';
+    const txTid = tx.transactionId ? String(tx.transactionId).trim() : '';
+    const txType = String(tx.type || '').trim();
+    if (txId) allTxAmountByRef.set(txId, pkrVal);
+    if (txTid) allTxAmountByRef.set(txTid, pkrVal);
+    if ((txType === 'Ad Campaign Fee' || txType === 'Advertisement') && tx.adIdRef) {
+      allTxAmountByRef.set(String(tx.adIdRef).trim(), pkrVal);
+    }
+  }
+
+  // Track eligible financial records with missing dates across full streams in bounded ranges
+  let missingEligibleFinancialDateCount = 0;
+
+  let txHasUndatedEligible = false;
+  for (const tx of allCombinedTransactions) {
+    if (!isRevenueTransaction(tx)) continue;
+    const ts = getRecordTimestampMs(tx, ['verifiedAt', 'createdAt', 'dateTime']);
+    if (ts === null && timeRange !== 'all') {
+      txHasUndatedEligible = true;
+      missingEligibleFinancialDateCount++;
+    }
+  }
+
   // 1. Authoritative Revenue Transactions (exclude Wallet Deposit & Refund)
+  interface CountedRevenueTxEntry {
+    tx: PaymentTransaction;
+    txType: string;
+    pkrVal: number;
+    timestamps: Array<{ ms: number; dateOnly: boolean; raw: string }>;
+    claimedByFeeLog: boolean;
+    claimedBySubscriber: boolean;
+  }
+
   const countedTxIds = new Set<string>();
   const countedAdIds = new Set<string>();
-  const countedFeeKeys = new Set<string>();
-  const countedSubKeys = new Set<string>();
-  const txAmountByRef = new Map<string, number>();
+  const revenueTxByUniqueKey = new Map<string, CountedRevenueTxEntry>();
+  const countedRevenueTxEntries: CountedRevenueTxEntry[] = [];
 
   let totalTransactionsRevenuePkrRaw = 0;
   let txCurrencyUnconvertible = false;
@@ -433,46 +560,60 @@ export function computeAnalyticsMetrics(params: {
     const txTid = tx.transactionId ? String(tx.transactionId).trim() : '';
     const txType = String(tx.type || '').trim();
 
+    const entry: CountedRevenueTxEntry = {
+      tx,
+      txType,
+      pkrVal,
+      timestamps: getRecordTimestampValues(tx, ['dateTime', 'createdAt', 'verifiedAt']),
+      claimedByFeeLog: false,
+      claimedBySubscriber: false
+    };
+    countedRevenueTxEntries.push(entry);
+
     if (txId) {
       countedTxIds.add(txId);
       countedTxIds.add(`log-${txId}`);
-      txAmountByRef.set(txId, pkrVal);
+      revenueTxByUniqueKey.set(txId, entry);
+      revenueTxByUniqueKey.set(`log-${txId}`, entry);
     }
     if (txTid) {
       countedTxIds.add(txTid);
-      txAmountByRef.set(txTid, pkrVal);
+      countedTxIds.add(`log-${txTid}`);
+      revenueTxByUniqueKey.set(txTid, entry);
+      revenueTxByUniqueKey.set(`log-${txTid}`, entry);
     }
 
-    if (txType === 'Ad Campaign Fee' || txType === 'Advertisement') {
-      if (tx.adIdRef) {
-        const adId = String(tx.adIdRef).trim();
-        countedAdIds.add(adId);
-        txAmountByRef.set(adId, pkrVal);
-      }
-    } else if (txType === 'Job Posting Fee' || txType === 'Job Posting') {
-      if (tx.userId && tx.jobTitleRef) {
-        countedFeeKeys.add(`${String(tx.userId)}|${String(tx.jobTitleRef).trim()}|${Number(tx.amount)}`);
-      }
-    } else if (txType === 'Subscription') {
-      if (tx.userId) {
-        countedSubKeys.add(`u:${String(tx.userId)}|${Number(tx.amount)}`);
-      }
-      if (tx.userEmail) {
-        countedSubKeys.add(`e:${String(tx.userEmail).trim().toLowerCase()}|${Number(tx.amount)}`);
-      }
+    if ((txType === 'Ad Campaign Fee' || txType === 'Advertisement') && tx.adIdRef) {
+      countedAdIds.add(String(tx.adIdRef).trim());
     }
   }
 
-  const txRangeUndetermined =
-    timeRange !== 'all' && allCombinedTransactions.length > 0 && filteredTransactions.datedCount === 0;
+  const txRangeUndetermined = timeRange !== 'all' && txHasUndatedEligible;
   const totalTransactionsRevenuePkr: number | null =
     txCurrencyUnconvertible || txRangeUndetermined ? null : totalTransactionsRevenuePkrRaw;
 
-  // 2. Paid Fee Logs (only status === 'Paid'; deduplicated against authoritative transactions)
+  // 2. Paid Fee Logs (only status === 'Paid'; strict ID/ref deduplication + ambiguous legacy detection)
+  let feeLogsHasUndatedEligible = false;
+  for (const log of rawFeeLogs) {
+    if (!log || typeof log !== 'object' || log.status !== 'Paid') continue;
+    const ts = getRecordTimestampMs(log, ['dateTime', 'createdAt']);
+    if (ts === null && timeRange !== 'all') {
+      feeLogsHasUndatedEligible = true;
+      missingEligibleFinancialDateCount++;
+    }
+  }
+
   let feeLogSumRaw = 0;
   let unlinkedFeeLogSumRaw = 0;
   let paidFeeLogsCount = 0;
   let feeLogCurrencyUnconvertible = false;
+  let ambiguousFinancialDeduplicationCount = 0;
+
+  const validInRangePaidFeeLogs: Array<{
+    log: JobPostingFeeLog;
+    pkrVal: number;
+    matchedByUniqueKey: boolean;
+  }> = [];
 
   for (const log of filteredFeeLogs.items) {
     if (!log || log.status !== 'Paid') continue;
@@ -490,35 +631,104 @@ export function computeAnalyticsMetrics(params: {
     const logId = log.id ? String(log.id).trim() : '';
     const rawLogId = logId.replace(/^log-/, '');
     const logTid = logObj.transactionId ? String(logObj.transactionId).trim() : '';
-    const compositeKey =
-      log.userId && log.jobTitle ? `${String(log.userId)}|${String(log.jobTitle).trim()}|${Number(log.amount)}` : '';
+    const logPayTxId = logObj.paymentTransactionId ? String(logObj.paymentTransactionId).trim() : '';
+    const logTxRef = logObj.transactionRef ? String(logObj.transactionRef).trim() : '';
 
-    const alreadyInTransactions =
-      (logId && countedTxIds.has(logId)) ||
-      (rawLogId && countedTxIds.has(rawLogId)) ||
-      (logTid && countedTxIds.has(logTid)) ||
-      (compositeKey && countedFeeKeys.has(compositeKey));
+    const matchedTxEntry =
+      (logId && revenueTxByUniqueKey.get(logId)) ||
+      (rawLogId && revenueTxByUniqueKey.get(rawLogId)) ||
+      (logTid && revenueTxByUniqueKey.get(logTid)) ||
+      (logPayTxId && revenueTxByUniqueKey.get(logPayTxId)) ||
+      (logTxRef && revenueTxByUniqueKey.get(logTxRef)) ||
+      undefined;
 
-    if (!alreadyInTransactions) {
-      unlinkedFeeLogSumRaw += pkrVal;
+    if (matchedTxEntry) {
+      matchedTxEntry.claimedByFeeLog = true;
+    }
+
+    validInRangePaidFeeLogs.push({
+      log,
+      pkrVal,
+      matchedByUniqueKey: Boolean(matchedTxEntry)
+    });
+  }
+
+  for (const item of validInRangePaidFeeLogs) {
+    if (item.matchedByUniqueKey) continue;
+
+    const logObj = item.log as Record<string, any>;
+    const explicitRef =
+      String(logObj.transactionId || logObj.paymentTransactionId || logObj.transactionRef || '').trim();
+    if (explicitRef) {
+      // Carries its own unique reference not present in counted revenue transactions
+      unlinkedFeeLogSumRaw += item.pkrVal;
+      continue;
+    }
+
+    const logUserId = item.log.userId ? String(item.log.userId).trim() : '';
+    const logEmail = item.log.userEmail ? String(item.log.userEmail).trim().toLowerCase() : '';
+    const logTitle = item.log.jobTitle ? String(item.log.jobTitle).trim().toLowerCase() : '';
+    const logJobId = logObj.jobIdRef ? String(logObj.jobIdRef).trim() : '';
+    const logTimestamps = getRecordTimestampValues(item.log, ['dateTime', 'createdAt']);
+
+    const unclaimedCandidate = countedRevenueTxEntries.find((entry) => {
+      if (entry.claimedByFeeLog) return false;
+      if (entry.txType !== 'Job Posting Fee' && entry.txType !== 'Job Posting') return false;
+      if (Math.abs(entry.pkrVal - item.pkrVal) >= 0.01) return false;
+
+      const txUserId = entry.tx.userId ? String(entry.tx.userId).trim() : '';
+      const txEmail = entry.tx.userEmail ? String(entry.tx.userEmail).trim().toLowerCase() : '';
+      const sameUser = Boolean((logUserId && txUserId && logUserId === txUserId) || (logEmail && txEmail && logEmail === txEmail));
+      if (!sameUser) return false;
+
+      const txTitle = entry.tx.jobTitleRef ? String(entry.tx.jobTitleRef).trim().toLowerCase() : '';
+      const txJobId = entry.tx.jobIdRef ? String(entry.tx.jobIdRef).trim() : '';
+      const sameJob = Boolean((logJobId && txJobId && logJobId === txJobId) || (logTitle && txTitle && logTitle === txTitle));
+      if (!sameJob) return false;
+
+      return areTimestampsPotentiallySamePayment(logTimestamps, entry.timestamps);
+    });
+
+    if (unclaimedCandidate) {
+      unclaimedCandidate.claimedByFeeLog = true;
+      ambiguousFinancialDeduplicationCount++;
+    } else {
+      unlinkedFeeLogSumRaw += item.pkrVal;
     }
   }
 
-  const feeLogsRangeUndetermined =
-    timeRange !== 'all' && rawFeeLogs.length > 0 && filteredFeeLogs.datedCount === 0;
+  const feeLogsRangeUndetermined = timeRange !== 'all' && feeLogsHasUndatedEligible;
   const totalFeeLogsPkr: number | null =
     feeLogCurrencyUnconvertible || feeLogsRangeUndetermined ? null : feeLogSumRaw;
 
-  // 3. Active Subscribers (deduplicated against Subscription transactions)
+  // 3. Active Subscribers (strict ID/ref deduplication + ambiguous legacy detection)
+  let subscribersHasUndatedEligible = false;
+  for (const sub of rawSubscribers) {
+    if (!sub || typeof sub !== 'object' || (sub.status !== 'Active' && sub.status !== 'Expiring Soon')) {
+      continue;
+    }
+    const ts = getRecordTimestampMs(sub, ['subscribedAt', 'createdAt']);
+    if (ts === null && timeRange !== 'all') {
+      subscribersHasUndatedEligible = true;
+      missingEligibleFinancialDateCount++;
+    }
+  }
+
   let subscribersSumRaw = 0;
   let unlinkedSubscribersSumRaw = 0;
   let paidSubscribersCount = 0;
   let subscriberCurrencyUnconvertible = false;
 
+  const validInRangePaidSubscribers: Array<{
+    sub: Subscriber;
+    pkrVal: number;
+    matchedByUniqueKey: boolean;
+  }> = [];
+
   for (const sub of filteredSubscribers.items) {
     if (!sub || (sub.status !== 'Active' && sub.status !== 'Expiring Soon')) continue;
 
-    const pkrVal = convertRecordAmountToPkr(sub.amountPaid, sub.currency || 'PKR', currencyConfig);
+    const pkrVal = convertRecordAmountToPkr(sub.amountPaid, sub.currency, currencyConfig);
     if (pkrVal === null) {
       subscriberCurrencyUnconvertible = true;
       continue;
@@ -527,29 +737,83 @@ export function computeAnalyticsMetrics(params: {
     paidSubscribersCount++;
     subscribersSumRaw += pkrVal;
 
-    const subObj = sub as Record<string, any>;
+    const subId = sub.id ? String(sub.id).trim() : '';
+    const rawSubId = subId.startsWith('sub-') ? subId.slice(4).trim() : '';
     const pTxId = sub.paymentTransactionId ? String(sub.paymentTransactionId).trim() : '';
     const txRef = sub.transactionRef ? String(sub.transactionRef).trim() : '';
-    const uKey = subObj.userId ? `u:${String(subObj.userId)}|${Number(sub.amountPaid)}` : '';
-    const eKey = sub.email ? `e:${String(sub.email).trim().toLowerCase()}|${Number(sub.amountPaid)}` : '';
 
-    const alreadyInTransactions =
-      (pTxId && countedTxIds.has(pTxId)) ||
-      (txRef && countedTxIds.has(txRef)) ||
-      (uKey && countedSubKeys.has(uKey)) ||
-      (eKey && countedSubKeys.has(eKey));
+    const matchedTxEntry =
+      (pTxId && revenueTxByUniqueKey.get(pTxId)) ||
+      (txRef && revenueTxByUniqueKey.get(txRef)) ||
+      (rawSubId && revenueTxByUniqueKey.get(rawSubId)) ||
+      undefined;
 
-    if (!alreadyInTransactions) {
-      unlinkedSubscribersSumRaw += pkrVal;
+    if (matchedTxEntry) {
+      matchedTxEntry.claimedBySubscriber = true;
+    }
+
+    validInRangePaidSubscribers.push({
+      sub,
+      pkrVal,
+      matchedByUniqueKey: Boolean(matchedTxEntry)
+    });
+  }
+
+  for (const item of validInRangePaidSubscribers) {
+    if (item.matchedByUniqueKey) continue;
+
+    const pTxId = item.sub.paymentTransactionId ? String(item.sub.paymentTransactionId).trim() : '';
+    const txRef = item.sub.transactionRef ? String(item.sub.transactionRef).trim() : '';
+    if (pTxId || txRef) {
+      // Explicit unique payment reference not present in counted revenue transactions
+      unlinkedSubscribersSumRaw += item.pkrVal;
+      continue;
+    }
+
+    const subObj = item.sub as Record<string, any>;
+    const subUserId = subObj.userId ? String(subObj.userId).trim() : '';
+    const subEmail = item.sub.email ? String(item.sub.email).trim().toLowerCase() : '';
+    const subTimestamps = getRecordTimestampValues(item.sub, ['subscribedAt', 'createdAt']);
+
+    const unclaimedCandidate = countedRevenueTxEntries.find((entry) => {
+      if (entry.claimedBySubscriber) return false;
+      if (entry.txType !== 'Subscription') return false;
+      if (Math.abs(entry.pkrVal - item.pkrVal) >= 0.01) return false;
+
+      const txUserId = entry.tx.userId ? String(entry.tx.userId).trim() : '';
+      const txEmail = entry.tx.userEmail ? String(entry.tx.userEmail).trim().toLowerCase() : '';
+      const sameUser = Boolean((subUserId && txUserId && subUserId === txUserId) || (subEmail && txEmail && subEmail === txEmail));
+      if (!sameUser) return false;
+
+      return areTimestampsPotentiallySamePayment(subTimestamps, entry.timestamps);
+    });
+
+    if (unclaimedCandidate) {
+      unclaimedCandidate.claimedBySubscriber = true;
+      ambiguousFinancialDeduplicationCount++;
+    } else {
+      unlinkedSubscribersSumRaw += item.pkrVal;
     }
   }
 
-  const subscribersRangeUndetermined =
-    timeRange !== 'all' && rawSubscribers.length > 0 && filteredSubscribers.datedCount === 0;
+  const subscribersRangeUndetermined = timeRange !== 'all' && subscribersHasUndatedEligible;
   const totalSubscribersPkr: number | null =
     subscriberCurrencyUnconvertible || subscribersRangeUndetermined ? null : subscribersSumRaw;
 
   // 4. Advertisements (only verified paymentStatus === 'Paid' + actual AdvertisementRecord fields)
+  let adsHasUndatedEligibleOrUnverified = false;
+  for (const ad of rawAds) {
+    const evaluation = getAdvertisementVerifiedCostPkr(ad, allTxAmountByRef);
+    if (!evaluation.eligiblePaid && !evaluation.unverifiedMissingStatus) {
+      continue;
+    }
+    const ts = getRecordTimestampMs(ad, ['createdAt', 'approvedAt', 'updatedAt', 'scheduledStartAt']);
+    if (ts === null && timeRange !== 'all') {
+      adsHasUndatedEligibleOrUnverified = true;
+      missingEligibleFinancialDateCount++;
+    }
+  }
+
   let adsSumRaw = 0;
   let unlinkedAdsSumRaw = 0;
   let paidAdsCount = 0;
@@ -557,7 +821,7 @@ export function computeAnalyticsMetrics(params: {
   let hasUnverifiedMissingStatusAd = false;
 
   for (const ad of filteredAds.items) {
-    const evaluation = getAdvertisementVerifiedCostPkr(ad, txAmountByRef);
+    const evaluation = getAdvertisementVerifiedCostPkr(ad, allTxAmountByRef);
     if (evaluation.unverifiedMissingStatus) {
       hasUnverifiedMissingStatusAd = true;
       continue;
@@ -589,42 +853,23 @@ export function computeAnalyticsMetrics(params: {
     }
   }
 
-  const adsRangeUndetermined =
-    timeRange !== 'all' && rawAds.length > 0 && filteredAds.datedCount === 0;
-
-  let totalAdsPkr: number | null;
-  if (adsRangeUndetermined || hasUnreliablePaidAd) {
-    totalAdsPkr = null;
-  } else if (paidAdsCount === 0 && hasUnverifiedMissingStatusAd) {
-    totalAdsPkr = null;
-  } else {
-    totalAdsPkr = adsSumRaw;
-  }
+  const adsRangeUndetermined = timeRange !== 'all' && adsHasUndatedEligibleOrUnverified;
+  const totalAdsPkr: number | null =
+    adsRangeUndetermined || hasUnreliablePaidAd || hasUnverifiedMissingStatusAd ? null : adsSumRaw;
 
   const activeAdsCount = filteredAds.items.filter((a) => a && a.status === 'active').length;
 
-  // 5. Total Gross Revenue (strictly deduplicated across all verified streams)
-  const hasAnyFinancialInput =
-    allCombinedTransactions.length > 0 ||
-    rawFeeLogs.length > 0 ||
-    rawSubscribers.length > 0 ||
-    rawAds.length > 0;
+  // 5. Total Gross Revenue (propagate any stream uncertainty, missing dates, currency failure, or ambiguous dedupe)
+  const hasStreamUncertainty =
+    totalTransactionsRevenuePkr === null ||
+    totalFeeLogsPkr === null ||
+    totalSubscribersPkr === null ||
+    totalAdsPkr === null ||
+    ambiguousFinancialDeduplicationCount > 0;
 
-  const allFinancialRecordsMissingDatesInBoundedRange =
-    timeRange !== 'all' &&
-    hasAnyFinancialInput &&
-    filteredTransactions.datedCount === 0 &&
-    filteredFeeLogs.datedCount === 0 &&
-    filteredSubscribers.datedCount === 0 &&
-    filteredAds.datedCount === 0;
-
-  const hasCurrencyConversionFailure =
-    txCurrencyUnconvertible || feeLogCurrencyUnconvertible || subscriberCurrencyUnconvertible;
-
-  const totalGrossRevenuePkr: number | null =
-    allFinancialRecordsMissingDatesInBoundedRange || hasCurrencyConversionFailure
-      ? null
-      : totalTransactionsRevenuePkrRaw + unlinkedFeeLogSumRaw + unlinkedSubscribersSumRaw + unlinkedAdsSumRaw;
+  const totalGrossRevenuePkr: number | null = hasStreamUncertainty
+    ? null
+    : totalTransactionsRevenuePkrRaw + unlinkedFeeLogSumRaw + unlinkedSubscribersSumRaw + unlinkedAdsSumRaw;
 
   // 6. Scraper & Non-Financial Metrics
   const totalScrapedInAudit = filteredAuditLogs.items.length;
@@ -687,6 +932,8 @@ export function computeAnalyticsMetrics(params: {
     employersCount,
     seekersCount,
     missingDateRecordsCount,
+    missingEligibleFinancialDateCount,
+    ambiguousFinancialDeduplicationCount,
     regionBreakdown
   };
 }
@@ -830,6 +1077,18 @@ export const AdminAnalyticsOverview: React.FC<AdminAnalyticsOverviewProps> = ({
           <Clock className="w-4 h-4 text-amber-400 shrink-0" />
           <span>
             {metrics.missingDateRecordsCount} loaded record(s) have no valid timestamp and are excluded from the selected {TIME_RANGE_OPTIONS.find((o) => o.id === timeRange)?.label} range (switch to All Time to include undated records).
+          </span>
+        </div>
+      )}
+
+      {selectedRateValid && metrics.totalGrossRevenuePkr === null && (
+        <div
+          role="status"
+          className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-semibold flex items-center space-x-2"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>
+            Gross Revenue displays N/A because one or more eligible financial records have unverified ad payment status/cost, missing currency or exchange rates, missing timestamps in the selected range, or ambiguous legacy transaction links.
           </span>
         </div>
       )}

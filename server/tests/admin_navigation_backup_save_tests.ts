@@ -46,7 +46,8 @@ import {
   isTimestampInRange,
   convertRecordAmountToPkr,
   convertPkrAmount,
-  formatAnalyticsCurrency
+  formatAnalyticsCurrency,
+  getPktDayBoundsMs
 } from '../../src/components/admin/AdminAnalyticsOverview';
 import {
   AdminAiQualityEnhancer,
@@ -2257,6 +2258,548 @@ async function runSuite() {
     assert.ok(paySource.includes('role="alert"'));
     assert.ok(paySource.includes('saveDurationPresetsToStorage'));
     assert.ok(paySource.includes('api.paymentSettings.update(payload)'));
+  });
+
+  // --- PHASE8.1-D (AUDIT-23 TO AUDIT-32): 10 ANALYTICS FINANCIAL INTEGRITY REGRESSION TESTS ---
+  await runTest('AUDIT-23 [PKT Timezone & Midnight Boundary]: Today range uses Asia/Karachi (UTC+5) day boundaries and parses PKT-suffixed timestamps accurately', () => {
+    // 2026-11-17T21:00:00Z is 2026-11-18 02:00:00 PKT (next calendar day in Pakistan!)
+    const refAfterUtcMidnightPkt = '2026-11-17T21:00:00.000Z';
+    const bounds = getPktDayBoundsMs(Date.parse(refAfterUtcMidnightPkt));
+    assert.strictEqual(bounds.pktDateKey, '2026-11-18');
+
+    // 2026-11-17T18:59:59.999Z = 2026-11-17 23:59:59.999 PKT -> yesterday in PKT (excluded)
+    assert.strictEqual(
+      isTimestampInRange(parseAnalyticsTimestamp('2026-11-17T18:59:59.999Z'), 'today', refAfterUtcMidnightPkt),
+      false
+    );
+    // 2026-11-17T19:00:00.000Z = 2026-11-18 00:00:00.000 PKT -> exact start of PKT Today (included)
+    assert.strictEqual(
+      isTimestampInRange(parseAnalyticsTimestamp('2026-11-17T19:00:00.000Z'), 'today', refAfterUtcMidnightPkt),
+      true
+    );
+    // Stored PKT string format ("YYYY-MM-DD HH:MM PKT")
+    assert.strictEqual(
+      isTimestampInRange(parseAnalyticsTimestamp('2026-11-18 01:30 PKT'), 'today', refAfterUtcMidnightPkt),
+      true
+    );
+    assert.strictEqual(
+      isTimestampInRange(parseAnalyticsTimestamp('2026-11-17 23:45 PKT'), 'today', refAfterUtcMidnightPkt),
+      false
+    );
+
+    const txs: PaymentTransaction[] = [
+      {
+        id: 'tx-pkt-today-1',
+        dateTime: '2026-11-17T19:30:00.000Z', // Nov 18 00:30 PKT (Today in PKT)
+        amount: 2000,
+        currency: 'PKR',
+        type: 'Subscription',
+        status: 'Success',
+        paymentMethod: 'JazzCash'
+      },
+      {
+        id: 'tx-pkt-today-2',
+        dateTime: '2026-11-18 11:45 PKT', // Nov 18 11:45 PKT (Today in PKT)
+        amount: 3000,
+        currency: 'PKR',
+        type: 'Job Posting Fee',
+        status: 'Success',
+        paymentMethod: 'Easypaisa'
+      },
+      {
+        id: 'tx-pkt-yesterday',
+        dateTime: '2026-11-17T18:30:00.000Z', // Nov 17 23:30 PKT (Yesterday in PKT)
+        amount: 9000,
+        currency: 'PKR',
+        type: 'Subscription',
+        status: 'Success',
+        paymentMethod: 'Bank Transfer'
+      }
+    ];
+
+    const todayMetrics = computeAnalyticsMetrics({
+      paymentTransactions: txs,
+      timeRange: 'today',
+      referenceDate: refAfterUtcMidnightPkt
+    });
+    assert.strictEqual(todayMetrics.countedTransactionsCount, 2);
+    assert.strictEqual(todayMetrics.totalTransactionsRevenuePkr, 5000);
+    assert.strictEqual(todayMetrics.totalGrossRevenuePkr, 5000);
+
+    // Pre-midnight PKT (Nov 17 23:30 PKT = Nov 17 18:30Z) includes Nov 16 19:30Z (Nov 17 00:30 PKT)
+    const refBeforePktMidnight = '2026-11-17T18:30:00.000Z';
+    assert.strictEqual(
+      isTimestampInRange(parseAnalyticsTimestamp('2026-11-16T19:30:00.000Z'), 'today', refBeforePktMidnight),
+      true
+    );
+    assert.strictEqual(
+      isTimestampInRange(parseAnalyticsTimestamp('2026-11-17T19:00:00.000Z'), 'today', refBeforePktMidnight),
+      false
+    );
+  });
+
+  await runTest('AUDIT-24 [Mixed Dated + Undated Financial Records]: Undated eligible records force N/A in bounded ranges while undated ineligible records do not corrupt valid totals', () => {
+    const refNow = '2026-11-17T12:00:00.000Z';
+
+    // 1. Mixed dated + undated Paid fee logs must NOT return partial numeric total in bounded ranges
+    const mixedFeeLogs: JobPostingFeeLog[] = [
+      { id: 'f-dated', dateTime: '2026-11-17 09:00', userId: 'u1', userName: 'U1', userEmail: 'u1@t.pk', jobTitle: 'Role A', amount: 1500, currency: 'PKR', paymentMethod: 'Wallet', status: 'Paid' },
+      { id: 'f-undated', dateTime: '', userId: 'u2', userName: 'U2', userEmail: 'u2@t.pk', jobTitle: 'Role B', amount: 2500, currency: 'PKR', paymentMethod: 'Wallet', status: 'Paid' }
+    ];
+    for (const r of ['today', '7days', '30days'] as AnalyticsTimeRange[]) {
+      const m = computeAnalyticsMetrics({ feeLogs: mixedFeeLogs, timeRange: r, referenceDate: refNow });
+      assert.strictEqual(m.totalFeeLogsPkr, null, `Mixed dated+undated Paid fee logs in ${r} must return null`);
+      assert.strictEqual(m.totalGrossRevenuePkr, null, `Mixed dated+undated Gross Revenue in ${r} must return null`);
+    }
+    const allTimeMixed = computeAnalyticsMetrics({ feeLogs: mixedFeeLogs, timeRange: 'all', referenceDate: refNow });
+    assert.strictEqual(allTimeMixed.totalFeeLogsPkr, 4000);
+    assert.strictEqual(allTimeMixed.totalGrossRevenuePkr, 4000);
+
+    // 2. Mixed dated + undated Success revenue tx, Active subscriber, Paid ad -> bounded N/A
+    const mixedTx = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 't1', dateTime: '2026-11-17 08:00', amount: 1000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'JazzCash' },
+        { id: 't2', dateTime: '', amount: 2000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'Easypaisa' }
+      ],
+      timeRange: '7days',
+      referenceDate: refNow
+    });
+    assert.strictEqual(mixedTx.totalTransactionsRevenuePkr, null);
+    assert.strictEqual(mixedTx.totalGrossRevenuePkr, null);
+
+    // 3. Undated INELIGIBLE records (Pending, Failed, Refunded, Wallet Deposit, Refund, Exempt) do NOT corrupt valid dated totals
+    const datedValidWithUndatedIneligible = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-ok', dateTime: '2026-11-17 09:00', amount: 3000, currency: 'PKR', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'JazzCash' },
+        { id: 'tx-dep-nodate', dateTime: '', amount: 50000, currency: 'PKR', type: 'Wallet Deposit', status: 'Success', paymentMethod: 'Bank Transfer' },
+        { id: 'tx-ref-nodate', dateTime: '', amount: 2000, currency: 'PKR', type: 'Refund', status: 'Success', paymentMethod: 'Wallet' },
+        { id: 'tx-pend-nodate', dateTime: '', amount: 4000, currency: 'PKR', type: 'Subscription', status: 'Pending', paymentMethod: 'Easypaisa' }
+      ],
+      feeLogs: [
+        { id: 'log-pend-nodate', dateTime: '', userId: 'ux', userName: 'X', userEmail: 'x@t.pk', jobTitle: 'Pending', amount: 1200, currency: 'PKR', paymentMethod: 'Wallet', status: 'Pending' },
+        { id: 'log-ref-nodate', dateTime: '', userId: 'uy', userName: 'Y', userEmail: 'y@t.pk', jobTitle: 'Refunded', amount: 1800, currency: 'PKR', paymentMethod: 'Wallet', status: 'Refunded' }
+      ],
+      subscribers: [
+        { id: 'sub-pend-nodate', name: 'P', email: 'p@t.pk', phone: '03001111111', plan: 'Monthly', paymentMethod: 'JazzCash', amountPaid: 999, currency: 'PKR', status: 'Pending', subscribedAt: '', whatsappEnabled: false }
+      ],
+      ads: [
+        { id: 'ad-exempt-nodate', status: 'active', paymentStatus: 'Exempt', campaignCostPkr: 5000 } as unknown as Advertisement,
+        { id: 'ad-refund-nodate', status: 'rejected', paymentStatus: 'Refunded', campaignCostPkr: 7000 } as unknown as Advertisement
+      ],
+      timeRange: 'today',
+      referenceDate: refNow
+    });
+    assert.strictEqual(datedValidWithUndatedIneligible.totalTransactionsRevenuePkr, 3000);
+    assert.strictEqual(datedValidWithUndatedIneligible.totalFeeLogsPkr, 0);
+    assert.strictEqual(datedValidWithUndatedIneligible.totalSubscribersPkr, 0);
+    assert.strictEqual(datedValidWithUndatedIneligible.totalAdsPkr, 0);
+    assert.strictEqual(datedValidWithUndatedIneligible.totalGrossRevenuePkr, 3000);
+  });
+
+  await runTest('AUDIT-25 [Missing Paid Ad Cost Propagation]: Paid ad missing cost makes both totalAdsPkr and totalGrossRevenuePkr null (N/A) even with other valid streams', () => {
+    const metrics = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-valid', dateTime: '2026-11-17 09:00', amount: 4000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'JazzCash' }
+      ],
+      ads: [
+        { id: 'ad-paid-ok', status: 'active', paymentStatus: 'Paid', campaignCostPkr: 5000, createdAt: '2026-11-17T08:00:00.000Z' } as unknown as Advertisement,
+        { id: 'ad-paid-missing-cost', status: 'active', paymentStatus: 'Paid', createdAt: '2026-11-17T09:00:00.000Z' } as unknown as Advertisement
+      ]
+    });
+    assert.strictEqual(metrics.totalTransactionsRevenuePkr, 4000);
+    assert.strictEqual(metrics.totalAdsPkr, null);
+    assert.strictEqual(metrics.totalGrossRevenuePkr, null);
+    assert.strictEqual(formatAnalyticsCurrency(metrics.totalGrossRevenuePkr, 'PKR'), 'N/A');
+  });
+
+  await runTest('AUDIT-26 [Missing Ad Payment Status Propagation]: Ad with missing paymentStatus mixed with Paid ads and valid transactions makes totalAdsPkr and totalGrossRevenuePkr null (N/A)', () => {
+    const metrics = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-valid-2', dateTime: '2026-11-17 09:00', amount: 2500, currency: 'PKR', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'Wallet' }
+      ],
+      ads: [
+        { id: 'ad-verified-paid', status: 'active', paymentStatus: 'Paid', campaignCostPkr: 6000, createdAt: '2026-11-17T08:00:00.000Z' } as unknown as Advertisement,
+        { id: 'ad-missing-status', status: 'active', campaignCostPkr: 9000, createdAt: '2026-11-17T10:00:00.000Z' } as unknown as Advertisement
+      ]
+    });
+    assert.strictEqual(metrics.totalAdsPkr, null);
+    assert.strictEqual(metrics.totalGrossRevenuePkr, null);
+  });
+
+  await runTest('AUDIT-27 [Gross Revenue Uncertainty Propagation]: Uncertainty in any individual revenue stream always propagates null to totalGrossRevenuePkr', () => {
+    // 1. Unconvertible subscriber currency propagates to Gross Revenue despite valid feeLogs + txs
+    const subUncertain = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-pkr', dateTime: '2026-11-17 09:00', amount: 3000, currency: 'PKR', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'Wallet' }
+      ],
+      subscribers: [
+        { id: 'sub-usd-norate', name: 'Intl', email: 'i@t.pk', phone: '03001234567', plan: 'Pro', paymentMethod: 'Stripe', amountPaid: 20, currency: 'USD', status: 'Active', subscribedAt: '2026-11-17 10:00', whatsappEnabled: true }
+      ]
+    });
+    assert.strictEqual(subUncertain.totalTransactionsRevenuePkr, 3000);
+    assert.strictEqual(subUncertain.totalSubscribersPkr, null);
+    assert.strictEqual(subUncertain.totalGrossRevenuePkr, null);
+
+    // 2. Unconvertible fee log propagates to Gross Revenue despite valid txs
+    const feeUncertain = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-pkr-2', dateTime: '2026-11-17 09:00', amount: 3000, currency: 'PKR', type: 'Subscription', status: 'Success', paymentMethod: 'JazzCash' }
+      ],
+      feeLogs: [
+        { id: 'log-aed-norate', dateTime: '2026-11-17 10:00', userId: 'u9', userName: 'Gulf Co', userEmail: 'g@co.ae', jobTitle: 'Lead', amount: 100, currency: 'AED', paymentMethod: 'Card', status: 'Paid' }
+      ]
+    });
+    assert.strictEqual(feeUncertain.totalFeeLogsPkr, null);
+    assert.strictEqual(feeUncertain.totalGrossRevenuePkr, null);
+  });
+
+  await runTest('AUDIT-28 [Repeated Legitimate Job Postings]: Does NOT suppress repeated job posting payments sharing userId, jobTitle, and amount', () => {
+    // Same employer posts the same job title twice at the same fee:
+    // tx-job-1 claimed by log-tx-job-1; log-job-2 is a legitimate second payment; tx-job-3 + log-tx-job-3 is a third.
+    const metrics = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-job-1',
+          transactionId: 'TID-J1',
+          dateTime: '2026-11-17 09:00',
+          amount: 2000,
+          currency: 'PKR',
+          type: 'Job Posting Fee',
+          status: 'Success',
+          paymentMethod: 'Wallet',
+          userId: 'u-emp-repeat',
+          jobTitleRef: 'Senior React Developer'
+        },
+        {
+          id: 'tx-job-3',
+          transactionId: 'TID-J3',
+          dateTime: '2026-11-17 16:00',
+          amount: 2000,
+          currency: 'PKR',
+          type: 'Job Posting Fee',
+          status: 'Success',
+          paymentMethod: 'Wallet',
+          userId: 'u-emp-repeat',
+          jobTitleRef: 'Senior React Developer'
+        }
+      ],
+      feeLogs: [
+        {
+          id: 'log-tx-job-1',
+          dateTime: '2026-11-17 09:00',
+          userId: 'u-emp-repeat',
+          userName: 'Repeat Corp',
+          userEmail: 'hr@repeat.pk',
+          jobTitle: 'Senior React Developer',
+          amount: 2000,
+          currency: 'PKR',
+          paymentMethod: 'Wallet',
+          status: 'Paid'
+        },
+        {
+          id: 'log-job-2-standalone',
+          dateTime: '2026-11-17 12:30',
+          userId: 'u-emp-repeat',
+          userName: 'Repeat Corp',
+          userEmail: 'hr@repeat.pk',
+          jobTitle: 'Senior React Developer',
+          amount: 2000,
+          currency: 'PKR',
+          paymentMethod: 'Easypaisa',
+          status: 'Paid'
+        },
+        {
+          id: 'log-tx-job-3',
+          dateTime: '2026-11-17 16:00',
+          userId: 'u-emp-repeat',
+          userName: 'Repeat Corp',
+          userEmail: 'hr@repeat.pk',
+          jobTitle: 'Senior React Developer',
+          amount: 2000,
+          currency: 'PKR',
+          paymentMethod: 'Wallet',
+          status: 'Paid'
+        }
+      ]
+    });
+
+    assert.strictEqual(metrics.totalTransactionsRevenuePkr, 4000);
+    assert.strictEqual(metrics.totalFeeLogsPkr, 6000);
+    assert.strictEqual(metrics.totalGrossRevenuePkr, 6000);
+
+    // Also test tx-1 without a linked log + distinct timestamp repeated standalone log-2 (e.g. 5 hours later)
+    const separateTimeRepeat = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-repeat-early',
+          dateTime: '2026-11-17 09:00',
+          amount: 2000,
+          currency: 'PKR',
+          type: 'Job Posting Fee',
+          status: 'Success',
+          paymentMethod: 'JazzCash',
+          userId: 'u-emp-same',
+          jobTitleRef: 'DevOps Engineer'
+        }
+      ],
+      feeLogs: [
+        {
+          id: 'log-repeat-later',
+          dateTime: '2026-11-17 14:00',
+          userId: 'u-emp-same',
+          userName: 'Same Emp',
+          userEmail: 'same@emp.pk',
+          jobTitle: 'DevOps Engineer',
+          amount: 2000,
+          currency: 'PKR',
+          paymentMethod: 'Easypaisa',
+          status: 'Paid'
+        }
+      ]
+    });
+    assert.strictEqual(separateTimeRepeat.totalGrossRevenuePkr, 4000);
+  });
+
+  await runTest('AUDIT-29 [Repeated Subscription Renewals]: Does NOT suppress legitimate repeated subscription renewals sharing userId/email and amount', () => {
+    const metrics = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-sub-jan',
+          transactionId: 'TID-SUB-1',
+          dateTime: '2026-10-15 10:00',
+          amount: 1200,
+          currency: 'PKR',
+          type: 'Subscription',
+          status: 'Success',
+          paymentMethod: 'JazzCash',
+          userId: 'u-sub-repeat',
+          userEmail: 'loyal@seeker.pk'
+        }
+      ],
+      subscribers: [
+        {
+          id: 'sub-tx-sub-jan',
+          name: 'Loyal Seeker',
+          email: 'loyal@seeker.pk',
+          phone: '03001112233',
+          plan: 'Pro Alerts',
+          paymentMethod: 'JazzCash',
+          paymentTransactionId: 'tx-sub-jan',
+          amountPaid: 1200,
+          currency: 'PKR',
+          status: 'Active',
+          subscribedAt: '2026-10-15 10:00',
+          whatsappEnabled: true
+        },
+        {
+          id: 'sub-renewal-nov',
+          name: 'Loyal Seeker',
+          email: 'loyal@seeker.pk',
+          phone: '03001112233',
+          plan: 'Pro Alerts',
+          paymentMethod: 'Easypaisa',
+          amountPaid: 1200,
+          currency: 'PKR',
+          status: 'Active',
+          subscribedAt: '2026-11-15 10:00',
+          whatsappEnabled: true
+        }
+      ]
+    });
+    assert.strictEqual(metrics.totalTransactionsRevenuePkr, 1200);
+    assert.strictEqual(metrics.totalSubscribersPkr, 2400);
+    assert.strictEqual(metrics.totalGrossRevenuePkr, 2400);
+
+    // Renewal at a later date even when original transaction has no linked subscriber record
+    const renewalLaterMonth = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-sub-oct',
+          dateTime: '2026-10-10 09:00',
+          amount: 1500,
+          currency: 'PKR',
+          type: 'Subscription',
+          status: 'Success',
+          paymentMethod: 'JazzCash',
+          userId: 'u-renew',
+          userEmail: 'renew@seeker.pk'
+        }
+      ],
+      subscribers: [
+        {
+          id: 'sub-nov-standalone',
+          name: 'Renew User',
+          email: 'renew@seeker.pk',
+          phone: '03009998877',
+          plan: 'Pro Alerts',
+          paymentMethod: 'Easypaisa',
+          amountPaid: 1500,
+          currency: 'PKR',
+          status: 'Active',
+          subscribedAt: '2026-11-10',
+          whatsappEnabled: true
+        }
+      ]
+    });
+    assert.strictEqual(renewalLaterMonth.totalGrossRevenuePkr, 3000);
+  });
+
+  await runTest('AUDIT-30 [Missing Currency Safety]: Does NOT default missing or blank currency to PKR and propagates N/A to metrics', () => {
+    assert.strictEqual(convertRecordAmountToPkr(2000, undefined), null);
+    assert.strictEqual(convertRecordAmountToPkr(2000, null), null);
+    assert.strictEqual(convertRecordAmountToPkr(2000, ''), null);
+    assert.strictEqual(convertRecordAmountToPkr(2000, '   '), null);
+    assert.strictEqual(convertRecordAmountToPkr(2000, 'PKR'), 2000);
+
+    const txMissingCurr = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-nocurr', dateTime: '2026-11-17 09:00', amount: 100, currency: '' as any, type: 'Subscription', status: 'Success', paymentMethod: 'Stripe' }
+      ]
+    });
+    assert.strictEqual(txMissingCurr.totalTransactionsRevenuePkr, null);
+    assert.strictEqual(txMissingCurr.totalGrossRevenuePkr, null);
+
+    const subMissingCurr = computeAnalyticsMetrics({
+      subscribers: [
+        { id: 'sub-nocurr', name: 'No Curr', email: 'nc@t.pk', phone: '03001112233', plan: 'Pro', paymentMethod: 'Stripe', amountPaid: 50, currency: undefined as any, status: 'Active', subscribedAt: '2026-11-17 09:00', whatsappEnabled: true }
+      ]
+    });
+    assert.strictEqual(subMissingCurr.totalSubscribersPkr, null);
+    assert.strictEqual(subMissingCurr.totalGrossRevenuePkr, null);
+  });
+
+  await runTest('AUDIT-31 [Invalid FX Rates]: Rejects zero, negative, NaN, Infinity, or unconfigured exchange rates cleanly as null (N/A)', () => {
+    const badRatesConfig: CurrencyExchangeConfig = {
+      baseCurrency: 'PKR',
+      supportedCurrencies: ['PKR', 'USD', 'AED', 'SAR'],
+      internationalPricingTiers: INITIAL_CURRENCY_CONFIG.internationalPricingTiers,
+      autoSyncEnabled: false,
+      lastSyncedAt: '2026-11-17',
+      rates: {
+        PKR: 1,
+        USD: 0,
+        AED: -0.015,
+        SAR: Number.NaN,
+        EUR: Number.POSITIVE_INFINITY,
+        GBP: 0.003,
+        CAD: 0,
+        AUD: 0
+      }
+    };
+
+    assert.strictEqual(convertRecordAmountToPkr(100, 'USD', badRatesConfig), null);
+    assert.strictEqual(convertRecordAmountToPkr(100, 'AED', badRatesConfig), null);
+    assert.strictEqual(convertRecordAmountToPkr(100, 'SAR', badRatesConfig), null);
+    assert.strictEqual(convertRecordAmountToPkr(100, 'EUR', badRatesConfig), null);
+    assert.strictEqual(convertRecordAmountToPkr(100, 'PKR', badRatesConfig), 100);
+    assert.strictEqual(convertRecordAmountToPkr(30, 'GBP', badRatesConfig), 10000);
+
+    const metricsBadFx = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-bad-fx', dateTime: '2026-11-17 09:00', amount: 50, currency: 'USD', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'Stripe' }
+      ],
+      currencyConfig: badRatesConfig
+    });
+    assert.strictEqual(metricsBadFx.totalTransactionsRevenuePkr, null);
+    assert.strictEqual(metricsBadFx.totalGrossRevenuePkr, null);
+    assert.strictEqual(formatAnalyticsCurrency(metricsBadFx.totalGrossRevenuePkr, 'PKR', badRatesConfig), 'N/A');
+  });
+
+  await runTest('AUDIT-32 [Unique ID/Ref Deduplication & Ambiguous Legacy Handling]: Deduplicates linked IDs/refs cleanly and exposes uncertainty on genuinely ambiguous unlinked legacy pairs', () => {
+    // 1. User-embedded transaction sharing transactionId (even with different id) with central paymentTransactions is NOT double-counted
+    const embeddedDup = computeAnalyticsMetrics({
+      paymentTransactions: [
+        { id: 'tx-central-1', transactionId: 'TID-SHARED-99', dateTime: '2026-11-17 10:00', amount: 2500, currency: 'PKR', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'Wallet', userId: 'u-1', jobTitleRef: 'Architect' }
+      ],
+      users: [
+        {
+          id: 'u-1',
+          name: 'User One',
+          email: 'u1@pk.test',
+          role: 'Employer/Job Poster',
+          plan: 'Free',
+          autoRenew: false,
+          createdAt: '2026-11-01',
+          transactions: [
+            { id: 'user-tx-mirror', transactionId: 'TID-SHARED-99', dateTime: '2026-11-17 10:00', amount: 2500, currency: 'PKR', type: 'Job Posting Fee', status: 'Success', paymentMethod: 'Wallet' }
+          ]
+        }
+      ]
+    });
+    assert.strictEqual(embeddedDup.countedTransactionsCount, 1);
+    assert.strictEqual(embeddedDup.totalTransactionsRevenuePkr, 2500);
+    assert.strictEqual(embeddedDup.totalGrossRevenuePkr, 2500);
+
+    // 2. Ambiguous unlinked legacy FeeLog matching an unclaimed tx (same user, title, amount, same timestamp, no tx link on log)
+    // Must expose uncertainty (totalGrossRevenuePkr === null) rather than silently hiding a payment or silently double-counting
+    const ambiguousLegacyFee = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-unclaimed-legacy',
+          transactionId: 'TID-LEGACY-1',
+          dateTime: '2026-11-17 10:00',
+          amount: 2000,
+          currency: 'PKR',
+          type: 'Job Posting Fee',
+          status: 'Success',
+          paymentMethod: 'Wallet',
+          userId: 'u-legacy',
+          jobTitleRef: 'Systems Analyst'
+        }
+      ],
+      feeLogs: [
+        {
+          id: 'legacy-fee-no-tx-ref',
+          dateTime: '2026-11-17 10:00',
+          userId: 'u-legacy',
+          userName: 'Legacy Emp',
+          userEmail: 'legacy@emp.pk',
+          jobTitle: 'Systems Analyst',
+          amount: 2000,
+          currency: 'PKR',
+          paymentMethod: 'Wallet',
+          status: 'Paid'
+        }
+      ]
+    });
+    assert.strictEqual(ambiguousLegacyFee.totalTransactionsRevenuePkr, 2000);
+    assert.strictEqual(ambiguousLegacyFee.totalFeeLogsPkr, 2000);
+    assert.strictEqual(ambiguousLegacyFee.ambiguousFinancialDeduplicationCount, 1);
+    assert.strictEqual(ambiguousLegacyFee.totalGrossRevenuePkr, null);
+
+    // 3. Ambiguous unlinked legacy Subscriber matching an unclaimed Subscription tx on same PKT calendar day
+    const ambiguousLegacySub = computeAnalyticsMetrics({
+      paymentTransactions: [
+        {
+          id: 'tx-sub-unclaimed',
+          dateTime: '2026-11-17 11:00',
+          amount: 1200,
+          currency: 'PKR',
+          type: 'Subscription',
+          status: 'Success',
+          paymentMethod: 'JazzCash',
+          userId: 'u-sub-leg',
+          userEmail: 'subleg@pk.test'
+        }
+      ],
+      subscribers: [
+        {
+          id: 'sub-legacy-noref',
+          name: 'Legacy Sub',
+          email: 'subleg@pk.test',
+          phone: '03005556677',
+          plan: 'Pro Alerts',
+          paymentMethod: 'JazzCash',
+          amountPaid: 1200,
+          currency: 'PKR',
+          status: 'Active',
+          subscribedAt: '2026-11-17',
+          whatsappEnabled: true
+        }
+      ]
+    });
+    assert.strictEqual(ambiguousLegacySub.ambiguousFinancialDeduplicationCount, 1);
+    assert.strictEqual(ambiguousLegacySub.totalGrossRevenuePkr, null);
   });
 
   console.log('------------------------------------------------------------------');

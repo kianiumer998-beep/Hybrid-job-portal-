@@ -6,7 +6,11 @@ import {
   PricingRepository,
   JobRepository,
   PaymentSettingsRepository,
-  NotificationRepository
+  NotificationRepository,
+  MongoDuplicateTransactionError,
+  TransactionIndexInitializationError,
+  InvalidIdempotencyKeyError,
+  normalizeIdempotencyKey
 } from '../db/repositories';
 import type { PublicPaymentSettings, PublicPaymentMethodConfig, CustomProofField } from '../../src/types/adminPayment';
 import { Database } from '../db/database';
@@ -66,6 +70,55 @@ async function persistTransactionState(
   return updated;
 }
 
+function isDuplicateTransactionError(err: any): boolean {
+  return Boolean(
+    err instanceof MongoDuplicateTransactionError ||
+    err?.code === 11000 ||
+    err?.code === '11000'
+  );
+}
+
+function isIndexReadinessError(err: any): boolean {
+  return Boolean(
+    err instanceof TransactionIndexInitializationError ||
+    err?.code === 'TRANSACTION_INDEX_NOT_READY'
+  );
+}
+
+function isInvalidIdempotencyKeyError(err: any): boolean {
+  return Boolean(
+    err instanceof InvalidIdempotencyKeyError ||
+    err?.code === 'INVALID_IDEMPOTENCY_KEY'
+  );
+}
+
+function sendSafeTransactionError(res: any, err: any, fallbackMessage: string) {
+  if (isInvalidIdempotencyKeyError(err)) {
+    return res.status(400).json({
+      success: false,
+      message: err?.message || 'Invalid idempotencyKey.'
+    });
+  }
+  if (isDuplicateTransactionError(err)) {
+    return res.status(409).json({
+      success: false,
+      message: 'A transaction with this payment reference or idempotency key has already been recorded.'
+    });
+  }
+  if (isIndexReadinessError(err)) {
+    return res.status(503).json({
+      success: false,
+      message: 'Transaction storage is temporarily not ready. Please try again shortly; no new payment was submitted.'
+    });
+  }
+  const rawMessage = typeof err?.message === 'string' ? err.message : '';
+  const safeMessage =
+    rawMessage && !/mongodb|e11000|keyvalue|duplicate key/i.test(rawMessage)
+      ? rawMessage
+      : fallbackMessage;
+  return res.status(500).json({ success: false, message: safeMessage });
+}
+
 // 1. Get transactions (all for admin, or scoped to authenticated user)
 transactionRouter.get('/', requireAuth, async (req, res) => {
   try {
@@ -84,7 +137,7 @@ transactionRouter.get('/', requireAuth, async (req, res) => {
     const txs = await PaymentRepository.getAllAsync(targetUserId);
     res.json({ success: true, transactions: txs });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error fetching transactions' });
+    return sendSafeTransactionError(res, err, 'Error fetching transactions');
   }
 });
 
@@ -409,17 +462,13 @@ transactionRouter.post('/', async (req, res) => {
     } = req.body;
 
     let cleanIdempotencyKey: string | undefined = undefined;
-    if (idempotencyKey !== undefined && idempotencyKey !== null) {
-      if (typeof idempotencyKey !== 'string') {
-        return res.status(400).json({ success: false, message: 'Invalid idempotencyKey: must be a string.' });
-      }
-      const trimmedKey = idempotencyKey.trim();
-      if (trimmedKey.length > 255) {
-        return res.status(400).json({ success: false, message: 'idempotencyKey exceeds maximum length of 255 characters.' });
-      }
-      if (trimmedKey.length > 0) {
-        cleanIdempotencyKey = trimmedKey;
-      }
+    try {
+      cleanIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+    } catch (keyErr: any) {
+      return res.status(400).json({
+        success: false,
+        message: keyErr?.message || 'Invalid idempotencyKey.'
+      });
     }
 
     const authUser = (req as any).user;
@@ -667,8 +716,8 @@ transactionRouter.post('/', async (req, res) => {
         });
       }
 
-      if (idempotencyKey) {
-        const existing = await PaymentRepository.findByIdempotencyKeyAsync(idempotencyKey);
+      if (cleanIdempotencyKey) {
+        const existing = await PaymentRepository.findByIdempotencyKeyAsync(cleanIdempotencyKey);
         if (existing && (existing.status !== 'Failed' || isTransactionWalletStateLocked(existing))) {
           if (!isAdmin && existing.userId && String(existing.userId) !== String(effectiveUserId)) {
             return res.status(403).json({
@@ -1272,7 +1321,7 @@ transactionRouter.post('/', async (req, res) => {
       activeUserTransactionLocks.delete(userLockKey);
     }
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error creating transaction' });
+    return sendSafeTransactionError(res, err, 'Error creating transaction');
   }
 });
 
@@ -1347,6 +1396,6 @@ transactionRouter.patch('/:id/verify', requireAdminPermission('payments.manage')
       activeTransactionVerificationLocks.delete(verifyLockKey);
     }
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || 'Error verifying transaction' });
+    return sendSafeTransactionError(res, err, 'Error verifying transaction');
   }
 });

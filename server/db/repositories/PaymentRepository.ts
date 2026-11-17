@@ -8,8 +8,112 @@ import { getMongoDb, isMongoConfigured } from '../mongodb';
 
 const activeCompensationLocks = new Set<string>();
 const isTest = () => process.env.IS_TEST === 'true';
-const isMongoActive = () => isMongoConfigured() && !isTest();
+let mockTransactionsCollection: any = null;
+const isMockMongoActive = () =>
+  isTest() && process.env.NODE_ENV !== 'production' && mockTransactionsCollection !== null;
+const isMongoActive = () => isMockMongoActive() || (isMongoConfigured() && !isTest());
+const isPureInMemoryTest = () => isTest() && !isMockMongoActive();
 const inMemoryTransactions = new Map<string, any>();
+
+export const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
+
+export class TransactionIndexInitializationError extends Error {
+  code: string;
+  statusCode: number;
+  constructor(
+    message = 'Transaction storage is temporarily not ready while verifying database indexes. No new payment was recorded.'
+  ) {
+    super(message);
+    this.name = 'TransactionIndexInitializationError';
+    this.code = 'TRANSACTION_INDEX_NOT_READY';
+    this.statusCode = 503;
+  }
+}
+
+export class InvalidIdempotencyKeyError extends Error {
+  code: string;
+  statusCode: number;
+  constructor(message = 'Invalid idempotencyKey.') {
+    super(message);
+    this.name = 'InvalidIdempotencyKeyError';
+    this.code = 'INVALID_IDEMPOTENCY_KEY';
+    this.statusCode = 400;
+  }
+}
+
+function sanitizeKeyPattern(rawPattern: unknown): Record<string, 1 | -1 | true> | undefined {
+  if (!rawPattern || typeof rawPattern !== 'object' || Array.isArray(rawPattern)) {
+    return undefined;
+  }
+  const allowedFields = new Set(['id', 'transactionId', 'idempotencyKey']);
+  const safe: Record<string, 1 | -1 | true> = {};
+  for (const [k, v] of Object.entries(rawPattern)) {
+    if (allowedFields.has(k) && (v === 1 || v === -1 || v === true)) {
+      safe[k] = v;
+    }
+  }
+  return Object.keys(safe).length > 0 ? safe : undefined;
+}
+
+export class MongoDuplicateTransactionError extends Error {
+  code: number;
+  keyPattern?: Record<string, 1 | -1 | true>;
+  constructor(
+    message = 'A transaction with this reference or idempotency key already exists.',
+    code: number = 11000,
+    keyPattern?: unknown
+  ) {
+    super(message);
+    this.name = 'MongoDuplicateTransactionError';
+    this.code = code;
+    const safePattern = sanitizeKeyPattern(keyPattern);
+    if (safePattern) {
+      this.keyPattern = safePattern;
+    }
+  }
+}
+
+function wrapMongoTransactionError(err: any): never {
+  if (
+    err instanceof TransactionIndexInitializationError ||
+    err instanceof MongoDuplicateTransactionError ||
+    err instanceof InvalidIdempotencyKeyError
+  ) {
+    throw err;
+  }
+  if (
+    err &&
+    (err.code === 11000 ||
+      err.code === '11000' ||
+      (typeof err.message === 'string' && (err.message.includes('E11000') || /duplicate key/i.test(err.message))))
+  ) {
+    throw new MongoDuplicateTransactionError(
+      'A transaction with this reference or idempotency key already exists.',
+      11000,
+      err.keyPattern
+    );
+  }
+  throw new Error('Transaction database operation failed.');
+}
+
+export function normalizeIdempotencyKey(key: unknown): string | undefined {
+  if (key === undefined || key === null) {
+    return undefined;
+  }
+  if (typeof key !== 'string') {
+    throw new InvalidIdempotencyKeyError('Invalid idempotencyKey: must be a string.');
+  }
+  const trimmed = key.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  if (trimmed.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    throw new InvalidIdempotencyKeyError(
+      `idempotencyKey exceeds maximum length of ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`
+    );
+  }
+  return trimmed;
+}
 
 export type CompensationStatusState =
   | 'Compensating'
@@ -22,6 +126,9 @@ export type DepositVerificationState =
   | 'CreditUncertain';
 
 async function getTransactionsCollection() {
+  if (isMockMongoActive()) {
+    return mockTransactionsCollection;
+  }
   const db = await getMongoDb();
   return db.collection('transactions');
 }
@@ -30,7 +137,7 @@ let indexInitializationPromise: Promise<void> | null = null;
 let indexesReady = false;
 
 export async function ensureTransactionIndexesReady(): Promise<void> {
-  if (isTest() || !isMongoActive()) {
+  if (isPureInMemoryTest() || !isMongoActive()) {
     indexesReady = true;
     return;
   }
@@ -40,7 +147,7 @@ export async function ensureTransactionIndexesReady(): Promise<void> {
     return indexInitializationPromise;
   }
 
-  indexInitializationPromise = (async () => {
+  const currentInit = (async () => {
     try {
       const coll = await getTransactionsCollection();
       await coll.createIndex({ id: 1 }, { unique: true, sparse: true });
@@ -50,49 +157,42 @@ export async function ensureTransactionIndexesReady(): Promise<void> {
       console.log('[PaymentRepository] MongoDB unique indexes verified successfully on transactions collection.');
     } catch (err: any) {
       indexesReady = false;
-      indexInitializationPromise = null;
-      const errorMsg = err?.message || err;
-      console.error('[PaymentRepository] Error: Transaction index initialization failed:', errorMsg);
-      throw new Error(`Database storage not ready: transaction unique indexes failed to initialize (${errorMsg}).`);
+      console.error(
+        '[PaymentRepository] Error: Transaction index initialization failed:',
+        err?.code ?? err?.name ?? 'INDEX_INIT_FAILED'
+      );
+      throw new TransactionIndexInitializationError();
+    } finally {
+      if (indexInitializationPromise === currentInit) {
+        indexInitializationPromise = null;
+      }
     }
   })();
 
-  return indexInitializationPromise;
+  indexInitializationPromise = currentInit;
+  return currentInit;
 }
 
 export function areTransactionIndexesReady(): boolean {
-  if (isTest() || !isMongoActive()) return true;
+  if (isPureInMemoryTest() || !isMongoActive()) return true;
   return indexesReady;
 }
 
-function normalizeIdempotencyKey(key: any): string | undefined {
-  if (typeof key !== 'string') return undefined;
-  const trimmed = key.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+export function setMockTransactionsCollectionForTests(coll: any): void {
+  if (!isTest() || process.env.NODE_ENV === 'production') {
+    throw new Error('Mock transactions collection can only be configured in non-production test mode.');
+  }
+  mockTransactionsCollection = coll;
 }
 
-export class MongoDuplicateTransactionError extends Error {
-  code: number;
-  keyPattern?: any;
-  constructor(message: string, code: number = 11000, keyPattern?: any) {
-    super(message);
-    this.name = 'MongoDuplicateTransactionError';
-    this.code = code;
-    if (keyPattern) {
-      this.keyPattern = keyPattern;
-    }
+export function resetTransactionIndexStateForTests(): void {
+  if (!isTest() || process.env.NODE_ENV === 'production') {
+    throw new Error('Transaction index state reset is restricted to non-production test mode.');
   }
-}
-
-function wrapMongoTransactionError(err: any): never {
-  if (err && (err.code === 11000 || err.message?.includes('E11000') || err.message?.includes('duplicate key'))) {
-    throw new MongoDuplicateTransactionError(
-      'A transaction with this unique identifier or idempotency key already exists.',
-      11000,
-      err.keyPattern
-    );
-  }
-  throw err;
+  indexesReady = false;
+  indexInitializationPromise = null;
+  mockTransactionsCollection = null;
+  inMemoryTransactions.clear();
 }
 
 export class PaymentRepository {
@@ -117,7 +217,7 @@ export class PaymentRepository {
   }
 
   static getAll(userId?: string): any[] {
-    if (isTest()) {
+    if (isPureInMemoryTest()) {
       const txs = Array.from(inMemoryTransactions.values());
       if (userId) {
         return txs.filter(t => t && String(t.userId || '') === String(userId));
@@ -132,32 +232,32 @@ export class PaymentRepository {
   }
 
   static async getAllAsync(userId?: string): Promise<any[]> {
-    if (isTest()) return this.getAll(userId);
+    if (isPureInMemoryTest()) return this.getAll(userId);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
         const query = userId ? { userId: String(userId) } : {};
         const docs = await coll.find(query).sort({ createdAt: -1 }).toArray();
-        return (docs || []).map(d => {
+        return (docs || []).map((d: any) => {
           const { _id, ...safe } = d;
           return safe;
         });
       } catch (err: any) {
-        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+        wrapMongoTransactionError(err);
       }
     }
     return this.getAll(userId);
   }
 
   static getById(id: string): any | null {
-    if (isTest()) return inMemoryTransactions.get(id) || null;
+    if (isPureInMemoryTest()) return inMemoryTransactions.get(id) || null;
     const txs = Database.getTransactions();
     return txs.find(t => t && String(t.id) === String(id)) || null;
   }
 
   static async getByIdAsync(id: string): Promise<any | null> {
     if (!id) return null;
-    if (isTest()) return this.getById(id);
+    if (isPureInMemoryTest()) return this.getById(id);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -168,43 +268,45 @@ export class PaymentRepository {
         }
         return null;
       } catch (err: any) {
-        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+        wrapMongoTransactionError(err);
       }
     }
     return this.getById(id);
   }
 
   static findByIdempotencyKey(key: string): any | null {
-    if (!key) return null;
-    if (isTest()) {
-      return Array.from(inMemoryTransactions.values()).find(t => t && String(t.idempotencyKey) === String(key)) || null;
+    const cleanKey = normalizeIdempotencyKey(key);
+    if (!cleanKey) return null;
+    if (isPureInMemoryTest()) {
+      return Array.from(inMemoryTransactions.values()).find(t => t && String(t.idempotencyKey) === cleanKey) || null;
     }
     const txs = Database.getTransactions();
-    return txs.find(t => t && String(t.idempotencyKey) === String(key)) || null;
+    return txs.find(t => t && String(t.idempotencyKey) === cleanKey) || null;
   }
 
   static async findByIdempotencyKeyAsync(key: string): Promise<any | null> {
-    if (!key) return null;
-    if (isTest()) return this.findByIdempotencyKey(key);
+    const cleanKey = normalizeIdempotencyKey(key);
+    if (!cleanKey) return null;
+    if (isPureInMemoryTest()) return this.findByIdempotencyKey(cleanKey);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
-        const doc = await coll.findOne({ idempotencyKey: String(key) });
+        const doc = await coll.findOne({ idempotencyKey: cleanKey });
         if (doc) {
           const { _id, ...safe } = doc;
           return safe;
         }
         return null;
       } catch (err: any) {
-        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+        wrapMongoTransactionError(err);
       }
     }
-    return this.findByIdempotencyKey(key);
+    return this.findByIdempotencyKey(cleanKey);
   }
 
   static findByTransactionId(tid: string): any | null {
     if (!tid) return null;
-    if (isTest()) {
+    if (isPureInMemoryTest()) {
       return Array.from(inMemoryTransactions.values()).find(t => t && String(t.transactionId) === String(tid)) || null;
     }
     const txs = Database.getTransactions();
@@ -213,7 +315,7 @@ export class PaymentRepository {
 
   static async findByTransactionIdAsync(tid: string): Promise<any | null> {
     if (!tid) return null;
-    if (isTest()) return this.findByTransactionId(tid);
+    if (isPureInMemoryTest()) return this.findByTransactionId(tid);
     if (isMongoActive()) {
       try {
         const coll = await getTransactionsCollection();
@@ -224,16 +326,18 @@ export class PaymentRepository {
         }
         return null;
       } catch (err: any) {
-        throw new Error(`MongoDB transactions operation failed: ${err.message || err}`);
+        wrapMongoTransactionError(err);
       }
     }
     return this.findByTransactionId(tid);
   }
 
   static create(txData: any): any {
-    if (isTest()) {
+    if (isPureInMemoryTest()) {
       const id = txData?.id || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-      const tx = { ...txData, id };
+      const cleanKey = normalizeIdempotencyKey(txData?.idempotencyKey);
+      const { _id: _ignored, idempotencyKey: _ignoredKey, ...clean } = txData || {};
+      const tx = { ...clean, id, ...(cleanKey ? { idempotencyKey: cleanKey } : {}) };
       inMemoryTransactions.set(id, tx);
       return tx;
     }
@@ -246,7 +350,7 @@ export class PaymentRepository {
   static async createAsync(txData: any): Promise<any> {
     const id = txData?.id || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const cleanKey = normalizeIdempotencyKey(txData?.idempotencyKey);
-    const { _id: _ignored, ...clean } = txData || {};
+    const { _id: _ignored, idempotencyKey: _rawKey, ...clean } = txData || {};
     const txToSave = {
       ...clean,
       id,
@@ -254,11 +358,8 @@ export class PaymentRepository {
       createdAt: txData?.createdAt || new Date().toISOString(),
       updatedAt: txData?.updatedAt || new Date().toISOString()
     };
-    if (cleanKey === undefined) {
-      delete txToSave.idempotencyKey;
-    }
 
-    if (isTest()) {
+    if (isPureInMemoryTest()) {
       inMemoryTransactions.set(id, txToSave);
       return txToSave;
     }
@@ -277,20 +378,22 @@ export class PaymentRepository {
 
   static async updateAsync(id: string, updates: Record<string, any>): Promise<any | null> {
     const updatedAt = new Date().toISOString();
-    const cleanKey = updates?.idempotencyKey !== undefined ? normalizeIdempotencyKey(updates.idempotencyKey) : undefined;
-    const updatePayload = {
-      ...updates,
-      ...(updates?.idempotencyKey !== undefined ? (cleanKey ? { idempotencyKey: cleanKey } : { idempotencyKey: undefined }) : {}),
+    const hasKeyUpdate = Boolean(updates && Object.prototype.hasOwnProperty.call(updates, 'idempotencyKey'));
+    const cleanKey = hasKeyUpdate ? normalizeIdempotencyKey(updates.idempotencyKey) : undefined;
+    const { idempotencyKey: _rawKey, ...restUpdates } = updates || {};
+    const updatePayload: Record<string, any> = {
+      ...restUpdates,
+      ...(hasKeyUpdate && cleanKey ? { idempotencyKey: cleanKey } : {}),
       updatedAt
     };
-    if (updatePayload.idempotencyKey === undefined && updates?.idempotencyKey !== undefined) {
-      delete updatePayload.idempotencyKey;
-    }
 
-    if (isTest()) {
+    if (isPureInMemoryTest()) {
       const existing = inMemoryTransactions.get(id);
       if (!existing) return null;
       const updated = { ...existing, ...updatePayload };
+      if (hasKeyUpdate && !cleanKey) {
+        delete updated.idempotencyKey;
+      }
       inMemoryTransactions.set(id, updated);
       return updated;
     }
@@ -298,7 +401,11 @@ export class PaymentRepository {
       await ensureTransactionIndexesReady();
       try {
         const coll = await getTransactionsCollection();
-        await coll.updateOne({ id: String(id) }, { $set: updatePayload });
+        const mongoUpdateOp: Record<string, any> = { $set: updatePayload };
+        if (hasKeyUpdate && !cleanKey) {
+          mongoUpdateOp.$unset = { idempotencyKey: '' };
+        }
+        await coll.updateOne({ id: String(id) }, mongoUpdateOp);
         const doc = await coll.findOne({ id: String(id) });
         if (doc) {
           const { _id, ...safe } = doc;
@@ -595,7 +702,7 @@ export class PaymentRepository {
   }
 
   static async verify(id: string, action: 'approve' | 'reject', note?: string, reason?: string): Promise<any | null> {
-    if (isTest()) {
+    if (isPureInMemoryTest()) {
       const tx = inMemoryTransactions.get(id);
       if (!tx) return null;
       if (tx.status !== 'Pending') {

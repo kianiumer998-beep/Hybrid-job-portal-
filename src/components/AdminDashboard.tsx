@@ -123,6 +123,29 @@ import { AdminPricingController } from './admin/AdminPricingController';
 import { AdminApplySettingsManager } from './admin/AdminApplySettingsManager';
 import { AdminModalContentManager } from './admin/AdminModalContentManager';
 import { AdminLocationManager } from './admin/AdminLocationManager';
+import {
+  AdminCategory,
+  AdminNavMode,
+  AdminNavCounts,
+  ADMIN_NAVIGATION_MODULES,
+  ADMIN_TAB_CATEGORIES,
+  CLASSIC_ADMIN_CATEGORIES,
+  AllModulesMenuItem,
+  AllModulesMenuGroup,
+  buildAllModulesMenuGroups,
+  getClassicCategorySubTabs,
+  getAdminModuleDefinition,
+  matchesAdminModuleSearch,
+  resolveCanonicalAdminTab,
+  resolveStoredAdminNavMode,
+  persistAdminNavMode,
+  AdminNavigationModeToggle,
+  AdminProfessionalSidebar,
+  AdminProfessionalMobileDrawer
+} from './admin/AdminDashboardNavigation';
+
+export type { AdminCategory, AdminNavMode, AllModulesMenuItem, AllModulesMenuGroup };
+export { ADMIN_TAB_CATEGORIES, buildAllModulesMenuGroups };
 import { getProvinceForCity } from '../utils/locationCatalog';
 import { WhatsAppSupportConfig, DEFAULT_WHATSAPP_CONFIG } from './WhatsAppStickyButton';
 import { INITIAL_PAYMENT_TRANSACTIONS } from '../data/mockTransactions';
@@ -232,43 +255,7 @@ interface AdminDashboardProps {
   onUpdateChannelAvailability?: (updates: { email?: boolean; whatsapp?: boolean }) => void;
 }
 
-export type AdminCategory = 'jobs' | 'scraper' | 'ads' | 'payments' | 'users' | 'alerts' | 'settings';
 
-export const ADMIN_TAB_CATEGORIES: Record<string, AdminCategory> = {
-  analytics: 'settings',
-  'landing-customizer': 'ads',
-  'campaign-center': 'ads',
-  'fee-management': 'payments',
-  'payment-proofs': 'payments',
-  'admin-payment-methods': 'payments',
-  'whatsapp-manager': 'alerts',
-  pending: 'jobs',
-  'scraped-history': 'scraper',
-  advertisements: 'ads',
-  'seo-config': 'settings',
-  'currency-forex': 'payments',
-  'broadcast-center': 'alerts',
-  'bulk-notifications': 'alerts',
-  'activity-logs': 'settings',
-  'data-backup': 'settings',
-  'ai-enhancer': 'jobs',
-  'employer-kyc': 'users',
-  'user-audit': 'users',
-  'fee-logs': 'payments',
-  scraper: 'scraper',
-  'url-scraper': 'scraper',
-  'chat-hub': 'users',
-  'form-customizer': 'settings',
-  'pricing-controller': 'payments',
-  'apply-settings': 'settings',
-  'modal-content-manager': 'settings',
-  'job-visibility': 'settings',
-  'add-job': 'jobs',
-  jobs: 'jobs',
-  subscribers: 'users',
-  settings: 'settings',
-  stats: 'settings',
-};
 
 export const ADMIN_ROLE_DEFAULT_PERMS: Record<string, string[]> = {
   'Super Admin': ['*'],
@@ -330,6 +317,8 @@ export function checkAdminTabPermission(
       'settings',
       'form-customizer',
       'analytics',
+      'stats',
+      'locations-manager',
       'whatsapp-manager',
       'broadcast-center',
       'bulk-notifications'
@@ -359,106 +348,7 @@ export function navigateWithAdminPermission<T extends string>(params: {
   return true;
 }
 
-export interface AllModulesMenuItem {
-  id: string;
-  label: string;
-  urdu: string;
-  icon: any;
-  badge?: string;
-}
 
-export interface AllModulesMenuGroup {
-  catKey: AdminCategory;
-  catTitle: string;
-  items: AllModulesMenuItem[];
-}
-
-export function buildAllModulesMenuGroups(counts: {
-  activeJobsCount: number;
-  pendingJobsCount: number;
-  activeAdsCount: number;
-  pendingProofsCount: number;
-  feeLogsCount: number;
-  usersCount: number;
-  kycBadgeText: string;
-  subscribersCount: number;
-  chatMessagesCount: number;
-}): AllModulesMenuGroup[] {
-  return [
-    {
-      catKey: 'jobs',
-      catTitle: '💼 Jobs & Vacancies (ملازمتیں اور پوسٹس)',
-      items: [
-        { id: 'jobs', label: 'Live Listings', urdu: 'لائیو نوکریاں', icon: Briefcase, badge: `${counts.activeJobsCount} Active` },
-        { id: 'pending', label: 'Pending Approvals Queue', urdu: 'منظوری کی منتظر نوکریاں', icon: Clock, badge: `${counts.pendingJobsCount} Pending` },
-        { id: 'add-job', label: 'Post Manual Job', urdu: 'نئی جاب شامل کریں', icon: Plus },
-        { id: 'ai-enhancer', label: 'AI Quality & Spam Guard', urdu: 'کوالٹی اور اسپیم چیکر', icon: Sparkles }
-      ]
-    },
-    {
-      catKey: 'scraper',
-      catTitle: '🤖 Scraper Center (خودکار سکریپر سنٹر)',
-      items: [
-        { id: 'scraper', label: 'Scraper Center', urdu: 'خودکار ویب سکریپر سنٹر', icon: Bot, badge: 'Unified' }
-      ]
-    },
-    {
-      catKey: 'ads',
-      catTitle: '📢 Ads & Campaigns (اشتہارات اور کیمپینز)',
-      items: [
-        { id: 'campaign-center', label: 'Visual Campaign Center', urdu: 'اشتہاری کیمپین کمانڈ سنٹر', icon: Megaphone, badge: `${counts.activeAdsCount} Live` },
-        { id: 'advertisements', label: 'Ad Hub & Banner Slots', urdu: 'اشتہاری بینر سلاٹس', icon: Layers },
-        { id: 'landing-customizer', label: 'Landing Page Customizer', urdu: 'ہوم پیج بینر ڈیزائنر', icon: Edit3 }
-      ]
-    },
-    {
-      catKey: 'payments',
-      catTitle: '💳 Payments, Fees & Durations (ادائیگیاں، فیس اور پیکیجز)',
-      items: [
-        { id: 'pricing-controller', label: 'Universal Pricing Controller', urdu: 'تمام فیسیں اور اشتہارات ریٹ', icon: DollarSign, badge: 'NEW' },
-        { id: 'admin-payment-methods', label: 'EasyPaisa, JazzCash & Durations Setup', urdu: 'ایڈمن کے اکاؤنٹس اور دن (1-دن، 1-ہفتہ، 15-دن، 20-دن)', icon: CreditCard, badge: 'NEW' },
-        { id: 'payment-proofs', label: 'Payment Receipts Verification', urdu: 'رسیدوں کی تصدیق', icon: Receipt, badge: `${counts.pendingProofsCount} Proofs` },
-        { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس اور رعایتیں', icon: DollarSign },
-        { id: 'fee-logs', label: 'Per-Job Fee Transaction Logs', urdu: 'فیس لین دین کا مکمل ریکارڈ', icon: Receipt, badge: `${counts.feeLogsCount} Records` },
-        { id: 'currency-forex', label: 'Multi-Currency & Forex', urdu: 'کرنسی ایکسچینج ریٹس', icon: Coins }
-      ]
-    },
-    {
-      catKey: 'users',
-      catTitle: '👥 Users, KYC & Support (صارفین اور تصدیق)',
-      items: [
-        { id: 'user-audit', label: 'User Directory & Profiles', urdu: 'تمام صارفین کی فہرست', icon: Users, badge: `${counts.usersCount} Users` },
-        { id: 'employer-kyc', label: 'Employer KYC Verification', urdu: 'کمپنی شناختی تصدیق', icon: BadgeCheck, badge: counts.kycBadgeText },
-        { id: 'subscribers', label: 'Paid Subscribers', urdu: 'سبسکرائبرز', icon: DollarSign, badge: `${counts.subscribersCount} Members` },
-        { id: 'chat-hub', label: 'User Support Chat Hub', urdu: 'چیٹ سپورٹ ان باکس', icon: MessageSquare, badge: `${counts.chatMessagesCount} Chats` }
-      ]
-    },
-    {
-      catKey: 'alerts',
-      catTitle: '📣 Alerts & Broadcasts (الرٹس اور پیغامات)',
-      items: [
-        { id: 'whatsapp-manager', label: 'WhatsApp Alerts & Proofs Hub', urdu: 'واٹس ایپ الرٹس مینجر', icon: MessageSquare },
-        { id: 'broadcast-center', label: 'Broadcast Campaigns (Email/SMS)', urdu: 'براڈکاسٹ پیغامات', icon: Send },
-        { id: 'bulk-notifications', label: 'Pro Bulk Notification Tool', urdu: 'بلک نوٹیفکیشنز', icon: Send }
-      ]
-    },
-    {
-      catKey: 'settings',
-      catTitle: '⚙️ Settings, SEO & Vault (سیٹنگز اور گوگل ایس ای او)',
-      items: [
-        { id: 'apply-settings', label: 'Apply Button & Form Flow', urdu: 'اپلائی بٹن اور سوالات', icon: FileText, badge: 'NEW' },
-        { id: 'modal-content-manager', label: 'Modals & Popups Content Manager', urdu: 'پاپ اپس اور موڈالز مینیجر', icon: Sliders, badge: 'NEW' },
-        { id: 'job-visibility', label: 'Job Visibility Manager', urdu: 'ملازمت کی نمائش', icon: ShieldCheck },
-        { id: 'seo-config', label: 'Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او اور میٹا ٹیگز', icon: Globe },
-        { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز اور فیس', icon: Settings },
-        { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم فیلڈز سیٹنگ', icon: Edit3 },
-        { id: 'activity-logs', label: 'Security & Activity Trail', urdu: 'سیکیورٹی لاگز', icon: ShieldCheck },
-        { id: 'data-backup', label: 'Data Vault & CSV Export', urdu: 'ڈیٹا بیک اپ اور ایکسپورٹ', icon: Database },
-        { id: 'analytics', label: 'Executive Analytics & KPIs', urdu: 'اینالیٹکس اور کارکردگی', icon: BarChart3 }
-      ]
-    }
-  ];
-}
 
 export function formatChatUserRoleLabel(role?: unknown): string {
   if (typeof role !== 'string') return 'Member';
@@ -1140,6 +1030,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'apply-settings'
     | 'modal-content-manager'
     | 'job-visibility'
+    | 'locations-manager'
     | 'add-job'
     | 'jobs'
     | 'subscribers'
@@ -1148,6 +1039,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   >('analytics');
 
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('jobs');
+  const [navMode, setNavMode] = useState<AdminNavMode>('classic');
+  const [isProSidebarCollapsed, setIsProSidebarCollapsed] = useState(false);
+  const [isProMobileDrawerOpen, setIsProMobileDrawerOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAllModulesMenu, setShowAllModulesMenu] = useState(false);
   const [moduleSearchQuery, setModuleSearchQuery] = useState('');
@@ -1186,35 +1080,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return effectiveAdminPerms.includes('*') || effectiveAdminPerms.includes(perm);
   };
 
-  const canAccessAdminCategory = (cat: AdminCategory): boolean => {
-    if (!isVerifiedAdmin || !effectiveAdminRole) return false;
-    if (effectiveAdminRole === 'Super Admin' || effectiveAdminRole === 'Admin') return true;
-    switch (cat) {
-      case 'jobs':
-        return hasAdminUiPermission('jobs.manage');
-      case 'scraper':
-        return hasAdminUiPermission('scraper.manage');
-      case 'ads':
-        return hasAdminUiPermission('advertisements.manage');
-      case 'payments':
-        return hasAdminUiPermission('payments.manage') || hasAdminUiPermission('finance.manage');
-      case 'users':
-        return hasAdminUiPermission('users.manage');
-      case 'alerts':
-        return hasAdminUiPermission('settings.manage');
-      case 'settings':
-        return (
-          hasAdminUiPermission('seo.manage') ||
-          hasAdminUiPermission('settings.manage') ||
-          hasAdminUiPermission('audit.view')
-        );
-      default:
-        return false;
-    }
-  };
-
   const canAccessAdminTab = (tabId: string): boolean =>
     checkAdminTabPermission(effectiveAdminRole, effectiveAdminPerms, isVerifiedAdmin, tabId);
+
+  const canAccessAdminCategory = (cat: AdminCategory): boolean => {
+    if (!isVerifiedAdmin || !effectiveAdminRole) return false;
+    return ADMIN_NAVIGATION_MODULES.some(
+      (mod) => mod.classicCategory === cat && canAccessAdminTab(mod.id)
+    );
+  };
+
+  const verifiedAdminId = String(currentAdminUser?.userId || currentAdminUser?.id || '').trim() || undefined;
+
+  useEffect(() => {
+    if (!isVerifiedAdmin || !verifiedAdminId) {
+      setNavMode('classic');
+      return;
+    }
+    setNavMode(resolveStoredAdminNavMode(verifiedAdminId));
+  }, [isVerifiedAdmin, verifiedAdminId]);
+
+  const handleChangeNavMode = (nextMode: AdminNavMode) => {
+    const safeMode: AdminNavMode = nextMode === 'professional' ? 'professional' : 'classic';
+    setNavMode(safeMode);
+    if (isVerifiedAdmin && verifiedAdminId) {
+      persistAdminNavMode(verifiedAdminId, safeMode);
+    }
+    setIsMobileMenuOpen(false);
+    setIsProMobileDrawerOpen(false);
+  };
 
   const handlePermissionAwareNavigateTab = (targetTab: string): boolean => {
     return navigateWithAdminPermission({
@@ -3318,19 +3212,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-end">
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-expanded={isMobileMenuOpen}
-            aria-label="Toggle Navigation Menu"
-            className="sm:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-amber-400 border border-amber-500/30 font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-sm"
-          >
-            {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Filter className="w-3.5 h-3.5" />}
-            <span>Menu</span>
-          </button>
+        <div className="flex items-center flex-wrap gap-1.5 sm:gap-2 w-full sm:w-auto justify-end">
+          <AdminNavigationModeToggle mode={navMode} onChangeMode={handleChangeNavMode} />
+          {navMode === 'classic' && (
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-expanded={isMobileMenuOpen}
+              aria-label="Toggle Navigation Menu"
+              className="sm:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-amber-400 border border-amber-500/30 font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-sm"
+            >
+              {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Filter className="w-3.5 h-3.5" />}
+              <span>Menu</span>
+            </button>
+          )}
           <button
             onClick={onExitAdmin}
-            className="px-3 sm:px-5 py-1 sm:py-2.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer"
+            className="px-3 sm:px-5 py-1 sm:py-2.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0"
           >
             <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Exit Admin</span>
@@ -3338,431 +3235,376 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* MODERN ADMIN NAVIGATION: CATEGORIES + 3-DOT ALL MODULES + SUB-TABS */}
-      <div className={`space-y-2 sm:space-y-3 border-b border-slate-800 pb-2 sm:pb-4 ${isMobileMenuOpen ? 'block' : 'hidden sm:block'}`}>
-        {/* Top Level Category Bar with 3-Dot Quick Menu */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 sm:gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none">
-            {[
-              { id: 'jobs' as AdminCategory, label: '💼 Jobs & Posts', urdu: 'ملازمتیں', count: pendingJobs.length > 0 ? `${pendingJobs.length} Pending` : undefined, countColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
-              { id: 'scraper' as AdminCategory, label: '🤖 Scraper Center', urdu: 'سکریپر سنٹر', count: undefined, countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
-              { id: 'ads' as AdminCategory, label: '📢 Ads & Campaigns', urdu: 'اشتہارات', count: `${ads.filter(a => a.status === 'active').length} Live`, countColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
-              { id: 'payments' as AdminCategory, label: '💳 Payments & Accounts', urdu: 'ادائیگیاں', count: currentTransactions.filter(t => t.status === 'Pending').length > 0 ? `${currentTransactions.filter(t => t.status === 'Pending').length} Proofs` : undefined, countColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
-              { id: 'users' as AdminCategory, label: '👥 Users & KYC', urdu: 'صارفین', count: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : (kycRequests.filter(r => r.status === 'Pending').length > 0 ? `${kycRequests.filter(r => r.status === 'Pending').length} KYC` : undefined), countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
-              { id: 'alerts' as AdminCategory, label: '📣 Alerts & WhatsApp', urdu: 'الرٹس', count: undefined },
-              { id: 'settings' as AdminCategory, label: '⚙️ Settings & SEO', urdu: 'ترتیبات', count: undefined }
-            ].filter(cat => canAccessAdminCategory(cat.id)).map((cat) => (
-              <button
-                key={cat.id}
-                type="button"
-                aria-label={`View ${cat.label} category`}
-                onClick={() => {
-                  setActiveCategory(cat.id);
-                  // Auto-switch to first sub-tab of that category if current tab is outside
-                  if (TAB_CATEGORIES[adminTab] !== cat.id) {
-                    if (cat.id === 'jobs') setAdminTab('jobs');
-                    else if (cat.id === 'scraper') setAdminTab('scraper');
-                    else if (cat.id === 'ads') setAdminTab('campaign-center');
-                    else if (cat.id === 'payments') setAdminTab(hasAdminUiPermission('payments.manage') ? 'admin-payment-methods' : hasAdminUiPermission('finance.manage') ? 'pricing-controller' : 'payment-proofs');
-                    else if (cat.id === 'users') setAdminTab('user-audit');
-                    else if (cat.id === 'alerts') setAdminTab('whatsapp-manager');
-                    else if (cat.id === 'settings') setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
-                  }
-                  // Close mobile menu on category change for better focus
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all flex items-center space-x-1 sm:space-x-1.5 cursor-pointer select-none ${
-                  activeCategory === cat.id
-                    ? 'bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20 scale-[1.02]'
-                    : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800/80 border border-slate-800'
-                }`}
-              >
-                <span>{cat.label}</span>
-                {cat.count && (
-                  <span className={`text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-md font-bold border ${activeCategory === cat.id ? 'bg-slate-950 text-amber-400 border-slate-900' : cat.countColor}`}>
-                    {cat.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+      {(() => {
+        const navCounts: AdminNavCounts = {
+          activeJobsCount: jobs.length,
+          pendingJobsCount: pendingJobs.length,
+          activeAdsCount: ads.filter(a => a.status === 'active').length,
+          pendingProofsCount: currentTransactions.filter(t => t.status === 'Pending').length,
+          feeLogsCount: jobPostingFeeLogs.length,
+          usersCount: users.length,
+          kycBadgeText: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : `${kycRequests.filter(r => r.status === 'Pending').length} KYC`,
+          kycPendingCount: kycRequests.filter(r => r.status === 'Pending').length,
+          subscribersCount: subscribers.length,
+          chatMessagesCount: chatMessages.length
+        };
 
-          {/* 3-DOT QUICK MENU TRIGGER BUTTON */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowAllModulesMenu(true)}
-              aria-expanded={showAllModulesMenu}
-              aria-haspopup="dialog"
-              aria-label="Open all modules menu"
-              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/40 text-[11px] sm:text-xs font-black flex items-center space-x-1 sm:space-x-1.5 shadow-md shadow-amber-500/10 transition-all cursor-pointer active:scale-95"
-              title="Open full modules matrix with search"
-            >
-              <MoreVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
-              <span>⋮ All Modules (تمام ماڈیولز)</span>
-            </button>
-          </div>
-        </div>
+        const classicCategoryMeta: Record<AdminCategory, { count?: string; countColor?: string }> = {
+          jobs: {
+            count: pendingJobs.length > 0 ? `${pendingJobs.length} Pending` : undefined,
+            countColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+          },
+          scraper: {
+            count: undefined,
+            countColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+          },
+          ads: {
+            count: `${navCounts.activeAdsCount} Live`,
+            countColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+          },
+          payments: {
+            count: navCounts.pendingProofsCount > 0 ? `${navCounts.pendingProofsCount} Proofs` : undefined,
+            countColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30'
+          },
+          users: {
+            count: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : (navCounts.kycPendingCount && navCounts.kycPendingCount > 0 ? `${navCounts.kycPendingCount} KYC` : undefined),
+            countColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+          },
+          alerts: {},
+          settings: {}
+        };
 
-        {/* ACTIVE CATEGORY SUB-TABS ROW */}
-        <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto py-1 sm:py-1.5 px-1.5 sm:px-2 bg-slate-950/70 border border-slate-800/80 rounded-lg sm:rounded-xl scrollbar-none text-[11px] sm:text-xs">
-          <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-bold text-slate-500 shrink-0 pl-0.5 sm:pl-1">
-            Sub-Modules:
-          </span>
+        const classicActiveTabClass: Record<AdminCategory, string> = {
+          jobs: 'bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black shadow-md',
+          scraper: 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-black shadow-md',
+          ads: 'bg-amber-500 text-slate-950 font-black shadow-md',
+          payments: 'bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black shadow-md',
+          users: 'bg-purple-500 text-white font-black shadow-md',
+          alerts: 'bg-amber-500 text-slate-950 font-black shadow-md',
+          settings: 'bg-indigo-500 text-white font-black shadow-md'
+        };
 
-          {activeCategory === 'jobs' && (
-            <>
-              {[
-                { id: 'jobs', label: `Live Listings (${jobs.length})`, urdu: 'لائیو جابز', icon: Briefcase },
-                { id: 'pending', label: `Pending Approvals (${pendingJobs.length})`, urdu: 'زیرِ التواء منظوری', icon: Clock, badge: pendingJobs.length > 0 ? pendingJobs.length : undefined },
-                { id: 'add-job', label: 'Post Manual Job', urdu: 'نئی جاب', icon: Plus },
-                { id: 'ai-enhancer', label: 'AI Quality & Spam Filter', urdu: 'کوالٹی فلٹر', icon: Sparkles }
-              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab(t.id as any);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
-                      adminTab === t.id
-                        ? 'bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black shadow-md'
-                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                    {t.badge && (
-                      <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[10px] font-black">
-                        {t.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </>
-          )}
+        const activeCanonicalTab = resolveCanonicalAdminTab(adminTab);
+        const activeModuleDef = getAdminModuleDefinition(activeCanonicalTab);
 
-          {activeCategory === 'scraper' && (
-            <button
-              type="button"
-              onClick={() => setAdminTab('scraper')}
-              className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
-                adminTab === 'scraper' || adminTab === 'url-scraper' || adminTab === 'scraped-history'
-                  ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-black shadow-md'
-                  : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-              }`}
-            >
-              <Bot className="w-3.5 h-3.5" />
-              <span>Scraper Center</span>
-              <span className="px-1.5 py-0.2 rounded bg-emerald-400 text-slate-950 text-[9px] font-black uppercase">
-                Consolidated
-              </span>
-            </button>
-          )}
+        return (
+          <>
+            {/* CLASSIC ADMIN NAVIGATION: CATEGORIES + 3-DOT ALL MODULES + SUB-TABS */}
+            {navMode === 'classic' && (
+              <div className={`space-y-2 sm:space-y-3 border-b border-slate-800 pb-2 sm:pb-4 ${isMobileMenuOpen ? 'block' : 'hidden sm:block'}`}>
+                {/* Top Level Category Bar with 3-Dot Quick Menu */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 sm:gap-2 overflow-x-auto max-w-full pb-1 scrollbar-none">
+                    {CLASSIC_ADMIN_CATEGORIES.filter(cat => canAccessAdminCategory(cat.id)).map((cat) => {
+                      const meta = classicCategoryMeta[cat.id];
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          aria-label={`View ${cat.label} category`}
+                          onClick={() => {
+                            setActiveCategory(cat.id);
+                            if (TAB_CATEGORIES[adminTab] !== cat.id) {
+                              if (cat.id === 'jobs') setAdminTab('jobs');
+                              else if (cat.id === 'scraper') setAdminTab('scraper');
+                              else if (cat.id === 'ads') setAdminTab('campaign-center');
+                              else if (cat.id === 'payments') setAdminTab(hasAdminUiPermission('payments.manage') ? 'admin-payment-methods' : hasAdminUiPermission('finance.manage') ? 'pricing-controller' : 'payment-proofs');
+                              else if (cat.id === 'users') setAdminTab('user-audit');
+                              else if (cat.id === 'alerts') setAdminTab('whatsapp-manager');
+                              else if (cat.id === 'settings') setAdminTab(hasAdminUiPermission('seo.manage') ? 'seo-config' : hasAdminUiPermission('audit.view') ? 'activity-logs' : 'settings');
+                            }
+                            setIsMobileMenuOpen(false);
+                          }}
+                          className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all flex items-center space-x-1 sm:space-x-1.5 cursor-pointer select-none ${
+                            activeCategory === cat.id
+                              ? 'bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20 scale-[1.02]'
+                              : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800/80 border border-slate-800'
+                          }`}
+                        >
+                          <span>{cat.label}</span>
+                          {meta?.count && (
+                            <span className={`text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-md font-bold border ${activeCategory === cat.id ? 'bg-slate-950 text-amber-400 border-slate-900' : meta.countColor}`}>
+                              {meta.count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
 
-          {activeCategory === 'ads' && (
-            <>
-              {[
-                { id: 'campaign-center', label: `Campaign Center (${ads.filter(a => a.status === 'active').length} Live)`, urdu: 'اشتہاری کیمپینز', icon: Megaphone },
-                { id: 'advertisements', label: 'Ad Hub & Banner Slots', urdu: 'بینر سلاٹس', icon: Layers },
-                { id: 'landing-customizer', label: 'Landing Page Customizer', urdu: 'ہوم پیج بینرز', icon: Edit3 }
-              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab(t.id as any);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
-                      adminTab === t.id
-                        ? 'bg-amber-500 text-slate-950 font-black shadow-md'
-                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
-
-          {activeCategory === 'payments' && (
-            <>
-              {[
-                { id: 'pricing-controller', label: 'Universal Pricing Controller', urdu: 'تمام فیسیں اور اشتہارات ریٹ', icon: DollarSign, isNew: true },
-                { id: 'admin-payment-methods', label: '💳 EasyPaisa, JazzCash & Duration Setup', urdu: 'ایڈمن اکاؤنٹس اور دن', icon: CreditCard, isNew: true },
-                { id: 'payment-proofs', label: `Receipt Proofs Verification (${currentTransactions.filter(t => t.status === 'Pending').length})`, urdu: 'رسیدوں کی تصدیق', icon: Receipt },
-                { id: 'fee-management', label: 'Category Fees & Pricing', urdu: 'پوسٹنگ فیس', icon: DollarSign },
-                { id: 'fee-logs', label: `Per-Job Fee Logs (${jobPostingFeeLogs.length})`, urdu: 'فیس لین دین', icon: Receipt },
-                { id: 'currency-forex', label: 'Multi-Currency & Forex', urdu: 'کرنسی ایکسچینج', icon: Coins }
-              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab(t.id as any);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
-                      adminTab === t.id
-                        ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black shadow-md'
-                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                    {t.isNew && (
-                      <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 text-[9px] font-black">
-                        NEW
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </>
-          )}
-
-          {activeCategory === 'users' && (
-            <>
-              {[
-                { id: 'user-audit', label: `User Directory (${users.length})`, urdu: 'صارفین کی فہرست', icon: Users },
-                { id: 'employer-kyc', label: `Employer KYC Verification ${kycLoading ? '(Loading...)' : kycError ? '(Error loading)' : `(${kycRequests.filter(r => r.status === 'Pending').length})`}`, urdu: 'شناختی تصدیق', icon: BadgeCheck },
-                { id: 'subscribers', label: `Paid Subscribers (${subscribers.length})`, urdu: 'سبسکرائبرز', icon: DollarSign },
-                { id: 'chat-hub', label: `User Support Chat Hub (${chatMessages.length})`, urdu: 'چیٹ ان باکس', icon: MessageSquare }
-              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab(t.id as any);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
-                      adminTab === t.id
-                        ? 'bg-purple-500 text-white font-black shadow-md'
-                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
-
-          {activeCategory === 'alerts' && (
-            <>
-              {[
-                { id: 'whatsapp-manager', label: '💬 WhatsApp Support & Alerts Hub', urdu: 'واٹس ایپ الرٹس', icon: MessageSquare },
-                { id: 'broadcast-center', label: '📣 Email & WhatsApp Broadcasts', urdu: 'براڈکاسٹ میسجز', icon: Send },
-                { id: 'bulk-notifications', label: '🚀 Pro Bulk Notification Tool', urdu: 'بلک نوٹیفکیشنز', icon: Send }
-              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab(t.id as any);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
-                      adminTab === t.id
-                        ? 'bg-amber-500 text-slate-950 font-black shadow-md'
-                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
-
-          {activeCategory === 'settings' && (
-            <>
-              {[
-                { id: 'apply-settings', label: 'Apply Button & Form Flow', urdu: 'اپلائی بٹن اور سوالات', icon: FileText, isNew: true },
-                { id: 'modal-content-manager', label: 'Modals & Popups Content Manager', urdu: 'پاپ اپس اور موڈالز مینیجر', icon: Sliders, isNew: true },
-                { id: 'job-visibility', label: 'Job Visibility Manager', urdu: 'ملازمت کی نمائش', icon: ShieldCheck },
-                { id: 'seo-config', label: '🌐 Google Search SEO & Meta Tags', urdu: 'گوگل ایس ای او', icon: Globe },
-                { id: 'settings', label: 'Global Master Switches', urdu: 'ماسٹر سیٹنگز', icon: Settings },
-                { id: 'form-customizer', label: 'Registration Form Customizer', urdu: 'فارم سیٹنگز', icon: Edit3 },
-                { id: 'activity-logs', label: 'Security & Activity Trail', urdu: 'سیکیورٹی لاگز', icon: ShieldCheck },
-                { id: 'data-backup', label: 'Data Vault & CSV Backup', urdu: 'بیک اپ اور ایکسپورٹ', icon: Database },
-                { id: 'analytics', label: 'Executive Analytics & KPIs', urdu: 'اینالیٹکس رپورٹس', icon: BarChart3 }
-              ].filter((t) => canAccessAdminTab(t.id)).map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab(t.id as any);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
-                      adminTab === t.id
-                        ? 'bg-indigo-500 text-white font-black shadow-md'
-                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* 3-DOT ALL MODULES QUICK MODAL OVERLAY */}
-      {showAllModulesMenu && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-4xl w-full p-3.5 sm:p-6 shadow-2xl space-y-3 sm:space-y-5 text-white max-h-[92vh] flex flex-col animate-fadeIn">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 sm:pb-4">
-              <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-                <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-                  <MoreVertical className="w-4 h-4 sm:w-6 sm:h-6" />
+                  {/* 3-DOT QUICK MENU TRIGGER BUTTON */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllModulesMenu(true)}
+                      aria-expanded={showAllModulesMenu}
+                      aria-haspopup="dialog"
+                      aria-label="Open all modules menu"
+                      className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/40 text-[11px] sm:text-xs font-black flex items-center space-x-1 sm:space-x-1.5 shadow-md shadow-amber-500/10 transition-all cursor-pointer active:scale-95"
+                      title="Open full modules matrix with search"
+                    >
+                      <MoreVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
+                      <span>⋮ All Modules (تمام ماڈیولز)</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm sm:text-lg font-black text-white flex items-center space-x-1.5 sm:space-x-2 truncate">
-                    <span className="truncate">Admin Modules (تمام ماڈیولز)</span>
-                    <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] sm:text-[10px] font-bold shrink-0">
-                      Switcher
-                    </span>
-                  </h3>
-                  <p className="text-[10px] sm:text-xs text-slate-400 truncate">
-                    Filter by module name or purpose to jump instantly without horizontal scrolling.
-                  </p>
+
+                {/* ACTIVE CATEGORY SUB-TABS ROW */}
+                <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto py-1 sm:py-1.5 px-1.5 sm:px-2 bg-slate-950/70 border border-slate-800/80 rounded-lg sm:rounded-xl scrollbar-none text-[11px] sm:text-xs">
+                  <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-bold text-slate-500 shrink-0 pl-0.5 sm:pl-1">
+                    Sub-Modules:
+                  </span>
+
+                  {getClassicCategorySubTabs(activeCategory, navCounts, canAccessAdminTab).map((t) => {
+                    const Icon = t.icon;
+                    const isCurrentTab =
+                      adminTab === t.id ||
+                      (t.id === 'scraper' && (adminTab === 'url-scraper' || adminTab === 'scraped-history')) ||
+                      (t.id === 'analytics' && adminTab === 'stats');
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          setAdminTab(t.id as any);
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold flex items-center space-x-1 sm:space-x-1.5 text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer ${
+                          isCurrentTab
+                            ? classicActiveTabClass[activeCategory]
+                            : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        <span>{t.label}</span>
+                        {t.id === 'scraper' && (
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-400 text-slate-950 text-[9px] font-black uppercase">
+                            Consolidated
+                          </span>
+                        )}
+                        {t.badge !== undefined && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[10px] font-black">
+                            {t.badge}
+                          </span>
+                        )}
+                        {t.isNew && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 text-[9px] font-black">
+                            NEW
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+            )}
 
-              <button
-                type="button"
-                onClick={() => setShowAllModulesMenu(false)}
-                aria-label="Close menu"
-                className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-              >
-                <X className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
-            </div>
+            {/* PROFESSIONAL MOBILE BAR (VISIBLE ALL MODULES & DRAWER TRIGGER, NO HIDDEN TRIGGER) */}
+            {navMode === 'professional' && (
+              <div className="lg:hidden flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 rounded-xl p-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsProMobileDrawerOpen(true)}
+                    aria-expanded={isProMobileDrawerOpen}
+                    aria-label="Open Professional Navigation Drawer"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-950 hover:bg-slate-800 text-amber-400 border border-amber-500/30 text-xs font-bold whitespace-nowrap cursor-pointer"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                    <span>Categories &amp; Menu</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllModulesMenu(true)}
+                    aria-label="Open all modules menu"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black whitespace-nowrap cursor-pointer"
+                  >
+                    <MoreVertical className="w-3.5 h-3.5 shrink-0" />
+                    <span>All Modules</span>
+                  </button>
+                </div>
+                {activeModuleDef && (
+                  <span className="text-[11px] font-bold text-slate-300 truncate max-w-full">
+                    {activeModuleDef.label}
+                  </span>
+                )}
+              </div>
+            )}
 
-            {/* Instant Filter Search Bar */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 absolute left-3 sm:left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={moduleSearchQuery}
-                onChange={(e) => setModuleSearchQuery(e.target.value)}
-                placeholder="Search any module by English or Urdu keywords (e.g. 'jazzcash', 'scraper', 'seo', 'fees')..."
-                className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-xl sm:rounded-2xl text-[11px] sm:text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 shadow-inner"
-                autoFocus
-              />
-            </div>
-
-            {/* Modules Grid */}
-            <div className="flex-1 overflow-y-auto pr-1 space-y-5">
-              {buildAllModulesMenuGroups({
-                activeJobsCount: jobs.length,
-                pendingJobsCount: pendingJobs.length,
-                activeAdsCount: ads.filter(a => a.status === 'active').length,
-                pendingProofsCount: currentTransactions.filter(t => t.status === 'Pending').length,
-                feeLogsCount: jobPostingFeeLogs.length,
-                usersCount: users.length,
-                kycBadgeText: kycLoading ? '⏳ Loading' : kycError ? '⚠️ Error' : `${kycRequests.filter(r => r.status === 'Pending').length} KYC`,
-                subscribersCount: subscribers.length,
-                chatMessagesCount: chatMessages.length
-              }).map((cat, idx) => {
-                const q = moduleSearchQuery.toLowerCase().trim();
-                const filteredItems = cat.items.filter(
-                  (it) =>
-                    canAccessAdminTab(it.id) &&
-                    (!q ||
-                      it.label.toLowerCase().includes(q) ||
-                      it.urdu.toLowerCase().includes(q) ||
-                      it.id.toLowerCase().includes(q))
-                );
-
-                if (filteredItems.length === 0) return null;
-
-                return (
-                  <div key={idx} className="space-y-2.5">
-                    <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
-                      {cat.catTitle}
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                      {filteredItems.map((item) => {
-                        const Icon = item.icon;
-                        const isCurrent = adminTab === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              if (handlePermissionAwareNavigateTab(item.id)) {
-                                setShowAllModulesMenu(false);
-                              }
-                            }}
-                            className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl border text-left flex items-start space-x-2 sm:space-x-3 transition-all cursor-pointer ${
-                              isCurrent
-                                ? 'bg-amber-500/20 border-amber-500 text-white shadow-md sm:shadow-lg shadow-amber-500/10'
-                                : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-300'
-                            }`}
-                          >
-                            <div className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl shrink-0 ${isCurrent ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400 border border-slate-800'}`}>
-                              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="text-[11px] sm:text-xs font-bold text-white truncate block">{item.label}</span>
-                                {item.badge && (
-                                  <span className="text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0">
-                                    {item.badge}
-                                  </span>
-                                )}
-                              </div>
-                              <span className="text-[9px] sm:text-[10px] text-slate-400 block mt-0.5 truncate">{item.urdu}</span>
-                            </div>
-                          </button>
-                        );
-                      })}
+            {/* 3-DOT ALL MODULES QUICK MODAL OVERLAY */}
+            {showAllModulesMenu && (
+              <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-4xl w-full p-3.5 sm:p-6 shadow-2xl space-y-3 sm:space-y-5 text-white max-h-[92vh] flex flex-col animate-fadeIn">
+                  {/* Modal Header */}
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 sm:pb-4">
+                    <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+                      <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                        <MoreVertical className="w-4 h-4 sm:w-6 sm:h-6" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm sm:text-lg font-black text-white flex items-center space-x-1.5 sm:space-x-2 truncate">
+                          <span className="truncate">Admin Modules (تمام ماڈیولز)</span>
+                          <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] sm:text-[10px] font-bold shrink-0">
+                            Switcher
+                          </span>
+                        </h3>
+                        <p className="text-[10px] sm:text-xs text-slate-400 truncate">
+                          Filter by module name or purpose to jump instantly without horizontal scrolling.
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
 
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
-              <span>💡 Tip: Click any module card to navigate immediately.</span>
-              <button
-                type="button"
-                onClick={() => setShowAllModulesMenu(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl cursor-pointer"
-              >
-                Close Menu
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                    <button
+                      type="button"
+                      onClick={() => setShowAllModulesMenu(false)}
+                      aria-label="Close menu"
+                      className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                    >
+                      <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+                  </div>
+
+                  {/* Instant Filter Search Bar */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 absolute left-3 sm:left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      type="text"
+                      value={moduleSearchQuery}
+                      onChange={(e) => setModuleSearchQuery(e.target.value)}
+                      placeholder="Search any module by English, Urdu, ID, keyword or category (e.g. 'jazzcash', 'scraper', 'seo', 'cities')..."
+                      className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2.5 bg-slate-950 border border-slate-800 rounded-xl sm:rounded-2xl text-[11px] sm:text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 shadow-inner"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Modules Grid */}
+                  <div className="flex-1 overflow-y-auto pr-1 space-y-5">
+                    {buildAllModulesMenuGroups(navCounts).map((cat, idx) => {
+                      const filteredItems = cat.items.filter((it) => {
+                        if (!canAccessAdminTab(it.id)) return false;
+                        const modDef = ADMIN_NAVIGATION_MODULES.find((m) => m.id === it.id);
+                        if (modDef) {
+                          return matchesAdminModuleSearch(modDef, moduleSearchQuery);
+                        }
+                        const q = moduleSearchQuery.toLowerCase().trim();
+                        return (
+                          !q ||
+                          it.label.toLowerCase().includes(q) ||
+                          it.urdu.toLowerCase().includes(q) ||
+                          it.id.toLowerCase().includes(q)
+                        );
+                      });
+
+                      if (filteredItems.length === 0) return null;
+
+                      return (
+                        <div key={idx} className="space-y-2.5">
+                          <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                            {cat.catTitle}
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                            {filteredItems.map((item) => {
+                              const Icon = item.icon;
+                              const isCurrent = activeCanonicalTab === item.id;
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => {
+                                    if (handlePermissionAwareNavigateTab(item.id)) {
+                                      setShowAllModulesMenu(false);
+                                    }
+                                  }}
+                                  className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl border text-left flex items-start space-x-2 sm:space-x-3 transition-all cursor-pointer ${
+                                    isCurrent
+                                      ? 'bg-amber-500/20 border-amber-500 text-white shadow-md sm:shadow-lg shadow-amber-500/10'
+                                      : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-300'
+                                  }`}
+                                >
+                                  <div className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl shrink-0 ${isCurrent ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400 border border-slate-800'}`}>
+                                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="text-[11px] sm:text-xs font-bold text-white truncate block">{item.label}</span>
+                                      {item.badge && (
+                                        <span className="text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0">
+                                          {item.badge}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[9px] sm:text-[10px] text-slate-400 block mt-0.5 truncate">{item.urdu}</span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
+                    <span>💡 Tip: Click any module card to navigate immediately.</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllModulesMenu(false)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      Close Menu
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className={navMode === 'professional' ? 'lg:flex lg:items-start lg:gap-5 min-w-0' : ''}>
+              {navMode === 'professional' && (
+                <>
+                  <AdminProfessionalSidebar
+                    activeTab={adminTab}
+                    counts={navCounts}
+                    canAccessTab={canAccessAdminTab}
+                    onSelectTab={(tabId) => handlePermissionAwareNavigateTab(tabId)}
+                    onOpenAllModules={() => setShowAllModulesMenu(true)}
+                    isCollapsed={isProSidebarCollapsed}
+                    onToggleCollapse={() => setIsProSidebarCollapsed(prev => !prev)}
+                  />
+                  <AdminProfessionalMobileDrawer
+                    isOpen={isProMobileDrawerOpen}
+                    onClose={() => setIsProMobileDrawerOpen(false)}
+                    activeTab={adminTab}
+                    counts={navCounts}
+                    canAccessTab={canAccessAdminTab}
+                    onSelectTab={(tabId) => handlePermissionAwareNavigateTab(tabId)}
+                    onOpenAllModules={() => setShowAllModulesMenu(true)}
+                  />
+                </>
+              )}
+
+              <div className={navMode === 'professional' ? 'flex-1 min-w-0 space-y-4' : 'space-y-4'}>
+                {navMode === 'professional' && activeModuleDef && (
+                  <div className="hidden lg:flex items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-2.5">
+                    <div className="min-w-0 flex items-center gap-2 text-xs">
+                      <span className="font-bold text-slate-400 truncate">
+                        {activeModuleDef.proCategory.replace(/-/g, ' & ').replace(/\b\w/g, (ch) => ch.toUpperCase())}
+                      </span>
+                      <span className="text-slate-600">/</span>
+                      <span className="font-black text-white truncate">{activeModuleDef.label}</span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-amber-300 font-semibold truncate">{activeModuleDef.urdu}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllModulesMenu(true)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-400 border border-amber-500/30 text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <MoreVertical className="w-3.5 h-3.5" />
+                      <span>All Modules</span>
+                    </button>
+                  </div>
+                )}
 
       {/* TAB: WHATSAPP SUPPORT & ALERTS MANAGER */}
       {adminTab === 'whatsapp-manager' && (
@@ -3855,8 +3697,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       )}
 
-      {/* TAB: EXECUTIVE ANALYTICS & REVENUE COMMAND CENTER */}
-      {adminTab === 'analytics' && (
+      {/* TAB: EXECUTIVE ANALYTICS & REVENUE COMMAND CENTER (supports stats alias) */}
+      {(adminTab === 'analytics' || adminTab === 'stats') && (
         <AdminAnalyticsOverview
           jobs={jobs}
           pendingJobs={pendingJobs}
@@ -3884,6 +3726,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
       {adminTab === 'job-visibility' && (
         <JobVisibilityDefaultsManager />
+      )}
+      {adminTab === 'locations-manager' && canAccessAdminTab('locations-manager') && (
+        <AdminLocationManager />
       )}
 
       {/* TAB: MULTI-CURRENCY & INTERNATIONAL PRICING TIERS */}
@@ -7727,6 +7572,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         </div>
       )}
+
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* USER AUDIT DETAILED CONTROL MODAL */}
       {auditUser && (() => {

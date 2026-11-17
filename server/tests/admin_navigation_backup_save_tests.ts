@@ -11,12 +11,30 @@ process.env.NODE_ENV = 'test';
 
 import {
   AdminCategory,
+  AdminNavMode,
   ADMIN_TAB_CATEGORIES,
   ADMIN_ROLE_DEFAULT_PERMS,
   checkAdminTabPermission,
   navigateWithAdminPermission,
   buildAllModulesMenuGroups
 } from '../../src/components/AdminDashboard';
+import {
+  ADMIN_NAVIGATION_MODULES,
+  CLASSIC_ADMIN_CATEGORIES,
+  PROFESSIONAL_ADMIN_CATEGORIES,
+  ADMIN_TAB_ALIASES,
+  resolveCanonicalAdminTab,
+  getAdminNavModeStorageKey,
+  resolveStoredAdminNavMode,
+  persistAdminNavMode,
+  getClassicCategorySubTabs,
+  buildProfessionalMenuCategories,
+  searchAdminNavigationModules,
+  AdminNavCounts,
+  AdminNavigationModeToggle,
+  AdminProfessionalSidebar,
+  AdminProfessionalMobileDrawer
+} from '../../src/components/admin/AdminDashboardNavigation';
 import {
   AdminAnalyticsOverview,
   ANALYTICS_SHORTCUT_TAB_IDS
@@ -839,6 +857,349 @@ async function runSuite() {
       (globalThis as any).document = prevDocument;
       (URL as any).createObjectURL = prevCreateObjectUrl;
       (URL as any).revokeObjectURL = prevRevokeObjectUrl;
+    }
+  });
+
+  // --- STEP G (STEP-PHASE8.1-B): PROFESSIONAL ADMIN MENU ALONGSIDE CLASSIC MENU ---
+  const sampleNavCounts: AdminNavCounts = {
+    activeJobsCount: 12,
+    pendingJobsCount: 4,
+    activeAdsCount: 3,
+    pendingProofsCount: 2,
+    feeLogsCount: 9,
+    usersCount: 25,
+    kycBadgeText: '3 KYC',
+    kycPendingCount: 3,
+    subscribersCount: 8,
+    chatMessagesCount: 6
+  };
+
+  await runTest('PHASE 8.1-B: Canonical module registry has exactly 31 unique modules mapped across 7 Classic and 8 Professional categories', () => {
+    assert.strictEqual(ADMIN_NAVIGATION_MODULES.length, 31, 'Expected exactly 31 unique modules (30 existing + locations-manager)');
+    const ids = ADMIN_NAVIGATION_MODULES.map((m) => m.id);
+    assert.strictEqual(new Set(ids).size, 31, 'Canonical module IDs must be strictly unique');
+    assert.strictEqual(CLASSIC_ADMIN_CATEGORIES.length, 7);
+    assert.strictEqual(PROFESSIONAL_ADMIN_CATEGORIES.length, 8);
+
+    const expectedProStructure: Record<string, string[]> = {
+      'overview-analytics': ['analytics', 'activity-logs'],
+      'jobs-moderation': ['jobs', 'pending', 'add-job', 'ai-enhancer'],
+      'scraper-ingestion': ['scraper'],
+      'ads-campaigns': ['campaign-center', 'advertisements', 'landing-customizer'],
+      'finance-payments': ['pricing-controller', 'admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex'],
+      'users-kyc-support': ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub'],
+      'communication-alerts': ['whatsapp-manager', 'broadcast-center', 'bulk-notifications'],
+      'platform-settings-data': ['locations-manager', 'apply-settings', 'modal-content-manager', 'job-visibility', 'seo-config', 'settings', 'form-customizer', 'data-backup']
+    };
+
+    const superAdminCanAccess = (tabId: string) =>
+      checkAdminTabPermission('Super Admin', ADMIN_ROLE_DEFAULT_PERMS['Super Admin'], true, tabId);
+
+    const proGroups = buildProfessionalMenuCategories(sampleNavCounts, superAdminCanAccess);
+    assert.strictEqual(proGroups.length, 8, 'Super Admin must see all 8 Professional categories');
+
+    for (const [catId, expectedIds] of Object.entries(expectedProStructure)) {
+      const group = proGroups.find((g) => g.id === catId);
+      assert.ok(group, `Expected Professional category "${catId}" to exist`);
+      assert.deepStrictEqual(
+        group!.items.map((it) => it.id),
+        expectedIds,
+        `Mismatch in child modules for Professional category "${catId}"`
+      );
+    }
+
+    // All Modules matrix preserves parity with all 31 unique modules and zero duplicates
+    const allModulesGroups = buildAllModulesMenuGroups(sampleNavCounts);
+    const matrixIds = allModulesGroups.flatMap((g) => g.items.map((i) => i.id));
+    assert.strictEqual(matrixIds.length, 31);
+    assert.strictEqual(new Set(matrixIds).size, 31);
+    assert.ok(matrixIds.includes('locations-manager'));
+    assert.strictEqual(matrixIds.filter((id) => id === 'whatsapp-manager').length, 1);
+
+    // Every module ID and alias exists in ADMIN_TAB_CATEGORIES
+    for (const mod of ADMIN_NAVIGATION_MODULES) {
+      assert.strictEqual(ADMIN_TAB_CATEGORIES[mod.id], mod.classicCategory);
+      for (const alias of mod.aliases || []) {
+        assert.strictEqual(ADMIN_TAB_CATEGORIES[alias], mod.classicCategory);
+      }
+    }
+  });
+
+  await runTest('PHASE 8.1-B: Menu mode defaults to classic and persists locally per adminId using admin_nav_mode_${adminId} with zero backend calls', () => {
+    const storeMap = new Map<string, string>();
+    const mockStorage: Pick<Storage, 'getItem' | 'setItem'> = {
+      getItem: (k: string) => (storeMap.has(k) ? storeMap.get(k)! : null),
+      setItem: (k: string, v: string) => {
+        storeMap.set(k, v);
+      }
+    };
+
+    assert.strictEqual(getAdminNavModeStorageKey('adm-101'), 'admin_nav_mode_adm-101');
+    assert.strictEqual(getAdminNavModeStorageKey('  '), null);
+    assert.strictEqual(getAdminNavModeStorageKey(null), null);
+
+    // Missing, null, empty, invalid -> Classic default
+    assert.strictEqual(resolveStoredAdminNavMode(undefined, mockStorage), 'classic');
+    assert.strictEqual(resolveStoredAdminNavMode('adm-101', mockStorage), 'classic');
+    assert.strictEqual(resolveStoredAdminNavMode('adm-101', null), 'classic');
+
+    storeMap.set('admin_nav_mode_adm-101', 'invalid-mode');
+    assert.strictEqual(resolveStoredAdminNavMode('adm-101', mockStorage), 'classic');
+
+    // Persisting professional mode is isolated to the specific adminId
+    assert.strictEqual(persistAdminNavMode('adm-101', 'professional', mockStorage), true);
+    assert.strictEqual(storeMap.get('admin_nav_mode_adm-101'), 'professional');
+    assert.strictEqual(resolveStoredAdminNavMode('adm-101', mockStorage), 'professional');
+    assert.strictEqual(resolveStoredAdminNavMode('adm-202', mockStorage), 'classic');
+
+    // Switching back to classic works cleanly
+    assert.strictEqual(persistAdminNavMode('adm-101', 'classic', mockStorage), true);
+    assert.strictEqual(resolveStoredAdminNavMode('adm-101', mockStorage), 'classic');
+
+    // Type check & zero network dependency check on AdminDashboardNavigation.tsx
+    const defaultMode: AdminNavMode = resolveStoredAdminNavMode('adm-303', {
+      getItem: () => {
+        throw new Error('Storage denied');
+      }
+    });
+    assert.strictEqual(defaultMode, 'classic');
+
+    const navModuleSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminDashboardNavigation.tsx'),
+      'utf8'
+    );
+    assert.strictEqual(navModuleSource.includes('fetch('), false);
+    assert.strictEqual(navModuleSource.includes('/api/'), false);
+    assert.ok(navModuleSource.includes('admin_nav_mode_'));
+
+    const dashSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'),
+      'utf8'
+    );
+    assert.ok(dashSource.includes("const [navMode, setNavMode] = useState<AdminNavMode>('classic')"));
+    assert.ok(dashSource.includes('resolveStoredAdminNavMode(verifiedAdminId)'));
+    assert.ok(dashSource.includes('persistAdminNavMode(verifiedAdminId, safeMode)'));
+  });
+
+  await runTest('PHASE 8.1-B: Tab aliases (stats, url-scraper, scraped-history), locations-manager, and whatsapp-manager resolve cleanly without duplicate screens or forbidden imports', () => {
+    assert.strictEqual(ADMIN_TAB_ALIASES.stats, 'analytics');
+    assert.strictEqual(ADMIN_TAB_ALIASES['url-scraper'], 'scraper');
+    assert.strictEqual(ADMIN_TAB_ALIASES['scraped-history'], 'scraper');
+
+    assert.strictEqual(resolveCanonicalAdminTab('stats'), 'analytics');
+    assert.strictEqual(resolveCanonicalAdminTab('url-scraper'), 'scraper');
+    assert.strictEqual(resolveCanonicalAdminTab('scraped-history'), 'scraper');
+    assert.strictEqual(resolveCanonicalAdminTab('locations-manager'), 'locations-manager');
+
+    assert.strictEqual(ADMIN_TAB_CATEGORIES['stats'], 'settings');
+    assert.strictEqual(ADMIN_TAB_CATEGORIES['url-scraper'], 'scraper');
+    assert.strictEqual(ADMIN_TAB_CATEGORIES['scraped-history'], 'scraper');
+    assert.strictEqual(ADMIN_TAB_CATEGORIES['locations-manager'], 'settings');
+
+    // Aliases work in permission checks
+    assert.strictEqual(checkAdminTabPermission('Super Admin', ['*'], true, 'stats'), true);
+    assert.strictEqual(checkAdminTabPermission('Custom Settings', ['settings.manage'], true, 'stats'), true);
+    assert.strictEqual(checkAdminTabPermission('Custom Settings', ['settings.manage'], true, 'locations-manager'), true);
+    assert.strictEqual(checkAdminTabPermission('Job Moderator', ADMIN_ROLE_DEFAULT_PERMS['Job Moderator'], true, 'stats'), false);
+    assert.strictEqual(checkAdminTabPermission('Job Moderator', ADMIN_ROLE_DEFAULT_PERMS['Job Moderator'], true, 'locations-manager'), false);
+
+    const dashSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'),
+      'utf8'
+    );
+    const navSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminDashboardNavigation.tsx'),
+      'utf8'
+    );
+
+    // Existing components wired cleanly without duplicates or unmounted legacy files
+    assert.ok(dashSource.includes("(adminTab === 'analytics' || adminTab === 'stats')"));
+    assert.ok(dashSource.includes("adminTab === 'locations-manager' && canAccessAdminTab('locations-manager')"));
+    assert.ok(dashSource.includes("<AdminLocationManager />"));
+    assert.ok(dashSource.includes("<AdminWhatsAppManager"));
+    assert.ok(dashSource.includes("<AdminWhatsAppSettings"));
+    assert.ok(dashSource.includes("<AutomatedScraperHub"));
+
+    for (const forbiddenRef of ['AdminUrlScraperController', 'ScrapedJobHistoryModule', 'AdminDuplicateResolutionModal']) {
+      assert.strictEqual(dashSource.includes(forbiddenRef), false, `AdminDashboard.tsx must not reference ${forbiddenRef}`);
+      assert.strictEqual(navSource.includes(forbiddenRef), false, `AdminDashboardNavigation.tsx must not reference ${forbiddenRef}`);
+    }
+  });
+
+  await runTest('PHASE 8.1-B: Role-based permissions hide unauthorized modules & empty Professional categories cleanly', () => {
+    // 1. SEO Manager sees ONLY platform-settings-data -> ['seo-config']
+    const seoCan = (t: string) => checkAdminTabPermission('SEO Manager', ADMIN_ROLE_DEFAULT_PERMS['SEO Manager'], true, t);
+    const seoPro = buildProfessionalMenuCategories(sampleNavCounts, seoCan);
+    assert.strictEqual(seoPro.length, 1);
+    assert.strictEqual(seoPro[0].id, 'platform-settings-data');
+    assert.deepStrictEqual(seoPro[0].items.map((i) => i.id), ['seo-config']);
+
+    // 2. Payment Manager sees ONLY finance-payments -> ['admin-payment-methods', 'payment-proofs', 'fee-logs']
+    const payCan = (t: string) => checkAdminTabPermission('Payment Manager', ADMIN_ROLE_DEFAULT_PERMS['Payment Manager'], true, t);
+    const payPro = buildProfessionalMenuCategories(sampleNavCounts, payCan);
+    assert.strictEqual(payPro.length, 1);
+    assert.strictEqual(payPro[0].id, 'finance-payments');
+    assert.deepStrictEqual(payPro[0].items.map((i) => i.id), ['admin-payment-methods', 'payment-proofs', 'fee-logs']);
+
+    // 3. Finance Manager sees all 6 finance modules
+    const finCan = (t: string) => checkAdminTabPermission('Finance Manager', ADMIN_ROLE_DEFAULT_PERMS['Finance Manager'], true, t);
+    const finPro = buildProfessionalMenuCategories(sampleNavCounts, finCan);
+    assert.strictEqual(finPro.length, 1);
+    assert.deepStrictEqual(
+      finPro[0].items.map((i) => i.id),
+      ['pricing-controller', 'admin-payment-methods', 'payment-proofs', 'fee-management', 'fee-logs', 'currency-forex']
+    );
+
+    // 4. Job Moderator sees only jobs-moderation
+    const jobModCan = (t: string) => checkAdminTabPermission('Job Moderator', ADMIN_ROLE_DEFAULT_PERMS['Job Moderator'], true, t);
+    const jobPro = buildProfessionalMenuCategories(sampleNavCounts, jobModCan);
+    assert.strictEqual(jobPro.length, 1);
+    assert.strictEqual(jobPro[0].id, 'jobs-moderation');
+    assert.deepStrictEqual(jobPro[0].items.map((i) => i.id), ['jobs', 'pending', 'add-job', 'ai-enhancer']);
+
+    // 5. Custom Audit Viewer sees only overview-analytics -> ['activity-logs']
+    const auditCan = (t: string) => checkAdminTabPermission('Custom Audit', ['audit.view'], true, t);
+    const auditPro = buildProfessionalMenuCategories(sampleNavCounts, auditCan);
+    assert.strictEqual(auditPro.length, 1);
+    assert.strictEqual(auditPro[0].id, 'overview-analytics');
+    assert.deepStrictEqual(auditPro[0].items.map((i) => i.id), ['activity-logs']);
+
+    // 6. Custom Users Manager sees only users-kyc-support
+    const usersCan = (t: string) => checkAdminTabPermission('Custom Users', ['users.manage'], true, t);
+    const usersPro = buildProfessionalMenuCategories(sampleNavCounts, usersCan);
+    assert.strictEqual(usersPro.length, 1);
+    assert.strictEqual(usersPro[0].id, 'users-kyc-support');
+    assert.deepStrictEqual(usersPro[0].items.map((i) => i.id), ['user-audit', 'employer-kyc', 'subscribers', 'chat-hub']);
+
+    // 7. Custom Settings Manager sees analytics, communication-alerts, and settings WITHOUT data-backup
+    const settingsCan = (t: string) => checkAdminTabPermission('Custom Settings', ['settings.manage'], true, t);
+    const settingsPro = buildProfessionalMenuCategories(sampleNavCounts, settingsCan);
+    const settingsIds = settingsPro.flatMap((g) => g.items.map((i) => i.id));
+    assert.ok(settingsIds.includes('locations-manager'));
+    assert.ok(settingsIds.includes('whatsapp-manager'));
+    assert.ok(settingsIds.includes('analytics'));
+    assert.strictEqual(settingsIds.includes('data-backup'), false, 'Non-Admin with settings.manage must NEVER see data-backup');
+
+    // Classic sub-tabs respect the same permission filter
+    const classicSettingsTabs = getClassicCategorySubTabs('settings', sampleNavCounts, settingsCan).map((t) => t.id);
+    assert.ok(classicSettingsTabs.includes('locations-manager'));
+    assert.strictEqual(classicSettingsTabs.includes('data-backup'), false);
+
+    // Unverified admin sees 0 categories/modules
+    const unverifiedPro = buildProfessionalMenuCategories(sampleNavCounts, (t) =>
+      checkAdminTabPermission('Super Admin', ['*'], false, t)
+    );
+    assert.strictEqual(unverifiedPro.length, 0);
+  });
+
+  await runTest('PHASE 8.1-B: Bilingual search matches English, Urdu, IDs, aliases, keywords, and category names while respecting permissions', () => {
+    const superCan = (t: string) => checkAdminTabPermission('Super Admin', ['*'], true, t);
+    const jobModCan = (t: string) => checkAdminTabPermission('Job Moderator', ADMIN_ROLE_DEFAULT_PERMS['Job Moderator'], true, t);
+
+    assert.ok(searchAdminNavigationModules('jazzcash', sampleNavCounts, superCan).some((m) => m.id === 'admin-payment-methods'));
+    assert.ok(searchAdminNavigationModules('شہر', sampleNavCounts, superCan).some((m) => m.id === 'locations-manager'));
+    assert.ok(searchAdminNavigationModules('cities', sampleNavCounts, superCan).some((m) => m.id === 'locations-manager'));
+    assert.ok(searchAdminNavigationModules('stats', sampleNavCounts, superCan).some((m) => m.id === 'analytics'));
+    assert.ok(searchAdminNavigationModules('رسید', sampleNavCounts, superCan).some((m) => m.id === 'payment-proofs'));
+    assert.ok(searchAdminNavigationModules('Finance & Payments', sampleNavCounts, superCan).length === 6);
+
+    // Restricted role search must never reveal unauthorized modules
+    assert.strictEqual(searchAdminNavigationModules('jazzcash', sampleNavCounts, jobModCan).length, 0);
+    assert.strictEqual(searchAdminNavigationModules('Finance & Payments', sampleNavCounts, jobModCan).length, 0);
+    assert.deepStrictEqual(
+      searchAdminNavigationModules('اسپیم', sampleNavCounts, jobModCan).map((m) => m.id),
+      ['ai-enhancer']
+    );
+  });
+
+  await runTest('PHASE 8.1-B: Professional mode UI components render cleanly via SSR and untouched feature internal tabs remain intact', () => {
+    const toggleHtml = renderToStaticMarkup(
+      React.createElement(AdminNavigationModeToggle, {
+        mode: 'classic',
+        onChangeMode: () => {}
+      })
+    );
+    assert.ok(toggleHtml.includes('Classic Menu'));
+    assert.ok(toggleHtml.includes('Professional Menu'));
+    assert.ok(toggleHtml.includes('aria-pressed="true"'));
+
+    const superCan = (t: string) => checkAdminTabPermission('Super Admin', ['*'], true, t);
+    const sidebarExpandedHtml = renderToStaticMarkup(
+      React.createElement(AdminProfessionalSidebar, {
+        activeTab: 'stats',
+        counts: sampleNavCounts,
+        canAccessTab: superCan,
+        onSelectTab: () => {},
+        onOpenAllModules: () => {},
+        isCollapsed: false,
+        onToggleCollapse: () => {}
+      })
+    );
+    assert.ok(sidebarExpandedHtml.includes('Overview &amp; Analytics'));
+    assert.ok(sidebarExpandedHtml.includes('All Modules Matrix'));
+    assert.ok(sidebarExpandedHtml.includes('aria-label="Collapse sidebar"'));
+
+    const sidebarCollapsedHtml = renderToStaticMarkup(
+      React.createElement(AdminProfessionalSidebar, {
+        activeTab: 'locations-manager',
+        counts: sampleNavCounts,
+        canAccessTab: superCan,
+        onSelectTab: () => {},
+        onOpenAllModules: () => {},
+        isCollapsed: true,
+        onToggleCollapse: () => {}
+      })
+    );
+    assert.ok(sidebarCollapsedHtml.includes('aria-label="Expand sidebar"'));
+
+    const drawerClosedHtml = renderToStaticMarkup(
+      React.createElement(AdminProfessionalMobileDrawer, {
+        isOpen: false,
+        onClose: () => {},
+        activeTab: 'analytics',
+        counts: sampleNavCounts,
+        canAccessTab: superCan,
+        onSelectTab: () => {},
+        onOpenAllModules: () => {}
+      })
+    );
+    assert.strictEqual(drawerClosedHtml, '');
+
+    const drawerOpenHtml = renderToStaticMarkup(
+      React.createElement(AdminProfessionalMobileDrawer, {
+        isOpen: true,
+        onClose: () => {},
+        activeTab: 'analytics',
+        counts: sampleNavCounts,
+        canAccessTab: superCan,
+        onSelectTab: () => {},
+        onOpenAllModules: () => {}
+      })
+    );
+    assert.ok(drawerOpenHtml.includes('role="dialog"'));
+    assert.ok(drawerOpenHtml.includes('Professional Admin Menu'));
+    assert.ok(drawerOpenHtml.includes('All Modules'));
+
+    // Verify AdminDashboard exposes visible mobile All Modules + drawer button in Professional mode
+    const dashSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'), 'utf8');
+    assert.ok(dashSource.includes('Open Professional Navigation Drawer'));
+    assert.ok(dashSource.includes('<span>All Modules</span>'));
+
+    // Verify untouched feature internal tabs remain intact
+    const featureInternalChecks: Array<[string, string[]]> = [
+      ['src/components/admin/AutomatedScraperHub.tsx', ["'overview' | 'sources' | 'run' | 'history' | 'review' | 'settings'"]],
+      ['src/components/ads/AdminAdHub.tsx', ["'directory' | 'approvals' | 'slots' | 'customizer' | 'pricing' | 'performance'"]],
+      ['src/components/admin/AdminCampaignCenter.tsx', ['handleTogglePlacement', 'selectedPlacementFilter', 'selectedStatusFilter']],
+      ['src/components/admin/LandingPageCustomizer.tsx', ["'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'"]],
+      ['src/components/admin/AdminFeeManager.tsx', ["'categories' | 'exemptions' | 'global-tiers' | 'job-waivers'"]],
+      ['src/components/admin/AdminPaymentMethodsManager.tsx', ["'methods' | 'durations'"]],
+      ['src/components/admin/AdminBroadcastCenter.tsx', ["'compose' | 'history' | 'templates' | 'providers'"]]
+    ];
+    for (const [relPath, markers] of featureInternalChecks) {
+      const content = fs.readFileSync(path.resolve(process.cwd(), relPath), 'utf8');
+      for (const marker of markers) {
+        assert.ok(content.includes(marker), `Expected untouched internal sub-tab marker "${marker}" in ${relPath}`);
+      }
     }
   });
 

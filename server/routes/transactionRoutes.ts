@@ -408,6 +408,20 @@ transactionRouter.post('/', async (req, res) => {
       idempotencyKey
     } = req.body;
 
+    let cleanIdempotencyKey: string | undefined = undefined;
+    if (idempotencyKey !== undefined && idempotencyKey !== null) {
+      if (typeof idempotencyKey !== 'string') {
+        return res.status(400).json({ success: false, message: 'Invalid idempotencyKey: must be a string.' });
+      }
+      const trimmedKey = idempotencyKey.trim();
+      if (trimmedKey.length > 255) {
+        return res.status(400).json({ success: false, message: 'idempotencyKey exceeds maximum length of 255 characters.' });
+      }
+      if (trimmedKey.length > 0) {
+        cleanIdempotencyKey = trimmedKey;
+      }
+    }
+
     const authUser = (req as any).user;
     const authUserId = authUser?.userId || authUser?.id;
     const adminRoles = ['Super Admin', 'Admin', 'Payment Manager', 'Finance Manager'];
@@ -1000,7 +1014,7 @@ transactionRouter.post('/', async (req, res) => {
         paymentMethod: resolvedPaymentMethodName,
         ...(paymentMethod === 'Wallet Balance' ? { walletMutationState: 'NONE' as WalletMutationState } : {}),
         transactionId: tid,
-        idempotencyKey: idempotencyKey || undefined,
+        ...(cleanIdempotencyKey ? { idempotencyKey: cleanIdempotencyKey } : {}),
         senderName: cleanSenderName || senderName || effectiveUserName || 'Customer',
         senderPhoneOrAccount: cleanSenderPhone || senderPhoneOrAccount,
         depositBankOrWalletName,

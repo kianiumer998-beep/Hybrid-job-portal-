@@ -26,19 +26,74 @@ async function getTransactionsCollection() {
   return db.collection('transactions');
 }
 
-async function ensureTransactionIndexes() {
-  if (isTest() || !isMongoActive()) return;
-  try {
-    const coll = await getTransactionsCollection();
-    await coll.createIndex({ transactionId: 1 }, { unique: true, sparse: true });
-    await coll.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true });
-    console.log('[PaymentRepository] MongoDB unique indexes verified successfully on transactions collection.');
-  } catch (err: any) {
-    console.warn('[PaymentRepository] Notice: Unique index creation warning on transactions collection:', err?.message || err);
+let indexInitializationPromise: Promise<void> | null = null;
+let indexesReady = false;
+
+export async function ensureTransactionIndexesReady(): Promise<void> {
+  if (isTest() || !isMongoActive()) {
+    indexesReady = true;
+    return;
+  }
+  if (indexesReady) return;
+
+  if (indexInitializationPromise) {
+    return indexInitializationPromise;
+  }
+
+  indexInitializationPromise = (async () => {
+    try {
+      const coll = await getTransactionsCollection();
+      await coll.createIndex({ id: 1 }, { unique: true, sparse: true });
+      await coll.createIndex({ transactionId: 1 }, { unique: true, sparse: true });
+      await coll.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true });
+      indexesReady = true;
+      console.log('[PaymentRepository] MongoDB unique indexes verified successfully on transactions collection.');
+    } catch (err: any) {
+      indexesReady = false;
+      indexInitializationPromise = null;
+      const errorMsg = err?.message || err;
+      console.error('[PaymentRepository] Error: Transaction index initialization failed:', errorMsg);
+      throw new Error(`Database storage not ready: transaction unique indexes failed to initialize (${errorMsg}).`);
+    }
+  })();
+
+  return indexInitializationPromise;
+}
+
+export function areTransactionIndexesReady(): boolean {
+  if (isTest() || !isMongoActive()) return true;
+  return indexesReady;
+}
+
+function normalizeIdempotencyKey(key: any): string | undefined {
+  if (typeof key !== 'string') return undefined;
+  const trimmed = key.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export class MongoDuplicateTransactionError extends Error {
+  code: number;
+  keyPattern?: any;
+  constructor(message: string, code: number = 11000, keyPattern?: any) {
+    super(message);
+    this.name = 'MongoDuplicateTransactionError';
+    this.code = code;
+    if (keyPattern) {
+      this.keyPattern = keyPattern;
+    }
   }
 }
 
-ensureTransactionIndexes().catch(() => {});
+function wrapMongoTransactionError(err: any): never {
+  if (err && (err.code === 11000 || err.message?.includes('E11000') || err.message?.includes('duplicate key'))) {
+    throw new MongoDuplicateTransactionError(
+      'A transaction with this unique identifier or idempotency key already exists.',
+      11000,
+      err.keyPattern
+    );
+  }
+  throw err;
+}
 
 export class PaymentRepository {
   static isTransactionCompensated(tx: any): boolean {
@@ -190,24 +245,31 @@ export class PaymentRepository {
 
   static async createAsync(txData: any): Promise<any> {
     const id = txData?.id || `TXN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const cleanKey = normalizeIdempotencyKey(txData?.idempotencyKey);
     const { _id: _ignored, ...clean } = txData || {};
     const txToSave = {
       ...clean,
       id,
+      ...(cleanKey ? { idempotencyKey: cleanKey } : {}),
       createdAt: txData?.createdAt || new Date().toISOString(),
       updatedAt: txData?.updatedAt || new Date().toISOString()
     };
+    if (cleanKey === undefined) {
+      delete txToSave.idempotencyKey;
+    }
+
     if (isTest()) {
       inMemoryTransactions.set(id, txToSave);
       return txToSave;
     }
     if (isMongoActive()) {
+      await ensureTransactionIndexesReady();
       try {
         const coll = await getTransactionsCollection();
         await coll.insertOne({ ...txToSave });
         return txToSave;
       } catch (err: any) {
-        throw new Error(`MongoDB transactions insert failed: ${err.message || err}`);
+        wrapMongoTransactionError(err);
       }
     }
     return Database.addTransaction(txToSave);
@@ -215,7 +277,16 @@ export class PaymentRepository {
 
   static async updateAsync(id: string, updates: Record<string, any>): Promise<any | null> {
     const updatedAt = new Date().toISOString();
-    const updatePayload = { ...updates, updatedAt };
+    const cleanKey = updates?.idempotencyKey !== undefined ? normalizeIdempotencyKey(updates.idempotencyKey) : undefined;
+    const updatePayload = {
+      ...updates,
+      ...(updates?.idempotencyKey !== undefined ? (cleanKey ? { idempotencyKey: cleanKey } : { idempotencyKey: undefined }) : {}),
+      updatedAt
+    };
+    if (updatePayload.idempotencyKey === undefined && updates?.idempotencyKey !== undefined) {
+      delete updatePayload.idempotencyKey;
+    }
+
     if (isTest()) {
       const existing = inMemoryTransactions.get(id);
       if (!existing) return null;
@@ -224,6 +295,7 @@ export class PaymentRepository {
       return updated;
     }
     if (isMongoActive()) {
+      await ensureTransactionIndexesReady();
       try {
         const coll = await getTransactionsCollection();
         await coll.updateOne({ id: String(id) }, { $set: updatePayload });
@@ -234,7 +306,7 @@ export class PaymentRepository {
         }
         return null;
       } catch (err: any) {
-        throw new Error(`MongoDB transactions update failed: ${err.message || err}`);
+        wrapMongoTransactionError(err);
       }
     }
     const txs = Database.getTransactions();
@@ -533,6 +605,7 @@ export class PaymentRepository {
       tx.updatedAt = new Date().toISOString();
       inMemoryTransactions.set(id, tx);
     } else if (isMongoActive()) {
+      await ensureTransactionIndexesReady();
       try {
         const coll = await getTransactionsCollection();
         const res: any = await coll.findOneAndUpdate(
@@ -548,7 +621,7 @@ export class PaymentRepository {
         }
       } catch (err: any) {
         if (err.message && err.message.includes('already')) throw err;
-        throw new Error(`Concurrency verification claim failed: ${err.message || err}`);
+        wrapMongoTransactionError(err);
       }
     } else {
       const txs = Database.getTransactions();

@@ -53,7 +53,10 @@ import {
   deriveSourceClassification,
   isHistoricallyProven,
   getConfiguredCapabilities,
-  getProvenCapabilities
+  getProvenCapabilities,
+  isWorkingSource,
+  isPartialSource,
+  isUnavailableSource
 } from '../../src/services/scraperClassification';
 import {
   AdminAiQualityEnhancer,
@@ -3053,6 +3056,193 @@ async function runSuite() {
     const classification = deriveSourceClassification(failingProvenSource);
     assert.strictEqual(classification.historicallyProven, true, 'Transient error never clears historical success');
     assert.strictEqual(classification.overallStatus, 'Partial');
+  });
+
+  // ============================================================================
+  // STEP-8.1 TEST-ONLY FOLLOW-UP: EDGE CASES A THROUGH G
+  // ============================================================================
+
+  await runTest('Scraper Classification Edge Case A: Unverified source with healthStatus="healthy" and scrapedCount=0 must remain Configured / Not Yet Verified', () => {
+    const unverifiedSource = {
+      id: 'source-edge-a',
+      name: 'Newly Configured Portal A',
+      url: 'https://example.com/careers',
+      status: 'Active Scheduled',
+      healthStatus: 'healthy',
+      scrapedCount: 0
+    };
+
+    const classification = deriveSourceClassification(unverifiedSource);
+    assert.strictEqual(classification.historicallyProven, false, 'Unverified source must have historicallyProven = false');
+    assert.strictEqual(classification.overallStatus, 'Configured / Not Yet Verified', 'Must be Configured / Not Yet Verified');
+    assert.strictEqual(isWorkingSource(unverifiedSource), false, 'isWorkingSource must return false');
+    assert.ok(classification.statusReason.includes('Configured / Not Yet Verified'), 'Reason must document unverified status');
+  });
+
+  await runTest('Scraper Classification Edge Case B: Historically proven source with healthStatus="No Jobs", no error, and valid historical proof must follow intended Working classification', () => {
+    const provenNoJobsSource = {
+      id: 'source-edge-b',
+      name: 'Proven Source Zero Jobs This Run',
+      url: 'https://example.com/careers',
+      status: 'Active Scheduled',
+      healthStatus: 'No Jobs',
+      lastHttpStatus: 200,
+      lastErrorMessage: '',
+      scrapedCount: 14,
+      lastSuccessfulScrapeAt: '2026-11-15T08:00:00.000Z'
+    };
+
+    const classification = deriveSourceClassification(provenNoJobsSource);
+    assert.strictEqual(classification.historicallyProven, true, 'Source has valid historical proof');
+    assert.strictEqual(classification.overallStatus, 'Working', 'Proven source with 0 jobs and no errors remains Working');
+    assert.strictEqual(isWorkingSource(provenNoJobsSource), true, 'isWorkingSource must return true');
+    assert.ok(classification.statusReason.includes('Verified operational with 14 vacancies harvested'));
+  });
+
+  await runTest('Scraper Classification Edge Case C: Unverified source with HTTP 404 must not be classified as Working', () => {
+    const unverified404Source = {
+      id: 'source-edge-c',
+      name: 'Unverified 404 Portal',
+      url: 'https://example.com/careers',
+      status: 'Active Scheduled',
+      healthStatus: '404',
+      lastHttpStatus: 404,
+      lastErrorMessage: 'Not Found',
+      scrapedCount: 0
+    };
+
+    const classification = deriveSourceClassification(unverified404Source);
+    assert.strictEqual(classification.historicallyProven, false, 'No historical proof');
+    assert.strictEqual(classification.overallStatus, 'Partial', 'Unverified failure maps to Partial for operator attention');
+    assert.strictEqual(isWorkingSource(unverified404Source), false, 'Must not be classified as Working');
+    assert.strictEqual(isPartialSource(unverified404Source), true, 'isPartialSource must return true');
+  });
+
+  await runTest('Scraper Classification Edge Case D: Disabled source must remain Unavailable regardless of historical proof', () => {
+    const unprovenDisabled = {
+      id: 'source-edge-d1',
+      name: 'Unproven Disabled Portal',
+      url: 'https://example.com/careers',
+      status: 'Disabled',
+      healthStatus: 'healthy',
+      scrapedCount: 0
+    };
+    const c1 = deriveSourceClassification(unprovenDisabled);
+    assert.strictEqual(c1.overallStatus, 'Unavailable', 'Unproven disabled must be Unavailable');
+    assert.strictEqual(isUnavailableSource(unprovenDisabled), true);
+    assert.strictEqual(isWorkingSource(unprovenDisabled), false);
+
+    const provenDisabled = {
+      id: 'source-edge-d2',
+      name: 'Proven Disabled Portal',
+      url: 'https://example.com/careers',
+      status: 'Disabled',
+      healthStatus: 'Jobs Found',
+      scrapedCount: 42,
+      lastSuccessfulScrapeAt: '2026-11-01T00:00:00.000Z'
+    };
+    const c2 = deriveSourceClassification(provenDisabled);
+    assert.strictEqual(c2.overallStatus, 'Unavailable', 'Proven disabled must be Unavailable');
+    assert.strictEqual(c2.historicallyProven, true, 'Historical proof is preserved');
+    assert.strictEqual(isUnavailableSource(provenDisabled), true);
+    assert.strictEqual(isWorkingSource(provenDisabled), false);
+  });
+
+  await runTest('Scraper Classification Edge Case E: Paused source must never be classified as Working (Partial if proven, Configured / Not Yet Verified if unproven)', () => {
+    // Proven paused source
+    const provenPaused = {
+      id: 'source-edge-e1',
+      name: 'Proven Paused Portal',
+      url: 'https://example.com/careers',
+      status: 'Paused',
+      healthStatus: 'Jobs Found',
+      scrapedCount: 18,
+      lastSuccessfulScrapeAt: '2026-11-12T10:00:00.000Z'
+    };
+    const c1 = deriveSourceClassification(provenPaused);
+    assert.strictEqual(c1.historicallyProven, true);
+    assert.strictEqual(c1.overallStatus, 'Partial', 'Proven paused source expected status is Partial');
+    assert.strictEqual(isWorkingSource(provenPaused), false, 'Must NEVER be classified as Working');
+    assert.strictEqual(isPartialSource(provenPaused), true);
+    assert.ok(c1.statusReason.includes('Source is currently Paused, historically proven with 18 vacancies'));
+
+    // Unproven paused source
+    const unprovenPaused = {
+      id: 'source-edge-e2',
+      name: 'Unproven Paused Portal',
+      url: 'https://example.com/careers',
+      status: 'Paused',
+      healthStatus: 'healthy',
+      scrapedCount: 0
+    };
+    const c2 = deriveSourceClassification(unprovenPaused);
+    assert.strictEqual(c2.historicallyProven, false);
+    assert.strictEqual(c2.overallStatus, 'Configured / Not Yet Verified', 'Unproven paused source remains Configured / Not Yet Verified');
+    assert.strictEqual(isWorkingSource(unprovenPaused), false, 'Must NEVER be classified as Working');
+  });
+
+  await runTest('Scraper Classification Edge Case F: Source with valid provenExtractionMethods but zero scrapedCount follows intended historical-proof rules', () => {
+    const methodsOnlySource = {
+      id: 'source-edge-f',
+      name: 'Proven Methods Portal',
+      pdfUrl: 'https://example.com/gazette.pdf',
+      formatType: 'PDF Advertisement',
+      status: 'Active Scheduled',
+      healthStatus: 'Jobs Found',
+      scrapedCount: 0,
+      provenExtractionMethods: ['government_pdf_engine']
+    };
+
+    assert.strictEqual(isHistoricallyProven(methodsOnlySource), true, 'Valid provenExtractionMethods grants historical proof');
+    const provenCaps = getProvenCapabilities(methodsOnlySource);
+    assert.ok(provenCaps.includes('PDF'), 'Proven capabilities must include PDF from extraction method');
+
+    const classification = deriveSourceClassification(methodsOnlySource);
+    assert.strictEqual(classification.historicallyProven, true);
+    assert.strictEqual(classification.overallStatus, 'Working', 'Healthy source with proven methods is Working');
+    assert.strictEqual(isWorkingSource(methodsOnlySource), true);
+  });
+
+  await runTest('Scraper Classification Edge Case G: Invalid lastSuccessfulScrapeAt must not count as historical proof', () => {
+    const invalidTimestamps = [
+      '',
+      '   ',
+      'invalid-date',
+      'null',
+      'undefined',
+      '1970-01-01T00:00:00.000Z'
+    ];
+
+    for (const ts of invalidTimestamps) {
+      const source = {
+        id: `source-edge-g-${ts}`,
+        name: `Invalid TS Source (${ts})`,
+        url: 'https://example.com/careers',
+        status: 'Active Scheduled',
+        healthStatus: 'healthy',
+        scrapedCount: 0,
+        lastSuccessfulScrapeAt: ts
+      };
+
+      assert.strictEqual(
+        isHistoricallyProven(source),
+        false,
+        `Timestamp "${ts}" must not count as historical proof`
+      );
+
+      const classification = deriveSourceClassification(source);
+      assert.strictEqual(
+        classification.historicallyProven,
+        false,
+        `Timestamp "${ts}" must not make classification historically proven`
+      );
+      assert.strictEqual(
+        classification.overallStatus,
+        'Configured / Not Yet Verified',
+        `Source with timestamp "${ts}" and 0 scrapes must be Configured / Not Yet Verified`
+      );
+      assert.strictEqual(isWorkingSource(source), false, 'Must not be Working');
+    }
   });
 
   console.log('------------------------------------------------------------------');

@@ -235,9 +235,12 @@ export class ScraperRepository {
         if (
           !seedResult ||
           seedResult.acknowledged !== true ||
-          (typeof seedResult.insertedCount === 'number' && seedResult.insertedCount === 0)
+          typeof seedResult.insertedCount !== 'number' ||
+          seedResult.insertedCount !== cleanDocs.length
         ) {
-          throw new Error('MongoDB insertMany seeding scraper_sources was not explicitly acknowledged');
+          throw new Error(
+            `MongoDB insertMany seeding scraper_sources failed confirmation (acknowledged=${String(seedResult?.acknowledged)}, insertedCount=${String(seedResult?.insertedCount)}, expected=${cleanDocs.length})`
+          );
         }
         console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
         this.cachedSources = cleanDocs;
@@ -608,9 +611,12 @@ export class ScraperRepository {
         if (
           !seedRes ||
           seedRes.acknowledged !== true ||
-          (typeof seedRes.insertedCount === 'number' && seedRes.insertedCount === 0)
+          typeof seedRes.insertedCount !== 'number' ||
+          seedRes.insertedCount !== defaults.length
         ) {
-          throw new Error('MongoDB insertMany seeding scraper_groups was not explicitly acknowledged');
+          throw new Error(
+            `MongoDB insertMany seeding scraper_groups failed confirmation (acknowledged=${String(seedRes?.acknowledged)}, insertedCount=${String(seedRes?.insertedCount)}, expected=${defaults.length})`
+          );
         }
         console.log(`[ScraperRepository] Seeded ${defaults.length} default source groups into MongoDB.`);
         this.cachedGroups = defaults;

@@ -5093,7 +5093,7 @@ async function runSuite() {
             insertMany: async () => ({ acknowledged: false, insertedCount: 0 })
           })
         }),
-        /not explicitly acknowledged/i
+        /failed confirmation/i
       );
       assert.strictEqual(repoAny.cachedSources[0].id, 'stale-only', 'Failed seed must not overwrite cachedSources');
 
@@ -5425,7 +5425,7 @@ async function runSuite() {
             insertMany: async () => ({ acknowledged: false, insertedCount: 0 })
           })
         }),
-        /not explicitly acknowledged/i
+        /failed confirmation/i
       );
       assert.strictEqual(repoAny.cachedGroups.length, 1);
       assert.strictEqual(repoAny.cachedGroups[0].id, 'grp-cached-1');
@@ -5801,6 +5801,226 @@ async function runSuite() {
       assert.strictEqual(repoAny.cachedSources[1].id, 'cfg-2');
     } finally {
       repoAny.cachedSources = prevSources;
+    }
+  });
+
+  // ============================================================================
+  // STEP-8.4-B1: EXACT INSERT COUNT VALIDATION FOR DEFAULT SCRAPER SEEDS
+  // ============================================================================
+
+  await runTest('STEP-8.4-B1 Case 1 [Mocked]: ScraperRepository.getConfigs seed rejects missing/zero/partial/unacked insertedCount, succeeds only on exact count match, and preserves cache & memory mode', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevCachedSources = Array.isArray(repoAny.cachedSources)
+      ? repoAny.cachedSources.map((s: any) => ({ ...s }))
+      : [];
+
+    const baselineCache = [
+      { id: 'baseline-cached-source', name: 'Baseline Cached Portal', url: 'https://baseline.gov.pk/jobs', status: 'Active Scheduled' }
+    ];
+    const baselineSnapshot = JSON.stringify(baselineCache);
+
+    try {
+      // 1. acknowledged=false with insertedCount=0 -> reject
+      repoAny.cachedSources = baselineCache.map(s => ({ ...s }));
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ toArray: async () => [] }),
+            insertMany: async () => ({ acknowledged: false, insertedCount: 0 })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedSources), baselineSnapshot, 'Case 1: cache must stay unchanged on rejected seed');
+
+      // 2. acknowledged=true with insertedCount missing -> reject
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ toArray: async () => [] }),
+            insertMany: async () => ({ acknowledged: true })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedSources), baselineSnapshot, 'Case 2: cache must stay unchanged on missing insertedCount');
+
+      // 3. acknowledged=true with insertedCount=0 -> reject
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ toArray: async () => [] }),
+            insertMany: async () => ({ acknowledged: true, insertedCount: 0 })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedSources), baselineSnapshot, 'Case 3: cache must stay unchanged on zero insertedCount');
+
+      // 4. acknowledged=true with insertedCount smaller than expected (partial) -> reject
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ toArray: async () => [] }),
+            insertMany: async (docs: any[]) => ({
+              acknowledged: true,
+              insertedCount: Math.max(1, docs.length - 1)
+            })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedSources), baselineSnapshot, 'Case 4: cache must stay unchanged on partial insertedCount');
+
+      // 4b. acknowledged=true with negative insertedCount -> reject
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ toArray: async () => [] }),
+            insertMany: async () => ({ acknowledged: true, insertedCount: -1 })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedSources), baselineSnapshot, 'Case 4b: cache must stay unchanged on negative insertedCount');
+
+      // 5 & 7. acknowledged=true with insertedCount === expected document count -> succeed & update cachedSources
+      let capturedDocs: any[] = [];
+      const seededConfigs = await ScraperRepository.getConfigs({
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          find: () => ({ toArray: async () => [] }),
+          insertMany: async (docs: any[]) => {
+            capturedDocs = docs;
+            return { acknowledged: true, insertedCount: docs.length };
+          }
+        })
+      });
+      assert.ok(capturedDocs.length > 0);
+      assert.strictEqual(seededConfigs.length, capturedDocs.length);
+      assert.deepStrictEqual(repoAny.cachedSources, seededConfigs, 'Case 7: successful seed must update cachedSources with seeded configs');
+
+      // 8. Existing memory-only behavior remains unchanged
+      repoAny.cachedSources = baselineCache.map(s => ({ ...s }));
+      const memoryConfigs = await ScraperRepository.getConfigs({
+        isMongoConfiguredFn: () => false
+      });
+      assert.strictEqual(JSON.stringify(memoryConfigs), baselineSnapshot, 'Case 8: memory-only mode must preserve cachedSources');
+    } finally {
+      repoAny.cachedSources = prevCachedSources;
+    }
+  });
+
+  await runTest('STEP-8.4-B1 Case 2 [Mocked]: ScraperRepository.getGroups seed rejects missing/zero/partial/unacked insertedCount, succeeds only on exact count match, and preserves cache & memory mode', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevCachedGroups = Array.isArray(repoAny.cachedGroups)
+      ? repoAny.cachedGroups.map((g: any) => ({ ...g, sourceIds: [...(g.sourceIds || [])] }))
+      : [];
+
+    const baselineGroups = [
+      { id: 'baseline-group-1', name: 'Baseline Group', description: 'Baseline', sourceIds: ['src-a'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }
+    ];
+    const baselineSnapshot = JSON.stringify(baselineGroups);
+
+    try {
+      // 1. acknowledged=false with insertedCount=0 -> reject
+      repoAny.cachedGroups = baselineGroups.map(g => ({ ...g, sourceIds: [...g.sourceIds] }));
+      await assert.rejects(
+        () => ScraperRepository.getGroups({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+            insertMany: async () => ({ acknowledged: false, insertedCount: 0 })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedGroups), baselineSnapshot, 'Case 1: cachedGroups must stay unchanged on rejected seed');
+
+      // 2. acknowledged=true with insertedCount missing -> reject
+      await assert.rejects(
+        () => ScraperRepository.getGroups({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+            insertMany: async () => ({ acknowledged: true })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedGroups), baselineSnapshot, 'Case 2: cachedGroups must stay unchanged on missing insertedCount');
+
+      // 3. acknowledged=true with insertedCount=0 -> reject
+      await assert.rejects(
+        () => ScraperRepository.getGroups({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+            insertMany: async () => ({ acknowledged: true, insertedCount: 0 })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedGroups), baselineSnapshot, 'Case 3: cachedGroups must stay unchanged on zero insertedCount');
+
+      // 4. acknowledged=true with insertedCount smaller than expected (partial) -> reject
+      await assert.rejects(
+        () => ScraperRepository.getGroups({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+            insertMany: async (docs: any[]) => ({
+              acknowledged: true,
+              insertedCount: Math.max(1, docs.length - 1)
+            })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedGroups), baselineSnapshot, 'Case 4: cachedGroups must stay unchanged on partial insertedCount');
+
+      // 4b. acknowledged=true with negative insertedCount -> reject
+      await assert.rejects(
+        () => ScraperRepository.getGroups({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+            insertMany: async () => ({ acknowledged: true, insertedCount: -1 })
+          })
+        }),
+        /failed confirmation/i
+      );
+      assert.strictEqual(JSON.stringify(repoAny.cachedGroups), baselineSnapshot, 'Case 4b: cachedGroups must stay unchanged on negative insertedCount');
+
+      // 5 & 7. acknowledged=true with insertedCount === expected document count -> succeed & update cachedGroups
+      let capturedGroupDocs: any[] = [];
+      const seededGroups = await ScraperRepository.getGroups({
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+          insertMany: async (docs: any[]) => {
+            capturedGroupDocs = docs;
+            return { acknowledged: true, insertedCount: docs.length };
+          }
+        })
+      });
+      assert.ok(capturedGroupDocs.length > 0);
+      assert.strictEqual(seededGroups.length, capturedGroupDocs.length);
+      assert.deepStrictEqual(repoAny.cachedGroups, seededGroups, 'Case 7: successful seed must update cachedGroups with seeded groups');
+
+      // 8. Existing memory-only behavior remains unchanged
+      repoAny.cachedGroups = baselineGroups.map(g => ({ ...g, sourceIds: [...g.sourceIds] }));
+      const memoryGroups = await ScraperRepository.getGroups({
+        isMongoConfiguredFn: () => false
+      });
+      assert.strictEqual(JSON.stringify(memoryGroups), baselineSnapshot, 'Case 8: memory-only mode must preserve cachedGroups');
+    } finally {
+      repoAny.cachedGroups = prevCachedGroups;
     }
   });
 

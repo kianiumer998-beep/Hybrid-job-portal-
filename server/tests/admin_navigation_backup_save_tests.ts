@@ -54,6 +54,7 @@ import {
   isHistoricallyProven,
   getConfiguredCapabilities,
   getProvenCapabilities,
+  hasIncompletePaginationDiagnostic,
   isWorkingSource,
   isPartialSource,
   isUnavailableSource
@@ -81,8 +82,19 @@ import {
   canonicalizePaginationUrl,
   validateDiscoveredNextPageUrl,
   crawlPortalPages,
-  evaluateCheckpointEligibility
+  evaluateCheckpointEligibility,
+  buildSourceCompletionStatsUpdate
 } from '../services/scraperEngine';
+import {
+  ScraperRepository
+} from '../db/repositories/ScraperRepository';
+import {
+  MAX_DETAIL_HTML_BYTES,
+  isEligibleDetailUrl,
+  isPermittedDetailOrigin,
+  enrichJobFromDetailPage,
+  enrichScrapedJobsBatch
+} from '../services/detailPageEnricher';
 import {
   validateSafeScrapeUrl
 } from '../utils/ssrfProtection';
@@ -3209,26 +3221,26 @@ async function runSuite() {
     assert.strictEqual(isWorkingSource(unprovenPaused), false, 'Must NEVER be classified as Working');
   });
 
-  await runTest('Scraper Classification Edge Case F: Source with valid provenExtractionMethods but zero scrapedCount follows intended historical-proof rules', () => {
+  await runTest('Scraper Classification Edge Case F: Unverified provenExtractionMethods with zero scrapedCount and no valid timestamp must NOT establish historical proof', () => {
     const methodsOnlySource = {
       id: 'source-edge-f',
-      name: 'Proven Methods Portal',
+      name: 'Unverified Methods Portal',
       pdfUrl: 'https://example.com/gazette.pdf',
       formatType: 'PDF Advertisement',
       status: 'Active Scheduled',
       healthStatus: 'Jobs Found',
       scrapedCount: 0,
-      provenExtractionMethods: ['government_pdf_engine']
+      provenExtractionMethods: ['government_pdf_engine', 'detail', 'json_ld']
     };
 
-    assert.strictEqual(isHistoricallyProven(methodsOnlySource), true, 'Valid provenExtractionMethods grants historical proof');
+    assert.strictEqual(isHistoricallyProven(methodsOnlySource), false, 'Arbitrary provenExtractionMethods alone must NOT grant historical proof');
     const provenCaps = getProvenCapabilities(methodsOnlySource);
-    assert.ok(provenCaps.includes('PDF'), 'Proven capabilities must include PDF from extraction method');
+    assert.deepStrictEqual(provenCaps, [], 'Proven capabilities must remain empty without genuine historical proof');
 
     const classification = deriveSourceClassification(methodsOnlySource);
-    assert.strictEqual(classification.historicallyProven, true);
-    assert.strictEqual(classification.overallStatus, 'Working', 'Healthy source with proven methods is Working');
-    assert.strictEqual(isWorkingSource(methodsOnlySource), true);
+    assert.strictEqual(classification.historicallyProven, false);
+    assert.strictEqual(classification.overallStatus, 'Configured / Not Yet Verified', 'Source with only unverified methods must stay Configured / Not Yet Verified');
+    assert.strictEqual(isWorkingSource(methodsOnlySource), false);
   });
 
   await runTest('Scraper Classification Edge Case G: Invalid lastSuccessfulScrapeAt must not count as historical proof', () => {
@@ -4440,6 +4452,549 @@ async function runSuite() {
       false,
       'Unsaved required vacancies must block checkpoint advancement'
     );
+  });
+
+  await runTest('STEP-8.4-A Case 1 [Unit]: Historical proof rejects arbitrary provenExtractionMethods while preserving genuine proof and unambiguous structural capabilities', () => {
+    // 1. Arbitrary provenExtractionMethods without scrapedCount or valid lastSuccessfulScrapeAt
+    const tagOnly = {
+      id: 'src-84a-1a',
+      name: 'Tag Only Portal',
+      url: 'https://jobs.gov.pk/listings',
+      status: 'Active Scheduled',
+      healthStatus: 'Jobs Found',
+      scrapedCount: 0,
+      hasDetailPageEnrichment: true,
+      hasStructuredData: true,
+      provenExtractionMethods: ['government_pdf_engine', 'html_cheerio', 'detail', 'json_ld']
+    };
+    assert.strictEqual(isHistoricallyProven(tagOnly), false);
+    assert.deepStrictEqual(getProvenCapabilities(tagOnly), []);
+    assert.ok(getConfiguredCapabilities(tagOnly).includes('Detail Page'));
+    assert.ok(getConfiguredCapabilities(tagOnly).includes('JSON-LD'));
+    assert.strictEqual(deriveSourceClassification(tagOnly).overallStatus, 'Configured / Not Yet Verified');
+
+    // 2. Genuine scrapedCount proves history and unambiguous PDF-only capability (never Detail/JSON-LD from unverified tags)
+    const pdfProven = {
+      id: 'src-84a-1b',
+      name: 'PDF Gazette Portal',
+      pdfUrl: 'https://jobs.gov.pk/gazette.pdf',
+      formatType: 'PDF Advertisement',
+      status: 'Active Scheduled',
+      healthStatus: 'Jobs Found',
+      scrapedCount: 8,
+      hasDetailPageEnrichment: true,
+      hasStructuredData: true,
+      provenExtractionMethods: ['detail', 'json_ld']
+    };
+    assert.strictEqual(isHistoricallyProven(pdfProven), true);
+    const pdfCaps = getProvenCapabilities(pdfProven);
+    assert.strictEqual(pdfCaps.includes('PDF'), true);
+    assert.strictEqual(pdfCaps.includes('Detail Page'), false);
+    assert.strictEqual(pdfCaps.includes('JSON-LD'), false);
+
+    // 3. Valid lastSuccessfulScrapeAt (with scrapedCount=0) proves history and unambiguous HTML/Portal capability
+    const tsProvenHtml = {
+      id: 'src-84a-1c',
+      name: 'Timestamp Proven HTML Portal',
+      url: 'https://careers.gov.pk/openings',
+      status: 'Active Scheduled',
+      healthStatus: 'No Jobs',
+      scrapedCount: 0,
+      lastSuccessfulScrapeAt: '2026-11-10T12:00:00.000Z'
+    };
+    assert.strictEqual(isHistoricallyProven(tsProvenHtml), true);
+    const tsCaps = getProvenCapabilities(tsProvenHtml);
+    assert.strictEqual(tsCaps.includes('HTML'), true);
+    assert.strictEqual(tsCaps.includes('Portal'), true);
+    assert.strictEqual(deriveSourceClassification(tsProvenHtml).overallStatus, 'Working');
+
+    // 4. Invalid timestamps do not prove history even with provenExtractionMethods
+    for (const badTs of ['', '   ', 'not-a-date', '1970-01-01T00:00:00.000Z']) {
+      const invalidTsSrc = {
+        id: `src-84a-bad-${badTs}`,
+        name: 'Bad Timestamp Source',
+        url: 'https://careers.gov.pk/openings',
+        status: 'Active Scheduled',
+        healthStatus: 'healthy',
+        scrapedCount: 0,
+        lastSuccessfulScrapeAt: badTs,
+        provenExtractionMethods: ['html_cheerio']
+      };
+      assert.strictEqual(isHistoricallyProven(invalidTsSrc), false);
+      assert.deepStrictEqual(getProvenCapabilities(invalidTsSrc), []);
+    }
+  });
+
+  await runTest('STEP-8.4-A Case 2 [Unit]: Incomplete pagination diagnostics classify proven sources as Partial and clean runs clear diagnostics back to Working', () => {
+    const diagnostics = [
+      'Pagination cycle detected: repeated next-page URL (https://portal.gov.pk/jobs?page=2)',
+      'Pagination cycle detected on numeric page 2',
+      'External hostname "evil.example.com" rejected (expected portal host "portal.gov.pk")',
+      'SSRF validation rejected next-page URL: Loopback IP address (127.0.0.0/8)',
+      'Unsafe protocol "javascript:" rejected for next-page URL',
+      'Pagination truncated at safety limit of 25 pages (checkpoint preserved)'
+    ];
+
+    for (const diag of diagnostics) {
+      assert.strictEqual(hasIncompletePaginationDiagnostic(diag), true, `Expected pagination diagnostic match for: ${diag}`);
+      const c = deriveSourceClassification({
+        id: 'src-84a-pag',
+        name: 'Paginated Portal',
+        url: 'https://portal.gov.pk/jobs',
+        status: 'Active Scheduled',
+        healthStatus: 'Jobs Found',
+        scrapedCount: 25,
+        lastSuccessfulScrapeAt: '2026-11-10T00:00:00.000Z',
+        lastErrorMessage: diag
+      });
+      assert.strictEqual(c.historicallyProven, true);
+      assert.strictEqual(c.overallStatus, 'Partial', `Expected Partial instead of Working for diagnostic: ${diag}`);
+    }
+
+    // Engine completion stats preserve Jobs Found with diagnostic on incomplete run, then clear lastErrorMessage on clean run
+    const incompleteCompletion = buildSourceCompletionStatsUpdate({
+      sourceCompletedAt: '2026-11-18T01:00:00.000Z',
+      previousLastSuccessfulScrapeAt: '2026-11-10T00:00:00.000Z',
+      runId: 'RUN-84A-INC',
+      isCheckpointEligible: false,
+      isDetectionSuccessful: true,
+      isAllPersistAttemptsFailed: false,
+      hasUnsavedRequiredVacancies: false,
+      sourceSaveFailures: 0,
+      sourceUniqueSaveFailures: 0,
+      sourceDupSaveFailures: 0,
+      sourcePagesAttempted: 1,
+      lastPageError: null,
+      paginationDiagnostic: 'External hostname "evil.example.com" rejected (expected portal host "portal.gov.pk")',
+      hitSafetyLimit: false,
+      maxSafetyPages: 25,
+      isCompleteMode: true,
+      sourceValid: 5,
+      sourceFound: 5,
+      sourcePersisted: 5,
+      sourceIntentionalSkips: 0
+    });
+    assert.strictEqual(incompleteCompletion.successHealth, 'Jobs Found');
+    assert.strictEqual(
+      incompleteCompletion.statsUpdate.lastErrorMessage,
+      'External hostname "evil.example.com" rejected (expected portal host "portal.gov.pk")'
+    );
+    assert.strictEqual(incompleteCompletion.statsUpdate.lastSuccessfulScrapeAt, '2026-11-10T00:00:00.000Z');
+
+    const cleanCompletion = buildSourceCompletionStatsUpdate({
+      sourceCompletedAt: '2026-11-18T02:00:00.000Z',
+      previousLastSuccessfulScrapeAt: '2026-11-10T00:00:00.000Z',
+      runId: 'RUN-84A-CLEAN',
+      isCheckpointEligible: true,
+      isDetectionSuccessful: true,
+      isAllPersistAttemptsFailed: false,
+      hasUnsavedRequiredVacancies: false,
+      sourceSaveFailures: 0,
+      sourceUniqueSaveFailures: 0,
+      sourceDupSaveFailures: 0,
+      sourcePagesAttempted: 2,
+      lastPageError: null,
+      paginationDiagnostic: undefined,
+      hitSafetyLimit: false,
+      maxSafetyPages: 25,
+      isCompleteMode: true,
+      sourceValid: 12,
+      sourceFound: 12,
+      sourcePersisted: 12,
+      sourceIntentionalSkips: 0
+    });
+    assert.strictEqual(cleanCompletion.successHealth, 'Jobs Found');
+    assert.strictEqual(cleanCompletion.lastErrorNotice, undefined);
+    assert.strictEqual(cleanCompletion.statsUpdate.lastErrorMessage, '', 'Clean run must explicitly clear previous diagnostic');
+    assert.strictEqual(cleanCompletion.statsUpdate.lastSuccessfulScrapeAt, '2026-11-18T02:00:00.000Z');
+
+    const clearedClassification = deriveSourceClassification({
+      id: 'src-84a-pag',
+      name: 'Paginated Portal',
+      url: 'https://portal.gov.pk/jobs',
+      status: 'Active Scheduled',
+      healthStatus: cleanCompletion.statsUpdate.healthStatus,
+      scrapedCount: 37,
+      lastSuccessfulScrapeAt: cleanCompletion.statsUpdate.lastSuccessfulScrapeAt,
+      lastErrorMessage: cleanCompletion.statsUpdate.lastErrorMessage
+    });
+    assert.strictEqual(clearedClassification.overallStatus, 'Working');
+
+    // Unavailable and unverified-source behaviors remain preserved
+    assert.strictEqual(
+      deriveSourceClassification({
+        id: 'src-84a-disabled',
+        name: 'Disabled Portal',
+        url: 'https://portal.gov.pk/jobs',
+        status: 'Disabled',
+        healthStatus: 'Jobs Found',
+        scrapedCount: 20,
+        lastErrorMessage: 'Pagination cycle detected on numeric page 2'
+      }).overallStatus,
+      'Unavailable'
+    );
+    assert.strictEqual(
+      deriveSourceClassification({
+        id: 'src-84a-unverified',
+        name: 'Fresh Unverified Portal',
+        url: 'https://portal.gov.pk/jobs',
+        status: 'Active Scheduled',
+        healthStatus: 'healthy',
+        scrapedCount: 0,
+        lastErrorMessage: ''
+      }).overallStatus,
+      'Configured / Not Yet Verified'
+    );
+  });
+
+  await runTest('STEP-8.4-A Case 3 [Mocked]: ScraperRepository.updateSourceStats only mutates cached stats on confirmed Mongo writes or memory-only mode', async () => {
+    const configs = await ScraperRepository.getConfigs();
+    const testId = 'step-84a-repo-cache-test';
+    const baseRecord = {
+      id: testId,
+      name: 'Cache Integrity Test Portal',
+      url: 'https://portal.gov.pk/jobs',
+      status: 'Active Scheduled',
+      healthStatus: 'healthy',
+      scrapedCount: 0,
+      lastSuccessfulScrapeAt: undefined as string | undefined,
+      lastCompletedAt: undefined as string | undefined,
+      lastRunId: undefined as string | undefined,
+      lastErrorMessage: 'stale error'
+    };
+    const existingIdx = configs.findIndex(s => s.id === testId);
+    if (existingIdx !== -1) configs.splice(existingIdx, 1);
+    configs.push({ ...baseRecord });
+
+    try {
+      const target = () => configs.find(s => s.id === testId)!;
+
+      // 1. Configured Mongo + failed write -> zero cached mutations
+      await ScraperRepository.updateSourceStats(
+        testId,
+        {
+          lastStartedAt: '2026-11-18T01:00:00.000Z',
+          lastCompletedAt: '2026-11-18T01:01:00.000Z',
+          lastSuccessfulScrapeAt: '2026-11-18T01:01:00.000Z',
+          lastRunId: 'RUN-FAIL',
+          scrapedCountIncrement: 10,
+          healthStatus: 'Jobs Found',
+          lastErrorMessage: ''
+        },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            updateOne: async () => {
+              throw new Error('Mongo write failed');
+            }
+          })
+        }
+      );
+      assert.strictEqual(target().scrapedCount, 0, 'Failed Mongo write must NOT increment cached scrapedCount');
+      assert.strictEqual(target().healthStatus, 'healthy', 'Failed Mongo write must NOT alter cached healthStatus');
+      assert.strictEqual(target().lastSuccessfulScrapeAt, undefined);
+      assert.strictEqual(target().lastCompletedAt, undefined);
+      assert.strictEqual(target().lastErrorMessage, 'stale error');
+
+      // 2. Configured Mongo + zero matched documents -> zero cached mutations
+      await ScraperRepository.updateSourceStats(
+        testId,
+        {
+          lastCompletedAt: '2026-11-18T01:02:00.000Z',
+          lastSuccessfulScrapeAt: '2026-11-18T01:02:00.000Z',
+          scrapedCountIncrement: 5,
+          healthStatus: 'Jobs Found',
+          lastErrorMessage: ''
+        },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            updateOne: async () => ({ acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 0 })
+          })
+        }
+      );
+      assert.strictEqual(target().scrapedCount, 0);
+      assert.strictEqual(target().healthStatus, 'healthy');
+      assert.strictEqual(target().lastSuccessfulScrapeAt, undefined);
+
+      // 3. Configured Mongo + unacknowledged write -> zero cached mutations
+      await ScraperRepository.updateSourceStats(
+        testId,
+        {
+          scrapedCountIncrement: 5,
+          healthStatus: 'Jobs Found',
+          lastSuccessfulScrapeAt: '2026-11-18T01:02:30.000Z'
+        },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            updateOne: async () => ({ acknowledged: false, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 })
+          })
+        }
+      );
+      assert.strictEqual(target().scrapedCount, 0);
+      assert.strictEqual(target().healthStatus, 'healthy');
+
+      // 4. Configured Mongo + confirmed matched write -> updates cached stats
+      await ScraperRepository.updateSourceStats(
+        testId,
+        {
+          lastCompletedAt: '2026-11-18T01:03:00.000Z',
+          lastSuccessfulScrapeAt: '2026-11-18T01:03:00.000Z',
+          scrapedCountIncrement: 7,
+          healthStatus: 'Jobs Found',
+          lastErrorMessage: ''
+        },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            updateOne: async () => ({ acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 })
+          })
+        }
+      );
+      assert.strictEqual(target().scrapedCount, 7);
+      assert.strictEqual(target().healthStatus, 'Jobs Found');
+      assert.strictEqual(target().lastSuccessfulScrapeAt, '2026-11-18T01:03:00.000Z');
+      assert.strictEqual(target().lastErrorMessage, '');
+
+      // 5. Memory-only mode preserves cache updates cleanly
+      await ScraperRepository.updateSourceStats(
+        testId,
+        {
+          lastCompletedAt: '2026-11-18T01:04:00.000Z',
+          lastSuccessfulScrapeAt: '2026-11-18T01:04:00.000Z',
+          scrapedCountIncrement: 3,
+          healthStatus: 'Jobs Found',
+          lastErrorMessage: ''
+        },
+        {
+          isMongoConfiguredFn: () => false
+        }
+      );
+      assert.strictEqual(target().scrapedCount, 10);
+      assert.strictEqual(target().lastSuccessfulScrapeAt, '2026-11-18T01:04:00.000Z');
+    } finally {
+      const cleanupIdx = configs.findIndex(s => s.id === testId);
+      if (cleanupIdx !== -1) configs.splice(cleanupIdx, 1);
+    }
+  });
+
+  await runTest('STEP-8.4-A Case 4 [Unit]: Detail-page URL validation enforces same-host/subdomain rules, protocol/port safety, and rejects parent expansion', () => {
+    const portalUrl = 'https://jobs.portal.gov.pk/listings';
+
+    // Same host & www normalization
+    assert.strictEqual(isEligibleDetailUrl('https://jobs.portal.gov.pk/vacancy/12', portalUrl), true);
+    assert.strictEqual(isEligibleDetailUrl('https://www.jobs.portal.gov.pk/vacancy/12', portalUrl), true);
+
+    // Legitimate subdomain of target hostname
+    assert.strictEqual(isEligibleDetailUrl('https://detail.jobs.portal.gov.pk/vacancy/12', portalUrl), true);
+
+    // Parent-domain expansion rejected
+    assert.strictEqual(isEligibleDetailUrl('https://portal.gov.pk/vacancy/12', portalUrl), false, 'Parent-domain expansion must be rejected');
+
+    // Unrelated hosts & lookalike suffix rejected
+    assert.strictEqual(isEligibleDetailUrl('https://other-portal.gov.pk/vacancy/12', portalUrl), false);
+    assert.strictEqual(isEligibleDetailUrl('https://evilportal.gov.pk/vacancy/12', 'https://portal.gov.pk/listings'), false);
+
+    // HTTPS downgrade rejected
+    assert.strictEqual(isEligibleDetailUrl('http://jobs.portal.gov.pk/vacancy/12', portalUrl), false);
+
+    // Unexpected port rejected
+    assert.strictEqual(isEligibleDetailUrl('https://jobs.portal.gov.pk:8443/vacancy/12', portalUrl), false);
+
+    // Missing/invalid target portal URL rejected
+    assert.strictEqual(isEligibleDetailUrl('https://jobs.portal.gov.pk/vacancy/12', undefined), false);
+    assert.strictEqual(isEligibleDetailUrl('https://jobs.portal.gov.pk/vacancy/12', ''), false);
+
+    // Circular listing URL rejected, query-differentiated detail URL accepted
+    assert.strictEqual(isEligibleDetailUrl('https://jobs.portal.gov.pk/listings/', portalUrl), false);
+    assert.strictEqual(isEligibleDetailUrl('https://jobs.portal.gov.pk/listings?id=99', portalUrl), true);
+
+    // Post-redirect origin validation helper checks
+    assert.strictEqual(isPermittedDetailOrigin('https://detail.jobs.portal.gov.pk/final', portalUrl), true);
+    assert.strictEqual(isPermittedDetailOrigin('https://portal.gov.pk/final', portalUrl), false);
+  });
+
+  await runTest('STEP-8.4-A Case 5 [Mocked]: Detail enrichment enforces origin, MIME/HTML signature, 2 MB limit, Apply link extraction, and non-destructive fallback', async () => {
+    const portalCfg = {
+      id: 'detail-test',
+      name: 'Gov Portal',
+      url: 'https://portal.gov.pk/jobs'
+    };
+
+    const makeListing = (overrides: Record<string, any> = {}) => ({
+      id: 'job-det-1',
+      sourceJobId: 'SRC-101',
+      title: 'Assistant Director',
+      company: 'Gov Portal',
+      jobType: 'On-site' as const,
+      region: 'Pakistan' as const,
+      salary: 'Salary not disclosed',
+      currency: 'PKR' as const,
+      experienceLevel: 'Mid' as const,
+      department: 'General',
+      tags: [] as string[],
+      description: 'Short summary',
+      requirements: [] as string[],
+      benefits: [] as string[],
+      postedAt: 'Today',
+      applicationsCount: 0,
+      status: 'Pending' as const,
+      sourceUrl: 'https://portal.gov.pk/jobs/101',
+      extractionMethod: 'html_cheerio' as const,
+      ...overrides
+    });
+
+    // 1. Missing sourceUrl never falls back to fetching originalApplyUrl
+    let fetchCalls = 0;
+    const noSourceJob = makeListing({ sourceUrl: undefined, originalApplyUrl: 'https://portal.gov.pk/apply/101' });
+    const noSourceRes = await enrichJobFromDetailPage(
+      noSourceJob,
+      portalCfg,
+      async () => {
+        fetchCalls++;
+        return new Response('<html></html>', { status: 200 });
+      }
+    );
+    assert.strictEqual(fetchCalls, 0, 'Must never fetch originalApplyUrl when sourceUrl is missing');
+    assert.strictEqual(noSourceRes, noSourceJob);
+
+    // 2. External final redirect URL is rejected without merging
+    const externalRedirectJob = await enrichJobFromDetailPage(
+      makeListing(),
+      portalCfg,
+      async () => {
+        const res = new Response('<html><body><h1>Hacked Title</h1><div id="job-description">' + 'X'.repeat(150) + '</div></body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' }
+        });
+        Object.defineProperty(res, 'url', { value: 'https://external-phish.com/hijack' });
+        return res;
+      }
+    );
+    assert.strictEqual(externalRedirectJob.title, 'Assistant Director');
+    assert.strictEqual(externalRedirectJob.description, 'Short summary');
+
+    // 3. Unsupported Content-Types (PDF, JSON, PNG, plain text) and missing Content-Type non-HTML payloads rejected
+    const nonHtmlPayloads = [
+      { body: '%PDF-1.4 binary pdf payload ' + 'A'.repeat(200), ct: 'application/pdf' },
+      { body: JSON.stringify({ title: 'JSON Title', pad: 'A'.repeat(200) }), ct: 'application/json' },
+      { body: 'PNG binary payload ' + 'A'.repeat(200), ct: 'image/png' },
+      { body: 'Plain text non-html body ' + 'A'.repeat(200), ct: 'text/plain' },
+      { body: JSON.stringify({ title: 'Untyped JSON', pad: 'A'.repeat(200) }), ct: '' }
+    ];
+    for (const sample of nonHtmlPayloads) {
+      const resJob = await enrichJobFromDetailPage(
+        makeListing(),
+        portalCfg,
+        async () => {
+          const headers: Record<string, string> = sample.ct ? { 'content-type': sample.ct } : {};
+          return new Response(sample.body, { status: 200, headers });
+        }
+      );
+      assert.strictEqual(resJob.description, 'Short summary', `Non-HTML (${sample.ct || 'empty CT'}) must not be parsed`);
+    }
+
+    // 4. Oversized (> 2 MB) body without Content-Length cancels stream cleanly and returns original job unchanged
+    let streamCancelled = false;
+    const oversizedStream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(600 * 1024));
+      },
+      cancel() {
+        streamCancelled = true;
+      }
+    });
+    const oversizedJob = await enrichJobFromDetailPage(
+      makeListing(),
+      portalCfg,
+      async () => {
+        const res = new Response(oversizedStream, {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' }
+        });
+        Object.defineProperty(res, 'url', { value: 'https://portal.gov.pk/jobs/101' });
+        return res;
+      }
+    );
+    assert.strictEqual(streamCancelled, true, 'Oversized detail response stream (> 2 MB) must be cancelled');
+    assert.strictEqual(oversizedJob.description, 'Short summary');
+
+    // 5. Valid bounded HTML: JSON-LD item.url must NOT map to originalApplyUrl; valid Apply link IS extracted; sourceUrl/sourceJobId/extractionMethod preserved
+    assert.strictEqual(MAX_DETAIL_HTML_BYTES, 2 * 1024 * 1024);
+    const richHtml = `<!DOCTYPE html><html><head>
+      <script type="application/ld+json">${JSON.stringify({
+        '@type': 'JobPosting',
+        title: 'Assistant Director Planning',
+        url: 'https://portal.gov.pk/jobs/101/jsonld-posting-url',
+        description: 'Comprehensive federal planning department vacancy overseeing development evaluations and policy research across ministries.'
+      })}</script>
+    </head><body>
+      <h1>Assistant Director Planning</h1>
+      <div id="job-description">Comprehensive federal planning department vacancy overseeing development evaluations and policy research across ministries.</div>
+      <a href="https://apply.portal.gov.pk/submit/101">Apply Now</a>
+    </body></html>`;
+
+    const enrichedWithoutExistingApply = await enrichJobFromDetailPage(
+      makeListing(),
+      portalCfg,
+      async () => {
+        const res = new Response(richHtml, { status: 200, headers: { 'content-type': 'text/html' } });
+        Object.defineProperty(res, 'url', { value: 'https://portal.gov.pk/jobs/101' });
+        return res;
+      }
+    );
+    assert.strictEqual(enrichedWithoutExistingApply.title, 'Assistant Director Planning');
+    assert.strictEqual(
+      enrichedWithoutExistingApply.originalApplyUrl,
+      'https://apply.portal.gov.pk/submit/101',
+      'Must extract valid Apply link rather than JSON-LD item.url'
+    );
+    assert.strictEqual(enrichedWithoutExistingApply.sourceUrl, 'https://portal.gov.pk/jobs/101');
+    assert.strictEqual(enrichedWithoutExistingApply.sourceJobId, 'SRC-101');
+    assert.strictEqual(enrichedWithoutExistingApply.extractionMethod, 'html_cheerio');
+
+    // JSON-LD-only page (no Apply link) must leave originalApplyUrl undefined
+    const jsonLdOnlyHtml = `<!DOCTYPE html><html><head>
+      <script type="application/ld+json">${JSON.stringify({
+        '@type': 'JobPosting',
+        title: 'Senior Econometrician',
+        url: 'https://portal.gov.pk/jobs/101/jsonld-only'
+      })}</script>
+    </head><body><div id="job-description">Detailed econometric research post requiring master degree and quantitative evaluation skills.</div></body></html>`;
+    const jsonLdOnlyRes = await enrichJobFromDetailPage(
+      makeListing(),
+      portalCfg,
+      async () => new Response(jsonLdOnlyHtml, { status: 200, headers: { 'content-type': 'text/html' } })
+    );
+    assert.strictEqual(jsonLdOnlyRes.originalApplyUrl, undefined, 'JSON-LD item.url must NEVER map to originalApplyUrl');
+
+    // Existing valid originalApplyUrl must remain preserved
+    const preservedApplyRes = await enrichJobFromDetailPage(
+      makeListing({ originalApplyUrl: 'https://official-apply.gov.pk/form/999' }),
+      portalCfg,
+      async () => new Response(richHtml, { status: 200, headers: { 'content-type': 'text/html' } })
+    );
+    assert.strictEqual(preservedApplyRes.originalApplyUrl, 'https://official-apply.gov.pk/form/999');
+
+    // Batch enrichment preserves job order and returns failed item unchanged
+    const batchResults = await enrichScrapedJobsBatch(
+      [
+        makeListing({ id: 'b-1', sourceUrl: 'https://portal.gov.pk/jobs/101' }),
+        makeListing({ id: 'b-2', title: 'Keep On Failure', sourceUrl: 'https://portal.gov.pk/jobs/fail' })
+      ],
+      portalCfg,
+      3,
+      async (url) => {
+        if (url.includes('/fail')) throw new Error('Simulated timeout');
+        return new Response(richHtml, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+    );
+    assert.strictEqual(batchResults.length, 2);
+    assert.strictEqual(batchResults[0].id, 'b-1');
+    assert.strictEqual(batchResults[0].title, 'Assistant Director Planning');
+    assert.strictEqual(batchResults[1].id, 'b-2');
+    assert.strictEqual(batchResults[1].title, 'Keep On Failure');
   });
 
 

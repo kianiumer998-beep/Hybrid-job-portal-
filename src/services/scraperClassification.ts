@@ -98,14 +98,15 @@ export interface SourceClassification {
  * Evaluates whether a source has reliable historical proof of genuine successful job extraction.
  *
  * Protection rules:
- * - Returns true if scrapedCount > 0 OR lastSuccessfulScrapeAt is a valid non-zero timestamp.
+ * - Returns true ONLY if scrapedCount > 0 OR lastSuccessfulScrapeAt is a valid non-zero timestamp.
+ * - Arbitrary, manually supplied, or unverified provenExtractionMethods tags NEVER establish historical proof.
  * - A subsequent run failure (404, 403, Timeout, Invalid PDF, etc.) NEVER clears historical success.
  */
 export function isHistoricallyProven(source: ClassifiableSourceInput): boolean {
   if (!source) return false;
 
   // 1. Direct cumulative extraction count
-  if (typeof source.scrapedCount === 'number' && source.scrapedCount > 0) {
+  if (typeof source.scrapedCount === 'number' && Number.isFinite(source.scrapedCount) && source.scrapedCount > 0) {
     return true;
   }
 
@@ -118,11 +119,6 @@ export function isHistoricallyProven(source: ClassifiableSourceInput): boolean {
         return true;
       }
     }
-  }
-
-  // 3. Proven extraction methods explicitly populated
-  if (Array.isArray(source.provenExtractionMethods) && source.provenExtractionMethods.length > 0) {
-    return true;
   }
 
   return false;
@@ -184,8 +180,10 @@ export function getConfiguredCapabilities(source: ClassifiableSourceInput): Extr
  *
  * Strict conservative rules:
  * - If isHistoricallyProven(source) is false, provenCapabilities is EMPTY.
- * - A configured URL (e.g. pdfUrl or portalUrl) alone does NOT grant proven capability.
- * - Proven capabilities require explicit extraction method tags OR unambiguous single-format configuration.
+ * - Unverified provenExtractionMethods tags and configured flags (e.g. pdfUrl, portalUrl,
+ *   hasDetailPageEnrichment, hasStructuredData) do NOT grant proven status on their own.
+ * - Preserves structural capability classification ONLY when genuine historical proof exists
+ *   AND the source configuration unambiguously identifies a single extraction channel.
  */
 export function getProvenCapabilities(source: ClassifiableSourceInput): ExtractionCapability[] {
   if (!source || !isHistoricallyProven(source)) {
@@ -194,32 +192,6 @@ export function getProvenCapabilities(source: ClassifiableSourceInput): Extracti
 
   const proven = new Set<ExtractionCapability>();
 
-  // A. If the source carries verified extraction methods from past successful jobs, use them directly:
-  if (Array.isArray(source.provenExtractionMethods) && source.provenExtractionMethods.length > 0) {
-    for (const rawMethod of source.provenExtractionMethods) {
-      const m = String(rawMethod).toLowerCase();
-      if (m.includes('pdf') || m.includes('ocr')) {
-        proven.add('PDF');
-      }
-      if (m.includes('html') || m.includes('cheerio') || m.includes('generic')) {
-        proven.add('HTML');
-        proven.add('Portal');
-      }
-      if (m.includes('greenhouse') || m.includes('lever') || m.includes('smartrecruiters') || m.includes('ashby') || m.includes('state')) {
-        proven.add('Portal');
-      }
-      if (m.includes('detail')) {
-        proven.add('Detail Page');
-      }
-      if (m.includes('json_ld') || m.includes('structured')) {
-        proven.add('JSON-LD');
-      }
-    }
-  }
-
-  // B. Structural proof for unambiguous single-format sources:
-  // When a source has confirmed historical success (scrapedCount > 0 or lastSuccessfulScrapeAt)
-  // and its architecture exclusively uses a single extraction channel, that channel is proven.
   const configured = getConfiguredCapabilities(source);
   const isConfiguredPdf = configured.includes('PDF');
   const isConfiguredHtml = configured.includes('HTML') || configured.includes('Portal');
@@ -227,23 +199,61 @@ export function getProvenCapabilities(source: ClassifiableSourceInput): Extracti
   const hasDistinctPdfUrl = Boolean(source.pdfUrl && source.pdfUrl.trim().startsWith('http'));
   const hasDistinctPortalUrl = Boolean(source.portalUrl && source.portalUrl.trim().startsWith('http'));
 
-  // 1. Exclusively PDF source with historical success:
-  if (isConfiguredPdf && !hasDistinctPortalUrl && (source.scrapedCount || 0) > 0) {
+  // 1. Unambiguously PDF-only source with genuine historical success:
+  if (isConfiguredPdf && !isConfiguredHtml && !hasDistinctPortalUrl) {
     proven.add('PDF');
   }
 
-  // 2. Exclusively HTML/Portal source with historical success:
-  if (isConfiguredHtml && !hasDistinctPdfUrl && (source.scrapedCount || 0) > 0) {
+  // 2. Unambiguously HTML/Portal-only source with genuine historical success:
+  if (isConfiguredHtml && !isConfiguredPdf && !hasDistinctPdfUrl) {
     proven.add('HTML');
     proven.add('Portal');
   }
 
-  // Note: hasDetailPageEnrichment and hasStructuredData are declared/configured flags,
-  // NOT verified historical extraction evidence. Therefore, they do NOT grant proven status.
-  // Historical proof for 'Detail Page' or 'JSON-LD' requires genuine extraction evidence
-  // recorded in provenExtractionMethods (handled above).
-
   return Array.from(proven);
+}
+
+/**
+ * Detects whether a source's lastErrorMessage reflects an incomplete pagination stop
+ * (unsafe/rejected next-page URL, external host rejection, SSRF rejection, repeated/cyclic URL,
+ * numeric pagination cycle, safety-limit truncation, or mid-crawl page interruption).
+ */
+export function hasIncompletePaginationDiagnostic(lastErrorMessage?: string): boolean {
+  if (!lastErrorMessage || typeof lastErrorMessage !== 'string') return false;
+  const msg = lastErrorMessage.trim().toLowerCase();
+  if (!msg) return false;
+
+  if (
+    msg.includes('next-page url') ||
+    msg.includes('pagination cycle detected') ||
+    msg.includes('repeated next-page') ||
+    msg.includes('pagination truncated at safety limit') ||
+    msg.includes('ssrf validation rejected') ||
+    msg.includes('crawling interrupted on page')
+  ) {
+    return true;
+  }
+
+  if (msg.includes('external hostname') && msg.includes('rejected')) {
+    return true;
+  }
+
+  if (msg.includes('numeric page') && msg.includes('cycle')) {
+    return true;
+  }
+
+  if (msg.includes('safety limit of') && msg.includes('page')) {
+    return true;
+  }
+
+  if (
+    msg.includes('pagination') &&
+    (msg.includes('incomplete') || msg.includes('truncated') || msg.includes('cycle') || msg.includes('rejected') || msg.includes('unsafe') || msg.includes('stopped'))
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -253,6 +263,7 @@ export function getProvenCapabilities(source: ClassifiableSourceInput): Extracti
  * - Never mutates the source.
  * - Never deletes or disables any source.
  * - Preserves historical success across transient failures.
+ * - Incomplete pagination diagnostics classify historically proven sources as Partial, never Working.
  */
 export function deriveSourceClassification(source: ClassifiableSourceInput): SourceClassification {
   if (!source) {
@@ -275,6 +286,7 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
   const httpStatus = Number(source.lastHttpStatus || 0);
   const scrapedCount = typeof source.scrapedCount === 'number' ? source.scrapedCount : 0;
   const isPaused = source.status === 'Paused' || source.status === 'Disabled';
+  const hasIncompletePagination = hasIncompletePaginationDiagnostic(source.lastErrorMessage);
 
   // 1. Detect severe sustained network/DNS unavailability
   const isSustainedDead =
@@ -303,6 +315,7 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
   // 2. Working Classification
   // Requirements:
   // - Not paused/disabled
+  // - No active incomplete-pagination diagnostic
   // - Recent run succeeded (Jobs Found, healthy, or 0 jobs without error on a reachable host)
   const isRecentSuccess =
     healthLower === 'jobs found' ||
@@ -312,10 +325,11 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
     healthLower === 'no jobs' &&
     !errorMsg.includes('fail') &&
     !errorMsg.includes('error') &&
+    !hasIncompletePagination &&
     httpStatus !== 404 &&
     httpStatus !== 403;
 
-  if (!isPaused && historicallyProven && (isRecentSuccess || isZeroJobsWithoutError)) {
+  if (!isPaused && !hasIncompletePagination && historicallyProven && (isRecentSuccess || isZeroJobsWithoutError)) {
     const reason = scrapedCount > 0
       ? `Working: Verified operational with ${scrapedCount} vacancies harvested`
       : 'Working: Online and verified healthy';
@@ -331,8 +345,8 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
 
   // 3. Partial / Needs Attention Classification
   // Scenarios:
-  // A) Historically proven source currently encountering a transient error (404, 403, Timeout, Invalid PDF, Fetch Error)
-  // B) Dual-format source where one channel failed (e.g. PDF failed but portal is available)
+  // A) Historically proven source with incomplete pagination crawl (diagnostic present alongside Jobs Found)
+  // B) Historically proven source currently encountering a transient error (404, 403, Timeout, Invalid PDF, Fetch Error)
   // C) Source with health status "warning"
   // D) Paused source that is historically proven
   const isTransientFailure =
@@ -344,10 +358,13 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
     health === 'Fetch Error' ||
     healthLower === 'warning' ||
     httpStatus === 404 ||
-    httpStatus === 403;
+    httpStatus === 403 ||
+    hasIncompletePagination;
 
   if (historicallyProven) {
-    const failureDetail = health ? `Latest run recorded ${health}` : 'Requires operator review';
+    const failureDetail = hasIncompletePagination
+      ? 'Incomplete pagination crawl'
+      : (health ? `Latest run recorded ${health}` : 'Requires operator review');
     const reason = isPaused
       ? `Partial: Source is currently ${source.status}, historically proven with ${scrapedCount} vacancies`
       : `Partial / Needs Attention: ${failureDetail} (${source.lastErrorMessage || 'Transient issue'}), historically proven with ${scrapedCount} vacancies`;

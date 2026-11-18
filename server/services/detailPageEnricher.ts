@@ -1,14 +1,95 @@
 import * as cheerio from 'cheerio';
+import net from 'net';
 import { ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
 import { Region } from '../../src/types/job';
 import { safeFetchWithRetry, validateSafeScrapeUrl } from '../utils/ssrfProtection';
 
 const DATE_REGEX = /(?:\b\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b)/i;
 
+export const MAX_DETAIL_HTML_BYTES = 2 * 1024 * 1024; // 2 MB strict upper bound
+
+function normalizeHostName(host: string): string {
+  return host.trim().toLowerCase().replace(/^www\./, '');
+}
+
+function normalizePortForProtocol(parsed: URL): string {
+  if (parsed.port) return parsed.port;
+  return parsed.protocol === 'https:' ? '443' : '80';
+}
+
+function isValidHttpUrl(url?: string): boolean {
+  if (!url || typeof url !== 'string' || !url.trim()) return false;
+  try {
+    const parsed = new URL(url.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    return validateSafeScrapeUrl(parsed.toString()).safe;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates that a candidate detail-page URL (or final post-redirect response URL)
+ * stays strictly within the permitted target portal origin rules:
+ * - Valid HTTP/HTTPS target portal URL required
+ * - Passes validateSafeScrapeUrl SSRF protections
+ * - Same normalized hostname (with optional www. normalization) OR legitimate subdomain of target hostname
+ * - Rejects unrelated hosts and parent-domain expansion
+ * - No HTTPS-to-HTTP protocol downgrade
+ * - No unexpected port change
+ */
+export function isPermittedDetailOrigin(
+  candidateUrl: string | undefined,
+  targetPortalUrl: string | undefined
+): boolean {
+  if (!candidateUrl || typeof candidateUrl !== 'string' || !candidateUrl.trim()) return false;
+  if (!targetPortalUrl || typeof targetPortalUrl !== 'string' || !targetPortalUrl.trim()) return false;
+
+  const trimmedCandidate = candidateUrl.trim();
+  const trimmedTarget = targetPortalUrl.trim();
+
+  if (!trimmedCandidate.startsWith('http://') && !trimmedCandidate.startsWith('https://')) return false;
+  if (!trimmedTarget.startsWith('http://') && !trimmedTarget.startsWith('https://')) return false;
+
+  const ssrfCheck = validateSafeScrapeUrl(trimmedCandidate);
+  if (!ssrfCheck.safe || !ssrfCheck.parsedUrl) return false;
+
+  let targetParsed: URL;
+  try {
+    targetParsed = new URL(trimmedTarget);
+  } catch {
+    return false;
+  }
+
+  if (targetParsed.protocol !== 'http:' && targetParsed.protocol !== 'https:') return false;
+
+  const candidateParsed = ssrfCheck.parsedUrl;
+
+  // Enforce no HTTPS downgrade
+  if (targetParsed.protocol === 'https:' && candidateParsed.protocol !== 'https:') {
+    return false;
+  }
+
+  // Enforce port match
+  if (normalizePortForProtocol(candidateParsed) !== normalizePortForProtocol(targetParsed)) {
+    return false;
+  }
+
+  const targetHost = normalizeHostName(targetParsed.hostname);
+  const candidateHost = normalizeHostName(candidateParsed.hostname);
+  if (!targetHost || !candidateHost) return false;
+
+  const isExactSameHost = candidateHost === targetHost;
+  const isTargetIp = net.isIP(targetHost) !== 0;
+  const isLegitimateSubdomain = !isTargetIp && candidateHost.endsWith('.' + targetHost);
+
+  return isExactSameHost || isLegitimateSubdomain;
+}
+
 /**
  * Validates whether a URL is a legitimate, crawlable job detail page.
- * Blocks non-HTTP(S) protocols, binary/PDF file extensions, circular listing URLs,
- * external advertising redirects, and SSRF targets.
+ * Requires a valid target portal URL, blocks non-HTTP(S) protocols, binary/PDF file extensions,
+ * circular listing URLs, external/parent domains, downgrades, port changes, and SSRF targets.
  */
 export function isEligibleDetailUrl(detailUrl: string | undefined, targetPortalUrl: string | undefined): boolean {
   if (!detailUrl || typeof detailUrl !== 'string') return false;
@@ -35,34 +116,145 @@ export function isEligibleDetailUrl(detailUrl: string | undefined, targetPortalU
     return false;
   }
 
-  // Pre-validate SSRF safety
-  const ssrfCheck = validateSafeScrapeUrl(trimmed);
-  if (!ssrfCheck.safe || !ssrfCheck.parsedUrl) return false;
+  if (!isPermittedDetailOrigin(trimmed, targetPortalUrl)) {
+    return false;
+  }
 
-  // If a target portal URL is provided, ensure the detail page is hosted on the same domain/subdomain
-  if (targetPortalUrl && typeof targetPortalUrl === 'string' && targetPortalUrl.startsWith('http')) {
-    try {
-      const targetHost = new URL(targetPortalUrl).hostname.toLowerCase().replace(/^www\./, '');
-      const detailHost = ssrfCheck.parsedUrl.hostname.toLowerCase().replace(/^www\./, '');
+  try {
+    const targetParsed = new URL(targetPortalUrl!.trim());
+    const candidateParsed = new URL(trimmed);
+    const targetHost = normalizeHostName(targetParsed.hostname);
+    const detailHost = normalizeHostName(candidateParsed.hostname);
+    const targetPath = targetParsed.pathname.replace(/\/+$/, '');
+    const detailPath = candidateParsed.pathname.replace(/\/+$/, '');
 
-      // Prevent circular re-crawling of the exact same listing URL
-      const targetPath = new URL(targetPortalUrl).pathname.replace(/\/+$/, '');
-      const detailPath = ssrfCheck.parsedUrl.pathname.replace(/\/+$/, '');
-      if (detailHost === targetHost && targetPath === detailPath) {
-        return false;
-      }
-
-      // Ensure domain matches or is a valid subdomain of target portal
-      const isSameDomain = detailHost === targetHost || detailHost.endsWith('.' + targetHost) || targetHost.endsWith('.' + detailHost);
-      if (!isSameDomain) {
-        return false; // Skip unrelated external links
-      }
-    } catch {
+    // Prevent circular re-crawling of the exact same listing URL (when path & query match)
+    if (
+      detailHost === targetHost &&
+      targetPath === detailPath &&
+      targetParsed.search === candidateParsed.search
+    ) {
       return false;
     }
+  } catch {
+    return false;
   }
 
   return true;
+}
+
+/**
+ * Conservative check ensuring an un-typed or sniffed body is genuine HTML/XHTML,
+ * rejecting binary payloads, PDFs, JSON, feeds, and plain text.
+ */
+export function isHtmlContentTypeAllowed(contentTypeHeader: string | null): 'allowed' | 'missing' | 'rejected' {
+  const raw = (contentTypeHeader || '').trim().toLowerCase();
+  if (!raw) return 'missing';
+  const mediaType = raw.split(';')[0].trim();
+  if (!mediaType) return 'missing';
+  if (mediaType === 'text/html' || mediaType === 'application/xhtml+xml') {
+    return 'allowed';
+  }
+  return 'rejected';
+}
+
+export function looksLikeHtmlDocument(text: string): boolean {
+  if (!text || typeof text !== 'string') return false;
+  if (text.includes('\u0000')) return false;
+
+  const head = text.slice(0, 4096).replace(/^\uFEFF/, '').trimStart();
+  if (!head) return false;
+
+  const headLower = head.toLowerCase();
+  if (
+    headLower.startsWith('{') ||
+    headLower.startsWith('[') ||
+    headLower.startsWith('%pdf-') ||
+    headLower.startsWith('<?xml') && !headLower.includes('<html') && !headLower.includes('xhtml') ||
+    headLower.startsWith('<rss') ||
+    headLower.startsWith('<feed')
+  ) {
+    return false;
+  }
+
+  const hasHtmlStartOrContainer =
+    /^(?:<!doctype\s+html\b|<html[\s>]|<head[\s>]|<body[\s>]|<main[\s>]|<article[\s>]|<div[\s>]|<section[\s>]|<table[\s>])/i.test(head) ||
+    /(?:<!doctype\s+html\b|<html[\s>]|<body[\s>]|<head[\s>])/i.test(head);
+
+  const hasClosingTag = /<\/(?:html|body|head|div|section|main|article|table|p|h1|h2|script)\s*>/i.test(text);
+  return hasHtmlStartOrContainer && hasClosingTag;
+}
+
+/**
+ * Reads an HTTP response body cleanly with a strict byte limit, canceling the stream
+ * immediately if Content-Length exceeds maxBytes or streamed bytes exceed maxBytes.
+ */
+export async function readBoundedHtmlResponse(
+  res: Response,
+  maxBytes: number = MAX_DETAIL_HTML_BYTES
+): Promise<{ html: string | null; oversized: boolean }> {
+  const contentLengthHeader = res.headers?.get('content-length');
+  if (contentLengthHeader) {
+    const declaredLength = parseInt(contentLengthHeader, 10);
+    if (!isNaN(declaredLength) && declaredLength > maxBytes) {
+      await res.body?.cancel?.().catch(() => {});
+      return { html: null, oversized: true };
+    }
+  }
+
+  if (res.body && typeof res.body.getReader === 'function') {
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value || value.byteLength === 0) continue;
+
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel('Detail response exceeded maximum allowed 2 MB size').catch(() => {});
+          return { html: null, oversized: true };
+        }
+        chunks.push(value);
+      }
+    } catch {
+      await reader.cancel().catch(() => {});
+      return { html: null, oversized: false };
+    }
+
+    const combined = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return {
+      html: new TextDecoder('utf-8', { fatal: false }).decode(combined),
+      oversized: false
+    };
+  }
+
+  // Fallback for mocked Response-like objects without ReadableStream .body.getReader()
+  if (typeof res.arrayBuffer === 'function') {
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) {
+      return { html: null, oversized: true };
+    }
+    return {
+      html: new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(buf)),
+      oversized: false
+    };
+  }
+
+  const txt = await res.text();
+  if (Buffer.byteLength(txt, 'utf8') > maxBytes) {
+    return { html: null, oversized: true };
+  }
+  return { html: txt, oversized: false };
 }
 
 /**
@@ -92,22 +284,23 @@ interface ExtractedDetailData {
 
 /**
  * Fetches and extracts high-fidelity verified job details from a linked detail page.
- * Uses a strict non-destructive fallback: if detail extraction fails or is incomplete,
- * existing listing data is fully preserved.
+ * Uses a strict non-destructive fallback: if detail extraction fails, redirects externally,
+ * returns non-HTML/oversized content, or is incomplete, existing listing data is fully preserved.
  */
 export async function enrichJobFromDetailPage(
   rawJob: ScrapedJobResult,
-  portalConfig?: ScraperTargetConfig
+  portalConfig?: ScraperTargetConfig,
+  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry
 ): Promise<ScrapedJobResult> {
   const portalUrl = portalConfig?.url || portalConfig?.portalUrl || '';
-  const detailUrl = rawJob.sourceUrl || rawJob.originalApplyUrl;
+  const detailUrl = rawJob.sourceUrl;
 
   if (!isEligibleDetailUrl(detailUrl, portalUrl)) {
     return rawJob;
   }
 
   try {
-    const res = await safeFetchWithRetry(
+    const res = await fetchFn(
       detailUrl!,
       {
         headers: {
@@ -121,21 +314,39 @@ export async function enrichJobFromDetailPage(
     );
 
     if (!res.ok) {
+      await res.body?.cancel?.().catch(() => {});
       console.log(`[Detail Enrichment] Remote detail page returned HTTP ${res.status} for "${detailUrl}"`);
       return rawJob;
     }
 
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/pdf')) {
-      return rawJob; // Do not process binary PDF as HTML
-    }
-
-    const html = await res.text();
-    if (!html || html.trim().length < 100) {
+    // Post-fetch redirect origin, protocol, port, and SSRF validation
+    const finalUrl = typeof res.url === 'string' && res.url.trim().length > 0 ? res.url.trim() : detailUrl!;
+    if (!isPermittedDetailOrigin(finalUrl, portalUrl)) {
+      await res.body?.cancel?.().catch(() => {});
+      console.warn(`[Detail Enrichment] Rejected unsafe or external final redirect URL "${finalUrl}" for "${detailUrl}"`);
       return rawJob;
     }
 
-    const detail = parseDetailPageHtml(html, detailUrl!, portalConfig);
+    const ctStatus = isHtmlContentTypeAllowed(res.headers?.get('content-type') || null);
+    if (ctStatus === 'rejected') {
+      await res.body?.cancel?.().catch(() => {});
+      return rawJob;
+    }
+
+    const { html, oversized } = await readBoundedHtmlResponse(res, MAX_DETAIL_HTML_BYTES);
+    if (oversized || !html || html.trim().length < 100) {
+      return rawJob;
+    }
+
+    if (ctStatus === 'missing' && !looksLikeHtmlDocument(html)) {
+      return rawJob;
+    }
+
+    if (!looksLikeHtmlDocument(html)) {
+      return rawJob;
+    }
+
+    const detail = parseDetailPageHtml(html, finalUrl, portalConfig);
     return mergeDetailIntoListing(rawJob, detail, portalConfig);
   } catch (err: any) {
     console.log(`[Detail Enrichment] Notice fetching detail page "${detailUrl}": ${err?.message || err}`);
@@ -218,10 +429,6 @@ function parseDetailPageHtml(html: string, currentUrl: string, portalConfig?: Sc
             if (addr.addressRegion) detail.province = addr.addressRegion;
             const country = (addr.addressCountry || '').toLowerCase();
             if (country === 'pk' || country.includes('pakistan')) detail.region = 'Pakistan';
-          }
-
-          if (item.url && typeof item.url === 'string' && item.url.startsWith('http')) {
-            detail.originalApplyUrl = item.url.trim();
           }
         }
       }
@@ -440,12 +647,18 @@ function parseDetailPageHtml(html: string, currentUrl: string, portalConfig?: Sc
       !href.startsWith('javascript:')
     ) {
       try {
-        applyHref = new URL(href, currentUrl).toString();
+        const resolved = new URL(href.trim(), currentUrl);
+        if (
+          (resolved.protocol === 'http:' || resolved.protocol === 'https:') &&
+          validateSafeScrapeUrl(resolved.toString()).safe
+        ) {
+          applyHref = resolved.toString();
+        }
       } catch {}
     }
   });
 
-  if (applyHref && !detail.originalApplyUrl) {
+  if (applyHref) {
     detail.originalApplyUrl = applyHref;
   }
 
@@ -565,7 +778,7 @@ function mergeDetailIntoListing(
     merged.salary = detail.salary;
   }
 
-  if (detail.originalApplyUrl) {
+  if (!isValidHttpUrl(listing.originalApplyUrl) && isValidHttpUrl(detail.originalApplyUrl)) {
     merged.originalApplyUrl = detail.originalApplyUrl;
   }
 
@@ -580,7 +793,8 @@ function mergeDetailIntoListing(
 export async function enrichScrapedJobsBatch(
   jobs: ScrapedJobResult[],
   portalConfig?: ScraperTargetConfig,
-  concurrency = 3
+  concurrency = 3,
+  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry
 ): Promise<ScrapedJobResult[]> {
   if (!Array.isArray(jobs) || jobs.length === 0) return [];
 
@@ -592,7 +806,7 @@ export async function enrichScrapedJobsBatch(
       const idx = currentIndex++;
       const item = jobs[idx];
       try {
-        results[idx] = await enrichJobFromDetailPage(item, portalConfig);
+        results[idx] = await enrichJobFromDetailPage(item, portalConfig, fetchFn);
       } catch (err: any) {
         console.log(`[Detail Enrichment Batch] Notice on index ${idx} (${item.title}): ${err?.message || err}`);
         results[idx] = item; // Guaranteed non-destructive fallback

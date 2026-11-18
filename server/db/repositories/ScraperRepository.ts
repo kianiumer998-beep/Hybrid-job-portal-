@@ -344,6 +344,8 @@ export class ScraperRepository {
 
   /**
    * Updates health stats, counts, and run timestamps for a scraper source in MongoDB scraper_sources collection.
+   * When MongoDB is configured, in-memory cached stats are updated ONLY after the MongoDB write
+   * is confirmed acknowledged and matched at least one document.
    */
   static async updateSourceStats(sourceId: string, stats: {
     lastStartedAt?: string;
@@ -354,13 +356,18 @@ export class ScraperRepository {
     healthStatus?: 'Healthy' | 'Jobs Found' | 'No Jobs' | '404' | '403' | 'Timeout' | 'Invalid PDF' | 'HTML' | 'Fetch Error' | 'Database Error' | 'Disabled' | string;
     lastErrorMessage?: string;
     lastHttpStatus?: number;
+  }, _deps?: {
+    isMongoConfiguredFn?: () => boolean;
+    getCollectionFn?: () => Promise<any>;
   }): Promise<void> {
     let mongoWriteSucceeded = false;
-    const mongoConfigured = isMongoConfigured();
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperSourcesCollection;
+    const mongoConfigured = isMongoCfgFn();
 
     if (mongoConfigured) {
       try {
-        const coll = await getScraperSourcesCollection();
+        const coll = await getCollFn();
         const $set: any = {};
         if (stats.lastStartedAt) $set.lastStartedAt = stats.lastStartedAt;
         if (stats.lastSuccessfulScrapeAt) $set.lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
@@ -375,11 +382,15 @@ export class ScraperRepository {
         if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
 
         if (Object.keys(updateOps).length > 0) {
-          const updateResult = await withMongoTimeout(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
-          if (updateResult && (updateResult.matchedCount > 0 || updateResult.modifiedCount > 0 || updateResult.upsertedCount > 0)) {
+          const updateResult: any = await withMongoTimeout<any>(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
+          if (
+            updateResult &&
+            updateResult.acknowledged !== false &&
+            (updateResult.matchedCount > 0 || updateResult.modifiedCount > 0 || updateResult.upsertedCount > 0)
+          ) {
             mongoWriteSucceeded = true;
           } else {
-            console.warn(`[ScraperRepository] Warning: updateSourceStats matched 0 documents in MongoDB for source "${sourceId}". Checkpoint write not acknowledged.`);
+            console.warn(`[ScraperRepository] Warning: updateSourceStats matched 0 documents or was unacknowledged in MongoDB for source "${sourceId}". Cache update skipped.`);
           }
         } else {
           mongoWriteSucceeded = true;
@@ -389,21 +400,18 @@ export class ScraperRepository {
       }
     }
 
+    // Critical cache integrity rule: when MongoDB is configured, never mutate
+    // in-memory source stats unless MongoDB write confirmation succeeded.
+    if (mongoConfigured && !mongoWriteSucceeded) {
+      console.warn(`[ScraperRepository] Skipped updating in-memory cached source stats for "${sourceId}" due to unpersisted MongoDB write.`);
+      return;
+    }
+
     // Update in-memory cached representation
     const idx = this.cachedSources.findIndex(s => s.id === sourceId);
     if (idx !== -1) {
       if (stats.lastStartedAt) this.cachedSources[idx].lastStartedAt = stats.lastStartedAt;
-
-      // Checkpoint safety: only advance lastSuccessfulScrapeAt if Mongo is not configured (memory mode)
-      // or if the MongoDB write was confirmed and matched the document.
-      if (stats.lastSuccessfulScrapeAt) {
-        if (!mongoConfigured || mongoWriteSucceeded) {
-          this.cachedSources[idx].lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
-        } else {
-          console.warn(`[ScraperRepository] Skipped advancing in-memory lastSuccessfulScrapeAt for "${sourceId}" due to unpersisted MongoDB write.`);
-        }
-      }
-
+      if (stats.lastSuccessfulScrapeAt) this.cachedSources[idx].lastSuccessfulScrapeAt = stats.lastSuccessfulScrapeAt;
       if (stats.lastCompletedAt) this.cachedSources[idx].lastCompletedAt = stats.lastCompletedAt;
       if (stats.lastRunId) this.cachedSources[idx].lastRunId = stats.lastRunId;
       if (stats.scrapedCountIncrement) {

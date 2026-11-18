@@ -218,6 +218,101 @@ export function evaluateCheckpointEligibility(input: CheckpointEligibilityInput)
   );
 }
 
+export interface SourceCompletionStatsInput {
+  sourceCompletedAt: string;
+  previousLastSuccessfulScrapeAt?: string;
+  runId: string;
+  isCheckpointEligible: boolean;
+  isDetectionSuccessful: boolean;
+  isAllPersistAttemptsFailed: boolean;
+  hasUnsavedRequiredVacancies: boolean;
+  sourceSaveFailures: number;
+  sourceUniqueSaveFailures: number;
+  sourceDupSaveFailures: number;
+  sourcePagesAttempted: number;
+  lastPageError: any;
+  paginationDiagnostic?: string;
+  hitSafetyLimit: boolean;
+  maxSafetyPages: number;
+  isCompleteMode: boolean;
+  sourceValid: number;
+  sourceFound: number;
+  sourcePersisted: number;
+  sourceIntentionalSkips: number;
+}
+
+/**
+ * Computes source healthStatus, surface notice, and stats update payload after a scrape run.
+ * Writes an empty string for lastErrorMessage when there is no current error so stale
+ * pagination or transient diagnostics are cleared in MongoDB on subsequent clean runs.
+ */
+export function buildSourceCompletionStatsUpdate(input: SourceCompletionStatsInput): {
+  successHealth: string;
+  lastErrorNotice?: string;
+  sourceError?: string;
+  statsUpdate: {
+    lastCompletedAt: string;
+    lastSuccessfulScrapeAt?: string;
+    lastRunId: string;
+    scrapedCountIncrement?: number;
+    healthStatus: string;
+    lastErrorMessage: string;
+  };
+} {
+  let successHealth = 'No Jobs';
+  let lastErrorNotice: string | undefined;
+  let sourceError: string | undefined;
+
+  if (input.isAllPersistAttemptsFailed) {
+    sourceError = `Database save failure: ${input.sourceSaveFailures} valid vacancies failed to persist`;
+    successHealth = 'Database Error';
+    lastErrorNotice = sourceError;
+  } else if (input.isDetectionSuccessful) {
+    successHealth = 'Jobs Found';
+    if (input.hasUnsavedRequiredVacancies) {
+      const failureParts: string[] = [];
+      if (input.sourceUniqueSaveFailures > 0) failureParts.push(`${input.sourceUniqueSaveFailures} unique`);
+      if (input.sourceDupSaveFailures > 0) failureParts.push(`${input.sourceDupSaveFailures} duplicate`);
+      lastErrorNotice = `${failureParts.join(' and ')} vacancies failed to save to database (checkpoint preserved)`;
+    } else if (input.lastPageError) {
+      lastErrorNotice = `Crawling interrupted on page ${input.sourcePagesAttempted} (${input.lastPageError?.message || input.lastPageError}) (checkpoint preserved)`;
+    } else if (input.paginationDiagnostic) {
+      lastErrorNotice = input.paginationDiagnostic;
+    } else if (input.hitSafetyLimit) {
+      lastErrorNotice = `Pagination truncated at safety limit of ${input.maxSafetyPages} pages (checkpoint preserved)`;
+    } else if (!input.isCompleteMode) {
+      // Checkpoint preserved for non-complete modes (e.g. page_range, quick, custom_date, since_last)
+    } else if (input.sourceSaveFailures > 0) {
+      lastErrorNotice = `${input.sourceSaveFailures} of ${input.sourceValid} vacancies failed to save to database`;
+    }
+  } else {
+    successHealth = 'No Jobs';
+    lastErrorNotice = input.paginationDiagnostic || (
+      input.sourceFound > 0
+        ? `0 valid vacancies extracted (${input.sourceFound} candidates rejected as invalid/low-quality)`
+        : '0 vacancies extracted from target source'
+    );
+  }
+
+  return {
+    successHealth,
+    lastErrorNotice,
+    sourceError,
+    statsUpdate: {
+      lastCompletedAt: input.sourceCompletedAt,
+      lastSuccessfulScrapeAt: input.isCheckpointEligible
+        ? input.sourceCompletedAt
+        : input.previousLastSuccessfulScrapeAt,
+      lastRunId: input.runId,
+      scrapedCountIncrement: input.isDetectionSuccessful
+        ? (input.sourcePersisted + input.sourceIntentionalSkips)
+        : undefined,
+      healthStatus: successHealth,
+      lastErrorMessage: lastErrorNotice ?? ''
+    }
+  };
+}
+
 /**
  * Canonicalizes a pagination URL for cycle detection while preserving query parameters.
  * Normalizes scheme, host (stripping optional leading www.), trailing slashes, sorted query params, and strips hash fragments.
@@ -827,54 +922,43 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       });
 
       const sourceCompletedAt = new Date().toISOString();
-      let successHealth = 'No Jobs';
-      let lastErrorNotice: string | undefined;
+      const completion = buildSourceCompletionStatsUpdate({
+        sourceCompletedAt,
+        previousLastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt,
+        runId,
+        isCheckpointEligible,
+        isDetectionSuccessful,
+        isAllPersistAttemptsFailed,
+        hasUnsavedRequiredVacancies,
+        sourceSaveFailures,
+        sourceUniqueSaveFailures,
+        sourceDupSaveFailures,
+        sourcePagesAttempted,
+        lastPageError,
+        paginationDiagnostic,
+        hitSafetyLimit,
+        maxSafetyPages: MAX_SAFETY_PAGES,
+        isCompleteMode,
+        sourceValid,
+        sourceFound,
+        sourcePersisted,
+        sourceIntentionalSkips
+      });
 
-      if (isAllPersistAttemptsFailed) {
+      const successHealth = completion.successHealth;
+      const lastErrorNotice = completion.lastErrorNotice;
+
+      if (isAllPersistAttemptsFailed && completion.sourceError) {
         // Valid vacancies detected but 100% of required DB persistence attempts failed.
         // Record failure so checkpoint does not advance and jobs can be re-scraped.
         sourceFailed = true;
         failedCount++;
         activeRunState.totalFailedSources++;
-        sourceError = `Database save failure: ${sourceSaveFailures} valid vacancies failed to persist`;
+        sourceError = completion.sourceError;
         activeRunState.currentError = sourceError;
-        successHealth = 'Database Error';
-        lastErrorNotice = sourceError;
-      } else if (isDetectionSuccessful) {
-        successHealth = 'Jobs Found';
-        if (hasUnsavedRequiredVacancies) {
-          const failureParts: string[] = [];
-          if (sourceUniqueSaveFailures > 0) failureParts.push(`${sourceUniqueSaveFailures} unique`);
-          if (sourceDupSaveFailures > 0) failureParts.push(`${sourceDupSaveFailures} duplicate`);
-          lastErrorNotice = `${failureParts.join(' and ')} vacancies failed to save to database (checkpoint preserved)`;
-        } else if (lastPageError) {
-          lastErrorNotice = `Crawling interrupted on page ${sourcePagesAttempted} (${lastPageError?.message || lastPageError}) (checkpoint preserved)`;
-        } else if (paginationDiagnostic) {
-          lastErrorNotice = paginationDiagnostic;
-        } else if (hitSafetyLimit) {
-          lastErrorNotice = `Pagination truncated at safety limit of ${MAX_SAFETY_PAGES} pages (checkpoint preserved)`;
-        } else if (!isCompleteMode) {
-          // Checkpoint preserved for non-complete modes (e.g. page_range, quick, custom_date, since_last)
-        } else if (sourceSaveFailures > 0) {
-          lastErrorNotice = `${sourceSaveFailures} of ${sourceValid} vacancies failed to save to database`;
-        }
-      } else {
-        successHealth = 'No Jobs';
-        lastErrorNotice = paginationDiagnostic || (
-          sourceFound > 0
-            ? `0 valid vacancies extracted (${sourceFound} candidates rejected as invalid/low-quality)`
-            : '0 vacancies extracted from target source'
-        );
       }
 
-      await ScraperRepository.updateSourceStats(target.id, {
-        lastCompletedAt: sourceCompletedAt,
-        lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt,
-        lastRunId: runId,
-        scrapedCountIncrement: isDetectionSuccessful ? (sourcePersisted + sourceIntentionalSkips) : undefined,
-        healthStatus: successHealth,
-        lastErrorMessage: lastErrorNotice
-      });
+      await ScraperRepository.updateSourceStats(target.id, completion.statsUpdate);
 
       sourcesStats.push({
         sourceId: target.id,

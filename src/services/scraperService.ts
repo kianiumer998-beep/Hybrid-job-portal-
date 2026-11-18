@@ -455,6 +455,240 @@ export function mapGreenhouseJob(j: any, config: ScraperTargetConfig, options: S
 }
 
 /**
+ * Strict streaming response size limits (STEP-8.6-B1)
+ * - Main HTML portal responses: maximum 8 MB
+ * - ATS JSON responses: maximum 5 MB
+ */
+export const MAX_PORTAL_HTML_BYTES = 8 * 1024 * 1024; // 8 MB
+export const MAX_ATS_JSON_BYTES = 5 * 1024 * 1024;     // 5 MB
+
+export class MaxPayloadExceededError extends Error {
+  public readonly maxBytes: number;
+  public readonly actualBytes?: number;
+
+  constructor(message: string, maxBytes: number, actualBytes?: number) {
+    super(message);
+    this.name = 'MaxPayloadExceededError';
+    this.maxBytes = maxBytes;
+    this.actualBytes = actualBytes;
+    Object.setPrototypeOf(this, MaxPayloadExceededError.prototype);
+  }
+}
+
+/**
+ * Safely cancels or destroys a response body stream upon overflow or read failure.
+ */
+async function cancelStream(stream: any, reader?: any, reason?: string): Promise<void> {
+  const cancelMsg = reason || 'Response body exceeded maximum allowed limit';
+  if (reader) {
+    try {
+      if (typeof reader.cancel === 'function') {
+        await reader.cancel(cancelMsg);
+      }
+    } catch {}
+    try {
+      if (typeof reader.releaseLock === 'function') {
+        reader.releaseLock();
+      }
+    } catch {}
+  }
+  if (stream) {
+    try {
+      if (typeof stream.cancel === 'function') {
+        await stream.cancel(cancelMsg);
+      } else if (typeof stream.destroy === 'function') {
+        stream.destroy();
+      }
+    } catch {}
+  }
+}
+
+/**
+ * Checks Content-Length header against maxBytes limit before reading body stream.
+ * Stops and cancels stream early if header indicates an oversized response.
+ */
+function checkContentLengthHeader(response: any, maxBytes: number, contextLabel: string): void {
+  let clHeader: any = null;
+  if (response?.headers) {
+    if (typeof response.headers.get === 'function') {
+      clHeader = response.headers.get('content-length');
+    } else if (response.headers['content-length'] !== undefined) {
+      clHeader = response.headers['content-length'];
+    } else if (response.headers['Content-Length'] !== undefined) {
+      clHeader = response.headers['Content-Length'];
+    }
+  }
+
+  if (clHeader !== null && clHeader !== undefined) {
+    const clNum = parseInt(String(clHeader).trim(), 10);
+    if (!isNaN(clNum) && clNum > maxBytes) {
+      cancelStream(response?.body, undefined, `Content-Length ${clNum} exceeds limit ${maxBytes}`);
+      throw new MaxPayloadExceededError(
+        `${contextLabel} Content-Length (${clNum} bytes) exceeds maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
+        maxBytes,
+        clNum
+      );
+    }
+  }
+}
+
+/**
+ * Concatenates Uint8Array chunks and decodes as UTF-8 string without intermediate memory bloat.
+ */
+function decodeUtf8Chunks(chunks: Uint8Array[]): string {
+  if (chunks.length === 0) return '';
+  if (chunks.length === 1) {
+    return new TextDecoder('utf-8').decode(chunks[0]);
+  }
+  let totalLength = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    totalLength += chunks[i].byteLength;
+  }
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    merged.set(chunks[i], offset);
+    offset += chunks[i].byteLength;
+  }
+  return new TextDecoder('utf-8').decode(merged);
+}
+
+/**
+ * Reusable bounded response reader that enforces strict byte limits on streaming responses.
+ * Checks Content-Length when available, independently counts actual streamed bytes, immediately
+ * stops and cancels response streams upon overflow, and avoids unbounded memory buffering.
+ */
+export async function readBoundedResponseText(
+  response: any,
+  maxBytes: number,
+  contextLabel: string = 'Response'
+): Promise<string> {
+  if (!response) {
+    return '';
+  }
+
+  // 1. Fast early rejection on Content-Length header if present
+  checkContentLengthHeader(response, maxBytes, contextLabel);
+
+  // 2. Stream-based bounded reading if body stream is present
+  if (response.body) {
+    // 2a. Standard WHATWG ReadableStream (reader-based)
+    if (typeof response.body.getReader === 'function') {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            const chunkBytes = value.byteLength !== undefined ? value.byteLength : value.length || 0;
+            totalBytes += chunkBytes;
+            if (totalBytes > maxBytes) {
+              await cancelStream(response.body, reader, `${contextLabel} exceeded limit of ${maxBytes} bytes`);
+              throw new MaxPayloadExceededError(
+                `${contextLabel} body stream exceeded maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
+                maxBytes,
+                totalBytes
+              );
+            }
+            chunks.push(value instanceof Uint8Array ? value : new Uint8Array(value));
+          }
+        }
+      } catch (readErr: any) {
+        await cancelStream(response.body, reader);
+        throw readErr;
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {}
+      }
+
+      return decodeUtf8Chunks(chunks);
+    }
+
+    // 2b. Async-iterable streams (Node Readable streams, custom iterators)
+    if (typeof response.body[Symbol.asyncIterator] === 'function') {
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      try {
+        for await (const chunk of response.body) {
+          const u8 = typeof chunk === 'string'
+            ? new TextEncoder().encode(chunk)
+            : chunk instanceof Uint8Array
+              ? chunk
+              : new Uint8Array(chunk);
+          totalBytes += u8.byteLength;
+          if (totalBytes > maxBytes) {
+            await cancelStream(response.body, undefined, `${contextLabel} exceeded limit of ${maxBytes} bytes`);
+            throw new MaxPayloadExceededError(
+              `${contextLabel} body stream exceeded maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
+              maxBytes,
+              totalBytes
+            );
+          }
+          chunks.push(u8);
+        }
+      } catch (readErr: any) {
+        await cancelStream(response.body);
+        throw readErr;
+      }
+
+      return decodeUtf8Chunks(chunks);
+    }
+  }
+
+  // 3. Fallback for test mocks that supply .text() without a stream body
+  if (typeof response.text === 'function') {
+    const rawText = await response.text();
+    const byteLength = typeof rawText === 'string' ? new TextEncoder().encode(rawText).byteLength : 0;
+    if (byteLength > maxBytes) {
+      throw new MaxPayloadExceededError(
+        `${contextLabel} body size (${byteLength} bytes) exceeded maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
+        maxBytes,
+        byteLength
+      );
+    }
+    return rawText || '';
+  }
+
+  // 4. Raw string handling
+  if (typeof response === 'string') {
+    const byteLength = new TextEncoder().encode(response).byteLength;
+    if (byteLength > maxBytes) {
+      throw new MaxPayloadExceededError(
+        `${contextLabel} body size (${byteLength} bytes) exceeded maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
+        maxBytes,
+        byteLength
+      );
+    }
+    return response;
+  }
+
+  return '';
+}
+
+/**
+ * Reads and parses JSON responses under strict streaming byte limits.
+ * Avoids unbounded memory allocation and rejects oversized or malformed payloads.
+ */
+export async function readBoundedResponseJson<T = any>(
+  response: any,
+  maxBytes: number,
+  contextLabel: string = 'JSON Response'
+): Promise<T> {
+  // If response has no stream body and no .text(), but has .json() (lightweight test mock)
+  if (!response?.body && typeof response?.text !== 'function' && typeof response?.json === 'function') {
+    checkContentLengthHeader(response, maxBytes, contextLabel);
+    const data = await response.json();
+    return data as T;
+  }
+
+  const rawText = await readBoundedResponseText(response, maxBytes, contextLabel);
+  return JSON.parse(rawText) as T;
+}
+
+/**
  * Shared safe executor for JSON-based ATS adapters (Greenhouse, Lever, SmartRecruiters, Ashby).
  * Distinguishes valid empty job arrays from HTTP, network, JSON parse, and malformed structure failures,
  * logging concise secret-sanitized diagnostics without breaking HTML fallback.
@@ -518,16 +752,18 @@ async function executeAtsJsonAdapter<T>(params: {
 
   let data: any;
   try {
-    data = await res.json();
+    data = await readBoundedResponseJson(res, MAX_ATS_JSON_BYTES, `${adapterName} ATS JSON`);
   } catch (parseErr: any) {
+    const isSizeError = parseErr?.name === 'MaxPayloadExceededError' || /exceeded|maximum allowed limit/i.test(parseErr?.message || '');
+    const failureCategory = isSizeError ? 'invalid_response' : 'json_parse_error';
     const rawDetail = sanitizeAdapterLogDetail(String(parseErr?.message || 'Malformed JSON response'));
-    const diagnostic = `[${adapterName} Adapter] failure=json_parse_error status=${res.status} target=${safeTargetForLog}: ${rawDetail}`;
+    const diagnostic = `[${adapterName} Adapter] failure=${failureCategory} status=${res.status} target=${safeTargetForLog}: ${rawDetail}`;
     console.warn(diagnostic);
     return {
       matched: true,
       adapterName,
       status: 'error',
-      failureCategory: 'json_parse_error',
+      failureCategory,
       httpStatus: res.status,
       diagnostic,
       jobs: [],
@@ -1445,7 +1681,7 @@ export async function scrapeTargetPortal(
     }
 
     // Check if Content-Type is PDF (e.g. redirected or served without .pdf extension)
-    const contentType = response.headers.get('content-type') || '';
+    const contentType = (response?.headers && typeof response.headers.get === 'function' ? response.headers.get('content-type') : response?.headers?.['content-type']) || '';
     if (contentType.includes('application/pdf') || finalResponseUrl.toLowerCase().split('?')[0].endsWith('.pdf')) {
       const pdfRes = await parsePdfFromUrl(finalResponseUrl, config.name);
       if (!pdfRes.success) {
@@ -1465,7 +1701,7 @@ export async function scrapeTargetPortal(
       return [];
     }
 
-    const html = await response.text();
+    const html = await readBoundedResponseText(response, MAX_PORTAL_HTML_BYTES, 'Main HTML portal response');
 
     // Check if the HTML page contains recruitment PDF gazette links (e.g., FPSC/PPSC circulars)
     if (config.isGovtPortal || config.formatType?.includes('PDF') || /fpsc|ppsc|wapda|kppsc|spsc|bpsc/i.test(config.name)) {

@@ -76,7 +76,12 @@ import {
   scrapeGreenhouseApi,
   scrapeLeverApi,
   scrapeRestJobApis,
-  scrapeTargetPortal
+  scrapeTargetPortal,
+  MAX_PORTAL_HTML_BYTES,
+  MAX_ATS_JSON_BYTES,
+  MaxPayloadExceededError,
+  readBoundedResponseText,
+  readBoundedResponseJson
 } from '../../src/services/scraperService';
 import {
   canonicalizePaginationUrl,
@@ -9307,6 +9312,496 @@ async function runSuite() {
       assert.strictEqual(res.blocked, false, `Expected public IPv6 ${pubIpv6} to be allowed`);
       assert.strictEqual(validateSafeScrapeUrl(`https://[${pubIpv6}]/jobs`).safe, true);
     }
+  });
+
+  // ============================================================================
+  // STEP-8.6-B1: Strict Streaming Response-Size Limits for HTML & ATS JSON
+  // ============================================================================
+
+  await runTest('STEP-8.6-B1 Case 1 [Mocked]: Main HTML response below 8MB limit succeeds and extracts jobs', async () => {
+    const htmlBody = `
+      <html><body>
+        <div class="job-card">
+          <h2 class="job-title"><a href="/jobs/101">Principal Cloud Architect</a></h2>
+          <span class="location">Islamabad, Pakistan</span>
+          <div class="company">TechCorp</div>
+        </div>
+      </body></html>
+    `;
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(htmlBody));
+        controller.close();
+      }
+    });
+    const mockFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'text/html',
+        'content-length': String(new TextEncoder().encode(htmlBody).byteLength)
+      }),
+      body: stream
+    } as any);
+
+    const jobs = await scrapeTargetPortal(
+      { id: 'html-ok', name: 'TechCorp Portal', url: 'https://example.com/careers' },
+      {},
+      mockFetch
+    );
+    assert.strictEqual(jobs.length, 1);
+    assert.strictEqual(jobs[0].title, 'Principal Cloud Architect');
+    assert.strictEqual(jobs[0].company, 'TechCorp');
+  });
+
+  await runTest('STEP-8.6-B1 Case 2 [Mocked]: HTML response with Content-Length above 8MB is rejected early and stream is cancelled', async () => {
+    let streamCancelled = false;
+    let cancelReason = '';
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('<html><body>Oversized</body></html>'));
+      },
+      cancel(reason) {
+        streamCancelled = true;
+        cancelReason = String(reason);
+      }
+    });
+    const mockFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'text/html',
+        'content-length': String(9 * 1024 * 1024) // 9 MB > 8 MB
+      }),
+      body: stream
+    } as any);
+
+    let errorCaught: any = null;
+    try {
+      await scrapeTargetPortal(
+        { id: 'html-cl-over', name: 'Giant Portal', url: 'https://example.com/careers' },
+        {},
+        mockFetch
+      );
+    } catch (err: any) {
+      errorCaught = err;
+    }
+    assert.ok(errorCaught, 'Oversized HTML response with Content-Length above 8MB must be rejected');
+    assert.ok(
+      /Content-Length.*exceeds maximum allowed limit/i.test(errorCaught.message),
+      `Error message must indicate Content-Length exceeded: ${errorCaught.message}`
+    );
+    assert.strictEqual(streamCancelled, true, 'Response body stream must be cancelled immediately upon Content-Length rejection');
+    assert.ok(cancelReason.includes('exceeds limit'), `Cancel reason must indicate limit exceeded: ${cancelReason}`);
+  });
+
+  await runTest('STEP-8.6-B1 Case 3 [Mocked]: Chunked HTML stream exceeding 8MB without Content-Length is rejected and cancelled immediately', async () => {
+    let chunkStreamCancelled = false;
+    const chunkSize = 3 * 1024 * 1024; // 3 MB per chunk
+    let chunkCount = 0;
+    const stream = new ReadableStream({
+      pull(controller) {
+        chunkCount++;
+        if (chunkCount <= 4) { // 4 * 3 MB = 12 MB > 8 MB limit
+          controller.enqueue(new Uint8Array(chunkSize));
+        } else {
+          controller.close();
+        }
+      },
+      cancel(reason) {
+        chunkStreamCancelled = true;
+      }
+    });
+    const mockFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'text/html'
+        // No Content-Length header (chunked transfer)
+      }),
+      body: stream
+    } as any);
+
+    let errorCaught: any = null;
+    try {
+      await scrapeTargetPortal(
+        { id: 'html-chunk-over', name: 'Chunk Portal', url: 'https://example.com/careers' },
+        {},
+        mockFetch
+      );
+    } catch (err: any) {
+      errorCaught = err;
+    }
+    assert.ok(errorCaught, 'Chunked HTML stream exceeding 8MB must be rejected');
+    assert.ok(
+      /stream exceeded maximum allowed limit/i.test(errorCaught.message),
+      `Error message must indicate stream limit exceeded: ${errorCaught.message}`
+    );
+    assert.strictEqual(chunkStreamCancelled, true, 'Oversized chunked HTML stream must be cancelled immediately');
+  });
+
+  await runTest('STEP-8.6-B1 Case 4 [Mocked]: ATS JSON below 5MB parses correctly across Greenhouse, Lever, SmartRecruiters, and Ashby', async () => {
+    // Greenhouse
+    const ghData = JSON.stringify({
+      jobs: [
+        { id: 401, title: 'Lead Platform Engineer', absolute_url: 'https://boards.greenhouse.io/acme/401', updated_at: '2026-11-01' }
+      ]
+    });
+    const ghFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+        'content-length': String(new TextEncoder().encode(ghData).byteLength)
+      }),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(ghData));
+          c.close();
+        }
+      })
+    } as any);
+    const ghResult = await scrapeGreenhouseApi(
+      { id: 'gh-valid', name: 'GH Acme', url: 'https://boards.greenhouse.io/acme' },
+      {},
+      ghFetch
+    );
+    assert.strictEqual(ghResult?.status, 'success');
+    assert.strictEqual(ghResult?.jobs.length, 1);
+    assert.strictEqual(ghResult?.jobs[0].title, 'Lead Platform Engineer');
+
+    // Lever
+    const leverData = JSON.stringify([
+      { id: 'lv-99', text: 'Senior Infrastructure Engineer', hostedUrl: 'https://jobs.lever.co/acme/lv-99' }
+    ]);
+    const leverFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+        'content-length': String(new TextEncoder().encode(leverData).byteLength)
+      }),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(leverData));
+          c.close();
+        }
+      })
+    } as any);
+    const leverResult = await scrapeLeverApi(
+      { id: 'lv-valid', name: 'Lever Acme', url: 'https://jobs.lever.co/acme' },
+      {},
+      leverFetch
+    );
+    assert.strictEqual(leverResult?.status, 'success');
+    assert.strictEqual(leverResult?.jobs.length, 1);
+    assert.strictEqual(leverResult?.jobs[0].title, 'Senior Infrastructure Engineer');
+
+    // SmartRecruiters
+    const srData = JSON.stringify({
+      content: [
+        { id: 'sr-11', name: 'Senior Fullstack Engineer', company: { name: 'SRAcme' } }
+      ]
+    });
+    const srFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(srData));
+          c.close();
+        }
+      })
+    } as any);
+    const srResult = await scrapeRestJobApis(
+      { id: 'sr-valid', name: 'SR Acme', url: 'https://careers.smartrecruiters.com/acme' },
+      {},
+      srFetch
+    );
+    assert.strictEqual(srResult?.status, 'success');
+    assert.strictEqual(srResult?.jobs.length, 1);
+    assert.strictEqual(srResult?.jobs[0].title, 'Senior Fullstack Engineer');
+
+    // Ashby
+    const ashbyData = JSON.stringify({
+      jobs: [
+        { id: 'ab-22', title: 'Data Platform Engineer', jobUrl: 'https://jobs.ashbyhq.com/acme/ab-22' }
+      ]
+    });
+    const ashbyFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(ashbyData));
+          c.close();
+        }
+      })
+    } as any);
+    const ashbyResult = await scrapeRestJobApis(
+      { id: 'ab-valid', name: 'Ashby Acme', url: 'https://jobs.ashbyhq.com/acme' },
+      {},
+      ashbyFetch
+    );
+    assert.strictEqual(ashbyResult?.status, 'success');
+    assert.strictEqual(ashbyResult?.jobs.length, 1);
+    assert.strictEqual(ashbyResult?.jobs[0].title, 'Data Platform Engineer');
+  });
+
+  await runTest('STEP-8.6-B1 Case 5 [Mocked]: ATS JSON Content-Length exceeding 5MB limit is rejected and stream is cancelled', async () => {
+    let atsStreamCancelled = false;
+    const stream = new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('{"jobs": []}'));
+      },
+      cancel() {
+        atsStreamCancelled = true;
+      }
+    });
+    const mockFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+        'content-length': String(6 * 1024 * 1024) // 6 MB > 5 MB
+      }),
+      body: stream
+    } as any);
+
+    const ghRes = await scrapeGreenhouseApi(
+      { id: 'gh-over', name: 'GH Big', url: 'https://boards.greenhouse.io/bigco' },
+      {},
+      mockFetch
+    );
+    assert.strictEqual(ghRes?.status, 'error');
+    assert.strictEqual(ghRes?.failureCategory, 'invalid_response');
+    assert.ok(ghRes?.diagnostic?.includes('Content-Length'));
+    assert.ok(ghRes?.diagnostic?.includes('exceeds maximum allowed limit'));
+    assert.strictEqual(atsStreamCancelled, true, 'ATS response body stream must be cancelled upon Content-Length overflow');
+  });
+
+  await runTest('STEP-8.6-B1 Case 6 [Mocked]: Chunked ATS JSON exceeding 5MB without Content-Length is rejected and cancelled immediately', async () => {
+    let chunkCancelled = false;
+    let chunkIdx = 0;
+    const stream = new ReadableStream({
+      pull(c) {
+        chunkIdx++;
+        if (chunkIdx <= 10) { // Keep stream open so cancellation hook fires upon exceeding 5MB limit
+          c.enqueue(new Uint8Array(2 * 1024 * 1024));
+        } else {
+          c.close();
+        }
+      },
+      cancel() {
+        chunkCancelled = true;
+      }
+    });
+    const mockFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: stream
+    } as any);
+
+    const leverRes = await scrapeLeverApi(
+      { id: 'lv-chunk-over', name: 'Lever Big', url: 'https://jobs.lever.co/bigco' },
+      {},
+      mockFetch
+    );
+    assert.strictEqual(leverRes?.status, 'error');
+    assert.strictEqual(leverRes?.failureCategory, 'invalid_response');
+    assert.ok(leverRes?.diagnostic?.includes('stream exceeded maximum allowed limit'));
+    assert.strictEqual(chunkCancelled, true, 'Chunked ATS stream must be cancelled immediately when 5 MB is exceeded');
+  });
+
+  await runTest('STEP-8.6-B1 Case 7 [Unit]: Direct reader helper cancels oversized streams and enforces byte limits', async () => {
+    let customCancelled = false;
+    let cancelReason = '';
+    const testStream = new ReadableStream({
+      start(c) {
+        c.enqueue(new Uint8Array(200));
+        c.enqueue(new Uint8Array(200));
+      },
+      cancel(reason) {
+        customCancelled = true;
+        cancelReason = String(reason);
+      }
+    });
+    const mockRes = {
+      headers: new Headers(),
+      body: testStream
+    };
+    await assert.rejects(
+      () => readBoundedResponseText(mockRes, 300, 'CustomStream'),
+      (err: any) => {
+        assert.strictEqual(err.name, 'MaxPayloadExceededError');
+        assert.strictEqual(err.maxBytes, 300);
+        assert.strictEqual(err.actualBytes, 400);
+        return true;
+      }
+    );
+    assert.strictEqual(customCancelled, true, 'Stream must be cancelled on overflow');
+    assert.ok(cancelReason.includes('exceeded limit'), `Cancel reason must mention limit: ${cancelReason}`);
+  });
+
+  await runTest('STEP-8.6-B1 Case 8 [Mocked]: Malformed ATS JSON remains an adapter error (failureCategory=json_parse_error) and does not crash', async () => {
+    const badJsonFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('<invalid><xml>not json</xml></invalid>'));
+          c.close();
+        }
+      })
+    } as any);
+    const srRes = await scrapeRestJobApis(
+      { id: 'sr-malformed', name: 'SR Malformed', url: 'https://careers.smartrecruiters.com/malformed' },
+      {},
+      badJsonFetch
+    );
+    assert.strictEqual(srRes?.status, 'error');
+    assert.strictEqual(srRes?.failureCategory, 'json_parse_error');
+    assert.ok(srRes?.diagnostic?.includes('SmartRecruiters'));
+    assert.ok(srRes?.diagnostic?.includes('failure=json_parse_error'));
+  });
+
+  await runTest('STEP-8.6-B1 Case 9 [Mocked]: Valid empty ATS arrays remain valid empty results and do not invoke error or fallback', async () => {
+    const emptyGhFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(JSON.stringify({ jobs: [] })));
+          c.close();
+        }
+      })
+    } as any);
+    const ghEmpty = await scrapeGreenhouseApi(
+      { id: 'gh-empty', name: 'GH Empty', url: 'https://boards.greenhouse.io/emptyco' },
+      {},
+      emptyGhFetch
+    );
+    assert.strictEqual(ghEmpty?.status, 'empty');
+    assert.strictEqual(ghEmpty?.jobs.length, 0);
+    assert.strictEqual(ghEmpty?.failureCategory, undefined);
+
+    const emptyLeverFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('[]'));
+          c.close();
+        }
+      })
+    } as any);
+    const leverEmpty = await scrapeLeverApi(
+      { id: 'lv-empty', name: 'Lever Empty', url: 'https://jobs.lever.co/emptyco' },
+      {},
+      emptyLeverFetch
+    );
+    assert.strictEqual(leverEmpty?.status, 'empty');
+    assert.strictEqual(leverEmpty?.jobs.length, 0);
+    assert.strictEqual(leverEmpty?.failureCategory, undefined);
+
+    // Full portal scrape with valid empty ATS must resolve to empty array [] without error
+    const portalEmpty = await scrapeTargetPortal(
+      { id: 'gh-empty-portal', name: 'GH Empty Portal', url: 'https://boards.greenhouse.io/emptyco' },
+      {},
+      emptyGhFetch
+    );
+    assert.deepStrictEqual(portalEmpty, [], 'Valid empty ATS API response must resolve to []');
+  });
+
+  await runTest('STEP-8.6-B1 Case 10 [Mocked]: Existing HTML fallback after ATS size-limit failure recovers jobs from HTML or surfaces ATS error if HTML yields 0', async () => {
+    // 1. HTML fallback recovers jobs when ATS is oversized (> 5 MB) and portal HTML has jobs
+    const fallbackSuccessFetch = async (url: string) => {
+      if (url.includes('boards-api.greenhouse.io')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({
+            'content-type': 'application/json',
+            'content-length': String(10 * 1024 * 1024) // 10 MB > 5 MB
+          }),
+          body: new ReadableStream({
+            start(c) { c.enqueue(new TextEncoder().encode('{"jobs": []}')); }
+          })
+        } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        url,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        body: new ReadableStream({
+          start(c) {
+            c.enqueue(new TextEncoder().encode(`
+              <html><body>
+                <div class="job-card">
+                  <h2 class="job-title"><a href="/jobs/501">Senior DevOps Specialist</a></h2>
+                  <span class="location">Karachi, Pakistan</span>
+                </div>
+              </body></html>
+            `));
+            c.close();
+          }
+        })
+      } as any;
+    };
+
+    const recoveredJobs = await scrapeTargetPortal(
+      { id: 'gh-recover', name: 'GH Recovery', url: 'https://boards.greenhouse.io/recoveryco' },
+      {},
+      fallbackSuccessFetch
+    );
+    assert.strictEqual(recoveredJobs.length, 1, 'HTML fallback must recover jobs even after ATS size-limit error');
+    assert.strictEqual(recoveredJobs[0].title, 'Senior DevOps Specialist');
+
+    // 2. When HTML fallback contains 0 jobs, the ATS size-limit error must be thrown (not silently [])
+    const emptyHtmlFallbackFetch = async (url: string) => {
+      if (url.includes('boards-api.greenhouse.io')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({
+            'content-type': 'application/json',
+            'content-length': String(10 * 1024 * 1024)
+          }),
+          body: new ReadableStream({
+            start(c) { c.enqueue(new TextEncoder().encode('{}')); }
+          })
+        } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        url,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        body: new ReadableStream({
+          start(c) {
+            c.enqueue(new TextEncoder().encode('<html><body><div>No jobs on page</div></body></html>'));
+            c.close();
+          }
+        })
+      } as any;
+    };
+
+    await assert.rejects(
+      () =>
+        scrapeTargetPortal(
+          { id: 'gh-recover-fail', name: 'GH Recovery Fail', url: 'https://boards.greenhouse.io/recoveryfail' },
+          {},
+          emptyHtmlFallbackFetch
+        ),
+      /Greenhouse Adapter.*Content-Length.*exceeds/i
+    );
   });
 
   console.log('------------------------------------------------------------------');

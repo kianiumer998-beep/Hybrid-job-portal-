@@ -222,6 +222,8 @@ export function extractJobsFromPdfText(
       const isBalochistan = org.toLowerCase().includes('balochistan') || org.toLowerCase().includes('bpsc') || org.toLowerCase().includes('quetta');
 
       const province = isFederal ? 'Federal' : isPunjab ? 'Punjab' : isSindh ? 'Sindh' : isKpk ? 'Khyber Pakhtunkhwa' : isBalochistan ? 'Balochistan' : undefined;
+      const isProvincial = isPunjab || isSindh || isKpk || isBalochistan || org.toLowerCase().includes('provincial');
+      const govtCategory = isFederal ? 'Federal' : isProvincial ? 'Provincial' : undefined;
 
       const job: Job = {
         id: jobId,
@@ -245,7 +247,7 @@ export function extractJobsFromPdfText(
         isGovtJob: true,
         govtDepartment: org,
         govtScale: scale,
-        govtCategory: isFederal ? 'Federal' : 'Provincial',
+        govtCategory,
         jobCategory: 'Government Sector',
         isPdfScraped: sourceUrl.toLowerCase().endsWith('.pdf') || (fileName && fileName.endsWith('.pdf')),
         pdfFileName: fileName || (sourceUrl.split('/').pop()?.split('?')[0] || 'recruitment_ad.pdf'),
@@ -374,18 +376,37 @@ STRICT FACTUAL INTEGRITY MANDATE:
       .filter((rj: any) => rj && rj.title && rj.title.trim().length >= 3)
       .map((rj: any, idx: number) => {
         const title = rj.title.trim();
-        const scale = rj.bpsScale ? rj.bpsScale.toUpperCase() : 'BPS / Standard Cadre';
-        const isFederal = (rj.province || org).toLowerCase().includes('federal') || org.toLowerCase().includes('fpsc');
-        const isPunjab = (rj.province || org).toLowerCase().includes('punjab') || org.toLowerCase().includes('ppsc');
-        const isSindh = (rj.province || org).toLowerCase().includes('sindh') || org.toLowerCase().includes('spsc');
-        const isKpk = (rj.province || org).toLowerCase().includes('kpk') || (rj.province || org).toLowerCase().includes('kp');
-        const isBalochistan = (rj.province || org).toLowerCase().includes('balochistan');
+        const scale = rj.bpsScale
+          ? (rj.bpsScale.toUpperCase().startsWith('BPS') ? rj.bpsScale.toUpperCase() : `BPS-${rj.bpsScale}`)
+          : undefined;
+
+        const hasGovtSignal = Boolean(
+          scale ||
+          /bps[- ]?\d+/i.test(transcribedText) ||
+          /(?:government|ministry|commission|fpsc|ppsc|spsc|bpsc|kppsc|wapda|nadra|federa[l]?|provincia[l]?|public service)/i.test(`${org} ${title} ${rj.description || ''}`)
+        );
+
+        const isGovtJob = hasGovtSignal ? true : undefined;
+
+        const isFederal = /(?:federal|fpsc|islamabad|government of pakistan|national)/i.test(`${org} ${title} ${transcribedText.substring(0, 500)}`);
+        const isPunjab = (rj.province || org).toLowerCase().includes('punjab') || org.toLowerCase().includes('ppsc') || /punjab|lahore/i.test(transcribedText.substring(0, 500));
+        const isSindh = (rj.province || org).toLowerCase().includes('sindh') || org.toLowerCase().includes('spsc') || /sindh|karachi/i.test(transcribedText.substring(0, 500));
+        const isKpk = (rj.province || org).toLowerCase().includes('kpk') || (rj.province || org).toLowerCase().includes('kp') || /kpk|khyber|peshawar/i.test(transcribedText.substring(0, 500));
+        const isBalochistan = (rj.province || org).toLowerCase().includes('balochistan') || /balochistan|quetta/i.test(transcribedText.substring(0, 500));
+
+        const isProvincial = isPunjab || isSindh || isKpk || isBalochistan || (org || '').toLowerCase().includes('provincial');
+
+        const govtCategory: Job['govtCategory'] = isFederal
+          ? 'Federal'
+          : isProvincial
+          ? 'Provincial'
+          : undefined;
 
         const resolvedProvince = isFederal ? 'Federal' : isPunjab ? 'Punjab' : isSindh ? 'Sindh' : isKpk ? 'Khyber Pakhtunkhwa' : isBalochistan ? 'Balochistan' : rj.province;
 
         return {
           id: `ocr-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-          title: rj.bpsScale && !title.includes(rj.bpsScale) ? `${title} (${rj.bpsScale})` : title,
+          title: scale && !title.includes(scale) ? `${title} (${scale})` : title,
           company: rj.company || org,
           jobType: 'On-site' as const,
           region: 'Pakistan' as Region,
@@ -395,19 +416,19 @@ STRICT FACTUAL INTEGRITY MANDATE:
           currency: 'PKR' as const,
           experienceLevel: undefined,
           department: rj.company || org,
-          tags: [scale, org, 'OCR Scanned Document'].filter(Boolean),
+          tags: [scale, org, 'OCR Scanned Document'].filter(Boolean) as string[],
           description: rj.description || `Official vacancy extracted via high-accuracy OCR from document:\n\n${transcribedText.trim()}`,
           extractedText: transcribedText.trim(),
           requirements: rj.requirements ? [rj.requirements] : ['Refer to official advertisement for full qualification details'],
-          benefits: ['Official Public Sector Remuneration and Allowances per Government Rules'],
+          benefits: isGovtJob ? ['Official Public Sector Remuneration and Allowances per Government Rules'] : [],
           postedAt: 'Recent',
           applicationsCount: 0,
           status: 'Pending' as const,
-          isGovtJob: true,
-          govtDepartment: rj.company || org,
+          isGovtJob,
+          govtDepartment: isGovtJob ? (rj.company || org) : undefined,
           govtScale: scale,
-          govtCategory: isFederal ? 'Federal' : 'Provincial',
-          jobCategory: 'Government Sector',
+          govtCategory,
+          jobCategory: isGovtJob ? 'Government Sector' : 'Private Corporate',
           isPdfScraped: sourceUrl.toLowerCase().endsWith('.pdf') || (fileName && fileName.endsWith('.pdf')),
           pdfFileName: fileName || (sourceUrl.split('/').pop()?.split('?')[0] || 'scanned_document.pdf'),
           pdfSourceUrl: sourceUrl.toLowerCase().endsWith('.pdf') ? sourceUrl : undefined,
@@ -433,7 +454,7 @@ STRICT FACTUAL INTEGRITY MANDATE:
     };
   } catch (ocrErr: any) {
     const rawError = String(ocrErr?.message || ocrErr || 'OCR error');
-    const safeError = rawError.replace(/key=[^&\s]+/gi, 'key=REDACTED').replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]');
+    const safeError = sanitizeSecretString(rawError);
     console.log('[Document OCR] OCR error:', safeError);
     return {
       text: '',
@@ -444,10 +465,61 @@ STRICT FACTUAL INTEGRITY MANDATE:
   }
 }
 
+/**
+ * Sanitizes URLs for logging and diagnostic outputs:
+ * - Redacts query parameters that look like secrets, tokens, keys, passwords.
+ * - Scrubs username/password credentials from URL authority.
+ */
+export function sanitizeUrlForLog(rawUrl: string): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  try {
+    const parsed = new URL(rawUrl);
+    const sensitiveParamNames = [
+      'key', 'apikey', 'api_key', 'token', 'auth', 'authorization',
+      'secret', 'password', 'pwd', 'sig', 'signature', 'access_token'
+    ];
+    const keysToRedact: string[] = [];
+    for (const [key, val] of Array.from(parsed.searchParams.entries())) {
+      if (
+        sensitiveParamNames.includes(key.toLowerCase()) ||
+        /AIza[0-9A-Za-z-_]{35}/i.test(val) ||
+        (val.length > 20 && /^[a-zA-Z0-9_\-\.]+$/.test(val))
+      ) {
+        keysToRedact.push(key);
+      }
+    }
+    for (const key of keysToRedact) {
+      parsed.searchParams.set(key, 'REDACTED');
+    }
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return sanitizeSecretString(rawUrl);
+  }
+}
+
+/**
+ * Sanitizes sensitive tokens, API keys, passwords, and bearer tokens from error and diagnostic strings.
+ */
+export function sanitizeSecretString(input: string): string {
+  if (!input || typeof input !== 'string') return '';
+  return input
+    .replace(/([?&](?:key|api_key|apikey|token|auth|secret|signature|sig)=)[^&\s]+/gi, '$1REDACTED')
+    .replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]')
+    .replace(/Bearer\s+[a-zA-Z0-9_\-\.]+/gi, 'Bearer [REDACTED_TOKEN]')
+    .replace(/(?:password|passwd|secret)[:=]\s*([^\s,;]+)/gi, 'secret=REDACTED');
+}
+
 export type SupportedMediaFormat = 'pdf' | 'jpeg' | 'png' | 'webp' | 'bmp' | 'html' | 'unknown';
 
 /**
- * Robust media format and MIME detector inspecting binary magic bytes, content-type header, and URL.
+ * Robust media format detector enforcing strict binary magic bytes.
+ * STRICT SAFETY RULES:
+ * - A MIME header alone MUST NOT establish that arbitrary bytes are a valid supported image.
+ * - Requires valid binary signatures for JPEG, PNG, WEBP, BMP, and PDF.
+ * - Rejects HTML, JSON, plain text error responses, and corrupt image binaries even if server labels them image/*.
+ * - Content-Type and URL extension act as supporting hints, never substitutes for binary validation.
  */
 export function detectMediaFormat(
   buffer: Buffer,
@@ -455,21 +527,26 @@ export function detectMediaFormat(
   url: string = ''
 ): { format: SupportedMediaFormat; mimeType: string; isSupportedMedia: boolean } {
   const cleanType = (contentType || '').toLowerCase().split(';')[0].trim();
-  const cleanUrlPath = url ? url.split('?')[0].toLowerCase() : '';
 
   if (!buffer || buffer.length === 0) {
     return { format: 'unknown', mimeType: cleanType || 'application/octet-stream', isSupportedMedia: false };
   }
 
-  // 1. Binary Magic Bytes (highest priority authority)
-  // PDF: %PDF- (0x25 0x50 0x44 0x46 0x2D)
-  if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') {
+  // 1. Binary Magic Bytes (Authority for binary media)
+
+  // PDF: %PDF- (0x25 0x50 0x44 0x46 0x2D) within first 1024 bytes (standard offset tolerance)
+  const headerLimit = Math.min(1024, buffer.length);
+  const headerSlice = buffer.subarray(0, headerLimit);
+  const pdfOffset = headerSlice.indexOf(Buffer.from('%PDF-'));
+  if (pdfOffset !== -1) {
     return { format: 'pdf', mimeType: 'application/pdf', isSupportedMedia: true };
   }
+
   // JPEG: 0xFF 0xD8 0xFF
   if (buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
     return { format: 'jpeg', mimeType: 'image/jpeg', isSupportedMedia: true };
   }
+
   // PNG: 0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A
   if (
     buffer.length >= 8 &&
@@ -478,6 +555,7 @@ export function detectMediaFormat(
   ) {
     return { format: 'png', mimeType: 'image/png', isSupportedMedia: true };
   }
+
   // WEBP: "RIFF" at 0..3 and "WEBP" at 8..11
   if (
     buffer.length >= 12 &&
@@ -486,40 +564,30 @@ export function detectMediaFormat(
   ) {
     return { format: 'webp', mimeType: 'image/webp', isSupportedMedia: true };
   }
+
   // BMP: "BM" at 0..1 (0x42 0x4D)
   if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4D) {
     return { format: 'bmp', mimeType: 'image/bmp', isSupportedMedia: true };
   }
 
   // 2. HTML detection (if header snippet has html tags or content-type is text/html)
-  const snippet = buffer.subarray(0, Math.min(1024, buffer.length)).toString('utf-8').toLowerCase();
-  if (cleanType.includes('text/html') || snippet.includes('<html') || snippet.includes('<!doctype html') || snippet.includes('<head') || snippet.includes('<body')) {
+  const snippet = headerSlice.toString('utf-8').toLowerCase();
+  if (
+    cleanType.includes('text/html') ||
+    snippet.includes('<html') ||
+    snippet.includes('<!doctype html') ||
+    snippet.includes('<head') ||
+    snippet.includes('<body')
+  ) {
     return { format: 'html', mimeType: 'text/html', isSupportedMedia: true };
   }
 
-  // 3. Reject non-image text/json content if URL or extension pretended to be image
-  if (cleanType.startsWith('text/') || cleanType.startsWith('application/json')) {
-    return { format: 'unknown', mimeType: cleanType, isSupportedMedia: false };
-  }
-
-  // 4. Fallback for valid image mime-types when stream header starts slightly off
-  if (cleanType === 'image/jpeg' || cleanType === 'image/jpg') {
-    return { format: 'jpeg', mimeType: 'image/jpeg', isSupportedMedia: true };
-  }
-  if (cleanType === 'image/png') {
-    return { format: 'png', mimeType: 'image/png', isSupportedMedia: true };
-  }
-  if (cleanType === 'image/webp') {
-    return { format: 'webp', mimeType: 'image/webp', isSupportedMedia: true };
-  }
-  if (cleanType === 'image/bmp') {
-    return { format: 'bmp', mimeType: 'image/bmp', isSupportedMedia: true };
-  }
-  if (cleanType === 'application/pdf') {
-    return { format: 'pdf', mimeType: 'application/pdf', isSupportedMedia: true };
-  }
-
-  return { format: 'unknown', mimeType: cleanType || 'application/octet-stream', isSupportedMedia: false };
+  // 3. Reject non-image text, JSON, or invalid binary payloads even if labeled image/*
+  return {
+    format: 'unknown',
+    mimeType: cleanType || 'application/octet-stream',
+    isSupportedMedia: false
+  };
 }
 
 /**
@@ -556,9 +624,11 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         1
       );
     } catch (networkErr: any) {
-      const detail = String(networkErr?.message || networkErr || 'offline')
-        .replace(/Failed to fetch|fetch failed/gi, 'remote server unreachable');
-      console.log(`[Document Parser] Remote source status for ${cleanUrl}: ${detail}`);
+      const detail = sanitizeSecretString(
+        String(networkErr?.message || networkErr || 'offline')
+          .replace(/Failed to fetch|fetch failed/gi, 'remote server unreachable')
+      );
+      console.log(`[Document Parser] Remote source status for ${sanitizeUrlForLog(cleanUrl)}: ${detail}`);
       return {
         success: false,
         totalPages: 0,
@@ -573,7 +643,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
     }
 
     if (!res.ok) {
-      console.log(`[Document Parser] URL responded with HTTP ${res.status} for ${cleanUrl}`);
+      console.log(`[Document Parser] URL responded with HTTP ${res.status} for ${sanitizeUrlForLog(cleanUrl)}`);
       return {
         success: false,
         totalPages: 0,
@@ -679,6 +749,24 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
     const detected = detectMediaFormat(buffer, contentType, cleanUrl);
     const headerSnippet = buffer.subarray(0, Math.min(1024, buffer.length));
     const isPdfBinary = detected.format === 'pdf' || headerSnippet.includes(Buffer.from('%PDF-'));
+
+    // Check if the requested document URL was expected to be an image
+    const isExpectedImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test(cleanUrl.split('?')[0]);
+    if (isExpectedImage && !['jpeg', 'png', 'webp', 'bmp'].includes(detected.format)) {
+      // Remote server returned an HTML error page, JSON, or corrupt binary for an image URL
+      return {
+        success: false,
+        totalPages: 0,
+        extractedJobs: [],
+        rawTextSample: '',
+        sourceUrl: cleanUrl,
+        fileName,
+        formatType: 'image',
+        diagnosticCode: 'INVALID_MEDIA_TYPE',
+        diagnosticDetails: `Expected image binary for ${fileName} but received ${detected.format === 'html' ? 'HTML page' : detected.mimeType || 'unknown format'}`,
+        message: 'Unsupported document format. Server returned non-image content for image URL.'
+      };
+    }
 
     // 1. Image document (JPG / JPEG / PNG / WEBP / BMP) -> Vision OCR
     if (['jpeg', 'png', 'webp', 'bmp'].includes(detected.format)) {
@@ -892,9 +980,11 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       message: 'Unsupported document format. Only PDF, JPG, PNG, WEBP, and BMP are supported.'
     };
   } catch (error: any) {
-    const detail = String(error?.message || error || 'processing note')
-      .replace(/Failed to fetch|fetch failed/gi, 'remote server unreachable');
-    console.log(`[Document Parser] Processing note for ${cleanUrl}: ${detail}`);
+    const detail = sanitizeSecretString(
+      String(error?.message || error || 'processing note')
+        .replace(/Failed to fetch|fetch failed/gi, 'remote server unreachable')
+    );
+    console.log(`[Document Parser] Processing note for ${sanitizeUrlForLog(cleanUrl)}: ${detail}`);
     return {
       success: false,
       totalPages: 0,

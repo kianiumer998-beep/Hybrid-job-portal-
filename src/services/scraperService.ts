@@ -149,10 +149,45 @@ function resolveUrl(relativeOrAbsolute: string, baseUrl: string): string {
 }
 
 /**
+ * Verifies whether a candidate media URL shares the same origin or official apex CDN domain as baseUrl.
+ * Prevents arbitrary third-party image downloads and untrusted tracking/ad network fetches.
+ */
+export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolean {
+  try {
+    const candidateObj = new URL(candidateUrl);
+    const baseObj = new URL(baseUrl);
+
+    // 1. Same-origin is always safe
+    if (candidateObj.origin === baseObj.origin) {
+      return true;
+    }
+
+    // 2. Same apex domain (e.g., cdn.fpsc.gov.pk on fpsc.gov.pk)
+    const getApexDomain = (hostname: string): string => {
+      const parts = hostname.toLowerCase().split('.');
+      if (parts.length <= 2) return hostname.toLowerCase();
+      const secondToLast = parts[parts.length - 2];
+      if (['gov', 'gop', 'gob', 'gos', 'gkp', 'edu', 'org', 'com', 'net', 'mil'].includes(secondToLast) && parts.length >= 3) {
+        return parts.slice(-3).join('.');
+      }
+      return parts.slice(-2).join('.');
+    };
+
+    const candidateApex = getApexDomain(candidateObj.hostname);
+    const baseApex = getApexDomain(baseObj.hostname);
+
+    return candidateApex.length > 0 && candidateApex === baseApex;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Conservative recruitment image candidate discovery from HTML.
  * STRICT SAFETY RULES:
  * - Never downloads every image on a page.
  * - Restricts candidate images to genuine job/ad/document images using conservative criteria.
+ * - Enforces same-origin or same-apex CDN safety; rejects arbitrary third-party domains.
  * - Rejects logos, icons, avatars, banners, tracking pixels, and social media icons.
  * - Deduplicates URLs and bounds candidates to a maximum of 3 per page.
  */
@@ -177,6 +212,13 @@ export function findCandidateRecruitmentImages(html: string, baseUrl: string): s
     const pathLower = resolved.split('?')[0].toLowerCase();
     const isSupportedImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test(pathLower);
     if (!isSupportedImage) return;
+
+    // Origin Safety: Candidate must be same-origin or same-apex official CDN domain
+    if (!isSafeMediaOrigin(resolved, baseUrl)) return;
+
+    // SSRF Check
+    const ssrfCheck = validateSafeScrapeUrl(resolved);
+    if (!ssrfCheck.safe) return;
 
     // Canonicalize / deduplicate
     const canonical = resolved.split('#')[0];
@@ -1289,7 +1331,7 @@ export async function scrapeTargetPortal(
                 postedAt: j.postedAt || 'Recent',
                 deadlineDate: j.deadlineDate,
                 applicationsCount: 0,
-                status: config.autoApprove ? 'Approved' : 'Pending',
+                status: 'Pending',
                 sourceUrl: targetUrl,
                 clippingImageUrl: imgUrl,
                 mediaUrl: imgUrl,
@@ -1297,10 +1339,10 @@ export async function scrapeTargetPortal(
                 extractionMethod: 'linked_image_ocr',
                 scrapeRunId: options.runId,
                 scrapedAt: new Date().toISOString(),
-                isGovtJob: j.isGovtJob ?? true,
-                govtDepartment: j.govtDepartment || config.name,
+                isGovtJob: j.isGovtJob,
+                govtDepartment: j.govtDepartment,
                 govtScale: j.govtScale,
-                govtCategory: j.govtCategory || 'Federal',
+                govtCategory: j.govtCategory,
                 advertisedPositions: j.advertisedPositions,
                 totalVacancies: j.totalVacancies,
                 employmentType: j.employmentType,

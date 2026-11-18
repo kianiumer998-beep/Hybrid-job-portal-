@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { Currency, Region } from '../types/job';
 import { safeFetchWithRetry, validateSafeScrapeUrl } from '../../server/utils/ssrfProtection';
-import { parsePdfFromUrl } from '../../server/services/pdfParserEngine';
+import { parsePdfFromUrl, sanitizeUrlForLog, sanitizeSecretString } from '../../server/services/pdfParserEngine';
 import { MOCK_CONSOLIDATED_PDF_GAZETTES } from '../data/mockPdfConsolidatedAds';
 
 export interface ScraperTargetConfig {
@@ -105,6 +105,16 @@ export interface ScrapeOptions {
   endPage?: number;
   sinceTimestamp?: string;
   runId?: string;
+  targetPageUrl?: string;
+}
+
+export interface AdapterAttemptResult extends ScrapeExecutionResult {
+  matched: boolean;
+  adapterName: 'Greenhouse' | 'Lever' | 'SmartRecruiters' | 'Ashby';
+  status: 'success' | 'empty' | 'error';
+  failureCategory?: 'http_error' | 'network_error' | 'json_parse_error' | 'invalid_response';
+  httpStatus?: number;
+  diagnostic?: string;
 }
 
 export interface ScrapeExecutionResult {
@@ -445,9 +455,123 @@ export function mapGreenhouseJob(j: any, config: ScraperTargetConfig, options: S
 }
 
 /**
+ * Shared safe executor for JSON-based ATS adapters (Greenhouse, Lever, SmartRecruiters, Ashby).
+ * Distinguishes valid empty job arrays from HTTP, network, JSON parse, and malformed structure failures,
+ * logging concise secret-sanitized diagnostics without breaking HTML fallback.
+ */
+function sanitizeAdapterLogDetail(input: string): string {
+  return sanitizeSecretString(input).replace(
+    /\b(api[_-]?key|apikey|token|access_token|authorization|auth|secret|password|passwd|pwd|sig|signature)[:=]\s*([^\s,;&]+)/gi,
+    '$1=[REDACTED]'
+  );
+}
+
+async function executeAtsJsonAdapter<T>(params: {
+  adapterName: AdapterAttemptResult['adapterName'];
+  extractionMethod: string;
+  apiUrl: string;
+  targetUrl: string;
+  extractItems: (data: any) => T[] | null;
+  mapItem: (item: T) => ScrapedJobResult;
+  fetchFn: typeof safeFetchWithRetry;
+}): Promise<AdapterAttemptResult> {
+  const { adapterName, extractionMethod, apiUrl, targetUrl, extractItems, mapItem, fetchFn } = params;
+  const safeTargetForLog = sanitizeUrlForLog(targetUrl);
+
+  let res: any;
+  try {
+    res = await fetchFn(apiUrl, { headers: { 'Accept': 'application/json' } }, 15000);
+  } catch (err: any) {
+    const httpStatus = typeof err?.status === 'number' ? err.status : typeof err?.statusCode === 'number' ? err.statusCode : undefined;
+    const rawDetail = sanitizeAdapterLogDetail(String(err?.message || err || 'Network failure'));
+    const diagnostic = `[${adapterName} Adapter] failure=network_error${httpStatus ? ` status=${httpStatus}` : ''} target=${safeTargetForLog}: ${rawDetail}`;
+    console.warn(diagnostic);
+    return {
+      matched: true,
+      adapterName,
+      status: 'error',
+      failureCategory: 'network_error',
+      httpStatus,
+      diagnostic,
+      jobs: [],
+      extractionMethod,
+      totalFoundOnPage: 0
+    };
+  }
+
+  if (!res || !res.ok) {
+    const status = typeof res?.status === 'number' ? res.status : undefined;
+    const diagnostic = `[${adapterName} Adapter] failure=http_error${status !== undefined ? ` status=${status}` : ''} target=${safeTargetForLog}`;
+    console.warn(diagnostic);
+    return {
+      matched: true,
+      adapterName,
+      status: 'error',
+      failureCategory: 'http_error',
+      httpStatus: status,
+      diagnostic,
+      jobs: [],
+      extractionMethod,
+      totalFoundOnPage: 0
+    };
+  }
+
+  let data: any;
+  try {
+    data = await res.json();
+  } catch (parseErr: any) {
+    const rawDetail = sanitizeAdapterLogDetail(String(parseErr?.message || 'Malformed JSON response'));
+    const diagnostic = `[${adapterName} Adapter] failure=json_parse_error status=${res.status} target=${safeTargetForLog}: ${rawDetail}`;
+    console.warn(diagnostic);
+    return {
+      matched: true,
+      adapterName,
+      status: 'error',
+      failureCategory: 'json_parse_error',
+      httpStatus: res.status,
+      diagnostic,
+      jobs: [],
+      extractionMethod,
+      totalFoundOnPage: 0
+    };
+  }
+
+  const items = extractItems(data);
+  if (!items) {
+    const diagnostic = `[${adapterName} Adapter] failure=invalid_response status=${res.status} target=${safeTargetForLog}: unexpected response structure`;
+    console.warn(diagnostic);
+    return {
+      matched: true,
+      adapterName,
+      status: 'error',
+      failureCategory: 'invalid_response',
+      httpStatus: res.status,
+      diagnostic,
+      jobs: [],
+      extractionMethod,
+      totalFoundOnPage: 0
+    };
+  }
+
+  const jobs = items.map(mapItem);
+  return {
+    matched: true,
+    adapterName,
+    status: jobs.length > 0 ? 'success' : 'empty',
+    jobs,
+    extractionMethod,
+    totalFoundOnPage: jobs.length
+  };
+}
+
+/**
  * ADAPTER 1: Greenhouse API Adapter (boards-api.greenhouse.io)
  */
-async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
+export async function scrapeGreenhouseApi(
+  config: ScraperTargetConfig,
+  options: ScrapeOptions = {},
+  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry
+): Promise<AdapterAttemptResult | null> {
   const targetUrl = config.url || config.portalUrl || '';
   if (!targetUrl) return null;
   const url = targetUrl.toLowerCase();
@@ -464,25 +588,15 @@ async function scrapeGreenhouseApi(config: ScraperTargetConfig, options: ScrapeO
 
   if (!boardToken) return null;
 
-  try {
-    const apiUrl = `https://boards-api.greenhouse.io/v1/boards/${boardToken}/jobs?content=true`;
-    const res = await safeFetchWithRetry(apiUrl, { headers: { 'Accept': 'application/json' } }, 15000);
-    if (!res.ok) return null;
-
-    const data: any = await res.json();
-    if (!data || !Array.isArray(data.jobs)) return { jobs: [], extractionMethod: 'greenhouse_api', totalFoundOnPage: 0 };
-
-    const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => mapGreenhouseJob(j, config, options));
-
-    return {
-      jobs,
-      extractionMethod: 'greenhouse_api',
-      totalFoundOnPage: jobs.length
-    };
-  } catch (err: any) {
-    console.warn(`[Greenhouse Adapter] Extraction failed for ${targetUrl}:`, err?.message || err);
-    return { jobs: [], extractionMethod: 'greenhouse_api', totalFoundOnPage: 0 };
-  }
+  return executeAtsJsonAdapter<any>({
+    adapterName: 'Greenhouse',
+    extractionMethod: 'greenhouse_api',
+    apiUrl: `https://boards-api.greenhouse.io/v1/boards/${boardToken}/jobs?content=true`,
+    targetUrl,
+    extractItems: (data) => (data && Array.isArray(data.jobs) ? data.jobs : null),
+    mapItem: (j) => mapGreenhouseJob(j, config, options),
+    fetchFn
+  });
 }
 
 export function mapLeverJob(j: any, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult {
@@ -524,7 +638,11 @@ export function mapLeverJob(j: any, config: ScraperTargetConfig, options: Scrape
 /**
  * ADAPTER 2: Lever API Adapter (api.lever.co)
  */
-async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
+export async function scrapeLeverApi(
+  config: ScraperTargetConfig,
+  options: ScrapeOptions = {},
+  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry
+): Promise<AdapterAttemptResult | null> {
   const targetUrl = config.url || config.portalUrl || '';
   if (!targetUrl) return null;
   const url = targetUrl.toLowerCase();
@@ -535,25 +653,15 @@ async function scrapeLeverApi(config: ScraperTargetConfig, options: ScrapeOption
   const siteName = targetUrl.split('jobs.lever.co/')[1]?.split('/')[0]?.split('?')[0];
   if (!siteName) return null;
 
-  try {
-    const apiUrl = `https://api.lever.co/v0/postings/${siteName}?mode=json`;
-    const res = await safeFetchWithRetry(apiUrl, { headers: { 'Accept': 'application/json' } }, 15000);
-    if (!res.ok) return null;
-
-    const data: any = await res.json();
-    if (!Array.isArray(data)) return { jobs: [], extractionMethod: 'lever_api', totalFoundOnPage: 0 };
-
-    const jobs: ScrapedJobResult[] = data.map((j: any) => mapLeverJob(j, config, options));
-
-    return {
-      jobs,
-      extractionMethod: 'lever_api',
-      totalFoundOnPage: jobs.length
-    };
-  } catch (err: any) {
-    console.warn(`[Lever Adapter] Extraction failed for ${targetUrl}:`, err?.message || err);
-    return { jobs: [], extractionMethod: 'lever_api', totalFoundOnPage: 0 };
-  }
+  return executeAtsJsonAdapter<any>({
+    adapterName: 'Lever',
+    extractionMethod: 'lever_api',
+    apiUrl: `https://api.lever.co/v0/postings/${siteName}?mode=json`,
+    targetUrl,
+    extractItems: (data) => (Array.isArray(data) ? data : null),
+    mapItem: (j) => mapLeverJob(j, config, options),
+    fetchFn
+  });
 }
 
 export function mapSmartRecruitersJob(j: any, config: ScraperTargetConfig, options: ScrapeOptions = {}): ScrapedJobResult {
@@ -625,7 +733,11 @@ export function mapAshbyJob(j: any, config: ScraperTargetConfig, options: Scrape
 /**
  * ADAPTER 3: SmartRecruiters & Ashby REST APIs
  */
-async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
+export async function scrapeRestJobApis(
+  config: ScraperTargetConfig,
+  options: ScrapeOptions = {},
+  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry
+): Promise<AdapterAttemptResult | null> {
   const targetUrl = config.url || config.portalUrl || '';
   if (!targetUrl) return null;
   const url = targetUrl.toLowerCase();
@@ -634,18 +746,15 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
   if (url.includes('smartrecruiters.com/')) {
     const company = targetUrl.split('smartrecruiters.com/')[1]?.split('/')[0]?.split('?')[0];
     if (company && !['jobs', 'careers', 'search'].includes(company)) {
-      try {
-        const apiUrl = `https://api.smartrecruiters.com/v1/companies/${company}/postings`;
-        const res = await safeFetchWithRetry(apiUrl, { headers: { 'Accept': 'application/json' } }, 15000);
-        if (res.ok) {
-          const data: any = await res.json();
-          if (data && Array.isArray(data.content)) {
-            const jobs: ScrapedJobResult[] = data.content.map((j: any) => mapSmartRecruitersJob(j, config, options));
-
-            return { jobs, extractionMethod: 'smartrecruiters_api', totalFoundOnPage: jobs.length };
-          }
-        }
-      } catch {}
+      return executeAtsJsonAdapter<any>({
+        adapterName: 'SmartRecruiters',
+        extractionMethod: 'smartrecruiters_api',
+        apiUrl: `https://api.smartrecruiters.com/v1/companies/${company}/postings`,
+        targetUrl,
+        extractItems: (data) => (data && Array.isArray(data.content) ? data.content : null),
+        mapItem: (j) => mapSmartRecruitersJob(j, config, options),
+        fetchFn
+      });
     }
   }
 
@@ -653,18 +762,15 @@ async function scrapeRestJobApis(config: ScraperTargetConfig, options: ScrapeOpt
   if (url.includes('jobs.ashbyhq.com/')) {
     const company = targetUrl.split('jobs.ashbyhq.com/')[1]?.split('/')[0]?.split('?')[0];
     if (company) {
-      try {
-        const apiUrl = `https://api.ashbyhq.com/posting-api/job-board/${company}`;
-        const res = await safeFetchWithRetry(apiUrl, { headers: { 'Accept': 'application/json' } }, 15000);
-        if (res.ok) {
-          const data: any = await res.json();
-          if (data && Array.isArray(data.jobs)) {
-            const jobs: ScrapedJobResult[] = data.jobs.map((j: any) => mapAshbyJob(j, config, options));
-
-            return { jobs, extractionMethod: 'ashby_api', totalFoundOnPage: jobs.length };
-          }
-        }
-      } catch {}
+      return executeAtsJsonAdapter<any>({
+        adapterName: 'Ashby',
+        extractionMethod: 'ashby_api',
+        apiUrl: `https://api.ashbyhq.com/posting-api/job-board/${company}`,
+        targetUrl,
+        extractItems: (data) => (data && Array.isArray(data.jobs) ? data.jobs : null),
+        mapItem: (j) => mapAshbyJob(j, config, options),
+        fetchFn
+      });
     }
   }
 
@@ -1209,10 +1315,13 @@ function isEligibleForPortalFallback(
  */
 export async function scrapeTargetPortal(
   config: ScraperTargetConfig,
-  options: ScrapeOptions = {}
+  options: ScrapeOptions = {},
+  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry
 ): Promise<ScrapedJobResult[]> {
   const effectiveUrl = config.url || config.portalUrl || config.pdfUrl || '';
-  config.url = effectiveUrl;
+  if (!config.url && effectiveUrl) {
+    config.url = effectiveUrl;
+  }
 
   if (!effectiveUrl) {
     console.log(`[Scraper Pipeline] Portal "${config.name}" has no valid URL configured.`);
@@ -1222,6 +1331,7 @@ export async function scrapeTargetPortal(
   let pdfFallbackAttempted = false;
   let originalPdfFailureNotice: string | null = null;
   const failedPdfUrls = new Set<string>();
+  const adapterErrors: AdapterAttemptResult[] = [];
 
   try {
     // 1. Check Government PDF Adapter
@@ -1247,35 +1357,66 @@ export async function scrapeTargetPortal(
       // Recoverable: proceed to official portalUrl fallback
       pdfFallbackAttempted = true;
       originalPdfFailureNotice = pdfErr?.message || 'PDF unreachable';
-      console.log(`[Scraper Pipeline] PDF recovery fallback for "${config.name}": Original PDF (${targetPdfUrl}) failed (${originalPdfFailureNotice}). Recovering via official portal fallback: ${config.portalUrl}`);
+      console.log(`[Scraper Pipeline] PDF recovery fallback for "${config.name}": Original PDF (${sanitizeUrlForLog(targetPdfUrl)}) failed (${sanitizeSecretString(originalPdfFailureNotice)}). Recovering via official portal fallback: ${sanitizeUrlForLog(config.portalUrl || '')}`);
     }
 
     if (pdfResult) {
       return filterByOptions(pdfResult.jobs, options);
     }
 
-    // 2. Check Greenhouse ATS Adapter
-    const ghResult = await scrapeGreenhouseApi(config, options);
-    if (ghResult && ghResult.jobs.length > 0) {
-      return filterByOptions(ghResult.jobs, options);
+    // 2. Check Greenhouse ATS Adapter (skip API re-check when fetching subsequent HTML paginated pages)
+    if (!options.targetPageUrl) {
+      const ghResult = await scrapeGreenhouseApi(config, options, fetchFn);
+      if (ghResult) {
+        if (ghResult.status === 'success') {
+          return filterByOptions(ghResult.jobs, options);
+        }
+        if (ghResult.status === 'empty') {
+          return [];
+        }
+        if (ghResult.status === 'error') {
+          adapterErrors.push(ghResult);
+        }
+      }
+
+      // 3. Check Lever ATS Adapter
+      const leverResult = await scrapeLeverApi(config, options, fetchFn);
+      if (leverResult) {
+        if (leverResult.status === 'success') {
+          return filterByOptions(leverResult.jobs, options);
+        }
+        if (leverResult.status === 'empty') {
+          return [];
+        }
+        if (leverResult.status === 'error') {
+          adapterErrors.push(leverResult);
+        }
+      }
+
+      // 4. Check SmartRecruiters / Ashby REST APIs
+      const restResult = await scrapeRestJobApis(config, options, fetchFn);
+      if (restResult) {
+        if (restResult.status === 'success') {
+          return filterByOptions(restResult.jobs, options);
+        }
+        if (restResult.status === 'empty') {
+          return [];
+        }
+        if (restResult.status === 'error') {
+          adapterErrors.push(restResult);
+        }
+      }
     }
 
-    // 3. Check Lever ATS Adapter
-    const leverResult = await scrapeLeverApi(config, options);
-    if (leverResult && leverResult.jobs.length > 0) {
-      return filterByOptions(leverResult.jobs, options);
-    }
-
-    // 4. Check SmartRecruiters / Ashby REST APIs
-    const restResult = await scrapeRestJobApis(config, options);
-    if (restResult && restResult.jobs.length > 0) {
-      return filterByOptions(restResult.jobs, options);
-    }
-
-    // 5. Build paginated target URL if page > 1
-    // If fallback is active, targetUrl becomes the validated official portalUrl
+    // 5. Build paginated target URL (use validated discovered targetPageUrl when provided; preserve original config.url)
     let targetUrl = (pdfFallbackAttempted && config.portalUrl) ? config.portalUrl.trim() : effectiveUrl;
-    if (options.page && options.page > 1) {
+    if (options.targetPageUrl) {
+      const targetPageSsrf = validateSafeScrapeUrl(options.targetPageUrl);
+      if (!targetPageSsrf.safe) {
+        throw new Error(`Unsafe pagination URL rejected: ${targetPageSsrf.error || 'SSRF validation failed'}`);
+      }
+      targetUrl = options.targetPageUrl;
+    } else if (options.page && options.page > 1) {
       try {
         const urlObj = new URL(targetUrl);
         urlObj.searchParams.set('page', String(options.page));
@@ -1284,9 +1425,9 @@ export async function scrapeTargetPortal(
     }
 
     // 6. Safe Fetch with SSRF protection, timeout, and retries
-    const response = await safeFetchWithRetry(targetUrl, {}, 10000, 1);
+    const response = await fetchFn(targetUrl, {}, 10000, 1);
     if (!response.ok) {
-      console.log(`[Scraper Pipeline] Target ${config.name} (${targetUrl}) responded with HTTP ${response.status}.`);
+      console.log(`[Scraper Pipeline] Target ${config.name} (${sanitizeUrlForLog(targetUrl)}) responded with HTTP ${response.status}.`);
       const httpErr: any = new Error(`HTTP ${response.status}: Target returned status ${response.status}`);
       httpErr.status = response.status;
       httpErr.statusCode = response.status;
@@ -1437,10 +1578,22 @@ export async function scrapeTargetPortal(
       }
     }
 
-    return filterByOptions(htmlJobs, options);
+    const finalHtmlJobs = filterByOptions(htmlJobs, options);
+    if (finalHtmlJobs.length === 0 && adapterErrors.length > 0) {
+      const primaryErr = adapterErrors[0];
+      const err: any = new Error(primaryErr.diagnostic || `${primaryErr.adapterName} API failed (${primaryErr.failureCategory})`);
+      if (primaryErr.httpStatus) {
+        err.status = primaryErr.httpStatus;
+        err.statusCode = primaryErr.httpStatus;
+        err.httpStatus = primaryErr.httpStatus;
+      }
+      throw err;
+    }
+
+    return finalHtmlJobs;
   } catch (error: any) {
     if (pdfFallbackAttempted && originalPdfFailureNotice) {
-      console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): Original PDF failed (${originalPdfFailureNotice}); portal fallback also failed: ${error?.message || 'Remote portal did not respond'}`);
+      console.log(`[Scraper Pipeline] Notice for "${config.name}" (${sanitizeUrlForLog(config.url || effectiveUrl)}): Original PDF failed (${sanitizeSecretString(originalPdfFailureNotice)}); portal fallback also failed: ${sanitizeSecretString(error?.message || 'Remote portal did not respond')}`);
       const combinedError: any = new Error(`Original PDF failed (${originalPdfFailureNotice}); portal fallback also failed: ${error?.message || 'Remote portal did not respond'}`);
       if (error?.status || error?.statusCode || error?.httpStatus) {
         combinedError.status = error.status || error.statusCode || error.httpStatus;
@@ -1450,7 +1603,7 @@ export async function scrapeTargetPortal(
       throw combinedError;
     }
 
-    console.log(`[Scraper Pipeline] Notice for "${config.name}" (${config.url}): ${error?.message || 'Remote portal did not respond'}`);
+    console.log(`[Scraper Pipeline] Notice for "${config.name}" (${sanitizeUrlForLog(config.url || effectiveUrl)}): ${sanitizeSecretString(error?.message || 'Remote portal did not respond')}`);
 
     // Isolate static test gazette fallback strictly from production and standard real scraper runs
     if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_MOCK_PDF_FALLBACK === 'true') {

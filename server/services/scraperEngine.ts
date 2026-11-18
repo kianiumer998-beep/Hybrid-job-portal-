@@ -2,6 +2,8 @@ import { ScraperRepository, isTransientMongoError } from '../db/repositories/Scr
 import { JobRepository } from '../db/repositories/JobRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { scrapeTargetPortal, ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
+import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
+import { sanitizeUrlForLog } from './pdfParserEngine';
 import { detectJobDuplicate, DuplicateMatchResult } from './duplicateEngine';
 import { enrichScrapedJobsBatch } from './detailPageEnricher';
 
@@ -190,6 +192,259 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
 }
 
 /**
+ * Canonicalizes a pagination URL for cycle detection while preserving query parameters.
+ * Normalizes scheme, host (stripping optional leading www.), trailing slashes, sorted query params, and strips hash fragments.
+ */
+export function canonicalizePaginationUrl(urlStr: string): string {
+  try {
+    const parsed = new URL(urlStr.trim());
+    const protocol = parsed.protocol.toLowerCase();
+    const hostname = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    const port = parsed.port ? `:${parsed.port}` : '';
+    const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
+    const sortedParams = new URLSearchParams(
+      Array.from(parsed.searchParams.entries()).sort(([aK, aV], [bK, bV]) =>
+        aK === bK ? aV.localeCompare(bV) : aK.localeCompare(bK)
+      )
+    );
+    const query = sortedParams.toString();
+    return `${protocol}//${hostname}${port}${pathname}${query ? `?${query}` : ''}`;
+  } catch {
+    return (urlStr || '').trim().toLowerCase().split('#')[0];
+  }
+}
+
+/**
+ * Validates a discovered next-page URL before following it in complete pagination mode:
+ * - HTTP/HTTPS only
+ * - Existing SSRF protection (blocks private IPs, localhost, loopback, metadata endpoints)
+ * - Same portal hostname only (with optional www. normalization) and matching port
+ * - Protocol downgrade rejection (HTTPS portal -> HTTP link rejected)
+ * - Canonical URL cycle detection against already-visited URLs
+ */
+export function validateDiscoveredNextPageUrl(
+  candidateUrl: string,
+  portalUrl: string,
+  visitedCanonicalUrls: Set<string>
+): { valid: boolean; reason?: string; canonicalUrl?: string; normalizedUrl?: string } {
+  if (!candidateUrl || typeof candidateUrl !== 'string' || !candidateUrl.trim()) {
+    return { valid: false, reason: 'Empty next-page URL rejected' };
+  }
+
+  let candidateParsed: URL;
+  let portalParsed: URL;
+  try {
+    candidateParsed = new URL(candidateUrl.trim());
+  } catch {
+    return { valid: false, reason: `Malformed next-page URL rejected: ${sanitizeUrlForLog(candidateUrl)}` };
+  }
+
+  try {
+    portalParsed = new URL(portalUrl.trim());
+  } catch {
+    return { valid: false, reason: 'Invalid portal base URL' };
+  }
+
+  if (candidateParsed.protocol !== 'http:' && candidateParsed.protocol !== 'https:') {
+    return {
+      valid: false,
+      reason: `Unsafe protocol "${candidateParsed.protocol}" rejected for next-page URL`
+    };
+  }
+
+  const ssrfCheck = validateSafeScrapeUrl(candidateParsed.toString());
+  if (!ssrfCheck.safe) {
+    return {
+      valid: false,
+      reason: `SSRF validation rejected next-page URL: ${ssrfCheck.error || 'unsafe target'}`
+    };
+  }
+
+  if (portalParsed.protocol === 'https:' && candidateParsed.protocol !== 'https:') {
+    return {
+      valid: false,
+      reason: 'HTTP protocol downgrade rejected for next-page URL'
+    };
+  }
+
+  const normalizeHost = (host: string) => host.toLowerCase().replace(/^www\./, '');
+  if (normalizeHost(candidateParsed.hostname) !== normalizeHost(portalParsed.hostname)) {
+    return {
+      valid: false,
+      reason: `External hostname "${candidateParsed.hostname}" rejected (expected portal host "${portalParsed.hostname}")`
+    };
+  }
+
+  if (candidateParsed.port !== portalParsed.port) {
+    return {
+      valid: false,
+      reason: `Port mismatch on next-page URL rejected`
+    };
+  }
+
+  const canonicalUrl = canonicalizePaginationUrl(candidateParsed.toString());
+  if (visitedCanonicalUrls.has(canonicalUrl)) {
+    return {
+      valid: false,
+      reason: `Pagination cycle detected: repeated next-page URL (${sanitizeUrlForLog(candidateParsed.toString())})`,
+      canonicalUrl
+    };
+  }
+
+  return {
+    valid: true,
+    canonicalUrl,
+    normalizedUrl: candidateParsed.toString()
+  };
+}
+
+export async function crawlPortalPages(
+  target: ScraperTargetConfig,
+  options: Pick<ScraperRunOptions, 'mode' | 'startPage' | 'endPage'>,
+  sinceTimestamp: string | undefined,
+  runId: string,
+  scrapePageFn: typeof scrapeTargetPortal = scrapeTargetPortal
+): Promise<{
+  rawResults: ScrapedJobResult[];
+  sourcePagesAttempted: number;
+  sourcePagesSuccessful: number;
+  lastPageError: any;
+  hitSafetyLimit: boolean;
+  paginationDiagnostic?: string;
+  maxSafetyPages: number;
+}> {
+  const rawResults: ScrapedJobResult[] = [];
+  const MAX_SAFETY_PAGES = 25;
+
+  let startPage = 1;
+  let maxAllowedPage = 1;
+
+  if (options.mode === 'page_range') {
+    startPage = Math.max(1, options.startPage || 1);
+    maxAllowedPage = Math.max(startPage, Math.min(startPage + MAX_SAFETY_PAGES, options.endPage || startPage));
+  } else if (options.mode === 'complete') {
+    startPage = 1;
+    maxAllowedPage = MAX_SAFETY_PAGES;
+  }
+
+  const portalBaseUrl = (target.url || target.portalUrl || target.pdfUrl || '').trim();
+  const visitedPageUrls = new Set<string>();
+  if (portalBaseUrl) {
+    if (startPage > 1) {
+      try {
+        const startUrlObj = new URL(portalBaseUrl);
+        startUrlObj.searchParams.set('page', String(startPage));
+        visitedPageUrls.add(canonicalizePaginationUrl(startUrlObj.toString()));
+      } catch {
+        visitedPageUrls.add(canonicalizePaginationUrl(portalBaseUrl));
+      }
+    } else {
+      visitedPageUrls.add(canonicalizePaginationUrl(portalBaseUrl));
+    }
+  }
+
+  let currentPage = startPage;
+  let currentTargetPageUrl: string | undefined = undefined;
+  let hasMorePages = true;
+  let lastPageError: any = null;
+  let hitSafetyLimit = false;
+  let paginationDiagnostic: string | undefined = undefined;
+  let sourcePagesAttempted = 0;
+  let sourcePagesSuccessful = 0;
+
+  while (currentPage <= maxAllowedPage && hasMorePages) {
+    sourcePagesAttempted++;
+
+    try {
+      const pageResults = await scrapePageFn(target, {
+        page: currentPage,
+        startPage,
+        endPage: maxAllowedPage,
+        sinceTimestamp,
+        runId,
+        targetPageUrl: currentTargetPageUrl
+      });
+
+      sourcePagesSuccessful++;
+
+      if (pageResults && pageResults.length > 0) {
+        rawResults.push(...pageResults);
+
+        if (options.mode === 'complete') {
+          const discoveredNextUrl = pageResults.find(
+            j => typeof j.nextPageUrl === 'string' && j.nextPageUrl.trim().length > 0
+          )?.nextPageUrl?.trim();
+
+          if (discoveredNextUrl) {
+            const validation = validateDiscoveredNextPageUrl(discoveredNextUrl, portalBaseUrl, visitedPageUrls);
+            if (!validation.valid) {
+              paginationDiagnostic = validation.reason || 'Unsafe or repeated next-page URL rejected';
+              console.warn(`[Scraper Engine] Pagination stopped safely for "${target.name}": ${paginationDiagnostic}`);
+              hasMorePages = false;
+            } else if (currentPage < maxAllowedPage) {
+              if (validation.canonicalUrl) {
+                visitedPageUrls.add(validation.canonicalUrl);
+              }
+              currentTargetPageUrl = validation.normalizedUrl;
+              currentPage++;
+            } else {
+              hitSafetyLimit = true;
+              hasMorePages = false;
+            }
+          } else if (pageResults.length >= 10) {
+            if (currentPage < maxAllowedPage) {
+              currentTargetPageUrl = undefined;
+              const nextNumericPage = currentPage + 1;
+              if (portalBaseUrl) {
+                try {
+                  const numUrl = new URL(portalBaseUrl);
+                  numUrl.searchParams.set('page', String(nextNumericPage));
+                  const numCanonical = canonicalizePaginationUrl(numUrl.toString());
+                  if (visitedPageUrls.has(numCanonical)) {
+                    paginationDiagnostic = `Pagination cycle detected on numeric page ${nextNumericPage}`;
+                    console.warn(`[Scraper Engine] Pagination stopped safely for "${target.name}": ${paginationDiagnostic}`);
+                    hasMorePages = false;
+                    continue;
+                  }
+                  visitedPageUrls.add(numCanonical);
+                } catch {}
+              }
+              currentPage = nextNumericPage;
+            } else {
+              hitSafetyLimit = true;
+              hasMorePages = false;
+            }
+          } else {
+            hasMorePages = false;
+          }
+        } else if (options.mode === 'page_range') {
+          currentTargetPageUrl = undefined;
+          currentPage++;
+        } else {
+          hasMorePages = false;
+        }
+      } else {
+        hasMorePages = false;
+      }
+    } catch (pageErr: any) {
+      lastPageError = pageErr;
+      console.log(`[Scraper Engine] Page ${currentPage} notice on source ${target.name}: ${pageErr?.message || pageErr}`);
+      hasMorePages = false;
+    }
+  }
+
+  return {
+    rawResults,
+    sourcePagesAttempted,
+    sourcePagesSuccessful,
+    lastPageError,
+    hitSafetyLimit,
+    paginationDiagnostic,
+    maxSafetyPages: MAX_SAFETY_PAGES
+  };
+}
+
+/**
  * Authoritative Scraper Execution Engine with Multi-Source, Dynamic Pagination,
  * Cutoffs, and Centralized Duplication Control.
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
@@ -341,74 +596,19 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         sinceTimestamp = options.fromTimestamp;
       }
 
-      // 2. Dynamic next-page crawl loop (No fixed 5-page ceiling!)
-      const rawResults: ScrapedJobResult[] = [];
-      const MAX_SAFETY_PAGES = 25;
-
-      let startPage = 1;
-      let maxAllowedPage = 1;
-
-      if (options.mode === 'page_range') {
-        startPage = Math.max(1, options.startPage || 1);
-        maxAllowedPage = Math.max(startPage, Math.min(startPage + MAX_SAFETY_PAGES, options.endPage || startPage));
-      } else if (options.mode === 'complete') {
-        startPage = 1;
-        maxAllowedPage = MAX_SAFETY_PAGES; // Crawl until next-page exhaustion or max safety limit
-      }
-
-      let currentPage = startPage;
-      let hasMorePages = true;
-      let lastPageError: any = null;
-      let hitSafetyLimit = false;
-
-      while (currentPage <= maxAllowedPage && hasMorePages) {
-        sourcePagesAttempted++;
-        totalPagesAttempted++;
-
-        try {
-          const pageResults = await scrapeTargetPortal(target, {
-            page: currentPage,
-            startPage,
-            endPage: maxAllowedPage,
-            sinceTimestamp,
-            runId
-          });
-
-          sourcePagesSuccessful++;
-          totalPagesSuccessful++;
-
-          if (pageResults && pageResults.length > 0) {
-            rawResults.push(...pageResults);
-
-            // Check if there is next page discovery
-            const nextPageDetected = pageResults.some(j => !!j.nextPageUrl);
-            if (options.mode === 'complete') {
-              // If page returned jobs and next-page was detected, advance
-              if (nextPageDetected || pageResults.length >= 10) {
-                if (currentPage < maxAllowedPage) {
-                  currentPage++;
-                } else {
-                  hitSafetyLimit = true;
-                  hasMorePages = false;
-                }
-              } else {
-                hasMorePages = false;
-              }
-            } else if (options.mode === 'page_range') {
-              currentPage++;
-            } else {
-              hasMorePages = false;
-            }
-          } else {
-            // 0 jobs on this page means reached the end
-            hasMorePages = false;
-          }
-        } catch (pageErr: any) {
-          lastPageError = pageErr;
-          console.log(`[Scraper Engine] Page ${currentPage} notice on source ${target.name}: ${pageErr?.message || pageErr}`);
-          hasMorePages = false;
-        }
-      }
+      // 2. Dynamic next-page crawl loop (follows validated discovered nextPageUrl or numeric fallback)
+      const crawlResult = await crawlPortalPages(target, options, sinceTimestamp, runId);
+      const {
+        rawResults,
+        lastPageError,
+        hitSafetyLimit,
+        paginationDiagnostic,
+        maxSafetyPages: MAX_SAFETY_PAGES
+      } = crawlResult;
+      sourcePagesAttempted = crawlResult.sourcePagesAttempted;
+      sourcePagesSuccessful = crawlResult.sourcePagesSuccessful;
+      totalPagesAttempted += sourcePagesAttempted;
+      totalPagesSuccessful += sourcePagesSuccessful;
 
       // If all page attempts failed, surface the root error for proper health categorization
       if (sourcePagesSuccessful === 0 && lastPageError) {
@@ -620,6 +820,8 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
           lastErrorNotice = `${failureParts.join(' and ')} vacancies failed to save to database (checkpoint preserved)`;
         } else if (lastPageError) {
           lastErrorNotice = `Crawling interrupted on page ${sourcePagesAttempted} (${lastPageError?.message || lastPageError}) (checkpoint preserved)`;
+        } else if (paginationDiagnostic) {
+          lastErrorNotice = paginationDiagnostic;
         } else if (hitSafetyLimit) {
           lastErrorNotice = `Pagination truncated at safety limit of ${MAX_SAFETY_PAGES} pages (checkpoint preserved)`;
         } else if (!isCompleteMode) {
@@ -629,9 +831,11 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
         }
       } else {
         successHealth = 'No Jobs';
-        lastErrorNotice = sourceFound > 0
-          ? `0 valid vacancies extracted (${sourceFound} candidates rejected as invalid/low-quality)`
-          : '0 vacancies extracted from target source';
+        lastErrorNotice = paginationDiagnostic || (
+          sourceFound > 0
+            ? `0 valid vacancies extracted (${sourceFound} candidates rejected as invalid/low-quality)`
+            : '0 vacancies extracted from target source'
+        );
       }
 
       await ScraperRepository.updateSourceStats(target.id, {

@@ -71,8 +71,17 @@ import {
   findCandidateRecruitmentImages,
   isSafeMediaOrigin,
   mapLinkedImageOcrJobs,
-  deduplicateJobs
+  deduplicateJobs,
+  scrapeGreenhouseApi,
+  scrapeLeverApi,
+  scrapeRestJobApis,
+  scrapeTargetPortal
 } from '../../src/services/scraperService';
+import {
+  canonicalizePaginationUrl,
+  validateDiscoveredNextPageUrl,
+  crawlPortalPages
+} from '../services/scraperEngine';
 import {
   validateSafeScrapeUrl
 } from '../utils/ssrfProtection';
@@ -3791,6 +3800,429 @@ async function runSuite() {
     assert.strictEqual(withAutoApproveFalse.length, 1);
     assert.strictEqual(withAutoApproveFalse[0].status, 'Pending', 'Production mapper must enforce Pending when autoApprove=false');
     assert.strictEqual(withAutoApproveFalse[0].extractionMethod, 'linked_image_ocr');
+  });
+
+  // ============================================================================
+  // STEP-8.3 ADAPTER FAILURE VISIBILITY & DISCOVERED PAGINATION URL TESTS
+  // ============================================================================
+
+  await runTest('STEP-8.3 Case 1 [Mocked]: API adapters treat valid empty arrays as legitimate zero-job success across Greenhouse, Lever, SmartRecruiters, and Ashby', async () => {
+    const emptyFetch = async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        if (url.includes('boards-api.greenhouse.io')) return { jobs: [] };
+        if (url.includes('api.lever.co')) return [];
+        if (url.includes('api.smartrecruiters.com')) return { content: [] };
+        if (url.includes('api.ashbyhq.com')) return { jobs: [] };
+        return {};
+      }
+    }) as any;
+
+    const gh = await scrapeGreenhouseApi({ id: 'gh1', name: 'GH Co', url: 'https://boards.greenhouse.io/acme' }, {}, emptyFetch);
+    assert.strictEqual(gh?.status, 'empty');
+    assert.strictEqual(gh?.jobs.length, 0);
+    assert.strictEqual(gh?.failureCategory, undefined);
+
+    const lever = await scrapeLeverApi({ id: 'lv1', name: 'Lever Co', url: 'https://jobs.lever.co/acme' }, {}, emptyFetch);
+    assert.strictEqual(lever?.status, 'empty');
+    assert.strictEqual(lever?.jobs.length, 0);
+    assert.strictEqual(lever?.failureCategory, undefined);
+
+    const sr = await scrapeRestJobApis({ id: 'sr1', name: 'SR Co', url: 'https://careers.smartrecruiters.com/acme' }, {}, emptyFetch);
+    assert.strictEqual(sr?.status, 'empty');
+    assert.strictEqual(sr?.adapterName, 'SmartRecruiters');
+    assert.strictEqual(sr?.jobs.length, 0);
+
+    const ashby = await scrapeRestJobApis({ id: 'ab1', name: 'Ashby Co', url: 'https://jobs.ashbyhq.com/acme' }, {}, emptyFetch);
+    assert.strictEqual(ashby?.status, 'empty');
+    assert.strictEqual(ashby?.adapterName, 'Ashby');
+    assert.strictEqual(ashby?.jobs.length, 0);
+
+    const targetEmpty = await scrapeTargetPortal({ id: 'gh2', name: 'GH Empty', url: 'https://boards.greenhouse.io/emptyco' }, {}, emptyFetch);
+    assert.deepStrictEqual(targetEmpty, [], 'Valid empty API response must resolve to empty array without error');
+  });
+
+  await runTest('STEP-8.3 Case 2 [Mocked]: HTTP, network, JSON parse, and malformed structure failures return distinct diagnostics instead of silent empty results', async () => {
+    const http503Fetch = async () => ({ ok: false, status: 503, json: async () => ({}) }) as any;
+    const ghHttp = await scrapeGreenhouseApi({ id: 'gh-err', name: 'GH Fail', url: 'https://boards.greenhouse.io/failco' }, {}, http503Fetch);
+    assert.strictEqual(ghHttp?.status, 'error');
+    assert.strictEqual(ghHttp?.failureCategory, 'http_error');
+    assert.strictEqual(ghHttp?.httpStatus, 503);
+    assert.strictEqual(ghHttp?.diagnostic?.includes('Greenhouse'), true);
+    assert.strictEqual(ghHttp?.diagnostic?.includes('503'), true);
+
+    const networkErrFetch = async () => { throw new Error('ECONNRESET socket hang up'); };
+    const leverNet = await scrapeLeverApi({ id: 'lv-net', name: 'Lever Net', url: 'https://jobs.lever.co/failco' }, {}, networkErrFetch);
+    assert.strictEqual(leverNet?.status, 'error');
+    assert.strictEqual(leverNet?.failureCategory, 'network_error');
+    assert.strictEqual(leverNet?.diagnostic?.includes('Lever'), true);
+
+    const badJsonFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('Unexpected token < in JSON'); }
+    }) as any;
+    const srJson = await scrapeRestJobApis({ id: 'sr-json', name: 'SR Json', url: 'https://careers.smartrecruiters.com/failco' }, {}, badJsonFetch);
+    assert.strictEqual(srJson?.status, 'error');
+    assert.strictEqual(srJson?.adapterName, 'SmartRecruiters');
+    assert.strictEqual(srJson?.failureCategory, 'json_parse_error');
+    assert.strictEqual(srJson?.diagnostic?.includes('SmartRecruiters'), true);
+
+    const invalidShapeFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', message: 'not an array' })
+    }) as any;
+    const ashbyShape = await scrapeRestJobApis({ id: 'ab-shape', name: 'Ashby Shape', url: 'https://jobs.ashbyhq.com/failco' }, {}, invalidShapeFetch);
+    assert.strictEqual(ashbyShape?.status, 'error');
+    assert.strictEqual(ashbyShape?.adapterName, 'Ashby');
+    assert.strictEqual(ashbyShape?.failureCategory, 'invalid_response');
+    assert.strictEqual(ashbyShape?.diagnostic?.includes('Ashby'), true);
+  });
+
+  await runTest('STEP-8.3 Case 3 [Mocked]: Adapter failures sanitize secrets and preserve existing HTML fallback (and surface error if fallback also yields 0 jobs)', async () => {
+    const secretErrFetch = async () => {
+      throw new Error('Request failed Authorization Bearer super_secret_bearer_999 for token=SECRET_PARAM_XYZ');
+    };
+    const secretDiag = await scrapeGreenhouseApi(
+      { id: 'gh-sec', name: 'GH Secret', url: 'https://boards.greenhouse.io/acme?api_key=MY_API_KEY_123&token=SECRET_TOKEN_ABC' },
+      {},
+      secretErrFetch
+    );
+    assert.strictEqual(secretDiag?.status, 'error');
+    assert.strictEqual(secretDiag?.diagnostic?.includes('MY_API_KEY_123'), false, 'Diagnostic must redact api_key');
+    assert.strictEqual(secretDiag?.diagnostic?.includes('SECRET_TOKEN_ABC'), false, 'Diagnostic must redact token query param');
+    assert.strictEqual(secretDiag?.diagnostic?.includes('super_secret_bearer_999'), false, 'Diagnostic must redact bearer token');
+    assert.strictEqual(secretDiag?.diagnostic?.includes('SECRET_PARAM_XYZ'), false, 'Diagnostic must redact inline secret param');
+
+    // HTML fallback succeeds when Greenhouse API fails with HTTP 502 and portal HTML contains jobs
+    const fallbackSuccessFetch = async (url: string) => {
+      if (url.includes('boards-api.greenhouse.io')) {
+        return { ok: false, status: 502, json: async () => ({}) } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        url,
+        headers: new Map([['content-type', 'text/html']]),
+        text: async () => `
+          <html><body>
+            <div class="job-card">
+              <h2 class="job-title"><a href="/jobs/101">Senior Backend Engineer</a></h2>
+              <span class="location">Lahore, Pakistan</span>
+            </div>
+          </body></html>
+        `
+      } as any;
+    };
+    const recoveredJobs = await scrapeTargetPortal(
+      { id: 'gh-fb', name: 'GH Portal', url: 'https://boards.greenhouse.io/fallbackco' },
+      {},
+      fallbackSuccessFetch
+    );
+    assert.strictEqual(recoveredJobs.length, 1, 'Existing HTML fallback must recover jobs after API failure');
+    assert.strictEqual(recoveredJobs[0].title, 'Senior Backend Engineer');
+    assert.strictEqual(recoveredJobs[0].extractionMethod, 'html_cheerio');
+
+    // Empty HTML after API failure must throw the API failure instead of returning silent empty []
+    const fallbackEmptyFetch = async (url: string) => {
+      if (url.includes('api.lever.co')) {
+        return { ok: false, status: 503, json: async () => ({}) } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        url,
+        headers: new Map([['content-type', 'text/html']]),
+        text: async () => '<html><body><div>No jobs shell</div></body></html>'
+      } as any;
+    };
+    let threwOnEmptyFallback = false;
+    try {
+      await scrapeTargetPortal(
+        { id: 'lv-empty-fb', name: 'Lever Fail', url: 'https://jobs.lever.co/broken' },
+        {},
+        fallbackEmptyFetch
+      );
+    } catch (err: any) {
+      threwOnEmptyFallback = true;
+      assert.strictEqual(err.status, 503);
+      assert.strictEqual(String(err.message).includes('Lever'), true);
+    }
+    assert.strictEqual(threwOnEmptyFallback, true, 'API failure must not be hidden when HTML fallback extracts 0 jobs');
+  });
+
+  await runTest('STEP-8.3 Case 4 [Unit]: crawlPortalPages actually follows discovered nextPageUrl (with optional www), preserves config.url, and supports numeric fallback', async () => {
+    const requestedUrls: Array<{ page?: number; targetPageUrl?: string }> = [];
+    const portalConfig = {
+      id: 'pag-1',
+      name: 'Official Careers',
+      url: 'https://careers.example.pk/openings'
+    };
+
+    const nextLinkCrawl = await crawlPortalPages(
+      portalConfig,
+      { mode: 'complete' },
+      undefined,
+      'RUN-TEST-1',
+      async (_cfg, opts) => {
+        requestedUrls.push({ page: opts.page, targetPageUrl: opts.targetPageUrl });
+        if (opts.page === 1) {
+          return [{
+            id: 'j1',
+            title: 'Job Page 1',
+            company: 'Official',
+            jobType: 'On-site',
+            region: 'Pakistan',
+            salary: 'PKR 100k',
+            currency: 'PKR',
+            experienceLevel: 'Mid',
+            department: 'IT',
+            tags: [],
+            description: 'desc',
+            requirements: [],
+            benefits: [],
+            postedAt: 'Today',
+            applicationsCount: 0,
+            status: 'Pending',
+            sourceUrl: 'https://careers.example.pk/openings',
+            extractionMethod: 'html_cheerio',
+            nextPageUrl: 'https://www.careers.example.pk/openings/cursor?token=batch2'
+          }];
+        }
+        return [{
+          id: 'j2',
+          title: 'Job Page 2',
+          company: 'Official',
+          jobType: 'On-site',
+          region: 'Pakistan',
+          salary: 'PKR 120k',
+          currency: 'PKR',
+          experienceLevel: 'Senior',
+          department: 'IT',
+          tags: [],
+          description: 'desc',
+          requirements: [],
+          benefits: [],
+          postedAt: 'Today',
+          applicationsCount: 0,
+          status: 'Pending',
+          sourceUrl: 'https://www.careers.example.pk/openings/cursor?token=batch2',
+          extractionMethod: 'html_cheerio'
+        }];
+      }
+    );
+
+    assert.strictEqual(requestedUrls.length, 2);
+    assert.strictEqual(requestedUrls[0].targetPageUrl, undefined);
+    assert.strictEqual(requestedUrls[1].targetPageUrl, 'https://www.careers.example.pk/openings/cursor?token=batch2', 'Engine must pass actual discovered nextPageUrl');
+    assert.strictEqual(portalConfig.url, 'https://careers.example.pk/openings', 'Original portal config.url must never be overwritten');
+    assert.strictEqual(nextLinkCrawl.rawResults.length, 2);
+    assert.strictEqual(nextLinkCrawl.paginationDiagnostic, undefined);
+
+    // Numeric fallback still works when no nextPageUrl exists and page 1 returns >= 10 jobs
+    const numericCalls: Array<{ page?: number; targetPageUrl?: string }> = [];
+    const tenJobs = Array.from({ length: 10 }, (_, idx) => ({
+      id: `n-${idx}`,
+      title: `Numeric Job ${idx}`,
+      company: 'Official',
+      jobType: 'On-site' as const,
+      region: 'Pakistan' as const,
+      salary: 'Salary not disclosed',
+      currency: 'PKR' as const,
+      experienceLevel: 'Mid' as const,
+      department: 'IT',
+      tags: [],
+      description: 'desc',
+      requirements: [],
+      benefits: [],
+      postedAt: 'Today',
+      applicationsCount: 0,
+      status: 'Pending' as const,
+      sourceUrl: 'https://careers.example.pk/openings',
+      extractionMethod: 'html_cheerio'
+    }));
+
+    const numericCrawl = await crawlPortalPages(
+      portalConfig,
+      { mode: 'complete' },
+      undefined,
+      'RUN-NUM',
+      async (_cfg, opts) => {
+        numericCalls.push({ page: opts.page, targetPageUrl: opts.targetPageUrl });
+        return opts.page === 1 ? tenJobs : [];
+      }
+    );
+
+    assert.strictEqual(numericCalls.length, 2);
+    assert.strictEqual(numericCalls[1].page, 2);
+    assert.strictEqual(numericCalls[1].targetPageUrl, undefined, 'Numeric fallback must use numeric page param without targetPageUrl');
+    assert.strictEqual(numericCrawl.rawResults.length, 10);
+  });
+
+  await runTest('STEP-8.3 Case 5 [Unit]: Pagination URL validation rejects external hosts, private/metadata SSRF URLs, cycles, and enforces 25-page cap & page_range', async () => {
+    const portalBase = 'https://portal.gov.pk/jobs';
+
+    // 1. External host rejected
+    const extRes = validateDiscoveredNextPageUrl('https://evil.com/jobs?page=2', portalBase, new Set([canonicalizePaginationUrl(portalBase)]));
+    assert.strictEqual(extRes.valid, false, 'External hostname must be rejected');
+
+    // 2. Loopback / private / metadata SSRF URLs rejected
+    assert.strictEqual(validateDiscoveredNextPageUrl('http://127.0.0.1/jobs?page=2', portalBase, new Set()).valid, false);
+    assert.strictEqual(validateDiscoveredNextPageUrl('http://localhost/jobs?page=2', portalBase, new Set()).valid, false);
+    assert.strictEqual(validateDiscoveredNextPageUrl('http://169.254.169.254/latest/meta-data', portalBase, new Set()).valid, false);
+    assert.strictEqual(validateDiscoveredNextPageUrl('http://10.0.0.5/jobs?page=2', portalBase, new Set()).valid, false);
+
+    // 3. Cycle stopped safely in crawlPortalPages without making an extra request
+    let cycleAttempts = 0;
+    const cycleCrawl = await crawlPortalPages(
+      { id: 'cyc', name: 'Cycle Portal', url: portalBase },
+      { mode: 'complete' },
+      undefined,
+      'RUN-CYC',
+      async (_cfg, opts) => {
+        cycleAttempts++;
+        return [{
+          id: `c-${cycleAttempts}`,
+          title: 'Repeated Page Job',
+          company: 'Portal',
+          jobType: 'On-site',
+          region: 'Pakistan',
+          salary: 'Salary not disclosed',
+          currency: 'PKR',
+          experienceLevel: 'Mid',
+          department: 'General',
+          tags: [],
+          description: 'desc',
+          requirements: [],
+          benefits: [],
+          postedAt: 'Today',
+          applicationsCount: 0,
+          status: 'Pending',
+          sourceUrl: portalBase,
+          extractionMethod: 'html_cheerio',
+          nextPageUrl: opts.page === 1
+            ? 'https://portal.gov.pk/jobs?page=2#section'
+            : 'https://www.portal.gov.pk/jobs/?page=2'
+        }];
+      }
+    );
+    assert.strictEqual(cycleAttempts, 2, 'Cycle detection must stop after page 2 instead of looping back to page 2');
+    assert.strictEqual(cycleCrawl.sourcePagesAttempted, 2);
+    assert.strictEqual(Boolean(cycleCrawl.paginationDiagnostic && cycleCrawl.paginationDiagnostic.toLowerCase().includes('cycle')), true);
+
+    // 4. External/SSRF nextPageUrl stops chain without fetching the bad URL
+    let externalStopAttempts = 0;
+    const extStopCrawl = await crawlPortalPages(
+      { id: 'ext-stop', name: 'Ext Portal', url: portalBase },
+      { mode: 'complete' },
+      undefined,
+      'RUN-EXT',
+      async () => {
+        externalStopAttempts++;
+        return [{
+          id: 'e1',
+          title: 'Valid Page 1 Job',
+          company: 'Portal',
+          jobType: 'On-site',
+          region: 'Pakistan',
+          salary: 'Salary not disclosed',
+          currency: 'PKR',
+          experienceLevel: 'Mid',
+          department: 'General',
+          tags: [],
+          description: 'desc',
+          requirements: [],
+          benefits: [],
+          postedAt: 'Today',
+          applicationsCount: 0,
+          status: 'Pending',
+          sourceUrl: portalBase,
+          extractionMethod: 'html_cheerio',
+          nextPageUrl: 'https://phishing-site.com/jobs?page=2'
+        }];
+      }
+    );
+    assert.strictEqual(externalStopAttempts, 1);
+    assert.strictEqual(extStopCrawl.sourcePagesSuccessful, 1);
+    assert.strictEqual(Boolean(extStopCrawl.paginationDiagnostic && extStopCrawl.paginationDiagnostic.includes('External hostname')), true);
+
+    // 5. 25-page safety cap enforced
+    let capAttempts = 0;
+    const capCrawl = await crawlPortalPages(
+      { id: 'cap', name: 'Cap Portal', url: portalBase },
+      { mode: 'complete' },
+      undefined,
+      'RUN-CAP',
+      async (_cfg, opts) => {
+        capAttempts++;
+        const nextNum = (opts.page || 1) + 1;
+        return [{
+          id: `cap-${opts.page}`,
+          title: `Cap Job ${opts.page}`,
+          company: 'Portal',
+          jobType: 'On-site',
+          region: 'Pakistan',
+          salary: 'Salary not disclosed',
+          currency: 'PKR',
+          experienceLevel: 'Mid',
+          department: 'General',
+          tags: [],
+          description: 'desc',
+          requirements: [],
+          benefits: [],
+          postedAt: 'Today',
+          applicationsCount: 0,
+          status: 'Pending',
+          sourceUrl: portalBase,
+          extractionMethod: 'html_cheerio',
+          nextPageUrl: `https://portal.gov.pk/jobs?page=${nextNum}`
+        }];
+      }
+    );
+    assert.strictEqual(capAttempts, 25, 'Complete pagination must enforce 25-page safety cap');
+    assert.strictEqual(capCrawl.hitSafetyLimit, true);
+
+    // 6. page_range mode behavior preserved
+    const rangePages: Array<{ page?: number; targetPageUrl?: string }> = [];
+    const rangeCrawl = await crawlPortalPages(
+      { id: 'rng', name: 'Range Portal', url: portalBase },
+      { mode: 'page_range', startPage: 2, endPage: 4 },
+      undefined,
+      'RUN-RNG',
+      async (_cfg, opts) => {
+        rangePages.push({ page: opts.page, targetPageUrl: opts.targetPageUrl });
+        return [{
+          id: `rng-${opts.page}`,
+          title: `Range Job ${opts.page}`,
+          company: 'Portal',
+          jobType: 'On-site',
+          region: 'Pakistan',
+          salary: 'Salary not disclosed',
+          currency: 'PKR',
+          experienceLevel: 'Mid',
+          department: 'General',
+          tags: [],
+          description: 'desc',
+          requirements: [],
+          benefits: [],
+          postedAt: 'Today',
+          applicationsCount: 0,
+          status: 'Pending',
+          sourceUrl: portalBase,
+          extractionMethod: 'html_cheerio',
+          nextPageUrl: 'https://portal.gov.pk/custom-next-ignored-in-page-range'
+        }];
+      }
+    );
+    assert.deepStrictEqual(
+      rangePages.map(p => p.page),
+      [2, 3, 4],
+      'page_range mode must crawl explicit start..end pages'
+    );
+    assert.strictEqual(rangePages.every(p => p.targetPageUrl === undefined), true, 'page_range mode must not switch to complete-mode targetPageUrl');
+    assert.strictEqual(rangeCrawl.rawResults.length, 3);
   });
 
   console.log('------------------------------------------------------------------');

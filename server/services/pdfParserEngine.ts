@@ -297,6 +297,66 @@ export interface OcrExtractionResult {
  * OCR Fallback extractor using Gemini Vision for scanned documents, newspaper clippings, and image files.
  * STRICT ZERO-FABRICATION RULE: Transcribes ONLY what is visually present in the image.
  */
+export function classifyExtractedJobEvidence(
+  rj: { title?: string; company?: string; description?: string; requirements?: string | string[]; province?: string; location?: string; bpsScale?: string },
+  sourceOrg?: string
+) {
+  const title = (rj.title || '').trim();
+  const scale = rj.bpsScale
+    ? (rj.bpsScale.toUpperCase().startsWith('BPS') ? rj.bpsScale.toUpperCase() : `BPS-${rj.bpsScale}`)
+    : (title.match(/\b(BPS[- ]?\d+)\b/i)?.[1]?.toUpperCase() || undefined);
+
+  const reqText = Array.isArray(rj.requirements) ? rj.requirements.join(' ') : (rj.requirements || '');
+  const jobTextContext = `${title} ${rj.description || ''} ${reqText} ${rj.company || ''} ${rj.province || ''} ${rj.location || ''}`.toLowerCase();
+  
+  const hasJobSpecificGovtSignal = Boolean(
+    scale ||
+    /bps[- ]?\d+/i.test(jobTextContext) ||
+    /(?:government|ministry|commission|fpsc|ppsc|spsc|bpsc|kppsc|wapda|nadra|public service|gazette|civil service)/i.test(jobTextContext) ||
+    /(?:government|ministry|department|bureau|authority|commission)/i.test(rj.company || '')
+  );
+
+  const isGovtJob = hasJobSpecificGovtSignal ? true : undefined;
+
+  // Derive federal/provincial strictly from job-specific evidence (title, description, company, province, location), NEVER from document-level source org
+  const combinedEvidence = `${jobTextContext} ${rj.company || ''} ${rj.province || ''} ${rj.location || ''}`.toLowerCase();
+
+  const isFederal = isGovtJob ? /(?:federal|fpsc|pakistan public service commission|cabinet secretariat|federal government)/i.test(combinedEvidence) : false;
+  const isPunjab = isGovtJob ? ((rj.province || '').toLowerCase().includes('punjab') || /punjab|lahore|ppsc/i.test(combinedEvidence)) : false;
+  const isSindh = isGovtJob ? ((rj.province || '').toLowerCase().includes('sindh') || /sindh|karachi|spsc/i.test(combinedEvidence)) : false;
+  const isKpk = isGovtJob ? ((rj.province || '').toLowerCase().includes('kpk') || (rj.province || '').toLowerCase().includes('kp') || /kpk|khyber|peshawar|kppsc/i.test(combinedEvidence)) : false;
+  const isBalochistan = isGovtJob ? ((rj.province || '').toLowerCase().includes('balochistan') || /balochistan|quetta|bpsc/i.test(combinedEvidence)) : false;
+
+  const isProvincial = isPunjab || isSindh || isKpk || isBalochistan;
+
+  const govtCategory: Job['govtCategory'] = isGovtJob && isFederal
+    ? 'Federal'
+    : isGovtJob && isProvincial
+    ? 'Provincial'
+    : undefined;
+
+  const resolvedProvince = isGovtJob && isFederal
+    ? 'Federal'
+    : isGovtJob && isPunjab
+    ? 'Punjab'
+    : isGovtJob && isSindh
+    ? 'Sindh'
+    : isGovtJob && isKpk
+    ? 'Khyber Pakhtunkhwa'
+    : isGovtJob && isBalochistan
+    ? 'Balochistan'
+    : rj.province;
+
+  return {
+    isGovtJob,
+    scale,
+    govtScale: scale,
+    govtCategory,
+    resolvedProvince,
+    jobCategory: isGovtJob ? 'Government Sector' : undefined
+  };
+}
+
 export async function extractJobsFromImageWithOcr(
   imageBuffer: Buffer,
   mimeType: string,
@@ -376,34 +436,8 @@ STRICT FACTUAL INTEGRITY MANDATE:
       .filter((rj: any) => rj && rj.title && rj.title.trim().length >= 3)
       .map((rj: any, idx: number) => {
         const title = rj.title.trim();
-        const scale = rj.bpsScale
-          ? (rj.bpsScale.toUpperCase().startsWith('BPS') ? rj.bpsScale.toUpperCase() : `BPS-${rj.bpsScale}`)
-          : undefined;
-
-        const jobTextContext = `${title} ${rj.description || ''} ${Array.isArray(rj.requirements) ? rj.requirements.join(' ') : (rj.requirements || '')}`.toLowerCase();
-        const hasJobSpecificGovtSignal = Boolean(
-          scale ||
-          /bps[- ]?\d+/i.test(jobTextContext) ||
-          /(?:government|ministry|commission|fpsc|ppsc|spsc|bpsc|kppsc|wapda|nadra|public service|gazette|civil service)/i.test(jobTextContext)
-        );
-
-        const isGovtJob = hasJobSpecificGovtSignal ? true : undefined;
-
-        const isFederal = /(?:federal|fpsc|pakistan public service commission|cabinet secretariat)/i.test(`${org} ${jobTextContext}`);
-        const isPunjab = (rj.province || '').toLowerCase().includes('punjab') || org.toLowerCase().includes('ppsc') || /punjab|lahore/i.test(jobTextContext);
-        const isSindh = (rj.province || '').toLowerCase().includes('sindh') || org.toLowerCase().includes('spsc') || /sindh|karachi/i.test(jobTextContext);
-        const isKpk = (rj.province || '').toLowerCase().includes('kpk') || (rj.province || '').toLowerCase().includes('kp') || /kpk|khyber|peshawar/i.test(jobTextContext);
-        const isBalochistan = (rj.province || '').toLowerCase().includes('balochistan') || org.toLowerCase().includes('bpsc') || /balochistan|quetta/i.test(jobTextContext);
-
-        const isProvincial = isPunjab || isSindh || isKpk || isBalochistan || (org || '').toLowerCase().includes('provincial');
-
-        const govtCategory: Job['govtCategory'] = isFederal
-          ? 'Federal'
-          : isProvincial
-          ? 'Provincial'
-          : undefined;
-
-        const resolvedProvince = isFederal ? 'Federal' : isPunjab ? 'Punjab' : isSindh ? 'Sindh' : isKpk ? 'Khyber Pakhtunkhwa' : isBalochistan ? 'Balochistan' : rj.province;
+        const classification = classifyExtractedJobEvidence(rj, org);
+        const { isGovtJob, scale, govtCategory, resolvedProvince } = classification;
 
         return {
           id: `ocr-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).substring(2, 6)}`,

@@ -157,7 +157,17 @@ export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolea
     const candidateObj = new URL(candidateUrl);
     const baseObj = new URL(baseUrl);
 
-    // 1. Same-origin is always safe
+    // Reject HTTP downgrade from an HTTPS source
+    if (baseObj.protocol === 'https:' && candidateObj.protocol !== 'https:') {
+      return false;
+    }
+
+    // Reject unapproved port changes for cross-origin requests
+    if (candidateObj.port !== baseObj.port) {
+      return false;
+    }
+
+    // Exact same-origin permission (protocol + hostname + port)
     if (candidateObj.origin === baseObj.origin) {
       return true;
     }
@@ -165,28 +175,32 @@ export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolea
     const candidateHost = candidateObj.hostname.toLowerCase();
     const baseHost = baseObj.hostname.toLowerCase();
 
-    // 2. Official CDN Allowlist / Subdomain matching for verified official domains
-    const getRegistrableDomain = (hostname: string): string => {
-      const parts = hostname.split('.');
-      if (parts.length <= 2) return hostname.toLowerCase();
-      const lastPart = parts[parts.length - 1];
-      const secondLast = parts[parts.length - 2];
-      if (['pk', 'uk', 'au', 'sg'].includes(lastPart) && ['gov', 'com', 'edu', 'co', 'net', 'org'].includes(secondLast)) {
-        if (parts.length >= 3) {
-          return parts.slice(-3).join('.');
-        }
-      }
-      return parts.slice(-2).join('.');
-    };
+    // Reject public-suffix and multi-tenant hosting collisions & tenant domains
+    const multiTenantSuffixes = ['pages.dev', 'blogspot.com', 'github.io', 'vercel.app', 'netlify.app', 'herokuapp.com', 'co.uk', 'com.pk'];
+    if (multiTenantSuffixes.some(s => candidateHost.endsWith(s) || baseHost.endsWith(s))) {
+      // Unless exact same origin (already checked above), reject cross-origin requests involving public suffix / shared hosting
+      return false;
+    }
 
-    const candidateReg = getRegistrableDomain(candidateHost);
-    const baseReg = getRegistrableDomain(baseHost);
+    // Explicit, verified cross-origin CDN hostname allowlist only
+    const OFFICIAL_CDN_ALLOWLIST = new Set([
+      'fpsc.gov.pk',
+      'ppsc.gop.pk',
+      'spsc.gos.pk',
+      'kppsc.gov.pk',
+      'bpsc.gob.pk',
+      'cdn.fpsc.gov.pk',
+      'cdn.ppsc.gop.pk'
+    ]);
 
-    if (candidateReg && baseReg && candidateReg === baseReg) {
-      const publicSuffixes = ['co.uk', 'com.pk', 'github.io', 'vercel.app', 'netlify.app', 'herokuapp.com'];
-      if (!publicSuffixes.includes(candidateReg)) {
-        return true;
-      }
+    if (OFFICIAL_CDN_ALLOWLIST.has(candidateHost)) {
+      return true;
+    }
+
+    // Strict hostname boundary matching for verified official government domain CDNs (e.g. cdn.<baseHost>)
+    const isOfficialGovApex = /\.(gov\.pk|gop\.pk|gos\.pk|gob\.pk)$/i.test(baseHost);
+    if (isOfficialGovApex && candidateHost === `cdn.${baseHost}`) {
+      return true;
     }
 
     return false;

@@ -64,7 +64,8 @@ import {
   extractJobsFromPdfText,
   parsePdfFromUrl,
   sanitizeUrlForLog,
-  sanitizeSecretString
+  sanitizeSecretString,
+  classifyExtractedJobEvidence
 } from '../services/pdfParserEngine';
 import {
   findCandidateRecruitmentImages,
@@ -3626,10 +3627,10 @@ async function runSuite() {
   });
 
   // ============================================================================
-  // STEP-8.2-B MEDIA ORIGIN SECURITY & JOB CLASSIFICATION PRECISION TESTS
+  // STEP-8.2-C MEDIA ORIGIN SECURITY & JOB CLASSIFICATION PRECISION TESTS
   // ============================================================================
 
-  await runTest('STEP-8.2-B Case 1 [Unit]: isSafeMediaOrigin with same-origin, official CDN, public suffix collisions, and protocol differences', () => {
+  await runTest('STEP-8.2-C Case 1 [Unit]: isSafeMediaOrigin strict origin, CDN allowlist, boundary matching, and downgrade/tenant protections', () => {
     // 1. Same-origin media is allowed
     assert.strictEqual(
       isSafeMediaOrigin('https://fpsc.gov.pk/media/ad.jpg', 'https://fpsc.gov.pk/jobs'),
@@ -3637,42 +3638,54 @@ async function runSuite() {
       'Same-origin media URL must be eligible'
     );
 
-    // 2. Legitimate official CDN sharing official gov suffix is allowed
+    // 2. Legitimate official CDN sharing official gov subdomain is allowed
     assert.strictEqual(
       isSafeMediaOrigin('https://cdn.fpsc.gov.pk/ads/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       true,
       'Official gov CDN subdomain must be allowed'
     );
 
-    // 3. Unrelated third-party domain is rejected
+    // 3. Unapproved sibling subdomain / unrelated domain is rejected
     assert.strictEqual(
-      isSafeMediaOrigin('https://malicious-tracker.com/ad.jpg', 'https://fpsc.gov.pk/jobs'),
+      isSafeMediaOrigin('https://evil.fpsc.gov.pk/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       false,
-      'Unrelated third-party domain must be rejected'
+      'Unapproved sibling subdomain must be rejected'
     );
 
-    // 4. Different unrelated .co.uk domains sharing a public suffix must be rejected
+    // 4. Public-suffix and multi-tenant hosting collisions (pages.dev, blogspot.com, github.io) must be rejected
     assert.strictEqual(
-      isSafeMediaOrigin('https://evil-company.co.uk/ad.jpg', 'https://legit-company.co.uk/jobs'),
+      isSafeMediaOrigin('https://attacker.pages.dev/ad.jpg', 'https://legit.pages.dev/jobs'),
       false,
-      'Unrelated co.uk domains sharing public suffix must be rejected'
+      'Multi-tenant pages.dev collision must be rejected'
     );
-
-    // 5. Different hosted subdomains sharing a hosting suffix (e.g. github.io) must be rejected
     assert.strictEqual(
       isSafeMediaOrigin('https://attacker.github.io/ad.jpg', 'https://victim.github.io/jobs'),
       false,
-      'Unrelated hosted subdomains on github.io must be rejected'
+      'Multi-tenant github.io collision must be rejected'
     );
 
-    // 6. HTTP/HTTPS protocol mismatch / cross-origin host mismatch
+    // 5. HTTP downgrade from an HTTPS source must be rejected
     assert.strictEqual(
-      isSafeMediaOrigin('https://other-domain.gov.pk/ad.jpg', 'https://fpsc.gov.pk/jobs'),
+      isSafeMediaOrigin('http://fpsc.gov.pk/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       false,
-      'Unrelated gov.pk domain must be rejected'
+      'HTTP downgrade from HTTPS source must be rejected'
     );
 
-    // 7. SSRF-blocked / loopback URLs
+    // 6. Unapproved port changes must be rejected
+    assert.strictEqual(
+      isSafeMediaOrigin('https://fpsc.gov.pk:8443/ad.jpg', 'https://fpsc.gov.pk/jobs'),
+      false,
+      'Unapproved port change must be rejected'
+    );
+
+    // 7. Lookalike hostnames must be rejected
+    assert.strictEqual(
+      isSafeMediaOrigin('https://fpsc.gov.pk.evil.com/ad.jpg', 'https://fpsc.gov.pk/jobs'),
+      false,
+      'Lookalike hostname must be rejected'
+    );
+
+    // 8. SSRF-blocked / loopback URLs
     assert.strictEqual(
       isSafeMediaOrigin('http://127.0.0.1/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       false,
@@ -3680,69 +3693,59 @@ async function runSuite() {
     );
   });
 
-  await runTest('STEP-8.2-B Case 2 [Unit]: Job-specific OCR classification isolation across multi-job documents', () => {
-    const multiJobRawOcr = {
-      jobs: [
-        {
-          title: 'LECTURER (MATHEMATICS) (BPS-17)',
-          company: 'Federal Public Service Commission',
-          description: 'Federal government post under BPS-17 scale.',
-          requirements: ['Master degree in Mathematics']
-        },
-        {
-          title: 'SOFTWARE ENGINEER',
-          company: 'Private Tech Solutions Ltd',
-          description: 'Commercial software development role in private sector.',
-          requirements: ['BS Computer Science']
-        }
-      ]
-    };
+  await runTest('STEP-8.2-C Case 2 [Unit]: Job-specific government classification isolation via classifyExtractedJobEvidence', () => {
+    const rawJobs = [
+      {
+        title: 'LECTURER (MATHEMATICS) (BPS-17)',
+        company: 'Federal Public Service Commission',
+        description: 'Federal government post under BPS-17 scale.'
+      },
+      {
+        title: 'SOFTWARE ENGINEER',
+        company: 'Private Tech Solutions Ltd',
+        description: 'Commercial software development role in private sector.'
+      },
+      {
+        title: 'CLERICAL ASSISTANT',
+        company: 'Public Department',
+        description: 'General clerical duties and office administration.'
+      }
+    ];
 
-    const org = 'FPSC';
-
-    const mappedJobs = multiJobRawOcr.jobs.map((rj, idx) => {
-      const title = rj.title.trim();
-      const matchResult = title.match(/\b(BPS[- ]?\d+)\b/i);
-      const scale = matchResult?.[1]?.toUpperCase();
-
-      const jobTextContext = `${title} ${rj.description || ''} ${Array.isArray(rj.requirements) ? rj.requirements.join(' ') : (rj.requirements || '')}`.toLowerCase();
-      const hasJobSpecificGovtSignal = Boolean(
-        scale ||
-        /bps[- ]?\d+/i.test(jobTextContext) ||
-        /(?:government|ministry|commission|fpsc|ppsc|spsc|bpsc|kppsc|wapda|nadra|public service)/i.test(jobTextContext)
-      );
-
-      const isGovtJob = hasJobSpecificGovtSignal ? true : undefined;
-      const isFederal = isGovtJob ? /(?:federal|fpsc|pakistan public service commission|cabinet secretariat)/i.test(`${org} ${jobTextContext}`) : false;
-      const govtCategory: any = isGovtJob && isFederal ? 'Federal' : undefined;
-
+    const sourceOrg = 'FPSC';
+    const mappedJobs = rawJobs.map((rj, idx) => {
+      const classification = classifyExtractedJobEvidence(rj, sourceOrg);
       return {
         id: `ocr-test-${idx}`,
-        title,
+        title: rj.title,
         company: rj.company,
-        isGovtJob,
-        govtScale: scale,
-        govtCategory,
-        jobCategory: isGovtJob ? 'Government Sector' : undefined
+        ...classification
       };
     });
 
-    assert.strictEqual(mappedJobs.length, 2);
-    
-    // Job 1 (Government Lecturer BPS-17)
+    assert.strictEqual(mappedJobs.length, 3);
+
+    // Job 1: Genuine Federal Government Job
     assert.strictEqual(mappedJobs[0].isGovtJob, true);
     assert.strictEqual(mappedJobs[0].govtScale, 'BPS-17');
     assert.strictEqual(mappedJobs[0].govtCategory, 'Federal');
+    assert.strictEqual(mappedJobs[0].resolvedProvince, 'Federal');
     assert.strictEqual(mappedJobs[0].jobCategory, 'Government Sector');
 
-    // Job 2 (Private Software Engineer) must remain completely isolated and unknown (undefined for govt flags)
+    // Job 2: Unrelated Private Job (must remain unknown / undefined for government flags)
     assert.strictEqual(mappedJobs[1].isGovtJob, undefined, 'Private job must not be marked as government');
-    assert.strictEqual(mappedJobs[1].govtScale, undefined, 'Private job must not receive govt scale');
-    assert.strictEqual(mappedJobs[1].govtCategory, undefined, 'Private job must not receive govt category');
-    assert.strictEqual(mappedJobs[1].jobCategory, undefined, 'Private job must have undefined jobCategory rather than invented private corporate string');
+    assert.strictEqual(mappedJobs[1].govtScale, undefined);
+    assert.strictEqual(mappedJobs[1].govtCategory, undefined);
+    assert.strictEqual(mappedJobs[1].resolvedProvince, undefined);
+    assert.strictEqual(mappedJobs[1].jobCategory, undefined);
+
+    // Job 3: Government job without enough evidence for Federal/Provincial classification
+    assert.strictEqual(mappedJobs[2].isGovtJob, true);
+    assert.strictEqual(mappedJobs[2].govtCategory, undefined, 'Unspecified jurisdiction must not be forced to Federal');
+    assert.strictEqual(mappedJobs[2].resolvedProvince, undefined);
   });
 
-  await runTest('STEP-8.2-B Case 3 [Integration]: Linked-image OCR Pending approval protection verification', () => {
+  await runTest('STEP-8.2-C Case 3 [Unit]: Linked-image OCR Pending approval protection verification', () => {
     const simulatedOcrResult = {
       success: true,
       extractedJobs: [

@@ -80,7 +80,8 @@ import {
 import {
   canonicalizePaginationUrl,
   validateDiscoveredNextPageUrl,
-  crawlPortalPages
+  crawlPortalPages,
+  evaluateCheckpointEligibility
 } from '../services/scraperEngine';
 import {
   validateSafeScrapeUrl
@@ -4224,6 +4225,223 @@ async function runSuite() {
     assert.strictEqual(rangePages.every(p => p.targetPageUrl === undefined), true, 'page_range mode must not switch to complete-mode targetPageUrl');
     assert.strictEqual(rangeCrawl.rawResults.length, 3);
   });
+
+  await runTest('STEP-8.3-A [Unit]: evaluateCheckpointEligibility rejects incomplete pagination diagnostics from crawlPortalPages', async () => {
+    const basePortal = 'https://portal.gov.pk/jobs';
+    const makeJob = (id: string, title: string, nextPageUrl?: string) => ({
+      id,
+      title,
+      company: 'Portal',
+      jobType: 'On-site' as const,
+      region: 'Pakistan' as const,
+      salary: 'Salary not disclosed',
+      currency: 'PKR' as const,
+      experienceLevel: 'Mid' as const,
+      department: 'General',
+      tags: [] as string[],
+      description: 'Valid vacancy description for testing',
+      requirements: [] as string[],
+      benefits: [] as string[],
+      postedAt: 'Today',
+      applicationsCount: 0,
+      status: 'Pending' as const,
+      sourceUrl: basePortal,
+      extractionMethod: 'html_cheerio' as const,
+      nextPageUrl
+    });
+
+    // 1. Page 1 returns valid jobs, then unsafe/external nextPageUrl stops pagination
+    const externalStopCrawl = await crawlPortalPages(
+      { id: 'ckpt-ext', name: 'External Stop Portal', url: basePortal },
+      { mode: 'complete' },
+      undefined,
+      'RUN-83A-EXT',
+      async () => [makeJob('ext-1', 'Civil Engineer', 'https://attacker.example.com/jobs?page=2')]
+    );
+    assert.strictEqual(externalStopCrawl.rawResults.length, 1, 'Page 1 valid job must remain preserved');
+    assert.strictEqual(externalStopCrawl.sourcePagesAttempted, 1);
+    assert.strictEqual(externalStopCrawl.sourcePagesSuccessful, 1);
+    assert.strictEqual(externalStopCrawl.hitSafetyLimit, false);
+    assert.strictEqual(typeof externalStopCrawl.paginationDiagnostic, 'string');
+    assert.strictEqual(
+      externalStopCrawl.paginationDiagnostic!.toLowerCase().includes('external'),
+      true,
+      'External nextPageUrl must surface a paginationDiagnostic'
+    );
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: !externalStopCrawl.lastPageError && externalStopCrawl.sourcePagesAttempted === externalStopCrawl.sourcePagesSuccessful,
+        hitSafetyLimit: externalStopCrawl.hitSafetyLimit,
+        paginationDiagnostic: externalStopCrawl.paginationDiagnostic,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      false,
+      'Non-empty paginationDiagnostic (external/unsafe nextPageUrl) must block checkpoint advancement'
+    );
+
+    // 2. Page 1 returns valid jobs, then SSRF/loopback nextPageUrl stops pagination
+    const ssrfStopCrawl = await crawlPortalPages(
+      { id: 'ckpt-ssrf', name: 'SSRF Stop Portal', url: basePortal },
+      { mode: 'complete' },
+      undefined,
+      'RUN-83A-SSRF',
+      async () => [makeJob('ssrf-1', 'Data Analyst', 'http://127.0.0.1:8080/internal')]
+    );
+    assert.strictEqual(ssrfStopCrawl.rawResults.length, 1);
+    assert.ok(ssrfStopCrawl.paginationDiagnostic, 'SSRF/loopback nextPageUrl must produce paginationDiagnostic');
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: !ssrfStopCrawl.lastPageError && ssrfStopCrawl.sourcePagesAttempted === ssrfStopCrawl.sourcePagesSuccessful,
+        hitSafetyLimit: ssrfStopCrawl.hitSafetyLimit,
+        paginationDiagnostic: ssrfStopCrawl.paginationDiagnostic,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      false,
+      'SSRF paginationDiagnostic must block checkpoint advancement'
+    );
+
+    // 3. Discovered nextPageUrl cycle / repeated URL after multi-page crawl blocks checkpoint
+    const cyclicCrawl = await crawlPortalPages(
+      { id: 'ckpt-cyc', name: 'Cyclic Portal', url: basePortal },
+      { mode: 'complete' },
+      undefined,
+      'RUN-83A-CYC',
+      async (_cfg, opts) => {
+        if (opts.page === 1) {
+          return [makeJob('cyc-1', 'Accountant', 'https://portal.gov.pk/jobs?page=2')];
+        }
+        return [makeJob('cyc-2', 'Auditor', 'https://portal.gov.pk/jobs')];
+      }
+    );
+    assert.strictEqual(cyclicCrawl.rawResults.length, 2, 'Jobs crawled before cycle detection must remain preserved');
+    assert.ok(
+      cyclicCrawl.paginationDiagnostic?.toLowerCase().includes('cycle'),
+      'Discovered nextPageUrl cycle must produce paginationDiagnostic'
+    );
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: !cyclicCrawl.lastPageError && cyclicCrawl.sourcePagesAttempted === cyclicCrawl.sourcePagesSuccessful,
+        hitSafetyLimit: cyclicCrawl.hitSafetyLimit,
+        paginationDiagnostic: cyclicCrawl.paginationDiagnostic,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      false,
+      'Discovered URL cycle paginationDiagnostic must block checkpoint advancement'
+    );
+
+    // 4. Numeric pagination cycle blocks checkpoint advancement
+    const numericCyclePortal = 'https://portal.gov.pk/jobs?page=2';
+    const numericCycleCrawl = await crawlPortalPages(
+      { id: 'ckpt-num', name: 'Numeric Cycle Portal', url: numericCyclePortal },
+      { mode: 'complete' },
+      undefined,
+      'RUN-83A-NUM',
+      async () => Array.from({ length: 10 }, (_, idx) => makeJob(`num-${idx}`, `Officer ${idx}`))
+    );
+    assert.strictEqual(numericCycleCrawl.rawResults.length, 10);
+    assert.ok(
+      numericCycleCrawl.paginationDiagnostic?.toLowerCase().includes('numeric page 2'),
+      `Expected numeric pagination cycle diagnostic, got: ${numericCycleCrawl.paginationDiagnostic}`
+    );
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: !numericCycleCrawl.lastPageError && numericCycleCrawl.sourcePagesAttempted === numericCycleCrawl.sourcePagesSuccessful,
+        hitSafetyLimit: numericCycleCrawl.hitSafetyLimit,
+        paginationDiagnostic: numericCycleCrawl.paginationDiagnostic,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      false,
+      'Numeric pagination cycle diagnostic must block checkpoint advancement'
+    );
+
+    // 5. Genuine natural end of pagination allows checkpoint advancement
+    const naturalCrawl = await crawlPortalPages(
+      { id: 'ckpt-nat', name: 'Natural End Portal', url: basePortal },
+      { mode: 'complete' },
+      undefined,
+      'RUN-83A-NAT',
+      async (_cfg, opts) => {
+        if (opts.page === 1) {
+          return [makeJob('nat-1', 'Project Manager', 'https://portal.gov.pk/jobs?page=2')];
+        }
+        return [makeJob('nat-2', 'Operations Lead')];
+      }
+    );
+    assert.strictEqual(naturalCrawl.rawResults.length, 2);
+    assert.strictEqual(naturalCrawl.hitSafetyLimit, false);
+    assert.strictEqual(naturalCrawl.paginationDiagnostic, undefined);
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: !naturalCrawl.lastPageError && naturalCrawl.sourcePagesAttempted === naturalCrawl.sourcePagesSuccessful,
+        hitSafetyLimit: naturalCrawl.hitSafetyLimit,
+        paginationDiagnostic: naturalCrawl.paginationDiagnostic,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      true,
+      'Clean complete crawl ending naturally without diagnostic must advance checkpoint'
+    );
+
+    // 6. Existing checkpoint protections remain intact
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: true,
+        hitSafetyLimit: true,
+        paginationDiagnostic: undefined,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      false,
+      'Safety limit truncation must block checkpoint advancement'
+    );
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: false,
+        hitSafetyLimit: false,
+        paginationDiagnostic: undefined,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      false,
+      'Page errors must block checkpoint advancement'
+    );
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'page_range',
+        hasNoPageErrors: true,
+        hitSafetyLimit: false,
+        paginationDiagnostic: undefined,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: false
+      }),
+      false,
+      'Non-complete modes must block checkpoint advancement'
+    );
+    assert.strictEqual(
+      evaluateCheckpointEligibility({
+        mode: 'complete',
+        hasNoPageErrors: true,
+        hitSafetyLimit: false,
+        paginationDiagnostic: undefined,
+        isDetectionSuccessful: true,
+        hasUnsavedRequiredVacancies: true
+      }),
+      false,
+      'Unsaved required vacancies must block checkpoint advancement'
+    );
+  });
+
 
   console.log('------------------------------------------------------------------');
   console.log(`Summary: Passed=${counts.passed}, Failed=${counts.failed}, Skipped=${counts.skipped}`);

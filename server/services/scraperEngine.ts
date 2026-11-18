@@ -191,6 +191,33 @@ function createEmptySummary(runId: string, startTime: Date, message: string): Sc
   };
 }
 
+export interface CheckpointEligibilityInput {
+  mode: ScraperRunOptions['mode'];
+  hasNoPageErrors: boolean;
+  hitSafetyLimit: boolean;
+  paginationDiagnostic?: string;
+  isDetectionSuccessful: boolean;
+  hasUnsavedRequiredVacancies: boolean;
+}
+
+/**
+ * Evaluates whether a scrape run qualifies to advance target.lastSuccessfulScrapeAt.
+ * Rejects incomplete pagination stopped by MAX_SAFETY_PAGES OR a paginationDiagnostic
+ * (unsafe/external/SSRF URL, repeated URL, or discovered/numeric cycle).
+ */
+export function evaluateCheckpointEligibility(input: CheckpointEligibilityInput): boolean {
+  const isCompleteMode = input.mode === 'complete';
+  const hasNoPaginationStopDiagnostic = !input.paginationDiagnostic || input.paginationDiagnostic.trim().length === 0;
+  const isNaturalPaginationEnd = !input.hitSafetyLimit && hasNoPaginationStopDiagnostic;
+  return (
+    isCompleteMode &&
+    input.hasNoPageErrors &&
+    isNaturalPaginationEnd &&
+    input.isDetectionSuccessful &&
+    !input.hasUnsavedRequiredVacancies
+  );
+}
+
 /**
  * Canonicalizes a pagination URL for cycle detection while preserving query parameters.
  * Normalizes scheme, host (stripping optional leading www.), trailing slashes, sorted query params, and strips hash fragments.
@@ -780,22 +807,24 @@ export async function executeScraperWithWizard(options: ScraperRunOptions): Prom
       // 2. Critical Checkpoint Safety Rule:
       //    Do NOT advance "lastSuccessfulScrapeAt" unless:
       //    - mode is 'complete' (exhaustive crawl from page 1; partial/windowed modes must not overwrite full checkpoint);
-      //    - natural end of pagination was reached without truncation by MAX_SAFETY_PAGES (!hitSafetyLimit);
+      //    - natural end of pagination was reached without truncation by MAX_SAFETY_PAGES (!hitSafetyLimit)
+      //      or incomplete pagination diagnostic (!paginationDiagnostic);
       //    - no page fetch or parse errors occurred during crawling (!lastPageError && sourcePagesAttempted === sourcePagesSuccessful);
       //    - valid vacancies were detected and successfully handled (isDetectionSuccessful);
       //    - no required vacancy persistence failed (hasUnsavedRequiredVacancies === false).
       const isCompleteMode = options.mode === 'complete';
       const hasNoPageErrors = !lastPageError && (sourcePagesAttempted === sourcePagesSuccessful);
-      const isNaturalPaginationEnd = !hitSafetyLimit;
       const hasUnsavedUniqueVacancies = sourceUniqueSaveFailures > 0;
       const hasUnsavedRequiredDuplicates = duplicateMode === 'with' && sourceDupSaveFailures > 0;
       const hasUnsavedRequiredVacancies = hasUnsavedUniqueVacancies || hasUnsavedRequiredDuplicates;
-      const isCheckpointEligible =
-        isCompleteMode &&
-        hasNoPageErrors &&
-        isNaturalPaginationEnd &&
-        isDetectionSuccessful &&
-        !hasUnsavedRequiredVacancies;
+      const isCheckpointEligible = evaluateCheckpointEligibility({
+        mode: options.mode,
+        hasNoPageErrors,
+        hitSafetyLimit,
+        paginationDiagnostic,
+        isDetectionSuccessful,
+        hasUnsavedRequiredVacancies
+      });
 
       const sourceCompletedAt = new Date().toISOString();
       let successHealth = 'No Jobs';

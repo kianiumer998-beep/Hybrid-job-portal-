@@ -167,70 +167,85 @@ export class ScraperRepository {
 
   /**
    * Retrieves all scraper source configurations from MongoDB scraper_sources collection.
-   * On first run with empty collection, auto-seeds from verified sources into MongoDB.
+   * On confirmed empty collection, auto-seeds verified default sources into MongoDB.
+   * In configured-MongoDB mode, DB lookup/read/timeout/seed failures propagate (fail-closed)
+   * instead of falling back to cached or default configurations.
    */
-  static async getConfigs(): Promise<any[]> {
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperSourcesCollection();
-        const docs = await withMongoTimeout(
-          coll.find({}, { projection: { _id: 0 } }).toArray(),
-          15000,
-          'getConfigs'
-        );
-        if (docs && docs.length > 0) {
-          let hasMissingStatus = false;
-          const normalized = docs.map((s: any) => {
-            const status = s.status || 'Active Scheduled';
-            const interval = s.interval || '24h';
-            if (!s.status || !s.interval) {
-              hasMissingStatus = true;
-            }
-            return {
-              ...s,
-              status,
-              interval,
-              url: s.url || s.portalUrl || s.pdfUrl || '',
-              portalUrl: s.portalUrl || s.url || '',
-              healthStatus: s.healthStatus || 'healthy'
-            };
-          });
+  static async getConfigs(_deps?: {
+    isMongoConfiguredFn?: () => boolean;
+    getCollectionFn?: () => Promise<any>;
+  }): Promise<any[]> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperSourcesCollection;
 
-          if (hasMissingStatus) {
-            coll.updateMany(
-              { $or: [{ status: { $exists: false } }, { status: null }, { status: '' }, { interval: { $exists: false } }] },
-              { $set: { status: 'Active Scheduled', interval: '24h' } }
-            ).catch(e => console.warn('[ScraperRepository] Notice updating missing statuses:', e.message));
-          }
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      const docs: any = await withMongoTimeout<any>(
+        coll.find({}, { projection: { _id: 0 } }).toArray(),
+        15000,
+        'getConfigs'
+      );
 
-          this.cachedSources = normalized;
-          return normalized;
-        }
-
-        // Auto-seed initial sources into MongoDB scraper_sources collection if empty
-        const defaults = getDefaultSources();
-        if (defaults.length > 0) {
-          try {
-            const cleanDocs = defaults.map(s => {
-              const { _id, ...clean } = s as any;
-              return {
-                ...clean,
-                status: clean.status || 'Active Scheduled',
-                interval: clean.interval || '24h',
-                healthStatus: clean.healthStatus || 'healthy'
-              };
-            });
-            await withMongoTimeout(coll.insertMany(cleanDocs), 15000, 'seedConfigs');
-            console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
-            this.cachedSources = cleanDocs;
-            return cleanDocs;
-          } catch (seedErr: any) {
-            console.warn('[ScraperRepository] Notice seeding sources into MongoDB:', seedErr.message);
-          }
-        }
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading scraper_sources from MongoDB, serving cached sources:', err?.message || err);
+      if (!Array.isArray(docs)) {
+        throw new Error('Unexpected non-array response reading scraper_sources from MongoDB');
       }
+
+      if (docs.length > 0) {
+        let hasMissingStatus = false;
+        const normalized = docs.map((s: any) => {
+          const status = s.status || 'Active Scheduled';
+          const interval = s.interval || '24h';
+          if (!s.status || !s.interval) {
+            hasMissingStatus = true;
+          }
+          return {
+            ...s,
+            status,
+            interval,
+            url: s.url || s.portalUrl || s.pdfUrl || '',
+            portalUrl: s.portalUrl || s.url || '',
+            healthStatus: s.healthStatus || 'healthy'
+          };
+        });
+
+        if (hasMissingStatus && typeof coll.updateMany === 'function') {
+          coll.updateMany(
+            { $or: [{ status: { $exists: false } }, { status: null }, { status: '' }, { interval: { $exists: false } }] },
+            { $set: { status: 'Active Scheduled', interval: '24h' } }
+          ).catch((e: any) => console.warn('[ScraperRepository] Notice updating missing statuses:', e?.message || e));
+        }
+
+        this.cachedSources = normalized;
+        return normalized;
+      }
+
+      // Auto-seed initial sources into MongoDB scraper_sources collection ONLY when confirmed empty
+      const defaults = getDefaultSources();
+      if (defaults.length > 0) {
+        const cleanDocs = defaults.map(s => {
+          const { _id, ...clean } = s as any;
+          return {
+            ...clean,
+            status: clean.status || 'Active Scheduled',
+            interval: clean.interval || '24h',
+            healthStatus: clean.healthStatus || 'healthy'
+          };
+        });
+        const seedResult: any = await withMongoTimeout<any>(coll.insertMany(cleanDocs), 15000, 'seedConfigs');
+        if (
+          !seedResult ||
+          seedResult.acknowledged !== true ||
+          (typeof seedResult.insertedCount === 'number' && seedResult.insertedCount === 0)
+        ) {
+          throw new Error('MongoDB insertMany seeding scraper_sources was not explicitly acknowledged');
+        }
+        console.log(`[ScraperRepository] Seeded ${cleanDocs.length} scraper sources into MongoDB scraper_sources.`);
+        this.cachedSources = cleanDocs;
+        return cleanDocs;
+      }
+
+      this.cachedSources = [];
+      return [];
     }
 
     return this.cachedSources;
@@ -241,17 +256,26 @@ export class ScraperRepository {
    * In configured-MongoDB mode, in-memory cache is only replaced once all configurations are verified persisted.
    * If persistence fails or partially fails, last known cache state is retained and an error is thrown.
    */
-  static async saveConfigs(configs: any[]): Promise<void> {
+  static async saveConfigs(
+    configs: any[],
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<void> {
     if (!Array.isArray(configs)) return;
 
-    if (!isMongoConfigured()) {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperSourcesCollection;
+
+    if (!isMongoCfgFn()) {
       this.cachedSources = configs;
       return;
     }
 
     let coll: any;
     try {
-      coll = await getScraperSourcesCollection();
+      coll = await getCollFn();
     } catch (collErr: any) {
       const msg = `Failed to get scraper_sources collection: ${collErr?.message || collErr}`;
       console.warn(`[ScraperRepository] ${msg}`);
@@ -264,9 +288,16 @@ export class ScraperRepository {
     for (const cfg of validConfigs) {
       const { _id, ...clean } = cfg;
       try {
-        const result: any = await withMongoTimeout(coll.replaceOne({ id: clean.id }, clean, { upsert: true }), 10000, 'saveConfig');
-        if (result && result.acknowledged === false) {
-          throw new Error(`Write was not acknowledged by MongoDB for source "${clean.id}"`);
+        const result: any = await withMongoTimeout<any>(
+          coll.replaceOne({ id: clean.id }, clean, { upsert: true }),
+          10000,
+          'saveConfig'
+        );
+        const hasMatchOrUpsert =
+          (typeof result?.matchedCount === 'number' && result.matchedCount > 0) ||
+          (typeof result?.upsertedCount === 'number' && result.upsertedCount > 0);
+        if (!result || result.acknowledged !== true || !hasMatchOrUpsert) {
+          throw new Error(`Write was not confirmed by MongoDB for source "${clean.id}"`);
         }
         persistedCount++;
       } catch (err: any) {
@@ -284,27 +315,32 @@ export class ScraperRepository {
 
   /**
    * Retrieves scraper execution run history from MongoDB scraper_runs collection sorted by timestamp desc.
+   * In configured-MongoDB mode, DB read failures propagate and confirmed empty collections clear cachedRuns.
    */
-  static async getRuns(): Promise<any[]> {
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperRunsCollection();
-        const runs = await withMongoTimeout(
-          coll.find({}, { projection: { _id: 0 } })
-            .sort({ startedAt: -1, timestamp: -1 })
-            .limit(100)
-            .toArray(),
-          15000,
-          'getRuns'
-        );
+  static async getRuns(_deps?: {
+    isMongoConfiguredFn?: () => boolean;
+    getCollectionFn?: () => Promise<any>;
+  }): Promise<any[]> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperRunsCollection;
 
-        if (runs && runs.length > 0) {
-          this.cachedRuns = runs;
-          return runs;
-        }
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading scraper_runs from MongoDB, serving cached runs:', err?.message || err);
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      const runs: any = await withMongoTimeout<any>(
+        coll.find({}, { projection: { _id: 0 } })
+          .sort({ startedAt: -1, timestamp: -1 })
+          .limit(100)
+          .toArray(),
+        15000,
+        'getRuns'
+      );
+
+      if (!Array.isArray(runs)) {
+        throw new Error('Unexpected non-array response reading scraper_runs from MongoDB');
       }
+
+      this.cachedRuns = runs;
+      return runs;
     }
 
     return this.cachedRuns;
@@ -312,8 +348,19 @@ export class ScraperRepository {
 
   /**
    * Records a new scraper execution run into MongoDB scraper_runs collection.
+   * Does NOT throw on Mongo failure so active scrape runs never fail after jobs are persisted;
+   * skips updating cachedRuns on failed/unacknowledged Mongo writes and marks isPersistedToMongo=false.
    */
-  static async addRun(run: any): Promise<any> {
+  static async addRun(
+    run: any,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<any> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperRunsCollection;
+
     const newRun = {
       ...run,
       id: run.id || `run-${Date.now()}`,
@@ -321,12 +368,36 @@ export class ScraperRepository {
     };
     const { _id, ...clean } = newRun;
 
-    if (isMongoConfigured()) {
+    if (isMongoCfgFn()) {
       try {
-        const coll = await getScraperRunsCollection();
-        await withMongoTimeout(coll.insertOne(clean), 10000, 'addRun');
+        const coll = await getCollFn();
+        const insertResult: any = await withMongoTimeout<any>(coll.insertOne(clean), 10000, 'addRun');
+        if (!insertResult || insertResult.acknowledged !== true) {
+          const persistenceError = 'MongoDB insertOne was not explicitly acknowledged (acknowledged=true required)';
+          console.error(`[ScraperRepository] ${persistenceError} for run "${clean.id}". Skipped adding to cachedRuns.`);
+          return {
+            ...clean,
+            isPersistedToMongo: false,
+            persistenceError
+          };
+        }
+
+        this.cachedRuns.unshift(clean);
+        if (this.cachedRuns.length > 100) {
+          this.cachedRuns = this.cachedRuns.slice(0, 100);
+        }
+        return {
+          ...clean,
+          isPersistedToMongo: true
+        };
       } catch (err: any) {
-        console.warn('[ScraperRepository] Notice adding to scraper_runs in MongoDB:', err?.message || err);
+        const persistenceError = err?.message || String(err);
+        console.error(`[ScraperRepository] Failed to persist scraper run "${clean.id}" to MongoDB: ${persistenceError}. Skipped adding to cachedRuns.`);
+        return {
+          ...clean,
+          isPersistedToMongo: false,
+          persistenceError
+        };
       }
     }
 
@@ -335,7 +406,10 @@ export class ScraperRepository {
       this.cachedRuns = this.cachedRuns.slice(0, 100);
     }
 
-    return clean;
+    return {
+      ...clean,
+      isPersistedToMongo: false
+    };
   }
 
   static isDatabaseHealthy(): boolean {
@@ -426,26 +500,61 @@ export class ScraperRepository {
 
   /**
    * Updates only scheduling timing fields for a scraper source in MongoDB scraper_sources collection.
-   * Does NOT touch engine-owned fields or replace the document.
+   * When MongoDB is configured, mutates cachedSources ONLY when write is confirmed
+   * (acknowledged === true && matchedCount > 0). Returns true when persisted/no-op, false on unconfirmed/error.
    */
-  static async updateSourceSchedule(sourceId: string, schedule: {
-    lastRunAt?: string;
-    lastCompletedAt?: string;
-    nextRunAt?: string;
-  }): Promise<void> {
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperSourcesCollection();
-        const $set: any = {};
-        if (schedule.lastRunAt !== undefined) $set.lastRunAt = schedule.lastRunAt;
-        if (schedule.lastCompletedAt !== undefined) $set.lastCompletedAt = schedule.lastCompletedAt;
-        if (schedule.nextRunAt !== undefined) $set.nextRunAt = schedule.nextRunAt;
+  static async updateSourceSchedule(
+    sourceId: string,
+    schedule: {
+      lastRunAt?: string;
+      lastCompletedAt?: string;
+      nextRunAt?: string;
+    },
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<boolean> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperSourcesCollection;
+    const mongoConfigured = isMongoCfgFn();
 
-        if (Object.keys($set).length > 0) {
-          await withMongoTimeout(coll.updateOne({ id: sourceId }, { $set }), 10000, 'updateSourceSchedule');
+    const $set: any = {};
+    if (schedule.lastRunAt !== undefined) $set.lastRunAt = schedule.lastRunAt;
+    if (schedule.lastCompletedAt !== undefined) $set.lastCompletedAt = schedule.lastCompletedAt;
+    if (schedule.nextRunAt !== undefined) $set.nextRunAt = schedule.nextRunAt;
+
+    if (Object.keys($set).length === 0) {
+      return true;
+    }
+
+    if (mongoConfigured) {
+      let mongoWriteSucceeded = false;
+      try {
+        const coll = await getCollFn();
+        const updateResult: any = await withMongoTimeout<any>(
+          coll.updateOne({ id: sourceId }, { $set }),
+          10000,
+          'updateSourceSchedule'
+        );
+        if (
+          updateResult &&
+          updateResult.acknowledged === true &&
+          typeof updateResult.matchedCount === 'number' &&
+          updateResult.matchedCount > 0
+        ) {
+          mongoWriteSucceeded = true;
+        } else {
+          console.warn(
+            `[ScraperRepository] Warning: updateSourceSchedule lacked explicit acknowledgement (acknowledged=true) or matched 0 documents for source "${sourceId}". Cache update skipped.`
+          );
         }
       } catch (err: any) {
         console.warn(`[ScraperRepository] Notice updating source schedule for "${sourceId}" in MongoDB:`, err?.message || err);
+      }
+
+      if (!mongoWriteSucceeded) {
+        return false;
       }
     }
 
@@ -456,6 +565,8 @@ export class ScraperRepository {
       if (schedule.lastCompletedAt !== undefined) this.cachedSources[idx].lastCompletedAt = schedule.lastCompletedAt;
       if (schedule.nextRunAt !== undefined) this.cachedSources[idx].nextRunAt = schedule.nextRunAt;
     }
+
+    return true;
   }
 
   // --- SOURCE GROUPS MANAGEMENT (MongoDB scraper_groups) ---
@@ -463,41 +574,70 @@ export class ScraperRepository {
   private static cachedGroups: ScraperSourceGroup[] = getDefaultGroups();
 
   /**
-   * Retrieves all source groups from MongoDB. Auto-seeds defaults on first run.
+   * Retrieves all source groups from MongoDB. Auto-seeds defaults only on confirmed empty collection.
+   * In configured-MongoDB mode, DB lookup/read/timeout/seed failures propagate (fail-closed).
    */
-  static async getGroups(): Promise<ScraperSourceGroup[]> {
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperGroupsCollection();
-        const docs = await withMongoTimeout(
-          coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray(),
-          15000,
-          'getGroups'
-        );
-        if (docs && docs.length > 0) {
-          this.cachedGroups = docs as ScraperSourceGroup[];
-          return docs as ScraperSourceGroup[];
-        }
+  static async getGroups(_deps?: {
+    isMongoConfiguredFn?: () => boolean;
+    getCollectionFn?: () => Promise<any>;
+  }): Promise<ScraperSourceGroup[]> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperGroupsCollection;
 
-        // Auto-seed default groups if empty
-        const defaults = getDefaultGroups();
-        if (defaults.length > 0) {
-          await withMongoTimeout(coll.insertMany(defaults), 15000, 'seedGroups');
-          console.log(`[ScraperRepository] Seeded ${defaults.length} default source groups into MongoDB.`);
-          this.cachedGroups = defaults;
-          return defaults;
-        }
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading scraper_groups from MongoDB, serving cached groups:', err?.message || err);
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      const docs: any = await withMongoTimeout<any>(
+        coll.find({}, { projection: { _id: 0 } }).sort({ name: 1 }).toArray(),
+        15000,
+        'getGroups'
+      );
+
+      if (!Array.isArray(docs)) {
+        throw new Error('Unexpected non-array response reading scraper_groups from MongoDB');
       }
+
+      if (docs.length > 0) {
+        this.cachedGroups = docs as ScraperSourceGroup[];
+        return docs as ScraperSourceGroup[];
+      }
+
+      // Auto-seed default groups ONLY when confirmed empty
+      const defaults = getDefaultGroups();
+      if (defaults.length > 0) {
+        const seedRes: any = await withMongoTimeout<any>(coll.insertMany(defaults), 15000, 'seedGroups');
+        if (
+          !seedRes ||
+          seedRes.acknowledged !== true ||
+          (typeof seedRes.insertedCount === 'number' && seedRes.insertedCount === 0)
+        ) {
+          throw new Error('MongoDB insertMany seeding scraper_groups was not explicitly acknowledged');
+        }
+        console.log(`[ScraperRepository] Seeded ${defaults.length} default source groups into MongoDB.`);
+        this.cachedGroups = defaults;
+        return defaults;
+      }
+
+      this.cachedGroups = [];
+      return [];
     }
+
     return this.cachedGroups;
   }
 
   /**
    * Creates a new source group in MongoDB.
+   * Updates cachedGroups only after confirmed MongoDB acknowledgement.
    */
-  static async createGroup(data: { name: string; description?: string; sourceIds?: string[] }): Promise<ScraperSourceGroup> {
+  static async createGroup(
+    data: { name: string; description?: string; sourceIds?: string[] },
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<ScraperSourceGroup> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperGroupsCollection;
+
     const now = new Date().toISOString();
     const id = `group-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newGroup: ScraperSourceGroup = {
@@ -509,13 +649,14 @@ export class ScraperRepository {
       updatedAt: now
     };
 
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperGroupsCollection();
-        await coll.insertOne(newGroup);
-      } catch (err: any) {
-        console.error('[ScraperRepository] Error inserting group:', err.message);
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      const insertRes: any = await withMongoTimeout<any>(coll.insertOne(newGroup), 10000, 'createGroup');
+      if (!insertRes || insertRes.acknowledged !== true) {
+        throw new Error(`MongoDB insertOne for source group "${newGroup.name}" was not acknowledged`);
       }
+      this.cachedGroups.push(newGroup);
+      return newGroup;
     }
 
     this.cachedGroups.push(newGroup);
@@ -524,30 +665,52 @@ export class ScraperRepository {
 
   /**
    * Renames or updates a source group in MongoDB.
+   * Propagates DB errors and never falls back to mutating cachedGroups when MongoDB is configured.
    */
-  static async updateGroup(id: string, updates: { name?: string; description?: string; sourceIds?: string[] }): Promise<ScraperSourceGroup | null> {
+  static async updateGroup(
+    id: string,
+    updates: { name?: string; description?: string; sourceIds?: string[] },
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<ScraperSourceGroup | null> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperGroupsCollection;
+
     const now = new Date().toISOString();
     const $set: any = { updatedAt: now };
     if (updates.name !== undefined) $set.name = updates.name.trim();
     if (updates.description !== undefined) $set.description = updates.description.trim();
     if (Array.isArray(updates.sourceIds)) $set.sourceIds = updates.sourceIds;
 
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperGroupsCollection();
-        const updated = await coll.findOneAndUpdate(
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      const rawUpdated: any = await withMongoTimeout<any>(
+        coll.findOneAndUpdate(
           { id },
           { $set },
           { returnDocument: 'after', projection: { _id: 0 } }
-        );
-        if (updated) {
-          const idx = this.cachedGroups.findIndex(g => g.id === id);
-          if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
-          return updated as ScraperSourceGroup;
-        }
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error updating group "${id}":`, err.message);
+        ),
+        10000,
+        'updateGroup'
+      );
+      const updated =
+        rawUpdated && typeof rawUpdated === 'object' && 'value' in rawUpdated && !('id' in rawUpdated)
+          ? rawUpdated.value
+          : rawUpdated;
+
+      if (!updated) {
+        return null;
       }
+
+      const idx = this.cachedGroups.findIndex(g => g.id === id);
+      if (idx !== -1) {
+        this.cachedGroups[idx] = updated as ScraperSourceGroup;
+      } else {
+        this.cachedGroups.push(updated as ScraperSourceGroup);
+      }
+      return updated as ScraperSourceGroup;
     }
 
     const idx = this.cachedGroups.findIndex(g => g.id === id);
@@ -560,18 +723,31 @@ export class ScraperRepository {
 
   /**
    * Deletes a source group from MongoDB.
+   * Requires explicit MongoDB acknowledgement before updating cachedGroups.
    */
-  static async deleteGroup(id: string): Promise<boolean> {
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperGroupsCollection();
-        const res = await coll.deleteOne({ id });
-        this.cachedGroups = this.cachedGroups.filter(g => g.id !== id);
-        return (res.deletedCount || 0) > 0;
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error deleting group "${id}":`, err.message);
-      }
+  static async deleteGroup(
+    id: string,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
     }
+  ): Promise<boolean> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperGroupsCollection;
+
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      const res: any = await withMongoTimeout<any>(coll.deleteOne({ id }), 10000, 'deleteGroup');
+      if (!res || res.acknowledged !== true) {
+        throw new Error(`MongoDB deleteOne for source group "${id}" was not acknowledged`);
+      }
+      const deleted = typeof res.deletedCount === 'number' && res.deletedCount > 0;
+      if (deleted) {
+        this.cachedGroups = this.cachedGroups.filter(g => g.id !== id);
+      }
+      return deleted;
+    }
+
     const initialLen = this.cachedGroups.length;
     this.cachedGroups = this.cachedGroups.filter(g => g.id !== id);
     return this.cachedGroups.length < initialLen;
@@ -579,34 +755,68 @@ export class ScraperRepository {
 
   /**
    * Adds sources to a group in MongoDB.
+   * Propagates DB errors and never falls back to mutating cachedGroups when MongoDB is configured.
    */
-  static async addSourcesToGroup(id: string, sourceIds: string[]): Promise<ScraperSourceGroup | null> {
-    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
-      return this.cachedGroups.find(g => g.id === id) || null;
+  static async addSourcesToGroup(
+    id: string,
+    sourceIds: string[],
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
     }
-    const now = new Date().toISOString();
+  ): Promise<ScraperSourceGroup | null> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperGroupsCollection;
 
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperGroupsCollection();
-        const updated = await coll.findOneAndUpdate(
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+        const existing: any = await withMongoTimeout<any>(
+          coll.findOne({ id }, { projection: { _id: 0 } }),
+          10000,
+          'addSourcesToGroupRead'
+        );
+        if (!existing) return null;
+        const idx = this.cachedGroups.findIndex(g => g.id === id);
+        if (idx !== -1) this.cachedGroups[idx] = existing as ScraperSourceGroup;
+        return existing as ScraperSourceGroup;
+      }
+
+      const now = new Date().toISOString();
+      const rawUpdated: any = await withMongoTimeout<any>(
+        coll.findOneAndUpdate(
           { id },
           {
             $addToSet: { sourceIds: { $each: sourceIds } },
             $set: { updatedAt: now }
           },
           { returnDocument: 'after', projection: { _id: 0 } }
-        );
-        if (updated) {
-          const idx = this.cachedGroups.findIndex(g => g.id === id);
-          if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
-          return updated as ScraperSourceGroup;
-        }
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error adding sources to group "${id}":`, err.message);
+        ),
+        10000,
+        'addSourcesToGroup'
+      );
+      const updated =
+        rawUpdated && typeof rawUpdated === 'object' && 'value' in rawUpdated && !('id' in rawUpdated)
+          ? rawUpdated.value
+          : rawUpdated;
+
+      if (!updated) {
+        return null;
       }
+
+      const idx = this.cachedGroups.findIndex(g => g.id === id);
+      if (idx !== -1) {
+        this.cachedGroups[idx] = updated as ScraperSourceGroup;
+      } else {
+        this.cachedGroups.push(updated as ScraperSourceGroup);
+      }
+      return updated as ScraperSourceGroup;
     }
 
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+      return this.cachedGroups.find(g => g.id === id) || null;
+    }
+    const now = new Date().toISOString();
     const idx = this.cachedGroups.findIndex(g => g.id === id);
     if (idx !== -1) {
       const merged = Array.from(new Set([...this.cachedGroups[idx].sourceIds, ...sourceIds]));
@@ -619,34 +829,68 @@ export class ScraperRepository {
 
   /**
    * Removes sources from a group in MongoDB.
+   * Propagates DB errors and never falls back to mutating cachedGroups when MongoDB is configured.
    */
-  static async removeSourcesFromGroup(id: string, sourceIds: string[]): Promise<ScraperSourceGroup | null> {
-    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
-      return this.cachedGroups.find(g => g.id === id) || null;
+  static async removeSourcesFromGroup(
+    id: string,
+    sourceIds: string[],
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getCollectionFn?: () => Promise<any>;
     }
-    const now = new Date().toISOString();
+  ): Promise<ScraperSourceGroup | null> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getCollFn = _deps?.getCollectionFn || getScraperGroupsCollection;
 
-    if (isMongoConfigured()) {
-      try {
-        const coll = await getScraperGroupsCollection();
-        const updated = await coll.findOneAndUpdate(
+    if (isMongoCfgFn()) {
+      const coll = await getCollFn();
+      if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+        const existing: any = await withMongoTimeout<any>(
+          coll.findOne({ id }, { projection: { _id: 0 } }),
+          10000,
+          'removeSourcesFromGroupRead'
+        );
+        if (!existing) return null;
+        const idx = this.cachedGroups.findIndex(g => g.id === id);
+        if (idx !== -1) this.cachedGroups[idx] = existing as ScraperSourceGroup;
+        return existing as ScraperSourceGroup;
+      }
+
+      const now = new Date().toISOString();
+      const rawUpdated: any = await withMongoTimeout<any>(
+        coll.findOneAndUpdate(
           { id },
           {
             $pull: { sourceIds: { $in: sourceIds } } as any,
             $set: { updatedAt: now }
           },
           { returnDocument: 'after', projection: { _id: 0 } }
-        );
-        if (updated) {
-          const idx = this.cachedGroups.findIndex(g => g.id === id);
-          if (idx !== -1) this.cachedGroups[idx] = updated as ScraperSourceGroup;
-          return updated as ScraperSourceGroup;
-        }
-      } catch (err: any) {
-        console.error(`[ScraperRepository] Error removing sources from group "${id}":`, err.message);
+        ),
+        10000,
+        'removeSourcesFromGroup'
+      );
+      const updated =
+        rawUpdated && typeof rawUpdated === 'object' && 'value' in rawUpdated && !('id' in rawUpdated)
+          ? rawUpdated.value
+          : rawUpdated;
+
+      if (!updated) {
+        return null;
       }
+
+      const idx = this.cachedGroups.findIndex(g => g.id === id);
+      if (idx !== -1) {
+        this.cachedGroups[idx] = updated as ScraperSourceGroup;
+      } else {
+        this.cachedGroups.push(updated as ScraperSourceGroup);
+      }
+      return updated as ScraperSourceGroup;
     }
 
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+      return this.cachedGroups.find(g => g.id === id) || null;
+    }
+    const now = new Date().toISOString();
     const idx = this.cachedGroups.findIndex(g => g.id === id);
     if (idx !== -1) {
       this.cachedGroups[idx].sourceIds = this.cachedGroups[idx].sourceIds.filter(sid => !sourceIds.includes(sid));
@@ -702,53 +946,69 @@ export class ScraperRepository {
 
   /**
    * Retrieves authoritative scraper scheduler settings from MongoDB scraper_settings collection.
-   * If not configured or connection fails, falls back gracefully to cached settings.
+   * In configured-MongoDB mode, DB lookup/read/timeout/seed failures propagate (fail-closed)
+   * instead of falling back to cached/default settings.
    */
-  static async getSchedulerSettings(): Promise<ScraperSchedulerSettings> {
-    if (isMongoConfigured()) {
-      try {
-        const db = await getMongoDb();
-        const coll = db.collection('scraper_settings');
-        const doc = await withMongoTimeout(
-          coll.findOne({ id: 'global_scheduler_settings' }, { projection: { _id: 0 } }),
-          10000,
-          'getSchedulerSettings'
-        );
-        if (doc) {
-          const merged: ScraperSchedulerSettings = {
-            ...getDefaultSchedulerSettings(),
-            ...(doc as any),
-            isPersistedToMongo: true
-          };
-          this.cachedSettings = merged;
-          return merged;
-        }
+  static async getSchedulerSettings(_deps?: {
+    isMongoConfiguredFn?: () => boolean;
+    getDbFn?: () => Promise<any>;
+  }): Promise<ScraperSchedulerSettings> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getDatabaseFn = _deps?.getDbFn || getMongoDb;
 
-        // Auto-seed default scheduler settings into MongoDB
-        const defaults = getDefaultSchedulerSettings();
-        const { isPersistedToMongo: _, ...cleanDefaults } = defaults;
-        await withMongoTimeout(
-          coll.replaceOne(
-            { id: 'global_scheduler_settings' },
-            { id: 'global_scheduler_settings', ...cleanDefaults },
-            { upsert: true }
-          ),
-          10000,
-          'seedSchedulerSettings'
-        );
-        this.cachedSettings = { ...defaults, isPersistedToMongo: true };
-        return this.cachedSettings;
-      } catch (err: any) {
-        console.warn('[ScraperRepository] Notice reading scraper_settings from MongoDB, serving cached:', err?.message || err);
+    if (isMongoCfgFn()) {
+      const db = await getDatabaseFn();
+      const coll = db.collection('scraper_settings');
+      const doc: any = await withMongoTimeout<any>(
+        coll.findOne({ id: 'global_scheduler_settings' }, { projection: { _id: 0 } }),
+        10000,
+        'getSchedulerSettings'
+      );
+      if (doc) {
+        const merged: ScraperSchedulerSettings = {
+          ...getDefaultSchedulerSettings(),
+          ...doc,
+          isPersistedToMongo: true
+        };
+        this.cachedSettings = merged;
+        return merged;
       }
+
+      // Auto-seed default scheduler settings ONLY when findOne succeeded and returned null
+      const defaults = getDefaultSchedulerSettings();
+      const { isPersistedToMongo: _, ...cleanDefaults } = defaults;
+      const seedResult: any = await withMongoTimeout<any>(
+        coll.replaceOne(
+          { id: 'global_scheduler_settings' },
+          { id: 'global_scheduler_settings', ...cleanDefaults },
+          { upsert: true }
+        ),
+        10000,
+        'seedSchedulerSettings'
+      );
+      const hasMatchOrUpsert =
+        (typeof seedResult?.matchedCount === 'number' && seedResult.matchedCount > 0) ||
+        (typeof seedResult?.upsertedCount === 'number' && seedResult.upsertedCount > 0);
+      if (!seedResult || seedResult.acknowledged !== true || !hasMatchOrUpsert) {
+        throw new Error('Initial scheduler settings seed write was not confirmed by MongoDB');
+      }
+      this.cachedSettings = { ...defaults, isPersistedToMongo: true };
+      return this.cachedSettings;
     }
+
     return { ...this.cachedSettings, isPersistedToMongo: false };
   }
 
   /**
    * Authoritatively persists scheduler settings to MongoDB scraper_settings collection.
    */
-  static async saveSchedulerSettings(settings: Partial<ScraperSchedulerSettings>): Promise<ScraperSchedulerSettings> {
+  static async saveSchedulerSettings(
+    settings: Partial<ScraperSchedulerSettings>,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getDbFn?: () => Promise<any>;
+    }
+  ): Promise<ScraperSchedulerSettings> {
     const VALID_SCOPES: ScraperSchedulerSettings['scope'][] = ['all', 'selected', 'group', 'working', 'failed', 'single'];
     if (settings.scope !== undefined && !VALID_SCOPES.includes(settings.scope)) {
       throw new Error(`Invalid scheduler scope "${settings.scope}". Supported scopes are: ${VALID_SCOPES.join(', ')}`);
@@ -762,7 +1022,10 @@ export class ScraperRepository {
       throw new Error(`Invalid duplicateMode "${settings.duplicateMode}". Supported values are: with, without`);
     }
 
-    const current = await this.getSchedulerSettings();
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getDatabaseFn = _deps?.getDbFn || getMongoDb;
+
+    const current = await this.getSchedulerSettings(_deps);
     const { isPersistedToMongo: _cp, ...cleanCurrent } = current as any;
     const { isPersistedToMongo: _sp, ...cleanSettings } = settings as any;
 
@@ -772,16 +1035,16 @@ export class ScraperRepository {
       updatedAt: new Date().toISOString()
     };
 
-    if (!isMongoConfigured()) {
+    if (!isMongoCfgFn()) {
       this.cachedSettings = { ...updated, isPersistedToMongo: false };
       return this.cachedSettings;
     }
 
     try {
-      const db = await getMongoDb();
+      const db = await getDatabaseFn();
       const coll = db.collection('scraper_settings');
       const { isPersistedToMongo: _, ...docToPersist } = updated as any;
-      const result: any = await withMongoTimeout(
+      const result: any = await withMongoTimeout<any>(
         coll.replaceOne(
           { id: 'global_scheduler_settings' },
           { id: 'global_scheduler_settings', ...docToPersist },
@@ -790,8 +1053,11 @@ export class ScraperRepository {
         10000,
         'saveSchedulerSettings'
       );
-      if (result && result.acknowledged === false) {
-        throw new Error('Write was not acknowledged by MongoDB for scraper_settings');
+      const hasMatchOrUpsert =
+        (typeof result?.matchedCount === 'number' && result.matchedCount > 0) ||
+        (typeof result?.upsertedCount === 'number' && result.upsertedCount > 0);
+      if (!result || result.acknowledged !== true || !hasMatchOrUpsert) {
+        throw new Error('Write was not confirmed by MongoDB for scraper_settings');
       }
       this.cachedSettings = { ...updated, isPersistedToMongo: true };
       return this.cachedSettings;

@@ -86,8 +86,16 @@ import {
   buildSourceCompletionStatsUpdate
 } from '../services/scraperEngine';
 import {
-  ScraperRepository
+  ScraperRepository,
+  getDefaultSchedulerSettings
 } from '../db/repositories/ScraperRepository';
+import {
+  initScraperScheduler,
+  runSchedulerTick,
+  stopScraperScheduler,
+  isValidSchedulerScope,
+  setGlobalSchedulerState
+} from '../services/scraperScheduler';
 import {
   MAX_DETAIL_HTML_BYTES,
   isEligibleDetailUrl,
@@ -5017,6 +5025,783 @@ async function runSuite() {
     assert.strictEqual(batchResults[0].title, 'Assistant Director Planning');
     assert.strictEqual(batchResults[1].id, 'b-2');
     assert.strictEqual(batchResults[1].title, 'Keep On Failure');
+  });
+
+  // ============================================================================
+  // STEP-8.4-B: MONGODB FAIL-CLOSED READS, CACHE & SCHEDULER SAFETY TESTS
+  // ============================================================================
+
+  await runTest('STEP-8.4-B Case 1 [Mocked]: ScraperRepository.getConfigs fails closed on collection lookup and read/timeout errors without falling back or seeding', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevCachedSources = Array.isArray(repoAny.cachedSources) ? repoAny.cachedSources.map((s: any) => ({ ...s })) : [];
+    repoAny.cachedSources = [{ id: 'stale-src-1', name: 'Stale Cached Portal', url: 'https://stale.example/jobs', status: 'Active Scheduled' }];
+
+    try {
+      let seedCalled = false;
+
+      // 1a. Collection lookup error must propagate (no cached/default fallback)
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => {
+            throw new Error('MongoDB connection refused on collection lookup');
+          }
+        }),
+        /connection refused/i
+      );
+
+      // 1b. Read error on find().toArray() must propagate and must NOT trigger seeding
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({
+              toArray: async () => {
+                throw new Error('MongoNetworkTimeoutError: read timed out');
+              }
+            }),
+            insertMany: async () => {
+              seedCalled = true;
+              return { acknowledged: true, insertedCount: 1 };
+            }
+          })
+        }),
+        /timed out/i
+      );
+      assert.strictEqual(seedCalled, false, 'Must NEVER seed defaults when read query failed or timed out');
+
+      // Stale cache must remain unchanged after read failures
+      assert.strictEqual(repoAny.cachedSources.length, 1);
+      assert.strictEqual(repoAny.cachedSources[0].id, 'stale-src-1');
+    } finally {
+      repoAny.cachedSources = prevCachedSources;
+    }
+  });
+
+  await runTest('STEP-8.4-B Case 2 [Mocked]: ScraperRepository.getConfigs seeds only on confirmed empty collection with acknowledged=true and preserves memory-only mode', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevCachedSources = Array.isArray(repoAny.cachedSources) ? repoAny.cachedSources.map((s: any) => ({ ...s })) : [];
+
+    try {
+      // 2a. Confirmed empty collection with unacknowledged insertMany must throw
+      repoAny.cachedSources = [{ id: 'stale-only', name: 'Stale Only', url: 'https://stale.example', status: 'Active Scheduled' }];
+      await assert.rejects(
+        () => ScraperRepository.getConfigs({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ toArray: async () => [] }),
+            insertMany: async () => ({ acknowledged: false, insertedCount: 0 })
+          })
+        }),
+        /not explicitly acknowledged/i
+      );
+      assert.strictEqual(repoAny.cachedSources[0].id, 'stale-only', 'Failed seed must not overwrite cachedSources');
+
+      // 2b. Confirmed empty collection with acknowledged=true seeds defaults and updates cachedSources
+      let seededCount = 0;
+      const seeded = await ScraperRepository.getConfigs({
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          find: () => ({ toArray: async () => [] }),
+          insertMany: async (docs: any[]) => {
+            seededCount = docs.length;
+            return { acknowledged: true, insertedCount: docs.length };
+          }
+        })
+      });
+      assert.ok(seeded.length > 0 && seededCount === seeded.length, 'Confirmed empty DB must seed verified default portals');
+
+      // 2c. Authoritative non-empty DB read refreshes cache and returns DB docs
+      const dbDocs = [{ id: 'db-portal-1', name: 'DB Portal 1', portalUrl: 'https://db.gov.pk/jobs' }];
+      const fetched = await ScraperRepository.getConfigs({
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          find: () => ({ toArray: async () => dbDocs }),
+          updateMany: async () => ({ acknowledged: true, matchedCount: 1 })
+        })
+      });
+      assert.strictEqual(fetched.length, 1);
+      assert.strictEqual(fetched[0].id, 'db-portal-1');
+      assert.strictEqual(fetched[0].url, 'https://db.gov.pk/jobs');
+
+      // 2d. Memory-only mode preserves cachedSources return cleanly
+      const memResult = await ScraperRepository.getConfigs({
+        isMongoConfiguredFn: () => false
+      });
+      assert.strictEqual(memResult.length, 1);
+      assert.strictEqual(memResult[0].id, 'db-portal-1');
+    } finally {
+      repoAny.cachedSources = prevCachedSources;
+    }
+  });
+
+  await runTest('STEP-8.4-B Case 3 [Mocked]: ScraperRepository.getSchedulerSettings & saveSchedulerSettings fail closed on read/timeout, preserve enabled=false, and validate seed/write acks', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevSettings = { ...repoAny.cachedSettings };
+    repoAny.cachedSettings = { ...getDefaultSchedulerSettings(), enabled: true, isPersistedToMongo: false };
+
+    try {
+      // 3a. DB lookup failure propagates instead of returning cached enabled=true
+      await assert.rejects(
+        () => ScraperRepository.getSchedulerSettings({
+          isMongoConfiguredFn: () => true,
+          getDbFn: async () => {
+            throw new Error('Mongo DB unreachable');
+          }
+        }),
+        /unreachable/i
+      );
+
+      // 3b. findOne timeout/error propagates and does NOT seed defaults
+      let seedReplaceCalled = false;
+      await assert.rejects(
+        () => ScraperRepository.getSchedulerSettings({
+          isMongoConfiguredFn: () => true,
+          getDbFn: async () => ({
+            collection: () => ({
+              findOne: async () => {
+                throw new Error('MongoNetworkTimeoutError on findOne');
+              },
+              replaceOne: async () => {
+                seedReplaceCalled = true;
+                return { acknowledged: true, upsertedCount: 1 };
+              }
+            })
+          })
+        }),
+        /timeout/i
+      );
+      assert.strictEqual(seedReplaceCalled, false);
+
+      // 3c. Confirmed null document triggers seed replaceOne requiring explicit ack + match/upsert
+      await assert.rejects(
+        () => ScraperRepository.getSchedulerSettings({
+          isMongoConfiguredFn: () => true,
+          getDbFn: async () => ({
+            collection: () => ({
+              findOne: async () => null,
+              replaceOne: async () => ({ acknowledged: false, matchedCount: 0, upsertedCount: 0 })
+            })
+          })
+        }),
+        /not confirmed/i
+      );
+
+      const seededSettings = await ScraperRepository.getSchedulerSettings({
+        isMongoConfiguredFn: () => true,
+        getDbFn: async () => ({
+          collection: () => ({
+            findOne: async () => null,
+            replaceOne: async () => ({ acknowledged: true, matchedCount: 0, upsertedCount: 1 })
+          })
+        })
+      });
+      assert.strictEqual(seededSettings.isPersistedToMongo, true);
+
+      // 3d. Persisted enabled: false is preserved (never turned into enabled: true)
+      const pausedFromDb = await ScraperRepository.getSchedulerSettings({
+        isMongoConfiguredFn: () => true,
+        getDbFn: async () => ({
+          collection: () => ({
+            findOne: async () => ({ id: 'global_scheduler_settings', enabled: false, scope: 'single', singleSourceId: 'src-1' })
+          })
+        })
+      });
+      assert.strictEqual(pausedFromDb.enabled, false, 'Saved enabled=false must remain false');
+      assert.strictEqual(pausedFromDb.scope, 'single');
+      assert.strictEqual(pausedFromDb.isPersistedToMongo, true);
+
+      // 3e. saveSchedulerSettings rejects unconfirmed write (acknowledged=true with 0 match/upsert)
+      await assert.rejects(
+        () => ScraperRepository.saveSchedulerSettings(
+          { enabled: true },
+          {
+            isMongoConfiguredFn: () => true,
+            getDbFn: async () => ({
+              collection: () => ({
+                findOne: async () => ({ id: 'global_scheduler_settings', enabled: false, scope: 'all' }),
+                replaceOne: async () => ({ acknowledged: true, matchedCount: 0, upsertedCount: 0 })
+              })
+            })
+          }
+        ),
+        /not confirmed/i
+      );
+
+      // 3f. Memory-only mode preserves existing non-persisted behavior cleanly
+      const memSettings = await ScraperRepository.getSchedulerSettings({
+        isMongoConfiguredFn: () => false
+      });
+      assert.strictEqual(memSettings.isPersistedToMongo, false);
+      const memSaved = await ScraperRepository.saveSchedulerSettings(
+        { enabled: true, scope: 'working' },
+        { isMongoConfiguredFn: () => false }
+      );
+      assert.strictEqual(memSaved.enabled, true);
+      assert.strictEqual(memSaved.scope, 'working');
+      assert.strictEqual(memSaved.isPersistedToMongo, false);
+    } finally {
+      repoAny.cachedSettings = prevSettings;
+    }
+  });
+
+  await runTest('STEP-8.4-B Case 4 [Mocked]: initScraperScheduler refuses to start cron on settings read failure or enabled=false and starts on enabled=true', async () => {
+    stopScraperScheduler();
+    try {
+      let cronCalls = 0;
+      const mockCronTask = { stop: () => {}, start: () => {} } as any;
+      const fakeCron = ((_expr: string, _fn: any) => {
+        cronCalls++;
+        return mockCronTask;
+      }) as any;
+
+      // 4a. Settings read failure -> must NOT call cron.schedule
+      const startedOnErr = await initScraperScheduler({
+        getSchedulerSettingsFn: async () => {
+          throw new Error('MongoDB read failure on boot');
+        },
+        resetStaleSchedulesFn: async () => ({ resetCount: 0 }),
+        scheduleCronFn: fakeCron
+      });
+      assert.strictEqual(startedOnErr, false);
+      assert.strictEqual(cronCalls, 0, 'cron.schedule must NOT be called when reading settings fails');
+
+      // 4b. Settings enabled=false -> must NOT call cron.schedule
+      const startedOnPaused = await initScraperScheduler({
+        getSchedulerSettingsFn: async () => ({ ...getDefaultSchedulerSettings(), enabled: false }),
+        resetStaleSchedulesFn: async () => ({ resetCount: 0 }),
+        scheduleCronFn: fakeCron
+      });
+      assert.strictEqual(startedOnPaused, false);
+      assert.strictEqual(cronCalls, 0, 'cron.schedule must NOT be called when scheduler is paused');
+
+      // 4c. setGlobalSchedulerState(true) when settings read fails afterwards reports isRunning=false
+      const stateResult = await setGlobalSchedulerState(true, {
+        saveSchedulerSettingsFn: async (s) => ({ ...getDefaultSchedulerSettings(), ...s, enabled: true, isPersistedToMongo: true }),
+        getSchedulerSettingsFn: async () => {
+          throw new Error('Auth check failed after save');
+        },
+        resetStaleSchedulesFn: async () => ({ resetCount: 0 }),
+        scheduleCronFn: fakeCron
+      });
+      assert.strictEqual(stateResult.isRunning, false);
+      assert.strictEqual(cronCalls, 0);
+
+      // 4d. Settings enabled=true -> starts cron cleanly (mocked cron so no live background timer remains)
+      const startedOnEnabled = await initScraperScheduler({
+        getSchedulerSettingsFn: async () => ({ ...getDefaultSchedulerSettings(), enabled: true, scope: 'all' }),
+        resetStaleSchedulesFn: async () => ({ resetCount: 0 }),
+        scheduleCronFn: fakeCron
+      });
+      assert.strictEqual(startedOnEnabled, true);
+      assert.strictEqual(cronCalls, 1);
+    } finally {
+      stopScraperScheduler();
+    }
+  });
+
+  await runTest('STEP-8.4-B Case 5 [Mocked]: runSchedulerTick aborts cleanly with 0 executions on authoritative read failures and rejects unknown scope', async () => {
+    let execCalls = 0;
+    const mockExecute = (async () => {
+      execCalls++;
+      return { totalFound: 1, totalDuplicates: 0 };
+    }) as any;
+
+    const dueSource = {
+      id: 'due-src-1',
+      name: 'Due Source',
+      url: 'https://due.gov.pk/jobs',
+      status: 'Active Scheduled',
+      interval: '1h',
+      nextRunAt: new Date(Date.now() - 60_000).toISOString()
+    };
+
+    // 5a. Authoritative settings read error aborts tick cleanly
+    const resSettingsErr = await runSchedulerTick({
+      isScraperEnabledFn: () => true,
+      getSchedulerSettingsFn: async () => {
+        throw new Error('Settings DB timeout');
+      },
+      executeScraperFn: mockExecute
+    });
+    assert.strictEqual(resSettingsErr.aborted, true);
+    assert.deepStrictEqual(resSettingsErr.triggeredSources, []);
+    assert.ok(String(resSettingsErr.error || '').includes('Settings DB timeout'));
+    assert.strictEqual(execCalls, 0);
+
+    // 5b. Authoritative configs read error aborts tick cleanly
+    const resConfigsErr = await runSchedulerTick({
+      isScraperEnabledFn: () => true,
+      getSchedulerSettingsFn: async () => ({ ...getDefaultSchedulerSettings(), enabled: true, scope: 'all' }),
+      getConfigsFn: async () => {
+        throw new Error('Configs collection unreachable');
+      },
+      executeScraperFn: mockExecute
+    });
+    assert.strictEqual(resConfigsErr.aborted, true);
+    assert.deepStrictEqual(resConfigsErr.triggeredSources, []);
+    assert.ok(String(resConfigsErr.error || '').includes('Configs collection unreachable'));
+    assert.strictEqual(execCalls, 0);
+
+    // 5c. scope='group' with getGroups() failure aborts tick cleanly
+    const resGroupsErr = await runSchedulerTick({
+      isScraperEnabledFn: () => true,
+      getSchedulerSettingsFn: async () => ({
+        ...getDefaultSchedulerSettings(),
+        enabled: true,
+        scope: 'group',
+        selectedGroupId: 'grp-1'
+      }),
+      getConfigsFn: async () => [{ ...dueSource }],
+      getGroupsFn: async () => {
+        throw new Error('Groups collection timeout');
+      },
+      executeScraperFn: mockExecute
+    });
+    assert.strictEqual(resGroupsErr.aborted, true);
+    assert.deepStrictEqual(resGroupsErr.triggeredSources, []);
+    assert.ok(String(resGroupsErr.error || '').includes('Groups collection timeout'));
+    assert.strictEqual(execCalls, 0);
+
+    // 5d. Unknown/invalid scope never falls back to all sources (0 executed)
+    assert.strictEqual(isValidSchedulerScope('unknown_scope'), false);
+    const resUnknownScope = await runSchedulerTick({
+      isScraperEnabledFn: () => true,
+      getSchedulerSettingsFn: async () => ({
+        ...getDefaultSchedulerSettings(),
+        enabled: true,
+        scope: 'unknown_scope' as any
+      }),
+      getConfigsFn: async () => [{ ...dueSource }],
+      executeScraperFn: mockExecute
+    });
+    assert.strictEqual(resUnknownScope.aborted, undefined);
+    assert.deepStrictEqual(resUnknownScope.triggeredSources, []);
+    assert.strictEqual(execCalls, 0, 'Unknown scope must execute 0 sources');
+
+    // 5e. Valid scope='single' with due source executes normally when all reads succeed
+    const resValid = await runSchedulerTick({
+      isScraperEnabledFn: () => true,
+      getSchedulerSettingsFn: async () => ({
+        ...getDefaultSchedulerSettings(),
+        enabled: true,
+        scope: 'single',
+        singleSourceId: 'due-src-1'
+      }),
+      getConfigsFn: async () => [{ ...dueSource }],
+      updateSourceScheduleFn: async () => true,
+      executeScraperFn: mockExecute
+    });
+    assert.deepStrictEqual(resValid.triggeredSources, ['due-src-1']);
+    assert.strictEqual(execCalls, 1);
+  });
+
+  await runTest('STEP-8.4-B Case 6 [Mocked]: ScraperRepository group methods enforce fail-closed reads and confirmed writes without corrupting cachedGroups', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevGroups = Array.isArray(repoAny.cachedGroups) ? repoAny.cachedGroups.map((g: any) => ({ ...g, sourceIds: [...(g.sourceIds || [])] })) : [];
+
+    repoAny.cachedGroups = [
+      { id: 'grp-cached-1', name: 'Cached Group', description: 'Original', sourceIds: ['s1'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }
+    ];
+
+    try {
+      // 6a. getGroups DB failure must propagate instead of returning cachedGroups
+      await assert.rejects(
+        () => ScraperRepository.getGroups({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ toArray: async () => { throw new Error('Groups read failure'); } }) })
+          })
+        }),
+        /Groups read failure/i
+      );
+
+      // 6b. getGroups confirmed empty seeds defaults & rejects unacked seed
+      await assert.rejects(
+        () => ScraperRepository.getGroups({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+            insertMany: async () => ({ acknowledged: false, insertedCount: 0 })
+          })
+        }),
+        /not explicitly acknowledged/i
+      );
+      assert.strictEqual(repoAny.cachedGroups.length, 1);
+      assert.strictEqual(repoAny.cachedGroups[0].id, 'grp-cached-1');
+
+      // 6c. createGroup rejects unacked insertOne or error and does NOT push to cachedGroups
+      await assert.rejects(
+        () => ScraperRepository.createGroup(
+          { name: 'Unacked Group', sourceIds: ['s2'] },
+          {
+            isMongoConfiguredFn: () => true,
+            getCollectionFn: async () => ({
+              insertOne: async () => ({ acknowledged: false })
+            })
+          }
+        ),
+        /not acknowledged/i
+      );
+      assert.strictEqual(repoAny.cachedGroups.length, 1);
+
+      // Confirmed createGroup updates cachedGroups
+      const created = await ScraperRepository.createGroup(
+        { name: 'Confirmed Group', sourceIds: ['s2'] },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            insertOne: async () => ({ acknowledged: true, insertedId: 'obj-1' })
+          })
+        }
+      );
+      assert.strictEqual(created.name, 'Confirmed Group');
+      assert.strictEqual(repoAny.cachedGroups.length, 2);
+
+      // 6d. updateGroup / addSourcesToGroup / removeSourcesFromGroup propagate errors and do not mutate cachedGroups
+      await assert.rejects(
+        () => ScraperRepository.updateGroup(
+          'grp-cached-1',
+          { name: 'Tampered Name' },
+          {
+            isMongoConfiguredFn: () => true,
+            getCollectionFn: async () => ({
+              findOneAndUpdate: async () => {
+                throw new Error('updateGroup failed');
+              }
+            })
+          }
+        ),
+        /updateGroup failed/i
+      );
+      assert.strictEqual(repoAny.cachedGroups[0].name, 'Cached Group', 'updateGroup error must not mutate cache');
+
+      // Null result from MongoDB findOneAndUpdate returns null without falling back to memory cache mutation
+      const missingUpd = await ScraperRepository.updateGroup(
+        'grp-cached-1',
+        { name: 'Should Not Apply' },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            findOneAndUpdate: async () => null
+          })
+        }
+      );
+      assert.strictEqual(missingUpd, null);
+      assert.strictEqual(repoAny.cachedGroups[0].name, 'Cached Group');
+
+      await assert.rejects(
+        () => ScraperRepository.addSourcesToGroup(
+          'grp-cached-1',
+          ['s99'],
+          {
+            isMongoConfiguredFn: () => true,
+            getCollectionFn: async () => ({
+              findOneAndUpdate: async () => {
+                throw new Error('addSources error');
+              }
+            })
+          }
+        ),
+        /addSources error/i
+      );
+      assert.deepStrictEqual(repoAny.cachedGroups[0].sourceIds, ['s1']);
+
+      await assert.rejects(
+        () => ScraperRepository.removeSourcesFromGroup(
+          'grp-cached-1',
+          ['s1'],
+          {
+            isMongoConfiguredFn: () => true,
+            getCollectionFn: async () => ({
+              findOneAndUpdate: async () => {
+                throw new Error('removeSources error');
+              }
+            })
+          }
+        ),
+        /removeSources error/i
+      );
+      assert.deepStrictEqual(repoAny.cachedGroups[0].sourceIds, ['s1']);
+
+      // 6e. deleteGroup rejects unacked write & does NOT remove from cachedGroups; confirmed delete updates cache
+      await assert.rejects(
+        () => ScraperRepository.deleteGroup('grp-cached-1', {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            deleteOne: async () => ({ acknowledged: false, deletedCount: 1 })
+          })
+        }),
+        /not acknowledged/i
+      );
+      assert.strictEqual(repoAny.cachedGroups.length, 2);
+
+      const deletedConfirmed = await ScraperRepository.deleteGroup('grp-cached-1', {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          deleteOne: async () => ({ acknowledged: true, deletedCount: 1 })
+        })
+      });
+      assert.strictEqual(deletedConfirmed, true);
+      assert.strictEqual(repoAny.cachedGroups.some((g: any) => g.id === 'grp-cached-1'), false);
+
+      // 6f. Memory-only group mode preserves existing behavior cleanly
+      const memAdded = await ScraperRepository.createGroup(
+        { name: 'Mem Only Group', sourceIds: ['m1'] },
+        { isMongoConfiguredFn: () => false }
+      );
+      const memUpdated = await ScraperRepository.addSourcesToGroup(memAdded.id, ['m2'], { isMongoConfiguredFn: () => false });
+      assert.deepStrictEqual(memUpdated?.sourceIds, ['m1', 'm2']);
+    } finally {
+      repoAny.cachedGroups = prevGroups;
+    }
+  });
+
+  await runTest('STEP-8.4-B Case 7 [Mocked]: ScraperRepository.getRuns clears stale cachedRuns on empty DB and propagates errors; addRun never throws and skips cache on failed/unacked writes', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevRuns = Array.isArray(repoAny.cachedRuns) ? [...repoAny.cachedRuns] : [];
+    repoAny.cachedRuns = [{ id: 'stale-run-1', totalFound: 5 }];
+
+    try {
+      // 7a. DB read error propagates instead of serving stale cachedRuns
+      await assert.rejects(
+        () => ScraperRepository.getRuns({
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            find: () => ({ sort: () => ({ limit: () => ({ toArray: async () => { throw new Error('Runs read error'); } }) }) })
+          })
+        }),
+        /Runs read error/i
+      );
+      assert.strictEqual(repoAny.cachedRuns.length, 1);
+
+      // 7b. Confirmed empty DB result [] clears stale cachedRuns and returns []
+      const emptyRuns = await ScraperRepository.getRuns({
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          find: () => ({ sort: () => ({ limit: () => ({ toArray: async () => [] }) }) })
+        })
+      });
+      assert.deepStrictEqual(emptyRuns, []);
+      assert.deepStrictEqual(repoAny.cachedRuns, [], 'Confirmed empty runs query must clear stale cachedRuns');
+
+      // 7c. addRun on Mongo exception must NOT throw (protects caller after jobs saved) and must skip cachedRuns
+      const failedRun = await ScraperRepository.addRun(
+        { id: 'run-fail-1', totalFound: 3 },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            insertOne: async () => {
+              throw new Error('insertOne failed');
+            }
+          })
+        }
+      );
+      assert.strictEqual(failedRun.isPersistedToMongo, false);
+      assert.ok(String(failedRun.persistenceError).includes('insertOne failed'));
+      assert.strictEqual(repoAny.cachedRuns.length, 0, 'Failed addRun must NOT add unpersisted run to cachedRuns');
+
+      // 7d. addRun on unacknowledged write must NOT throw and must skip cachedRuns
+      const unackedRun = await ScraperRepository.addRun(
+        { id: 'run-unacked-1', totalFound: 4 },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            insertOne: async () => ({ acknowledged: false })
+          })
+        }
+      );
+      assert.strictEqual(unackedRun.isPersistedToMongo, false);
+      assert.strictEqual(repoAny.cachedRuns.length, 0);
+
+      // 7e. addRun on confirmed acknowledged=true updates cachedRuns and returns isPersistedToMongo=true
+      const okRun = await ScraperRepository.addRun(
+        { id: 'run-ok-1', totalFound: 7 },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            insertOne: async () => ({ acknowledged: true, insertedId: 'r-1' })
+          })
+        }
+      );
+      assert.strictEqual(okRun.isPersistedToMongo, true);
+      assert.strictEqual(repoAny.cachedRuns.length, 1);
+      assert.strictEqual(repoAny.cachedRuns[0].id, 'run-ok-1');
+
+      // 7f. Memory-only addRun updates cachedRuns cleanly with isPersistedToMongo=false
+      const memRun = await ScraperRepository.addRun(
+        { id: 'run-mem-1', totalFound: 2 },
+        { isMongoConfiguredFn: () => false }
+      );
+      assert.strictEqual(memRun.isPersistedToMongo, false);
+      assert.strictEqual(repoAny.cachedRuns[0].id, 'run-mem-1');
+    } finally {
+      repoAny.cachedRuns = prevRuns;
+    }
+  });
+
+  await runTest('STEP-8.4-B Case 8 [Mocked]: updateSourceSchedule and runSchedulerTick update schedule state only after confirmed acknowledged=true and matchedCount>0', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevSources = Array.isArray(repoAny.cachedSources) ? repoAny.cachedSources.map((s: any) => ({ ...s })) : [];
+    const testId = 'step-84b-sched-test';
+    repoAny.cachedSources = [
+      { id: testId, name: 'Schedule Test Portal', url: 'https://sched.gov.pk', status: 'Active Scheduled', nextRunAt: '2026-11-17T00:00:00.000Z' }
+    ];
+
+    try {
+      // 8a. DB exception -> returns false, cache untouched
+      const okOnErr = await ScraperRepository.updateSourceSchedule(
+        testId,
+        { nextRunAt: '2026-11-19T00:00:00.000Z' },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            updateOne: async () => {
+              throw new Error('Schedule write error');
+            }
+          })
+        }
+      );
+      assert.strictEqual(okOnErr, false);
+      assert.strictEqual(repoAny.cachedSources[0].nextRunAt, '2026-11-17T00:00:00.000Z');
+
+      // 8b. Unacknowledged or 0 matchedCount -> returns false, cache untouched
+      const okOnUnacked = await ScraperRepository.updateSourceSchedule(
+        testId,
+        { nextRunAt: '2026-11-19T00:00:00.000Z' },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({ updateOne: async () => ({ acknowledged: false, matchedCount: 1 }) })
+        }
+      );
+      assert.strictEqual(okOnUnacked, false);
+      assert.strictEqual(repoAny.cachedSources[0].nextRunAt, '2026-11-17T00:00:00.000Z');
+
+      const okOnZeroMatch = await ScraperRepository.updateSourceSchedule(
+        testId,
+        { nextRunAt: '2026-11-19T00:00:00.000Z' },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({ updateOne: async () => ({ acknowledged: true, matchedCount: 0 }) })
+        }
+      );
+      assert.strictEqual(okOnZeroMatch, false);
+      assert.strictEqual(repoAny.cachedSources[0].nextRunAt, '2026-11-17T00:00:00.000Z');
+
+      // 8c. Confirmed write -> returns true, cache updated
+      const okConfirmed = await ScraperRepository.updateSourceSchedule(
+        testId,
+        { nextRunAt: '2026-11-18T12:00:00.000Z', lastRunAt: '2026-11-18T00:00:00.000Z' },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({ updateOne: async () => ({ acknowledged: true, matchedCount: 1 }) })
+        }
+      );
+      assert.strictEqual(okConfirmed, true);
+      assert.strictEqual(repoAny.cachedSources[0].nextRunAt, '2026-11-18T12:00:00.000Z');
+      assert.strictEqual(repoAny.cachedSources[0].lastRunAt, '2026-11-18T00:00:00.000Z');
+
+      // 8d. runSchedulerTick preserves runtime source schedule fields untouched if updateSourceSchedule returns false
+      const runtimeSource = {
+        id: 'rt-1',
+        name: 'Runtime Source',
+        url: 'https://rt.gov.pk',
+        status: 'Active Scheduled',
+        interval: '1h',
+        nextRunAt: '2026-11-17T00:00:00.000Z',
+        lastRunAt: '2026-11-16T00:00:00.000Z'
+      };
+      await runSchedulerTick({
+        isScraperEnabledFn: () => true,
+        getSchedulerSettingsFn: async () => ({ ...getDefaultSchedulerSettings(), enabled: true, scope: 'all' }),
+        getConfigsFn: async () => [runtimeSource],
+        executeScraperFn: (async () => ({ totalFound: 1, totalDuplicates: 0 })) as any,
+        updateSourceScheduleFn: async () => false
+      });
+      assert.strictEqual(runtimeSource.nextRunAt, '2026-11-17T00:00:00.000Z', 'Unpersisted schedule write must not mutate source.nextRunAt');
+      assert.strictEqual(runtimeSource.lastRunAt, '2026-11-16T00:00:00.000Z', 'Unpersisted schedule write must not mutate source.lastRunAt');
+    } finally {
+      repoAny.cachedSources = prevSources;
+    }
+  });
+
+  await runTest('STEP-8.4-B Case 9 [Mocked]: ScraperRepository.saveConfigs requires acknowledged=true with match/upsert > 0 and preserves cache and partial-error format on failure', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevSources = Array.isArray(repoAny.cachedSources) ? repoAny.cachedSources.map((s: any) => ({ ...s })) : [];
+    const baseline = [{ id: 'base-1', name: 'Baseline', url: 'https://base.gov.pk' }];
+    repoAny.cachedSources = baseline;
+
+    try {
+      const nextConfigs = [
+        { id: 'cfg-1', name: 'Config One', url: 'https://one.gov.pk' },
+        { id: 'cfg-2', name: 'Config Two', url: 'https://two.gov.pk' }
+      ];
+
+      // 9a. Missing result or missing/false acknowledged rejected
+      await assert.rejects(
+        () => ScraperRepository.saveConfigs(nextConfigs, {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({ replaceOne: async () => undefined })
+        }),
+        /not confirmed/i
+      );
+      await assert.rejects(
+        () => ScraperRepository.saveConfigs(nextConfigs, {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({ replaceOne: async () => ({ matchedCount: 1 }) })
+        }),
+        /not confirmed/i
+      );
+      await assert.rejects(
+        () => ScraperRepository.saveConfigs(nextConfigs, {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({ replaceOne: async () => ({ acknowledged: false, matchedCount: 1 }) })
+        }),
+        /not confirmed/i
+      );
+
+      // 9b. Zero matchedCount & zero upsertedCount rejected even with acknowledged=true
+      await assert.rejects(
+        () => ScraperRepository.saveConfigs(nextConfigs, {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({ replaceOne: async () => ({ acknowledged: true, matchedCount: 0, upsertedCount: 0 }) })
+        }),
+        /not confirmed/i
+      );
+      assert.strictEqual(repoAny.cachedSources[0].id, 'base-1', 'Failed saveConfigs must leave cachedSources intact');
+
+      // 9c. Partial persistence failure preserves exact error format and retains previous cache
+      let callCount = 0;
+      await assert.rejects(
+        () => ScraperRepository.saveConfigs(nextConfigs, {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            replaceOne: async () => {
+              callCount++;
+              if (callCount === 1) return { acknowledged: true, matchedCount: 1, upsertedCount: 0 };
+              return { acknowledged: true, matchedCount: 0, upsertedCount: 0 };
+            }
+          })
+        }),
+        /Partial persistence failure: persisted 1\/2 sources before error on source "cfg-2"/
+      );
+      assert.strictEqual(repoAny.cachedSources[0].id, 'base-1');
+
+      // 9d. All valid configs confirmed (match or upsert) -> updates cachedSources
+      await ScraperRepository.saveConfigs(nextConfigs, {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          replaceOne: async (filter: any) =>
+            filter.id === 'cfg-1'
+              ? { acknowledged: true, matchedCount: 1, upsertedCount: 0 }
+              : { acknowledged: true, matchedCount: 0, upsertedCount: 1 }
+        })
+      });
+      assert.strictEqual(repoAny.cachedSources.length, 2);
+      assert.strictEqual(repoAny.cachedSources[1].id, 'cfg-2');
+    } finally {
+      repoAny.cachedSources = prevSources;
+    }
   });
 
 

@@ -58,7 +58,8 @@ export function isValidSchedulerScope(scope: any): scope is ScraperSchedulerSett
  */
 async function resolveScopedSourceIds(
   settings: ScraperSchedulerSettings,
-  allSources: any[]
+  allSources: any[],
+  getGroupsFn: () => Promise<any[]> = () => ScraperRepository.getGroups()
 ): Promise<Set<string> | null> {
   const scope = settings.scope;
 
@@ -86,7 +87,7 @@ async function resolveScopedSourceIds(
       console.warn('[Scheduler Engine] Scope is "group" but no groupId is configured. Running 0 sources.');
       return new Set<string>();
     }
-    const groups = await ScraperRepository.getGroups();
+    const groups = await getGroupsFn();
     const targetGroup = groups.find(g => g.id === settings.selectedGroupId);
     if (!targetGroup || !Array.isArray(targetGroup.sourceIds) || targetGroup.sourceIds.length === 0) {
       console.warn(`[Scheduler Engine] Group "${settings.selectedGroupId}" not found or has 0 sources. Running 0 sources.`);
@@ -122,10 +123,30 @@ async function resolveScopedSourceIds(
   return new Set<string>();
 }
 
+export interface SchedulerRuntimeDeps {
+  getSchedulerSettingsFn?: () => Promise<ScraperSchedulerSettings>;
+  saveSchedulerSettingsFn?: (settings: Partial<ScraperSchedulerSettings>) => Promise<ScraperSchedulerSettings>;
+  getConfigsFn?: () => Promise<any[]>;
+  getGroupsFn?: () => Promise<any[]>;
+  updateSourceScheduleFn?: (
+    sourceId: string,
+    schedule: { lastRunAt?: string; lastCompletedAt?: string; nextRunAt?: string }
+  ) => Promise<boolean>;
+  executeScraperFn?: typeof executeScraperWithWizard;
+  isScraperEnabledFn?: () => boolean;
+  isAutoApproveEnabledFn?: () => boolean;
+  scheduleCronFn?: typeof cron.schedule;
+  resetStaleSchedulesFn?: () => Promise<{ resetCount: number }>;
+}
+
 /**
  * Executes a scheduler tick: checks individual source intervals and triggers scraping for due sources within the configured scope.
+ * Fail-closed: if authoritative settings, configs, or groups (when scope === 'group') fail to load,
+ * aborts the tick immediately with 0 sources executed and returns a visible aborted/error diagnostic.
  */
-export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; summary: any }> {
+export async function runSchedulerTick(
+  _deps?: SchedulerRuntimeDeps
+): Promise<{ triggeredSources: string[]; aborted?: boolean; error?: string; summary: any }> {
   if (isTickExecuting) {
     console.log('[Scheduler Engine] Previous tick still executing. Skipping tick.');
     return { triggeredSources: [], summary: 'Concurrent tick avoided' };
@@ -135,20 +156,48 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
   lastTickTime = new Date().toISOString();
   const triggered: string[] = [];
 
+  const isScraperEnabled = _deps?.isScraperEnabledFn ? _deps.isScraperEnabledFn() : featureFlags.enableWebScraper;
+  const isAutoApproveEnabled = _deps?.isAutoApproveEnabledFn
+    ? _deps.isAutoApproveEnabledFn()
+    : featureFlags.enableScraperAutoApprove;
+  const getSettingsFn = _deps?.getSchedulerSettingsFn || (() => ScraperRepository.getSchedulerSettings());
+  const getConfigsFn = _deps?.getConfigsFn || (() => ScraperRepository.getConfigs());
+  const getGroupsFn = _deps?.getGroupsFn || (() => ScraperRepository.getGroups());
+  const updateScheduleFn =
+    _deps?.updateSourceScheduleFn ||
+    ((sourceId, schedule) => ScraperRepository.updateSourceSchedule(sourceId, schedule));
+  const executeFn = _deps?.executeScraperFn || executeScraperWithWizard;
+
   try {
-    if (!featureFlags.enableWebScraper) {
+    if (!isScraperEnabled) {
       console.log('[Scheduler Engine] Web scraper is disabled by feature flag.');
       return { triggeredSources: [], summary: 'Web scraper disabled by feature flag' };
     }
 
-    const settings = await ScraperRepository.getSchedulerSettings();
-    if (!settings.enabled) {
-      console.log('[Scheduler Engine] Scheduler is paused in settings. Skipping tick.');
-      return { triggeredSources: [], summary: 'Scheduler paused in settings' };
+    let settings: ScraperSchedulerSettings;
+    let sources: any[];
+    let scopedSourceIds: Set<string> | null;
+
+    try {
+      settings = await getSettingsFn();
+      if (!settings.enabled) {
+        console.log('[Scheduler Engine] Scheduler is paused in settings. Skipping tick.');
+        return { triggeredSources: [], summary: 'Scheduler paused in settings' };
+      }
+
+      sources = await getConfigsFn();
+      scopedSourceIds = await resolveScopedSourceIds(settings, sources, getGroupsFn);
+    } catch (authErr: any) {
+      const errorMsg = authErr?.message || String(authErr);
+      console.error(`[Scheduler Engine] Aborting scheduler tick due to authoritative DB read failure: ${errorMsg}`);
+      return {
+        triggeredSources: [],
+        aborted: true,
+        error: errorMsg,
+        summary: `Scheduler tick aborted cleanly (authoritative read failure): ${errorMsg}`
+      };
     }
 
-    const sources = await ScraperRepository.getConfigs();
-    const scopedSourceIds = await resolveScopedSourceIds(settings, sources);
     const now = Date.now();
 
     for (const src of sources) {
@@ -171,8 +220,10 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
         if (!nextRunMs || isNaN(nextRunMs)) {
           nextRunMs = now + intervalMs;
           const nextRunAt = new Date(nextRunMs).toISOString();
-          src.nextRunAt = nextRunAt;
-          await ScraperRepository.updateSourceSchedule(src.id, { nextRunAt });
+          const persisted = await updateScheduleFn(src.id, { nextRunAt });
+          if (persisted) {
+            src.nextRunAt = nextRunAt;
+          }
           continue;
         }
 
@@ -193,12 +244,12 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
             const validStartPage = Math.max(1, Number(settings.startPage) || 1);
             const validEndPage = Math.max(validStartPage, Number(settings.endPage) || validStartPage);
 
-            const runResult = await executeScraperWithWizard({
+            const runResult = await executeFn({
               mode: scheduledMode,
               sourceId: src.id,
               startPage: scheduledMode === 'page_range' ? validStartPage : undefined,
               endPage: scheduledMode === 'page_range' ? validEndPage : undefined,
-              autoPublishTrusted: (settings.autoApprove ?? src.autoApprove) && featureFlags.enableScraperAutoApprove,
+              autoPublishTrusted: (settings.autoApprove ?? src.autoApprove) && isAutoApproveEnabled,
               duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with'
             });
 
@@ -207,21 +258,22 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
             console.log(`[Scheduler Engine] Source "${src.name}" execution notice: ${srcErr?.message || srcErr}. Scheduler continuing with other due sources.`);
           }
 
-          // Schedule next run regardless of single source outcome
+          // Schedule next run regardless of single source outcome, mutating source runtime object only if persisted
           const completedNow = new Date();
           const lastRunAt = completedNow.toISOString();
           const lastCompletedAt = completedNow.toISOString();
           const nextRunAt = new Date(completedNow.getTime() + intervalMs).toISOString();
 
-          src.lastRunAt = lastRunAt;
-          src.lastCompletedAt = lastCompletedAt;
-          src.nextRunAt = nextRunAt;
-
-          await ScraperRepository.updateSourceSchedule(src.id, {
+          const persisted = await updateScheduleFn(src.id, {
             lastRunAt,
             lastCompletedAt,
             nextRunAt
           });
+          if (persisted) {
+            src.lastRunAt = lastRunAt;
+            src.lastCompletedAt = lastCompletedAt;
+            src.nextRunAt = nextRunAt;
+          }
         }
       } catch (sourceLoopErr: any) {
         console.warn(`[Scheduler Engine] Notice processing source "${src.name}" during tick:`, sourceLoopErr?.message || sourceLoopErr);
@@ -238,56 +290,78 @@ export async function runSchedulerTick(): Promise<{ triggeredSources: string[]; 
 }
 
 /**
+ * Stops the background cron scheduler task if active (used by shutdown or tests).
+ */
+export function stopScraperScheduler(): void {
+  if (scheduledTask) {
+    scheduledTask.stop();
+    scheduledTask = null;
+  }
+}
+
+/**
  * Initializes the dynamic cron scheduler.
  * Ticks every 2 minutes to check configured intervals for all sources.
+ * Fail-closed: refuses to call cron.schedule if reading authoritative scheduler settings fails.
  */
-export function initScraperScheduler(): void {
+export async function initScraperScheduler(_deps?: SchedulerRuntimeDeps): Promise<boolean> {
   if (scheduledTask) {
     scheduledTask.stop();
     scheduledTask = null;
   }
 
-  // Safely reset any stale schedule states on boot
-  if (typeof (ScraperRepository as any)?.resetStaleSchedules === 'function') {
-    (ScraperRepository as any).resetStaleSchedules().catch((err: any) => {
+  const resetFn =
+    _deps?.resetStaleSchedulesFn ||
+    (typeof (ScraperRepository as any)?.resetStaleSchedules === 'function'
+      ? () => (ScraperRepository as any).resetStaleSchedules()
+      : null);
+
+  if (resetFn) {
+    resetFn().catch((err: any) => {
       console.log('[Scheduler Engine] resetStaleSchedules notice:', err?.message || err);
     });
   }
 
-  // Read saved settings to decide whether to activate
-  ScraperRepository.getSchedulerSettings().then(settings => {
+  const getSettingsFn = _deps?.getSchedulerSettingsFn || (() => ScraperRepository.getSchedulerSettings());
+  const scheduleFn = _deps?.scheduleCronFn || cron.schedule;
+
+  try {
+    const settings = await getSettingsFn();
     if (!settings.enabled) {
       console.log('⏱️ [Scheduler Engine] Scraper scheduler is currently paused per database settings.');
-      return;
+      return false;
     }
 
-    scheduledTask = cron.schedule('*/2 * * * *', async () => {
+    scheduledTask = scheduleFn('*/2 * * * *', async () => {
       try {
-        await runSchedulerTick();
+        await runSchedulerTick(_deps);
       } catch (err: any) {
         console.log('[Scheduler Engine] Scheduler tick notice:', err?.message || err);
       }
     });
     console.log(`⏱️ [Scheduler Engine] Dynamic interval-aware scraper scheduler initialized (tick: */2 * * * *, scope: ${settings.scope || 'all'}).`);
-  }).catch(err => {
-    console.warn('[Scheduler Engine] Notice reading scheduler settings on boot:', err?.message || err);
-    scheduledTask = cron.schedule('*/2 * * * *', async () => {
-      try {
-        await runSchedulerTick();
-      } catch (tickErr: any) {
-        console.log('[Scheduler Engine] Scheduler tick notice:', tickErr?.message || tickErr);
-      }
-    });
-  });
+    return true;
+  } catch (err: any) {
+    scheduledTask = null;
+    console.error(
+      '[Scheduler Engine] Refusing to start background cron scheduler because authoritative scheduler settings could not be loaded:',
+      err?.message || err
+    );
+    return false;
+  }
 }
 
 /**
  * Returns the current runtime status of the scheduler and all configured sources.
  */
-export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
-  const sources = await ScraperRepository.getConfigs();
-  const settings = await ScraperRepository.getSchedulerSettings();
-  const scopedSourceIds = await resolveScopedSourceIds(settings, sources);
+export async function getSchedulerStatus(_deps?: SchedulerRuntimeDeps): Promise<SchedulerStatusResponse> {
+  const getConfigsFn = _deps?.getConfigsFn || (() => ScraperRepository.getConfigs());
+  const getSettingsFn = _deps?.getSchedulerSettingsFn || (() => ScraperRepository.getSchedulerSettings());
+  const getGroupsFn = _deps?.getGroupsFn || (() => ScraperRepository.getGroups());
+
+  const sources = await getConfigsFn();
+  const settings = await getSettingsFn();
+  const scopedSourceIds = await resolveScopedSourceIds(settings, sources, getGroupsFn);
   const now = Date.now();
 
   const sourceStatuses: SchedulerSourceStatus[] = sources.map(src => {
@@ -330,26 +404,32 @@ export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
 /**
  * Enables or pauses the global scraper scheduler runtime.
  */
-export async function setGlobalSchedulerState(enabled: boolean): Promise<{ isRunning: boolean; isPersistedToMongo: boolean; message: string }> {
-  const saved = await ScraperRepository.saveSchedulerSettings({ enabled });
+export async function setGlobalSchedulerState(
+  enabled: boolean,
+  _deps?: SchedulerRuntimeDeps
+): Promise<{ isRunning: boolean; isPersistedToMongo: boolean; message: string }> {
+  const saveSettingsFn =
+    _deps?.saveSchedulerSettingsFn || ((s) => ScraperRepository.saveSchedulerSettings(s));
+
+  const saved = await saveSettingsFn({ enabled });
   const isPersistedToMongo = Boolean((saved as any).isPersistedToMongo);
 
   if (enabled) {
     if (!scheduledTask) {
-      initScraperScheduler();
+      await initScraperScheduler(_deps);
     }
+    const isRunning = scheduledTask !== null;
     return {
-      isRunning: true,
+      isRunning,
       isPersistedToMongo,
-      message: isPersistedToMongo
-        ? 'Global scraper scheduler enabled and saved to MongoDB.'
-        : 'Global scraper scheduler enabled in memory cache (MongoDB not configured).'
+      message: isRunning
+        ? isPersistedToMongo
+          ? 'Global scraper scheduler enabled and saved to MongoDB.'
+          : 'Global scraper scheduler enabled in memory cache (MongoDB not configured).'
+        : 'Global scraper scheduler settings saved, but cron failed to start because authoritative settings could not be confirmed.'
     };
   } else {
-    if (scheduledTask) {
-      scheduledTask.stop();
-      scheduledTask = null;
-    }
+    stopScraperScheduler();
     return {
       isRunning: false,
       isPersistedToMongo,

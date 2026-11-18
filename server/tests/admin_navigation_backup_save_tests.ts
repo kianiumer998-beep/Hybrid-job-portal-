@@ -4647,7 +4647,7 @@ async function runSuite() {
     );
   });
 
-  await runTest('STEP-8.4-A Case 3 [Mocked]: ScraperRepository.updateSourceStats only mutates cached stats on confirmed Mongo writes or memory-only mode', async () => {
+  await runTest('STEP-8.4-A1 [Mocked]: ScraperRepository.updateSourceStats requires explicit acknowledged=true and matchedCount>0 before mutating cached stats', async () => {
     const configs = await ScraperRepository.getConfigs();
     const testId = 'step-84a-repo-cache-test';
     const baseRecord = {
@@ -4657,10 +4657,12 @@ async function runSuite() {
       status: 'Active Scheduled',
       healthStatus: 'healthy',
       scrapedCount: 0,
+      lastStartedAt: '2026-11-17T00:00:00.000Z',
+      lastCompletedAt: '2026-11-17T00:05:00.000Z',
       lastSuccessfulScrapeAt: undefined as string | undefined,
-      lastCompletedAt: undefined as string | undefined,
-      lastRunId: undefined as string | undefined,
-      lastErrorMessage: 'stale error'
+      lastRunId: 'RUN-BASE',
+      lastErrorMessage: 'stale error',
+      lastHttpStatus: 200
     };
     const existingIdx = configs.findIndex(s => s.id === testId);
     if (existingIdx !== -1) configs.splice(existingIdx, 1);
@@ -4668,82 +4670,97 @@ async function runSuite() {
 
     try {
       const target = () => configs.find(s => s.id === testId)!;
+      const assertUnchangedBaseline = (label: string) => {
+        const current = target();
+        assert.strictEqual(current.scrapedCount, 0, `${label}: scrapedCount must remain unchanged`);
+        assert.strictEqual(current.healthStatus, 'healthy', `${label}: healthStatus must remain unchanged`);
+        assert.strictEqual(current.lastStartedAt, '2026-11-17T00:00:00.000Z', `${label}: lastStartedAt must remain unchanged`);
+        assert.strictEqual(current.lastCompletedAt, '2026-11-17T00:05:00.000Z', `${label}: lastCompletedAt must remain unchanged`);
+        assert.strictEqual(current.lastSuccessfulScrapeAt, undefined, `${label}: lastSuccessfulScrapeAt must remain unchanged`);
+        assert.strictEqual(current.lastRunId, 'RUN-BASE', `${label}: lastRunId must remain unchanged`);
+        assert.strictEqual(current.lastErrorMessage, 'stale error', `${label}: lastErrorMessage must remain unchanged`);
+        assert.strictEqual(current.lastHttpStatus, 200, `${label}: lastHttpStatus must remain unchanged`);
+      };
 
-      // 1. Configured Mongo + failed write -> zero cached mutations
+      const attemptedStats = {
+        lastStartedAt: '2026-11-18T01:00:00.000Z',
+        lastCompletedAt: '2026-11-18T01:01:00.000Z',
+        lastSuccessfulScrapeAt: '2026-11-18T01:01:00.000Z',
+        lastRunId: 'RUN-ATTEMPT',
+        scrapedCountIncrement: 10,
+        healthStatus: 'Jobs Found',
+        lastErrorMessage: '',
+        lastHttpStatus: 201
+      };
+
+      // 1. MongoDB write exception -> zero cached mutations
+      await ScraperRepository.updateSourceStats(testId, attemptedStats, {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          updateOne: async () => {
+            throw new Error('Mongo write failed');
+          }
+        })
+      });
+      assertUnchangedBaseline('Mongo exception');
+
+      // 2. Missing acknowledged -> zero cached mutations
+      await ScraperRepository.updateSourceStats(testId, attemptedStats, {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          updateOne: async () => ({ matchedCount: 1, modifiedCount: 1 })
+        })
+      });
+      assertUnchangedBaseline('Missing acknowledged');
+
+      // 3. acknowledged: false -> zero cached mutations
+      await ScraperRepository.updateSourceStats(testId, attemptedStats, {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          updateOne: async () => ({ acknowledged: false, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 })
+        })
+      });
+      assertUnchangedBaseline('acknowledged=false');
+
+      // 4. Missing matchedCount -> zero cached mutations
+      await ScraperRepository.updateSourceStats(testId, attemptedStats, {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          updateOne: async () => ({ acknowledged: true, modifiedCount: 1, upsertedCount: 0 })
+        })
+      });
+      assertUnchangedBaseline('Missing matchedCount');
+
+      // 5. matchedCount: 0 with positive modifiedCount -> zero cached mutations
+      await ScraperRepository.updateSourceStats(testId, attemptedStats, {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          updateOne: async () => ({ acknowledged: true, matchedCount: 0, modifiedCount: 1, upsertedCount: 0 })
+        })
+      });
+      assertUnchangedBaseline('matchedCount=0 with modifiedCount=1');
+
+      // 6. matchedCount: 0 with positive upsertedCount -> zero cached mutations
+      await ScraperRepository.updateSourceStats(testId, attemptedStats, {
+        isMongoConfiguredFn: () => true,
+        getCollectionFn: async () => ({
+          updateOne: async () => ({ acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1 })
+        })
+      });
+      assertUnchangedBaseline('matchedCount=0 with upsertedCount=1');
+
+      // 7. Explicit acknowledged: true + matchedCount: 1 -> permits cache updates
       await ScraperRepository.updateSourceStats(
         testId,
         {
-          lastStartedAt: '2026-11-18T01:00:00.000Z',
-          lastCompletedAt: '2026-11-18T01:01:00.000Z',
-          lastSuccessfulScrapeAt: '2026-11-18T01:01:00.000Z',
-          lastRunId: 'RUN-FAIL',
-          scrapedCountIncrement: 10,
-          healthStatus: 'Jobs Found',
-          lastErrorMessage: ''
-        },
-        {
-          isMongoConfiguredFn: () => true,
-          getCollectionFn: async () => ({
-            updateOne: async () => {
-              throw new Error('Mongo write failed');
-            }
-          })
-        }
-      );
-      assert.strictEqual(target().scrapedCount, 0, 'Failed Mongo write must NOT increment cached scrapedCount');
-      assert.strictEqual(target().healthStatus, 'healthy', 'Failed Mongo write must NOT alter cached healthStatus');
-      assert.strictEqual(target().lastSuccessfulScrapeAt, undefined);
-      assert.strictEqual(target().lastCompletedAt, undefined);
-      assert.strictEqual(target().lastErrorMessage, 'stale error');
-
-      // 2. Configured Mongo + zero matched documents -> zero cached mutations
-      await ScraperRepository.updateSourceStats(
-        testId,
-        {
-          lastCompletedAt: '2026-11-18T01:02:00.000Z',
-          lastSuccessfulScrapeAt: '2026-11-18T01:02:00.000Z',
-          scrapedCountIncrement: 5,
-          healthStatus: 'Jobs Found',
-          lastErrorMessage: ''
-        },
-        {
-          isMongoConfiguredFn: () => true,
-          getCollectionFn: async () => ({
-            updateOne: async () => ({ acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 0 })
-          })
-        }
-      );
-      assert.strictEqual(target().scrapedCount, 0);
-      assert.strictEqual(target().healthStatus, 'healthy');
-      assert.strictEqual(target().lastSuccessfulScrapeAt, undefined);
-
-      // 3. Configured Mongo + unacknowledged write -> zero cached mutations
-      await ScraperRepository.updateSourceStats(
-        testId,
-        {
-          scrapedCountIncrement: 5,
-          healthStatus: 'Jobs Found',
-          lastSuccessfulScrapeAt: '2026-11-18T01:02:30.000Z'
-        },
-        {
-          isMongoConfiguredFn: () => true,
-          getCollectionFn: async () => ({
-            updateOne: async () => ({ acknowledged: false, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 })
-          })
-        }
-      );
-      assert.strictEqual(target().scrapedCount, 0);
-      assert.strictEqual(target().healthStatus, 'healthy');
-
-      // 4. Configured Mongo + confirmed matched write -> updates cached stats
-      await ScraperRepository.updateSourceStats(
-        testId,
-        {
-          lastCompletedAt: '2026-11-18T01:03:00.000Z',
-          lastSuccessfulScrapeAt: '2026-11-18T01:03:00.000Z',
+          lastStartedAt: '2026-11-18T01:03:00.000Z',
+          lastCompletedAt: '2026-11-18T01:03:30.000Z',
+          lastSuccessfulScrapeAt: '2026-11-18T01:03:30.000Z',
+          lastRunId: 'RUN-CONFIRMED',
           scrapedCountIncrement: 7,
           healthStatus: 'Jobs Found',
-          lastErrorMessage: ''
+          lastErrorMessage: '',
+          lastHttpStatus: 200
         },
         {
           isMongoConfiguredFn: () => true,
@@ -4754,15 +4771,19 @@ async function runSuite() {
       );
       assert.strictEqual(target().scrapedCount, 7);
       assert.strictEqual(target().healthStatus, 'Jobs Found');
-      assert.strictEqual(target().lastSuccessfulScrapeAt, '2026-11-18T01:03:00.000Z');
+      assert.strictEqual(target().lastStartedAt, '2026-11-18T01:03:00.000Z');
+      assert.strictEqual(target().lastCompletedAt, '2026-11-18T01:03:30.000Z');
+      assert.strictEqual(target().lastSuccessfulScrapeAt, '2026-11-18T01:03:30.000Z');
+      assert.strictEqual(target().lastRunId, 'RUN-CONFIRMED');
       assert.strictEqual(target().lastErrorMessage, '');
 
-      // 5. Memory-only mode preserves cache updates cleanly
+      // 8. Memory-only mode preserves existing cache updates cleanly
       await ScraperRepository.updateSourceStats(
         testId,
         {
           lastCompletedAt: '2026-11-18T01:04:00.000Z',
           lastSuccessfulScrapeAt: '2026-11-18T01:04:00.000Z',
+          lastRunId: 'RUN-MEM',
           scrapedCountIncrement: 3,
           healthStatus: 'Jobs Found',
           lastErrorMessage: ''
@@ -4773,6 +4794,7 @@ async function runSuite() {
       );
       assert.strictEqual(target().scrapedCount, 10);
       assert.strictEqual(target().lastSuccessfulScrapeAt, '2026-11-18T01:04:00.000Z');
+      assert.strictEqual(target().lastRunId, 'RUN-MEM');
     } finally {
       const cleanupIdx = configs.findIndex(s => s.id === testId);
       if (cleanupIdx !== -1) configs.splice(cleanupIdx, 1);

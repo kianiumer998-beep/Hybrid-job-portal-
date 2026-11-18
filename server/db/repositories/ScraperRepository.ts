@@ -385,12 +385,13 @@ export class ScraperRepository {
           const updateResult: any = await withMongoTimeout<any>(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
           if (
             updateResult &&
-            updateResult.acknowledged !== false &&
-            (updateResult.matchedCount > 0 || updateResult.modifiedCount > 0 || updateResult.upsertedCount > 0)
+            updateResult.acknowledged === true &&
+            typeof updateResult.matchedCount === 'number' &&
+            updateResult.matchedCount > 0
           ) {
             mongoWriteSucceeded = true;
           } else {
-            console.warn(`[ScraperRepository] Warning: updateSourceStats matched 0 documents or was unacknowledged in MongoDB for source "${sourceId}". Cache update skipped.`);
+            console.warn(`[ScraperRepository] Warning: updateSourceStats lacked explicit acknowledgement (acknowledged=true) or matched 0 documents in MongoDB for source "${sourceId}". Cache update skipped.`);
           }
         } else {
           mongoWriteSucceeded = true;

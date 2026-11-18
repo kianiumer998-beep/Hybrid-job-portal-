@@ -95,7 +95,8 @@ import {
   SCRAPER_RUN_ALREADY_ACTIVE_CODE
 } from '../services/scraperEngine';
 import { JobRepository } from '../db/repositories/JobRepository';
-import { scraperRouter } from '../routes/scraperRoutes';
+import { scraperRouter, handleSchedulerTickRequest } from '../routes/scraperRoutes';
+import { featureFlags } from '../config/featureFlags';
 import {
   deriveRunStatus,
   buildScraperRunFeedback,
@@ -7023,6 +7024,365 @@ async function runSuite() {
     assert.strictEqual(activeRun.isActive, true);
     assert.strictEqual(resetStatus.type, 'error');
     assert.ok(logs.some(l => l.includes('Reset blocked')));
+  });
+
+  await runTest('STEP-8.4-C2 Case 1 [Mocked]: While execution lock is held before activeRunState initialization, getActiveRunStatus().isActive must be true', async () => {
+    resetActiveRun();
+    assert.strictEqual(getActiveRunStatus().isActive, false);
+
+    let releasePreInit!: () => void;
+    const preInitGate = new Promise<void>(resolve => {
+      releasePreInit = resolve;
+    });
+
+    const runPromise = executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['pre-init-src'] },
+      {
+        getConfigsFn: async () => {
+          await preInitGate;
+          return [];
+        }
+      }
+    );
+
+    try {
+      await new Promise(r => setTimeout(r, 10));
+      const preInitStatus = getActiveRunStatus();
+      assert.strictEqual(isScraperExecutionActive(), true, 'Execution lock must be active while awaiting getConfigsFn');
+      assert.strictEqual(preInitStatus.isActive, true, 'getActiveRunStatus().isActive must be true before activeRunState initialization');
+
+      let conflictErr: any = null;
+      try {
+        await executeScraperWithWizard({ mode: 'complete', sourceIds: ['pre-init-src-2'] }, { getConfigsFn: async () => [] });
+      } catch (err) {
+        conflictErr = err;
+      }
+      assert.ok(conflictErr, 'Concurrent run during pre-init window must reject');
+      assert.strictEqual(isScraperRunConflictError(conflictErr), true);
+      assert.strictEqual(conflictErr.activeRun?.isActive, true, 'Conflict activeRun payload must report isActive=true');
+    } finally {
+      releasePreInit();
+      await runPromise;
+      resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C2 Case 2 [Mocked]: During final history persistence, getActiveRunStatus().isActive remains true while lock is held and preserves run metrics', async () => {
+    resetActiveRun();
+
+    let releaseHistory!: () => void;
+    const historyGate = new Promise<void>(resolve => {
+      releaseHistory = resolve;
+    });
+    let observedDuringHistory: any = null;
+    let persistedRunId: string | undefined;
+
+    const activeGetLayer = (scraperRouter as any).stack.find(
+      (l: any) => l.route && l.route.path === '/active-run' && l.route.methods.get
+    );
+    assert.ok(activeGetLayer);
+    const activeGetHandler = activeGetLayer.route.stack[activeGetLayer.route.stack.length - 1].handle;
+
+    const runPromise = executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['hist-lock-src'] },
+      {
+        getConfigsFn: async () => [
+          { id: 'hist-lock-src', name: 'History Lock Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }
+        ],
+        updateSourceStatsFn: async () => {},
+        scrapePageFn: async () => [],
+        enrichJobsFn: async (jobs) => jobs,
+        auditAddFn: () => {},
+        addRunFn: async (run) => {
+          persistedRunId = run.id;
+          observedDuringHistory = getActiveRunStatus();
+          await historyGate;
+          return { ...run, isPersistedToMongo: false };
+        }
+      }
+    );
+
+    try {
+      await new Promise(r => setTimeout(r, 15));
+      assert.ok(observedDuringHistory, 'addRunFn should have been entered');
+      assert.strictEqual(observedDuringHistory.isActive, true, 'getActiveRunStatus().isActive must remain true during final history persistence');
+      assert.strictEqual(observedDuringHistory.runId, persistedRunId, 'runId must be preserved during final history persistence');
+      assert.strictEqual(observedDuringHistory.completedSources, 1, 'completedSources must be preserved during final history persistence');
+      assert.strictEqual(observedDuringHistory.runProgress, 100, 'runProgress must be preserved during final history persistence');
+
+      let routePayload: any = null;
+      activeGetHandler(
+        { body: {}, params: {} },
+        { json(data: any) { routePayload = data; return this; } },
+        () => {}
+      );
+      assert.strictEqual(routePayload?.activeRun?.isActive, true, 'GET /active-run must report isActive=true during final history persistence');
+
+      let conflictErr: any = null;
+      try {
+        await executeScraperWithWizard({ mode: 'complete', sourceIds: ['hist-lock-src-2'] }, { getConfigsFn: async () => [] });
+      } catch (err) {
+        conflictErr = err;
+      }
+      assert.strictEqual(isScraperRunConflictError(conflictErr), true, 'Lock must still block concurrent runs during final history persistence');
+      assert.strictEqual(conflictErr.activeRun?.isActive, true);
+    } finally {
+      releaseHistory();
+      await runPromise;
+      resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C2 Case 3 [Mocked]: After lock release (completion, early stop, and error exits), getActiveRunStatus().isActive must be false', async () => {
+    resetActiveRun();
+
+    await executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['unlock-ok'] },
+      {
+        getConfigsFn: async () => [
+          { id: 'unlock-ok', name: 'Unlock OK Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }
+        ],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => [],
+        enrichJobsFn: async (jobs) => jobs,
+        auditAddFn: () => {}
+      }
+    );
+    assert.strictEqual(isScraperExecutionActive(), false);
+    assert.strictEqual(getActiveRunStatus().isActive, false, 'Status must be inactive after normal completion');
+
+    await assert.rejects(
+      () =>
+        executeScraperWithWizard(
+          { mode: 'complete', sourceIds: ['unlock-err'] },
+          {
+            getConfigsFn: async () => {
+              throw new Error('Config load failure');
+            }
+          }
+        ),
+      /Config load failure/
+    );
+    assert.strictEqual(isScraperExecutionActive(), false);
+    assert.strictEqual(getActiveRunStatus().isActive, false, 'Status must be inactive after error exit');
+
+    await executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['unlock-stop-1', 'unlock-stop-2'] },
+      {
+        getConfigsFn: async () => [
+          { id: 'unlock-stop-1', name: 'Unlock Stop 1', url: 'https://portal1.gov.pk/jobs', status: 'Active Scheduled' },
+          { id: 'unlock-stop-2', name: 'Unlock Stop 2', url: 'https://portal2.gov.pk/jobs', status: 'Active Scheduled' }
+        ],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => {
+          stopActiveRun();
+          return [];
+        },
+        enrichJobsFn: async (jobs) => jobs,
+        auditAddFn: () => {}
+      }
+    );
+    assert.strictEqual(isScraperExecutionActive(), false);
+    const stoppedStatus = getActiveRunStatus();
+    assert.strictEqual(stoppedStatus.isActive, false, 'Status must be inactive after stopped run releases lock');
+    assert.strictEqual(stoppedStatus.stopped, true);
+    resetActiveRun();
+  });
+
+  await runTest('STEP-8.4-C2 Case 4 [Integration]: POST /scheduler-tick returns HTTP 409 and success=false when runSchedulerTick returns skippedDueToConflict=true', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevCachedSources = repoAny.cachedSources ? [...repoAny.cachedSources] : [];
+    const prevCachedSettings = repoAny.cachedSchedulerSettings ? { ...repoAny.cachedSchedulerSettings } : null;
+    const prevWebScraperFlag = featureFlags.enableWebScraper;
+
+    const pastDueIso = new Date(Date.now() - 120000).toISOString();
+    repoAny.cachedSchedulerSettings = {
+      ...getDefaultSchedulerSettings(),
+      enabled: true,
+      scope: 'all',
+      scanMode: 'complete'
+    };
+    repoAny.cachedSources = [
+      {
+        id: 'tick-route-409-src',
+        name: 'Tick Route 409 Portal',
+        url: 'https://portal.gov.pk/jobs',
+        status: 'Active Scheduled',
+        interval: '1h',
+        lastRunAt: undefined,
+        lastCompletedAt: undefined,
+        nextRunAt: pastDueIso
+      }
+    ];
+    featureFlags.enableWebScraper = true;
+
+    let releaseActiveRun!: () => void;
+    const runGate = new Promise<void>(resolve => {
+      releaseActiveRun = resolve;
+    });
+
+    const tickLayer = (scraperRouter as any).stack.find(
+      (l: any) => l.route && l.route.path === '/scheduler-tick' && l.route.methods.post
+    );
+    assert.ok(tickLayer, 'Expected POST /scheduler-tick route on scraperRouter');
+    const tickHandler = tickLayer.route.stack[tickLayer.route.stack.length - 1].handle;
+
+    const activePromise = executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['tick-route-409-src'] },
+      {
+        getConfigsFn: async () => repoAny.cachedSources,
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => {
+          await runGate;
+          return [];
+        },
+        enrichJobsFn: async (jobs) => jobs,
+        auditAddFn: () => {}
+      }
+    );
+
+    try {
+      await new Promise(r => setTimeout(r, 15));
+      const expectedActive = getActiveRunStatus();
+      assert.strictEqual(expectedActive.isActive, true);
+
+      let statusCode = 200;
+      let payload: any = null;
+      await tickHandler(
+        { body: {}, params: {}, user: { name: 'Admin' } },
+        {
+          status(code: number) {
+            statusCode = code;
+            return this;
+          },
+          json(data: any) {
+            payload = data;
+            return this;
+          }
+        },
+        () => {}
+      );
+
+      assert.strictEqual(statusCode, 409, 'POST /scheduler-tick must return HTTP 409 on conflict');
+      assert.strictEqual(payload.success, false, 'POST /scheduler-tick must set success=false on conflict');
+      assert.strictEqual(payload.code, SCRAPER_RUN_ALREADY_ACTIVE_CODE);
+      assert.ok(typeof payload.message === 'string' && payload.message.toLowerCase().includes('already in progress'));
+      assert.strictEqual(payload.activeRun?.isActive, true);
+      assert.strictEqual(payload.activeRun?.runId, expectedActive.runId);
+      assert.strictEqual(payload.skippedDueToConflict, true);
+      assert.strictEqual(payload.aborted, true);
+      assert.deepStrictEqual(payload.triggeredSources, []);
+      assert.strictEqual(repoAny.cachedSources[0].nextRunAt, pastDueIso, 'Conflict must not advance nextRunAt');
+      assert.strictEqual(repoAny.cachedSources[0].lastRunAt, undefined);
+      assert.strictEqual(repoAny.cachedSources[0].lastCompletedAt, undefined);
+    } finally {
+      releaseActiveRun();
+      await activePromise;
+      resetActiveRun();
+      repoAny.cachedSources = prevCachedSources;
+      repoAny.cachedSchedulerSettings = prevCachedSettings;
+      featureFlags.enableWebScraper = prevWebScraperFlag;
+    }
+  });
+
+  await runTest('STEP-8.4-C2 Case 5 [Integration]: POST /scheduler-tick retains success=true and HTTP 200 on normal successful tick', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevCachedSources = repoAny.cachedSources ? [...repoAny.cachedSources] : [];
+    const prevCachedSettings = repoAny.cachedSchedulerSettings ? { ...repoAny.cachedSchedulerSettings } : null;
+    const prevWebScraperFlag = featureFlags.enableWebScraper;
+
+    repoAny.cachedSchedulerSettings = {
+      ...getDefaultSchedulerSettings(),
+      enabled: true,
+      scope: 'all',
+      scanMode: 'complete'
+    };
+    repoAny.cachedSources = [
+      {
+        id: 'tick-route-ok-src',
+        name: 'Tick Route OK Portal',
+        url: 'https://portal.gov.pk/jobs',
+        status: 'Active Scheduled',
+        interval: '1h',
+        nextRunAt: new Date(Date.now() + 3600000).toISOString()
+      }
+    ];
+    featureFlags.enableWebScraper = true;
+
+    try {
+      const tickLayer = (scraperRouter as any).stack.find(
+        (l: any) => l.route && l.route.path === '/scheduler-tick' && l.route.methods.post
+      );
+      assert.ok(tickLayer);
+      const tickHandler = tickLayer.route.stack[tickLayer.route.stack.length - 1].handle;
+
+      let statusCode = 200;
+      let payload: any = null;
+      await tickHandler(
+        { body: {}, params: {}, user: { name: 'Admin' } },
+        {
+          status(code: number) {
+            statusCode = code;
+            return this;
+          },
+          json(data: any) {
+            payload = data;
+            return this;
+          }
+        },
+        () => {}
+      );
+
+      assert.strictEqual(statusCode, 200);
+      assert.strictEqual(payload.success, true);
+      assert.deepStrictEqual(payload.triggeredSources, []);
+      assert.ok(typeof payload.summary === 'string' && payload.summary.includes('Tick completed'));
+      assert.strictEqual(payload.code, undefined);
+      assert.strictEqual(payload.skippedDueToConflict, undefined);
+    } finally {
+      repoAny.cachedSources = prevCachedSources;
+      repoAny.cachedSchedulerSettings = prevCachedSettings;
+      featureFlags.enableWebScraper = prevWebScraperFlag;
+    }
+  });
+
+  await runTest('STEP-8.4-C2 Case 6 [Integration]: Non-conflict aborted scheduler tick must not be reported as a 409 lock conflict', async () => {
+    let statusCode = 200;
+    let payload: any = null;
+
+    await handleSchedulerTickRequest(
+      { body: {}, params: {}, user: { name: 'Admin' } },
+      {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          payload = data;
+          return this;
+        }
+      },
+      () =>
+        runSchedulerTick({
+          isScraperEnabledFn: () => true,
+          getSchedulerSettingsFn: async () => {
+            throw new Error('Authoritative MongoDB settings read failed');
+          }
+        })
+    );
+
+    assert.notStrictEqual(statusCode, 409, 'Non-conflict abort must never return HTTP 409');
+    assert.strictEqual(statusCode, 500);
+    assert.strictEqual(payload.success, false);
+    assert.notStrictEqual(payload.code, SCRAPER_RUN_ALREADY_ACTIVE_CODE, 'Must not label DB read abort as SCRAPER_RUN_ALREADY_ACTIVE');
+    assert.strictEqual(payload.code, undefined);
+    assert.strictEqual(payload.aborted, true);
+    assert.notStrictEqual(payload.skippedDueToConflict, true);
+    assert.deepStrictEqual(payload.triggeredSources, []);
+    assert.ok(payload.message.includes('Authoritative MongoDB settings read failed'));
   });
 
   console.log('------------------------------------------------------------------');

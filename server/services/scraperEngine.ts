@@ -35,7 +35,7 @@ export class ScraperRunConflictError extends Error {
     this.code = SCRAPER_RUN_ALREADY_ACTIVE_CODE;
     this.status = 409;
     this.statusCode = 409;
-    this.activeRun = activeRun ? { ...activeRun } : { ...activeRunState };
+    this.activeRun = activeRun ? { ...activeRun } : getActiveRunStatus();
   }
 }
 
@@ -115,7 +115,10 @@ export function isScraperExecutionActive(): boolean {
 }
 
 export function getActiveRunStatus(): ActiveRunStatus {
-  return { ...activeRunState };
+  return {
+    ...activeRunState,
+    isActive: Boolean(isScraperExecutionLocked || activeRunState.isActive)
+  };
 }
 
 export function pauseActiveRun(): boolean {
@@ -153,7 +156,7 @@ export function resetActiveRun(): ActiveRunStatus {
   if (isScraperExecutionLocked || activeRunState.isActive) {
     throw new ScraperRunConflictError(
       `Cannot reset active scraper run (${activeRunState.runId || 'in progress'}) while execution is running. Stop the run first.`,
-      activeRunState
+      getActiveRunStatus()
     );
   }
   shouldStopActiveRun = false;
@@ -639,7 +642,7 @@ export async function executeScraperWithWizard(
   if (isScraperExecutionLocked || activeRunState.isActive) {
     throw new ScraperRunConflictError(
       `Another scraper execution is already in progress${activeRunState.runId ? ` (${activeRunState.runId})` : ''}.`,
-      activeRunState
+      getActiveRunStatus()
     );
   }
   isScraperExecutionLocked = true;

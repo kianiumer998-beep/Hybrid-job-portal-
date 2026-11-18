@@ -8,7 +8,8 @@ import {
   resumeActiveRun,
   stopActiveRun,
   resetActiveRun,
-  isScraperRunConflictError
+  isScraperRunConflictError,
+  SCRAPER_RUN_ALREADY_ACTIVE_CODE
 } from '../services/scraperEngine';
 import { requireAdminPermission } from '../auth/authManager';
 import { ScraperRepository, AuditRepository } from '../db/repositories';
@@ -66,14 +67,50 @@ scraperRouter.get('/scheduler-status', requireAdminPermission('scraper.manage'),
   }
 });
 
+export async function handleSchedulerTickRequest(
+  req: any,
+  res: any,
+  runTickFn: () => Promise<any> = runSchedulerTick
+) {
+  try {
+    const tickResult = await runTickFn();
+
+    if (tickResult?.skippedDueToConflict === true) {
+      const conflictMessage =
+        tickResult.error ||
+        (typeof tickResult.summary === 'string' && tickResult.summary.trim() ? tickResult.summary : '') ||
+        'Another scraper execution is already in progress.';
+      return res.status(409).json({
+        ...tickResult,
+        success: false,
+        code: SCRAPER_RUN_ALREADY_ACTIVE_CODE,
+        message: conflictMessage,
+        activeRun: getActiveRunStatus(),
+        triggeredSources: Array.isArray(tickResult.triggeredSources) ? tickResult.triggeredSources : []
+      });
+    }
+
+    if (tickResult?.aborted === true) {
+      return res.status(500).json({
+        ...tickResult,
+        success: false,
+        message:
+          tickResult.error ||
+          (typeof tickResult.summary === 'string' && tickResult.summary.trim() ? tickResult.summary : '') ||
+          'Scheduler tick aborted.',
+        triggeredSources: Array.isArray(tickResult.triggeredSources) ? tickResult.triggeredSources : []
+      });
+    }
+
+    return res.json({ success: true, ...tickResult });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Error executing scheduler tick' });
+  }
+}
+
 // 4. Trigger Scheduler Tick Manually (Admin Only)
 scraperRouter.post('/scheduler-tick', requireAdminPermission('scraper.manage'), async (req, res) => {
-  try {
-    const tickResult = await runSchedulerTick();
-    res.json({ success: true, ...tickResult });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err?.message || 'Error executing scheduler tick' });
-  }
+  return handleSchedulerTickRequest(req, res);
 });
 
 // 5. Update Global Scheduler State (Admin Only)

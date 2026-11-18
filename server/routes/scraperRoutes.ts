@@ -255,21 +255,47 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
     // SSRF Security Check
     const ssrfCheck = validateSafeScrapeUrl(cleanUrl);
     if (!ssrfCheck.safe) {
-      return res.status(400).json({ success: false, message: `Access denied: ${ssrfCheck.error}` });
+      return res.status(400).json({ success: false, message: `Access denied: ${ssrfCheck.error}`, diagnosticCode: 'SSRF_BLOCKED' });
     }
 
-    const isPdf = cleanUrl.toLowerCase().split('?')[0].endsWith('.pdf');
+    const parsedUrlObj = new URL(cleanUrl);
+    const pathname = parsedUrlObj.pathname.toLowerCase();
+    const cleanUrlPath = cleanUrl.toLowerCase().split('?')[0];
 
-    if (isPdf) {
-      const pdfResult = await parsePdfFromUrl(cleanUrl, organization);
+    // Check for explicitly unsupported image types (e.g. .gif, .tiff, .svg, .ico)
+    const isUnsupportedImage =
+      /\.(gif|tiff|tif|svg|ico)$/i.test(pathname) ||
+      /\.(gif|tiff|tif|svg|ico)$/i.test(cleanUrlPath);
+
+    if (isUnsupportedImage) {
+      return res.status(400).json({
+        success: false,
+        jobs: [],
+        totalExtracted: 0,
+        message: 'Unsupported image type. Only JPG, JPEG, PNG, WEBP, and BMP are supported for recruitment document extraction.',
+        diagnosticCode: 'UNSUPPORTED_IMAGE_TYPE'
+      });
+    }
+
+    const isPdf = pathname.endsWith('.pdf') || cleanUrlPath.endsWith('.pdf');
+    const isSupportedImage =
+      /\.(jpg|jpeg|png|webp|bmp)$/i.test(pathname) ||
+      /\.(jpg|jpeg|png|webp|bmp)$/i.test(cleanUrlPath);
+
+    if (isPdf || isSupportedImage) {
+      const mediaResult = await parsePdfFromUrl(cleanUrl, organization);
       return res.json({
-        success: pdfResult.success,
-        jobs: pdfResult.extractedJobs,
-        totalExtracted: pdfResult.extractedJobs.length,
-        totalPages: pdfResult.totalPages,
-        rawTextSample: pdfResult.rawTextSample,
-        fileName: pdfResult.fileName,
-        message: pdfResult.message
+        success: mediaResult.success,
+        jobs: mediaResult.extractedJobs,
+        totalExtracted: mediaResult.extractedJobs.length,
+        totalPages: mediaResult.totalPages,
+        rawTextSample: mediaResult.rawTextSample,
+        fileName: mediaResult.fileName,
+        mediaUrl: mediaResult.mediaUrl,
+        clippingImageUrl: mediaResult.clippingImageUrl,
+        formatType: mediaResult.formatType,
+        diagnosticCode: mediaResult.diagnosticCode,
+        message: mediaResult.message
       });
     }
 

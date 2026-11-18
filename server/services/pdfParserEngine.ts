@@ -4,6 +4,28 @@ import { GoogleGenAI } from '@google/genai';
 import { Job, Region } from '../../src/types/job';
 import { safeFetchWithRetry } from '../utils/ssrfProtection';
 
+export type DiagnosticCode =
+  | 'PDF_TEXT_SUCCESS'
+  | 'PDF_TEXT_ZERO_VACANCIES'
+  | 'PDF_SCANNED_FALLBACK_SUCCESS'
+  | 'PDF_SCANNED_FALLBACK_NO_VACANCIES'
+  | 'PDF_SCANNED_OCR_KEY_MISSING'
+  | 'PDF_SCANNED_OCR_FAILED'
+  | 'IMAGE_OCR_SUCCESS'
+  | 'IMAGE_OCR_NO_VACANCIES'
+  | 'IMAGE_OCR_KEY_MISSING'
+  | 'IMAGE_OCR_FAILED'
+  | 'HTML_TEXT_SUCCESS'
+  | 'HTML_TEXT_NO_VACANCIES'
+  | 'GENERIC_TEXT_SUCCESS'
+  | 'GENERIC_TEXT_NO_VACANCIES'
+  | 'INVALID_MEDIA_TYPE'
+  | 'OVERSIZED_DOCUMENT'
+  | 'EMPTY_RESPONSE'
+  | 'HTTP_ERROR'
+  | 'NETWORK_ERROR'
+  | 'SSRF_BLOCKED';
+
 export interface ExtractedPdfResult {
   success: boolean;
   totalPages: number;
@@ -16,6 +38,8 @@ export interface ExtractedPdfResult {
   mediaUrl?: string;
   clippingImageUrl?: string;
   formatType?: 'pdf' | 'html' | 'image' | 'scanned_pdf';
+  diagnosticCode?: DiagnosticCode | string;
+  diagnosticDetails?: string;
 }
 
 /**
@@ -260,6 +284,13 @@ export function extractJobsFromPdfText(
   return jobs;
 }
 
+export interface OcrExtractionResult {
+  text: string;
+  jobs: Job[];
+  diagnosticCode: 'OCR_SUCCESS' | 'OCR_NO_VACANCIES' | 'OCR_KEY_MISSING' | 'OCR_FAILED';
+  diagnosticMessage: string;
+}
+
 /**
  * OCR Fallback extractor using Gemini Vision for scanned documents, newspaper clippings, and image files.
  * STRICT ZERO-FABRICATION RULE: Transcribes ONLY what is visually present in the image.
@@ -270,11 +301,16 @@ export async function extractJobsFromImageWithOcr(
   sourceUrl: string,
   orgName?: string,
   fileName?: string
-): Promise<{ text: string; jobs: Job[] }> {
+): Promise<OcrExtractionResult> {
   const ai = getGenAI();
   if (!ai) {
     console.log('[Document OCR] Gemini API key not present for vision OCR fallback. Returning empty.');
-    return { text: '', jobs: [] };
+    return {
+      text: '',
+      jobs: [],
+      diagnosticCode: 'OCR_KEY_MISSING',
+      diagnosticMessage: 'Gemini Vision API key is not configured for OCR extraction'
+    };
   }
 
   try {
@@ -387,11 +423,103 @@ STRICT FACTUAL INTEGRITY MANDATE:
         };
       });
 
-    return { text: transcribedText, jobs };
+    return {
+      text: transcribedText,
+      jobs,
+      diagnosticCode: jobs.length > 0 ? 'OCR_SUCCESS' : 'OCR_NO_VACANCIES',
+      diagnosticMessage: jobs.length > 0
+        ? `Successfully extracted ${jobs.length} vacancies via vision OCR`
+        : 'Vision OCR completed, but no vacancies were detected in the image'
+    };
   } catch (ocrErr: any) {
-    console.log('[Document OCR] OCR error:', ocrErr?.message || ocrErr);
-    return { text: '', jobs: [] };
+    const rawError = String(ocrErr?.message || ocrErr || 'OCR error');
+    const safeError = rawError.replace(/key=[^&\s]+/gi, 'key=REDACTED').replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]');
+    console.log('[Document OCR] OCR error:', safeError);
+    return {
+      text: '',
+      jobs: [],
+      diagnosticCode: 'OCR_FAILED',
+      diagnosticMessage: `Vision OCR extraction failed: ${safeError}`
+    };
   }
+}
+
+export type SupportedMediaFormat = 'pdf' | 'jpeg' | 'png' | 'webp' | 'bmp' | 'html' | 'unknown';
+
+/**
+ * Robust media format and MIME detector inspecting binary magic bytes, content-type header, and URL.
+ */
+export function detectMediaFormat(
+  buffer: Buffer,
+  contentType: string = '',
+  url: string = ''
+): { format: SupportedMediaFormat; mimeType: string; isSupportedMedia: boolean } {
+  const cleanType = (contentType || '').toLowerCase().split(';')[0].trim();
+  const cleanUrlPath = url ? url.split('?')[0].toLowerCase() : '';
+
+  if (!buffer || buffer.length === 0) {
+    return { format: 'unknown', mimeType: cleanType || 'application/octet-stream', isSupportedMedia: false };
+  }
+
+  // 1. Binary Magic Bytes (highest priority authority)
+  // PDF: %PDF- (0x25 0x50 0x44 0x46 0x2D)
+  if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') {
+    return { format: 'pdf', mimeType: 'application/pdf', isSupportedMedia: true };
+  }
+  // JPEG: 0xFF 0xD8 0xFF
+  if (buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return { format: 'jpeg', mimeType: 'image/jpeg', isSupportedMedia: true };
+  }
+  // PNG: 0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47 &&
+    buffer[4] === 0x0D && buffer[5] === 0x0A && buffer[6] === 0x1A && buffer[7] === 0x0A
+  ) {
+    return { format: 'png', mimeType: 'image/png', isSupportedMedia: true };
+  }
+  // WEBP: "RIFF" at 0..3 and "WEBP" at 8..11
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return { format: 'webp', mimeType: 'image/webp', isSupportedMedia: true };
+  }
+  // BMP: "BM" at 0..1 (0x42 0x4D)
+  if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4D) {
+    return { format: 'bmp', mimeType: 'image/bmp', isSupportedMedia: true };
+  }
+
+  // 2. HTML detection (if header snippet has html tags or content-type is text/html)
+  const snippet = buffer.subarray(0, Math.min(1024, buffer.length)).toString('utf-8').toLowerCase();
+  if (cleanType.includes('text/html') || snippet.includes('<html') || snippet.includes('<!doctype html') || snippet.includes('<head') || snippet.includes('<body')) {
+    return { format: 'html', mimeType: 'text/html', isSupportedMedia: true };
+  }
+
+  // 3. Reject non-image text/json content if URL or extension pretended to be image
+  if (cleanType.startsWith('text/') || cleanType.startsWith('application/json')) {
+    return { format: 'unknown', mimeType: cleanType, isSupportedMedia: false };
+  }
+
+  // 4. Fallback for valid image mime-types when stream header starts slightly off
+  if (cleanType === 'image/jpeg' || cleanType === 'image/jpg') {
+    return { format: 'jpeg', mimeType: 'image/jpeg', isSupportedMedia: true };
+  }
+  if (cleanType === 'image/png') {
+    return { format: 'png', mimeType: 'image/png', isSupportedMedia: true };
+  }
+  if (cleanType === 'image/webp') {
+    return { format: 'webp', mimeType: 'image/webp', isSupportedMedia: true };
+  }
+  if (cleanType === 'image/bmp') {
+    return { format: 'bmp', mimeType: 'image/bmp', isSupportedMedia: true };
+  }
+  if (cleanType === 'application/pdf') {
+    return { format: 'pdf', mimeType: 'application/pdf', isSupportedMedia: true };
+  }
+
+  return { format: 'unknown', mimeType: cleanType || 'application/octet-stream', isSupportedMedia: false };
 }
 
 /**
@@ -406,6 +534,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       extractedJobs: [],
       rawTextSample: '',
       sourceUrl: url,
+      diagnosticCode: 'INVALID_URL',
       message: 'Invalid or missing document URL'
     };
   }
@@ -437,6 +566,8 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         rawTextSample: '',
         sourceUrl: cleanUrl,
         fileName,
+        diagnosticCode: 'NETWORK_ERROR',
+        diagnosticDetails: detail,
         message: `Remote document unreachable (${detail})`
       };
     }
@@ -450,6 +581,8 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         rawTextSample: '',
         sourceUrl: cleanUrl,
         fileName,
+        diagnosticCode: 'HTTP_ERROR',
+        diagnosticDetails: `HTTP ${res.status} ${res.statusText}`,
         message: `Failed to download document. Server responded with HTTP ${res.status} (${res.statusText})`
       };
     }
@@ -473,6 +606,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
           rawTextSample: '',
           sourceUrl: cleanUrl,
           fileName,
+          diagnosticCode: 'OVERSIZED_DOCUMENT',
           message: 'Document exceeds maximum supported size (15 MB)'
         };
       }
@@ -502,6 +636,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
               rawTextSample: '',
               sourceUrl: cleanUrl,
               fileName,
+              diagnosticCode: 'OVERSIZED_DOCUMENT',
               message: 'Document exceeds maximum supported size (15 MB)'
             };
           }
@@ -520,6 +655,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
           rawTextSample: '',
           sourceUrl: cleanUrl,
           fileName,
+          diagnosticCode: 'OVERSIZED_DOCUMENT',
           message: 'Document exceeds maximum supported size (15 MB)'
         };
       }
@@ -534,22 +670,57 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         rawTextSample: '',
         sourceUrl: cleanUrl,
         fileName,
+        diagnosticCode: 'EMPTY_RESPONSE',
         message: 'Empty response received from document URL'
       };
     }
 
-    // Inspect format
+    // Inspect media format accurately via magic bytes & headers
+    const detected = detectMediaFormat(buffer, contentType, cleanUrl);
     const headerSnippet = buffer.subarray(0, Math.min(1024, buffer.length));
-    const isPdfBinary = headerSnippet.includes(Buffer.from('%PDF-')) || headerSnippet.toString('utf-8', 0, 8).startsWith('%PDF-');
-    const isImage = contentType.includes('image/') || /\.(jpg|jpeg|png|webp|bmp)$/i.test(cleanUrl);
-    const isHtml = contentType.includes('text/html') || headerSnippet.toString('utf-8', 0, 100).toLowerCase().includes('<html') || headerSnippet.toString('utf-8', 0, 100).toLowerCase().includes('<!doctype');
+    const isPdfBinary = detected.format === 'pdf' || headerSnippet.includes(Buffer.from('%PDF-'));
 
-    // 1. Image document (JPG / PNG / WEBP) -> OCR Fallback
-    if (isImage) {
-      const mime = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
-      const ocrRes = await extractJobsFromImageWithOcr(buffer, mime, cleanUrl, orgName, fileName);
+    // 1. Image document (JPG / JPEG / PNG / WEBP / BMP) -> Vision OCR
+    if (['jpeg', 'png', 'webp', 'bmp'].includes(detected.format)) {
+      const ocrRes = await extractJobsFromImageWithOcr(buffer, detected.mimeType, cleanUrl, orgName, fileName);
+      if (ocrRes.diagnosticCode === 'OCR_KEY_MISSING') {
+        return {
+          success: false,
+          totalPages: 1,
+          extractedJobs: [],
+          rawTextSample: '',
+          fullExtractedText: '',
+          sourceUrl: cleanUrl,
+          fileName,
+          mediaUrl: cleanUrl,
+          clippingImageUrl: cleanUrl,
+          formatType: 'image',
+          diagnosticCode: 'IMAGE_OCR_KEY_MISSING',
+          diagnosticDetails: ocrRes.diagnosticMessage,
+          message: 'Image document requires vision OCR, but Gemini API key is not configured.'
+        };
+      }
+
+      if (ocrRes.diagnosticCode === 'OCR_FAILED') {
+        return {
+          success: false,
+          totalPages: 1,
+          extractedJobs: [],
+          rawTextSample: '',
+          fullExtractedText: '',
+          sourceUrl: cleanUrl,
+          fileName,
+          mediaUrl: cleanUrl,
+          clippingImageUrl: cleanUrl,
+          formatType: 'image',
+          diagnosticCode: 'IMAGE_OCR_FAILED',
+          diagnosticDetails: ocrRes.diagnosticMessage,
+          message: `Image OCR processing failed: ${ocrRes.diagnosticMessage}`
+        };
+      }
+
       return {
-        success: ocrRes.jobs.length > 0 || ocrRes.text.length > 0,
+        success: ocrRes.jobs.length > 0,
         totalPages: 1,
         extractedJobs: ocrRes.jobs,
         rawTextSample: ocrRes.text,
@@ -559,21 +730,23 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         mediaUrl: cleanUrl,
         clippingImageUrl: cleanUrl,
         formatType: 'image',
+        diagnosticCode: ocrRes.jobs.length > 0 ? 'IMAGE_OCR_SUCCESS' : 'IMAGE_OCR_NO_VACANCIES',
+        diagnosticDetails: ocrRes.diagnosticMessage,
         message: ocrRes.jobs.length > 0
           ? `Extracted ${ocrRes.jobs.length} verified vacancies from image via OCR.`
-          : 'Image document analyzed, but no structured vacancies detected.'
+          : 'Image document analyzed via OCR, but no structured vacancies detected.'
       };
     }
 
     // 2. HTML Fallback
-    if (isHtml && !isPdfBinary) {
+    if (detected.format === 'html' && !isPdfBinary) {
       const htmlText = buffer.toString('utf-8');
       const $ = cheerio.load(htmlText);
       const text = $('body').text().replace(/\s+/g, ' ').trim();
       const jobs = extractJobsFromPdfText(text, cleanUrl, orgName, fileName);
 
       return {
-        success: true,
+        success: jobs.length > 0,
         totalPages: 1,
         extractedJobs: jobs,
         rawTextSample: text,
@@ -581,6 +754,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
         sourceUrl: cleanUrl,
         fileName,
         formatType: 'html',
+        diagnosticCode: jobs.length > 0 ? 'HTML_TEXT_SUCCESS' : 'HTML_TEXT_NO_VACANCIES',
         message: jobs.length > 0
           ? `Extracted ${jobs.length} vacancies from HTML page.`
           : 'HTML web page loaded, but no standard vacancy listings found in text.'
@@ -588,7 +762,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
     }
 
     // 3. Binary PDF -> text extraction with fallback to OCR for scanned PDFs
-    if (isPdfBinary || cleanUrl.toLowerCase().endsWith('.pdf')) {
+    if (isPdfBinary || cleanUrl.toLowerCase().split('?')[0].endsWith('.pdf')) {
       let text = '';
       let totalPages = 1;
       let pdfParseFailed = false;
@@ -643,6 +817,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
           sourceUrl: cleanUrl,
           fileName,
           formatType: 'pdf',
+          diagnosticCode: jobs.length > 0 ? 'PDF_TEXT_SUCCESS' : 'PDF_TEXT_ZERO_VACANCIES',
           message: jobs.length > 0 
             ? `Successfully extracted ${jobs.length} original vacancies from PDF.`
             : `PDF processed (${totalPages} pages), but no structured vacancy listings were detected. No synthetic data was generated.`
@@ -652,38 +827,69 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       // Scanned PDF / Image-only PDF -> Fallback OCR
       console.log(`[Document Parser] PDF contains minimal or image-only text (${text.length} chars). Invoking OCR fallback...`);
       const ocrRes = await extractJobsFromImageWithOcr(buffer, 'application/pdf', cleanUrl, orgName, fileName);
+
+      if (ocrRes.diagnosticCode === 'OCR_KEY_MISSING') {
+        return {
+          success: false,
+          totalPages,
+          extractedJobs: [],
+          rawTextSample: fullCombinedText,
+          fullExtractedText: fullCombinedText,
+          sourceUrl: cleanUrl,
+          fileName,
+          formatType: 'scanned_pdf',
+          diagnosticCode: 'PDF_SCANNED_OCR_KEY_MISSING',
+          diagnosticDetails: ocrRes.diagnosticMessage,
+          message: 'Scanned PDF requires vision OCR, but Gemini API key is not configured.'
+        };
+      }
+
+      if (ocrRes.diagnosticCode === 'OCR_FAILED') {
+        return {
+          success: false,
+          totalPages,
+          extractedJobs: [],
+          rawTextSample: fullCombinedText,
+          fullExtractedText: fullCombinedText,
+          sourceUrl: cleanUrl,
+          fileName,
+          formatType: 'scanned_pdf',
+          diagnosticCode: 'PDF_SCANNED_OCR_FAILED',
+          diagnosticDetails: ocrRes.diagnosticMessage,
+          message: `Scanned PDF OCR processing failed: ${ocrRes.diagnosticMessage}`
+        };
+      }
+
       const combinedOcrText = (ocrRes.text || fullCombinedText).trim();
+      const extractedJobs = ocrRes.jobs.length > 0 ? ocrRes.jobs : extractJobsFromPdfText(combinedOcrText, cleanUrl, orgName, fileName);
 
       return {
-        success: ocrRes.jobs.length > 0 || combinedOcrText.length > 0,
+        success: extractedJobs.length > 0 || combinedOcrText.length > 0,
         totalPages,
-        extractedJobs: ocrRes.jobs.length > 0 ? ocrRes.jobs : extractJobsFromPdfText(combinedOcrText, cleanUrl, orgName, fileName),
+        extractedJobs,
         rawTextSample: combinedOcrText,
         fullExtractedText: combinedOcrText,
         sourceUrl: cleanUrl,
         fileName,
         formatType: 'scanned_pdf',
-        message: ocrRes.jobs.length > 0
-          ? `Extracted ${ocrRes.jobs.length} vacancies from scanned PDF via OCR.`
+        diagnosticCode: extractedJobs.length > 0 ? 'PDF_SCANNED_FALLBACK_SUCCESS' : 'PDF_SCANNED_FALLBACK_NO_VACANCIES',
+        diagnosticDetails: ocrRes.diagnosticMessage,
+        message: extractedJobs.length > 0
+          ? `Extracted ${extractedJobs.length} vacancies from scanned PDF via OCR.`
           : `PDF processed (${totalPages} pages). No structured vacancies detected.`
       };
     }
 
-    // Default generic text fallback
-    const genericText = buffer.toString('utf-8');
-    const jobs = extractJobsFromPdfText(genericText, cleanUrl, orgName, fileName);
-
+    // Default: unsupported or unknown binary format
     return {
-      success: jobs.length > 0,
-      totalPages: 1,
-      extractedJobs: jobs,
-      rawTextSample: genericText,
-      fullExtractedText: genericText,
+      success: false,
+      totalPages: 0,
+      extractedJobs: [],
+      rawTextSample: '',
       sourceUrl: cleanUrl,
       fileName,
-      message: jobs.length > 0
-        ? `Extracted ${jobs.length} vacancies from document.`
-        : 'Document analyzed, but no structured vacancies detected.'
+      diagnosticCode: 'INVALID_MEDIA_TYPE',
+      message: 'Unsupported document format. Only PDF, JPG, PNG, WEBP, and BMP are supported.'
     };
   } catch (error: any) {
     const detail = String(error?.message || error || 'processing note')
@@ -696,6 +902,8 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       rawTextSample: '',
       sourceUrl: cleanUrl,
       fileName,
+      diagnosticCode: 'NETWORK_ERROR',
+      diagnosticDetails: detail,
       message: `Error reading document: ${detail}`
     };
   }

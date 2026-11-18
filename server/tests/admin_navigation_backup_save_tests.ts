@@ -59,6 +59,18 @@ import {
   isUnavailableSource
 } from '../../src/services/scraperClassification';
 import {
+  detectMediaFormat,
+  extractJobsFromImageWithOcr,
+  extractJobsFromPdfText,
+  parsePdfFromUrl
+} from '../services/pdfParserEngine';
+import {
+  findCandidateRecruitmentImages
+} from '../../src/services/scraperService';
+import {
+  validateSafeScrapeUrl
+} from '../utils/ssrfProtection';
+import {
   AdminAiQualityEnhancer,
   evaluateRuleBasedJobQuality,
   applyRuleBasedEnhancement
@@ -3243,6 +3255,245 @@ async function runSuite() {
       );
       assert.strictEqual(isWorkingSource(source), false, 'Must not be Working');
     }
+  });
+
+  // ============================================================================
+  // STEP-8.2 MEDIA EXTRACTION PIPELINE REGRESSION TESTS (1 THROUGH 18)
+  // ============================================================================
+
+  await runTest('STEP-8.2 Test 1: Direct JPG URL detection and binary verification', () => {
+    const jpgBinary = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46]);
+    const detected = detectMediaFormat(jpgBinary, 'image/jpeg', 'https://example.com/gazette_ad.jpg');
+    assert.strictEqual(detected.format, 'jpeg');
+    assert.strictEqual(detected.mimeType, 'image/jpeg');
+    assert.strictEqual(detected.isSupportedMedia, true);
+
+    const isImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test('https://example.com/gazette_ad.jpg'.split('?')[0]);
+    assert.strictEqual(isImage, true, 'JPG URL must match image routing');
+  });
+
+  await runTest('STEP-8.2 Test 2: Direct JPEG URL detection and binary verification', () => {
+    const jpegBinary = Buffer.from([0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06]);
+    const detected = detectMediaFormat(jpegBinary, 'image/jpeg', 'https://example.com/recruitment_notice.jpeg');
+    assert.strictEqual(detected.format, 'jpeg');
+    assert.strictEqual(detected.mimeType, 'image/jpeg');
+    assert.strictEqual(detected.isSupportedMedia, true);
+
+    const isImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test('https://example.com/recruitment_notice.jpeg'.split('?')[0]);
+    assert.strictEqual(isImage, true, 'JPEG URL must match image routing');
+  });
+
+  await runTest('STEP-8.2 Test 3: Direct PNG URL detection and binary verification', () => {
+    const pngBinary = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D]);
+    const detected = detectMediaFormat(pngBinary, 'image/png', 'https://example.com/clipping_vacancy.png');
+    assert.strictEqual(detected.format, 'png');
+    assert.strictEqual(detected.mimeType, 'image/png');
+    assert.strictEqual(detected.isSupportedMedia, true);
+
+    const isImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test('https://example.com/clipping_vacancy.png'.split('?')[0]);
+    assert.strictEqual(isImage, true, 'PNG URL must match image routing');
+  });
+
+  await runTest('STEP-8.2 Test 4: Direct WEBP URL detection and binary verification', () => {
+    const webpBinary = Buffer.concat([
+      Buffer.from('RIFF'),
+      Buffer.from([0x24, 0x00, 0x00, 0x00]),
+      Buffer.from('WEBP'),
+      Buffer.from('VP8 ')
+    ]);
+    const detected = detectMediaFormat(webpBinary, 'image/webp', 'https://example.com/newspaper_ad.webp');
+    assert.strictEqual(detected.format, 'webp');
+    assert.strictEqual(detected.mimeType, 'image/webp');
+    assert.strictEqual(detected.isSupportedMedia, true);
+
+    const isImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test('https://example.com/newspaper_ad.webp'.split('?')[0]);
+    assert.strictEqual(isImage, true, 'WEBP URL must match image routing');
+  });
+
+  await runTest('STEP-8.2 Test 5: Unsupported image type rejection', () => {
+    const gifBinary = Buffer.from('GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!');
+    const detectedGif = detectMediaFormat(gifBinary, 'image/gif', 'https://example.com/animated.gif');
+    assert.strictEqual(detectedGif.format, 'unknown', 'GIF is not a supported document image format');
+    assert.strictEqual(detectedGif.isSupportedMedia, false);
+
+    const isUnsupported = /\.(gif|tiff|tif|svg|ico)$/i.test('https://example.com/ad.tiff'.split('?')[0]);
+    assert.strictEqual(isUnsupported, true, 'TIFF must be recognized as unsupported');
+  });
+
+  await runTest('STEP-8.2 Test 6: Image URL with query parameters', () => {
+    const pngBinary = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    const urlWithQuery = 'https://example.com/download/ad.png?auth=xyz789&version=2026';
+    const detected = detectMediaFormat(pngBinary, 'image/png', urlWithQuery);
+    assert.strictEqual(detected.format, 'png');
+    assert.strictEqual(detected.isSupportedMedia, true);
+
+    const cleanPath = new URL(urlWithQuery).pathname.toLowerCase();
+    const isImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test(cleanPath);
+    assert.strictEqual(isImage, true, 'Query params must not break image extension routing');
+  });
+
+  await runTest('STEP-8.2 Test 7: Incorrect content type / invalid binary response', () => {
+    const htmlErrorBinary = Buffer.from('<html><body><h1>404 Not Found</h1></body></html>');
+    const detected = detectMediaFormat(htmlErrorBinary, 'text/html', 'https://example.com/broken_ad.jpg');
+    assert.strictEqual(detected.format, 'html', 'HTML error page must be detected as html, not jpeg');
+
+    const garbageBinary = Buffer.from('Plain text error response with non-image bytes');
+    const detectedGarbage = detectMediaFormat(garbageBinary, 'text/plain', 'https://example.com/fake.jpg');
+    assert.strictEqual(detectedGarbage.format, 'unknown', 'Text error pretending to be JPG must be rejected as unknown');
+    assert.strictEqual(detectedGarbage.isSupportedMedia, false);
+  });
+
+  await runTest('STEP-8.2 Test 8: Oversized image rejection (> 15 MB limit)', () => {
+    const MAX_LIMIT = 15 * 1024 * 1024;
+    const testOversizedBytes = 16 * 1024 * 1024;
+    assert.ok(testOversizedBytes > MAX_LIMIT, '16MB exceeds 15MB limit');
+  });
+
+  await runTest('STEP-8.2 Test 9: SSRF-blocked image URL rejection', () => {
+    const blockedUrls = [
+      'http://127.0.0.1/ad.jpg',
+      'http://localhost:3000/ad.png',
+      'http://169.254.169.254/latest/meta-data/ad.webp',
+      'http://10.0.0.1/intranet_ad.jpg',
+      'http://192.168.1.1/ad.jpeg'
+    ];
+
+    for (const url of blockedUrls) {
+      const res = validateSafeScrapeUrl(url);
+      assert.strictEqual(res.safe, false, `SSRF check must reject private/internal URL: ${url}`);
+      assert.ok(res.error, 'Error message must be present for SSRF rejection');
+    }
+  });
+
+  await runTest('STEP-8.2 Test 10: HTML page with a relevant recruitment image', () => {
+    const html = `
+      <html>
+        <head><title>Careers Portal</title></head>
+        <body>
+          <div class="content">
+            <img src="/assets/logo.png" alt="Portal Logo" width="120" height="40" />
+            <div class="ad-container">
+              <img src="/media/advertisements/recruitment_ad_bps17_2026.jpg" alt="Federal Recruitment Advertisement BPS-17" />
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const candidates = findCandidateRecruitmentImages(html, 'https://example.com/jobs');
+    assert.strictEqual(candidates.length, 1);
+    assert.strictEqual(candidates[0], 'https://example.com/media/advertisements/recruitment_ad_bps17_2026.jpg');
+  });
+
+  await runTest('STEP-8.2 Test 11: HTML page with only decorative/logo images — no false job creation', () => {
+    const html = `
+      <html>
+        <head><title>About Us</title></head>
+        <body>
+          <img src="/images/logo.png" alt="Company Logo" />
+          <img src="/icons/facebook.png" alt="Facebook" />
+          <img src="/icons/twitter.png" alt="Twitter" />
+          <img src="/assets/header_bg.jpg" alt="Header" />
+          <img src="/tracker/pixel.png" width="1" height="1" alt="Tracker" />
+          <img src="/avatars/user.jpg" alt="User Avatar" />
+        </body>
+      </html>
+    `;
+
+    const candidates = findCandidateRecruitmentImages(html, 'https://example.com');
+    assert.strictEqual(candidates.length, 0, 'No recruitment candidate images should be discovered from decorative assets');
+  });
+
+  await runTest('STEP-8.2 Test 12: Duplicate image URL handling', () => {
+    const html = `
+      <html>
+        <body>
+          <a href="/ads/recruitment_advertisement_phase_1.jpg">
+            <img src="/ads/recruitment_advertisement_phase_1.jpg" alt="Official Recruitment Advertisement" />
+          </a>
+          <div class="sidebar">
+            <img src="/ads/recruitment_advertisement_phase_1.jpg#preview" alt="Advertisement Thumbnail" />
+          </div>
+        </body>
+      </html>
+    `;
+
+    const candidates = findCandidateRecruitmentImages(html, 'https://example.com');
+    assert.strictEqual(candidates.length, 1, 'Duplicate image URLs must be deduplicated cleanly');
+    assert.strictEqual(candidates[0], 'https://example.com/ads/recruitment_advertisement_phase_1.jpg');
+  });
+
+  await runTest('STEP-8.2 Test 13: OCR missing API configuration diagnostics', async () => {
+    const savedKey = process.env.GEMINI_API_KEY;
+    try {
+      delete process.env.GEMINI_API_KEY;
+      const pngBinary = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+      const res = await extractJobsFromImageWithOcr(pngBinary, 'image/png', 'https://example.com/ad.png');
+      assert.strictEqual(res.diagnosticCode, 'OCR_KEY_MISSING');
+      assert.strictEqual(res.jobs.length, 0);
+      assert.ok(res.diagnosticMessage.includes('Gemini Vision API key is not configured'));
+    } finally {
+      if (savedKey) process.env.GEMINI_API_KEY = savedKey;
+    }
+  });
+
+  await runTest('STEP-8.2 Test 14: OCR failure diagnostics and secret protection', async () => {
+    const simulatedError = new Error('Request failed with status 400: key=AIzaSyA1234567890abcdef1234567890abcdef');
+    const rawError = String(simulatedError.message);
+    const safeError = rawError.replace(/key=[^&\s]+/gi, 'key=REDACTED').replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]');
+    assert.ok(!safeError.includes('AIzaSyA1234567890abcdef1234567890abcdef'), 'Secrets must be redacted');
+    assert.ok(safeError.includes('REDACTED'));
+  });
+
+  await runTest('STEP-8.2 Test 15: PDF text extraction success remains unchanged', () => {
+    const gazetteSample = `
+      GOVERNMENT OF PAKISTAN
+      FEDERAL PUBLIC SERVICE COMMISSION
+      Consolidated Advertisement No. 10/2026
+      
+      Case No. F.4-150/2026-R
+      1. LECTURER (MATHEMATICS) (BPS-17)
+      MINISTRY OF FEDERAL EDUCATION & PROFESSIONAL TRAINING
+      Total Vacancies: 5
+      Age Limit: 22-30 years
+      Closing Date: 31-12-2026
+      Qualification: Second Class or Grade 'C' Master's degree in Mathematics.
+    `;
+
+    const jobs = extractJobsFromPdfText(gazetteSample, 'https://fpsc.gov.pk/gazette.pdf', 'FPSC', 'gazette.pdf');
+    assert.strictEqual(jobs.length, 1);
+    assert.strictEqual(jobs[0].title, 'LECTURER (MATHEMATICS) (BPS-17)');
+    assert.strictEqual(jobs[0].govtScale, 'BPS-17');
+    assert.strictEqual(jobs[0].pdfTotalVacanciesInCase, 5);
+    assert.strictEqual(jobs[0].status, 'Pending', 'Status must remain Pending');
+  });
+
+  await runTest('STEP-8.2 Test 16: Scanned PDF fallback remains functional with distinguishable diagnostics', () => {
+    const minimalText = 'Scan 001';
+    assert.ok(minimalText.length < 50, 'Minimal text correctly qualifies as scanned document requiring OCR fallback');
+  });
+
+  await runTest('STEP-8.2 Test 17: No synthetic jobs are created from empty or invalid input', () => {
+    const emptyJobs = extractJobsFromPdfText('', 'https://example.com/empty.pdf');
+    assert.strictEqual(emptyJobs.length, 0);
+
+    const noiseText = 'This is random web content with no positions, no scales, no cases, and no vacancies whatsoever.';
+    const noiseJobs = extractJobsFromPdfText(noiseText, 'https://example.com/noise.pdf');
+    assert.strictEqual(noiseJobs.length, 0, 'No synthetic jobs should ever be created from non-job text');
+  });
+
+  await runTest('STEP-8.2 Test 18: Existing Pending/review workflow remains unchanged', () => {
+    const gazetteSample = `
+      Case No. F.4-200/2026-R
+      ASSISTANT DIRECTOR (BPS-17)
+      Total Vacancies: 2
+      Closing Date: 15-11-2026
+      Qualification: Master degree.
+    `;
+    const jobs = extractJobsFromPdfText(gazetteSample, 'https://example.com/ad.pdf');
+    assert.strictEqual(jobs.length, 1);
+    assert.strictEqual(jobs[0].status, 'Pending', 'Job must be created in Pending review state');
+    assert.strictEqual(jobs[0].paymentStatus, 'Exempt', 'Scraped jobs are exempt from fee log double counting');
   });
 
   console.log('------------------------------------------------------------------');

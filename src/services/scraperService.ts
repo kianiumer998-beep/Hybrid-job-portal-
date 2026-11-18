@@ -149,6 +149,86 @@ function resolveUrl(relativeOrAbsolute: string, baseUrl: string): string {
 }
 
 /**
+ * Conservative recruitment image candidate discovery from HTML.
+ * STRICT SAFETY RULES:
+ * - Never downloads every image on a page.
+ * - Restricts candidate images to genuine job/ad/document images using conservative criteria.
+ * - Rejects logos, icons, avatars, banners, tracking pixels, and social media icons.
+ * - Deduplicates URLs and bounds candidates to a maximum of 3 per page.
+ */
+export function findCandidateRecruitmentImages(html: string, baseUrl: string): string[] {
+  if (!html || typeof html !== 'string') return [];
+  const $ = cheerio.load(html);
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  const RECRUITMENT_KEYWORDS = /(?:advertisement|recruitment|vacancy|vacancies|career|gazette|corrigendum|walk[- ]?in|asami|nokri|job[_-]?ad|hiring|clipping)/i;
+  const EXCLUSION_KEYWORDS = /(?:logo|icon|favicon|avatar|thumb|thumbnail|header[_-]?bg|footer|nav|menu|button|sprite|badge|pixel|analytics|tracker|shim|spinner|loading|share|social|facebook|twitter|instagram|linkedin|whatsapp|youtube)/i;
+
+  const checkCandidate = (rawUrl: string, altText: string = '', titleText: string = '', classText: string = '') => {
+    if (!rawUrl || candidates.length >= 3) return;
+    const cleanUrl = rawUrl.trim();
+    if (!cleanUrl || cleanUrl.startsWith('data:') || cleanUrl.startsWith('javascript:')) return;
+
+    const resolved = resolveUrl(cleanUrl, baseUrl);
+    if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) return;
+
+    // Check extension
+    const pathLower = resolved.split('?')[0].toLowerCase();
+    const isSupportedImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test(pathLower);
+    if (!isSupportedImage) return;
+
+    // Canonicalize / deduplicate
+    const canonical = resolved.split('#')[0];
+    if (seen.has(canonical)) return;
+
+    // Evaluate context: URL, alt text, title text, class/id text
+    const combinedContext = `${pathLower} ${altText} ${titleText} ${classText}`.toLowerCase();
+
+    // Check exclusion
+    if (EXCLUSION_KEYWORDS.test(combinedContext) && !combinedContext.includes('advertisement') && !combinedContext.includes('recruitment')) {
+      return;
+    }
+
+    // Check recruitment signals
+    const hasRecruitmentSignal = RECRUITMENT_KEYWORDS.test(combinedContext);
+    if (hasRecruitmentSignal) {
+      seen.add(canonical);
+      candidates.push(resolved);
+    }
+  };
+
+  // 1. Inspect <img> tags
+  $('img').each((_, el) => {
+    if (candidates.length >= 3) return;
+    const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || '';
+    const alt = $(el).attr('alt') || '';
+    const title = $(el).attr('title') || '';
+    const className = $(el).attr('class') || $(el).attr('id') || '';
+
+    // Ignore tiny images (tracking pixels or icons) if dimensions specified
+    const width = parseInt($(el).attr('width') || '', 10);
+    const height = parseInt($(el).attr('height') || '', 10);
+    if ((!isNaN(width) && width < 100) || (!isNaN(height) && height < 100)) {
+      return;
+    }
+
+    checkCandidate(src, alt, title, className);
+  });
+
+  // 2. Inspect <a> tags pointing directly to images
+  $('a[href]').each((_, el) => {
+    if (candidates.length >= 3) return;
+    const href = $(el).attr('href') || '';
+    const text = $(el).text() || '';
+    const title = $(el).attr('title') || '';
+    checkCandidate(href, text, title, $(el).attr('class') || '');
+  });
+
+  return candidates;
+}
+
+/**
  * Detects next-page pagination URL from HTML with semantic selectors.
  */
 export function extractNextPageUrl(html: string, currentUrl: string): string | null {
@@ -1170,6 +1250,84 @@ export async function scrapeTargetPortal(
     const nextPageUrl = extractNextPageUrl(html, targetUrl);
     if (nextPageUrl && htmlJobs.length > 0) {
       htmlJobs.forEach(j => { j.nextPageUrl = nextPageUrl; });
+    }
+
+    // 10. Linked Image OCR (Bounded, conservative extraction for recruitment ads embedded as images)
+    if (htmlJobs.length === 0 || config.isNewspaperClippingPortal) {
+      const candidateImages = findCandidateRecruitmentImages(html, targetUrl);
+      if (candidateImages.length > 0) {
+        console.log(`[Scraper Pipeline] Found ${candidateImages.length} recruitment image candidate(s) on ${targetUrl}. Invoking bounded linked image OCR...`);
+
+        const linkedImageJobs: ScrapedJobResult[] = [];
+        for (const imgUrl of candidateImages) {
+          const ssrfCheck = validateSafeScrapeUrl(imgUrl);
+          if (!ssrfCheck.safe) {
+            console.log(`[Scraper Pipeline] Candidate recruitment image skipped due to SSRF: ${ssrfCheck.error}`);
+            continue;
+          }
+
+          try {
+            const imgResult = await parsePdfFromUrl(imgUrl, config.name);
+            if (imgResult.success && imgResult.extractedJobs && imgResult.extractedJobs.length > 0) {
+              const mapped: ScrapedJobResult[] = imgResult.extractedJobs.map(j => ({
+                id: j.id,
+                title: j.title,
+                company: j.company || config.name,
+                jobType: j.jobType || 'On-site',
+                region: (j.region || 'Pakistan') as Region,
+                province: j.province,
+                city: j.city,
+                salary: j.salary || 'Per Advertisement',
+                currency: 'PKR' as Currency,
+                experienceLevel: (j.experienceLevel || 'Mid') as any,
+                department: j.department || config.name,
+                tags: j.tags || [config.name, 'Linked Image Ad'],
+                description: j.description || `Vacancy extracted via OCR from linked advertisement image.`,
+                extractedText: j.extractedText || imgResult.fullExtractedText || imgResult.rawTextSample,
+                requirements: j.requirements || [],
+                benefits: j.benefits || [],
+                postedAt: j.postedAt || 'Recent',
+                deadlineDate: j.deadlineDate,
+                applicationsCount: 0,
+                status: config.autoApprove ? 'Approved' : 'Pending',
+                sourceUrl: targetUrl,
+                clippingImageUrl: imgUrl,
+                mediaUrl: imgUrl,
+                sourcePortal: config.name,
+                extractionMethod: 'linked_image_ocr',
+                scrapeRunId: options.runId,
+                scrapedAt: new Date().toISOString(),
+                isGovtJob: j.isGovtJob ?? true,
+                govtDepartment: j.govtDepartment || config.name,
+                govtScale: j.govtScale,
+                govtCategory: j.govtCategory || 'Federal',
+                advertisedPositions: j.advertisedPositions,
+                totalVacancies: j.totalVacancies,
+                employmentType: j.employmentType,
+                ageLimit: j.ageLimit,
+                minimumAge: typeof j.minimumAge === 'number' ? j.minimumAge : (j.minimumAge ? Number(j.minimumAge) : undefined),
+                maximumAge: typeof j.maximumAge === 'number' ? j.maximumAge : (j.maximumAge ? Number(j.maximumAge) : undefined),
+                qualificationSummary: j.qualificationSummary,
+                domicile: j.domicile,
+                contactEmail: j.contactEmail,
+                responsibilitiesList: j.responsibilitiesList,
+                relatedSourceUrls: [imgUrl]
+              }));
+              linkedImageJobs.push(...mapped);
+            }
+          } catch (imgErr) {
+            console.log(`[Scraper Pipeline] Linked image OCR notice for ${imgUrl}:`, imgErr);
+          }
+        }
+
+        if (linkedImageJobs.length > 0) {
+          const deduplicated = deduplicateJobs(htmlJobs, linkedImageJobs);
+          if (pdfFallbackAttempted && originalPdfFailureNotice) {
+            console.log(`[Scraper Pipeline] Successfully recovered ${deduplicated.length} vacancies for "${config.name}" via linked image OCR (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+          }
+          return filterByOptions(deduplicated, options);
+        }
+      }
     }
 
     if (pdfFallbackAttempted && originalPdfFailureNotice) {

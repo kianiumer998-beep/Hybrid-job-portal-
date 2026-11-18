@@ -70,6 +70,7 @@ import {
 import {
   findCandidateRecruitmentImages,
   isSafeMediaOrigin,
+  mapLinkedImageOcrJobs,
   deduplicateJobs
 } from '../../src/services/scraperService';
 import {
@@ -3266,14 +3267,12 @@ async function runSuite() {
   // STEP-8.2-A PRODUCTION SAFETY & MEDIA EXTRACTION REGRESSION TESTS (CASES 1-16)
   // ============================================================================
 
-  await runTest('STEP-8.2-A Case 1 [Integration]: Linked-image OCR result always remains Pending even when config.autoApprove=true', () => {
+  await runTest('STEP-8.2-A Case 1 [Unit]: Linked-image OCR mapping helper always enforces Pending even when config.autoApprove=true', () => {
     // Verify that OCR-derived jobs originating from linked images are never automatically approved
     // regardless of whether the scraper target configuration has autoApprove enabled.
     const autoApproveConfig = {
-      id: 'test-newspaper-clipping',
       name: 'Newspaper Ad Portal',
-      autoApprove: true,
-      isNewspaperClippingPortal: true
+      autoApprove: true
     };
 
     const simulatedOcrJobs = [
@@ -3281,18 +3280,18 @@ async function runSuite() {
         id: 'ocr-job-1',
         title: 'Assistant Director',
         company: 'Public Sector Organization',
-        status: 'Pending' as const,
+        status: 'Approved' as const, // Attempted pre-approved input must still be forced to Pending
         isGovtJob: true,
         govtScale: 'BPS-17'
       }
     ];
 
-    // The linked-image OCR mapping rule strictly overrides config.autoApprove and enforces Pending
-    const mappedLinkedImageJobs = simulatedOcrJobs.map(j => ({
-      ...j,
-      status: 'Pending' as const,
-      extractionMethod: 'linked_image_ocr'
-    }));
+    const mappedLinkedImageJobs = mapLinkedImageOcrJobs(
+      simulatedOcrJobs,
+      autoApproveConfig,
+      'https://fpsc.gov.pk/jobs',
+      'https://fpsc.gov.pk/ads/ad.jpg'
+    );
 
     assert.strictEqual(autoApproveConfig.autoApprove, true, 'Target portal config has autoApprove set to true');
     assert.strictEqual(mappedLinkedImageJobs.length, 1);
@@ -3630,7 +3629,7 @@ async function runSuite() {
   // STEP-8.2-C MEDIA ORIGIN SECURITY & JOB CLASSIFICATION PRECISION TESTS
   // ============================================================================
 
-  await runTest('STEP-8.2-C Case 1 [Unit]: isSafeMediaOrigin strict origin, CDN allowlist, boundary matching, and downgrade/tenant protections', () => {
+  await runTest('STEP-8.2-C Case 1 [Unit]: isSafeMediaOrigin strict origin, explicit CDN allowlist, boundary matching, and downgrade/tenant protections', () => {
     // 1. Same-origin media is allowed
     assert.strictEqual(
       isSafeMediaOrigin('https://fpsc.gov.pk/media/ad.jpg', 'https://fpsc.gov.pk/jobs'),
@@ -3638,25 +3637,37 @@ async function runSuite() {
       'Same-origin media URL must be eligible'
     );
 
-    // 2. Legitimate official CDN sharing official gov subdomain is allowed
+    // 2. Explicitly allowlisted official CDN hostname is allowed
     assert.strictEqual(
       isSafeMediaOrigin('https://cdn.fpsc.gov.pk/ads/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       true,
-      'Official gov CDN subdomain must be allowed'
+      'Explicitly allowlisted gov CDN hostname must be allowed'
     );
 
-    // 3. Unapproved sibling subdomain / unrelated domain is rejected
+    // 3. Dynamic cdn.<arbitrary-gov-domain> NOT in explicit allowlist must be rejected
+    assert.strictEqual(
+      isSafeMediaOrigin('https://cdn.arbitrary-dept.gov.pk/ads/ad.jpg', 'https://arbitrary-dept.gov.pk/jobs'),
+      false,
+      'Non-allowlisted dynamic cdn.<host> must be rejected'
+    );
+
+    // 4. Unapproved sibling subdomain / unrelated domain is rejected
     assert.strictEqual(
       isSafeMediaOrigin('https://evil.fpsc.gov.pk/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       false,
       'Unapproved sibling subdomain must be rejected'
     );
 
-    // 4. Public-suffix and multi-tenant hosting collisions (pages.dev, blogspot.com, github.io) must be rejected
+    // 5. Public-suffix and multi-tenant hosting collisions (pages.dev, blogspot.com, github.io) must be rejected
     assert.strictEqual(
       isSafeMediaOrigin('https://attacker.pages.dev/ad.jpg', 'https://legit.pages.dev/jobs'),
       false,
       'Multi-tenant pages.dev collision must be rejected'
+    );
+    assert.strictEqual(
+      isSafeMediaOrigin('https://attacker.blogspot.com/ad.jpg', 'https://victim.blogspot.com/jobs'),
+      false,
+      'Multi-tenant blogspot.com collision must be rejected'
     );
     assert.strictEqual(
       isSafeMediaOrigin('https://attacker.github.io/ad.jpg', 'https://victim.github.io/jobs'),
@@ -3664,33 +3675,39 @@ async function runSuite() {
       'Multi-tenant github.io collision must be rejected'
     );
 
-    // 5. HTTP downgrade from an HTTPS source must be rejected
+    // 6. HTTP downgrade from an HTTPS source must be rejected
     assert.strictEqual(
       isSafeMediaOrigin('http://fpsc.gov.pk/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       false,
       'HTTP downgrade from HTTPS source must be rejected'
     );
 
-    // 6. Unapproved port changes must be rejected
+    // 7. Unapproved port changes must be rejected
     assert.strictEqual(
       isSafeMediaOrigin('https://fpsc.gov.pk:8443/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       false,
       'Unapproved port change must be rejected'
     );
 
-    // 7. Lookalike hostnames must be rejected
+    // 8. Lookalike hostnames must be rejected
     assert.strictEqual(
       isSafeMediaOrigin('https://fpsc.gov.pk.evil.com/ad.jpg', 'https://fpsc.gov.pk/jobs'),
       false,
       'Lookalike hostname must be rejected'
     );
+  });
 
-    // 8. SSRF-blocked / loopback URLs
-    assert.strictEqual(
-      isSafeMediaOrigin('http://127.0.0.1/ad.jpg', 'https://fpsc.gov.pk/jobs'),
-      false,
-      'Loopback candidate must be rejected'
-    );
+  await runTest('STEP-8.2-D Case 1b [Unit]: Direct validateSafeScrapeUrl SSRF validation on loopback, private IP, metadata, and public HTTPS URLs', () => {
+    assert.strictEqual(validateSafeScrapeUrl('http://127.0.0.1/ad.jpg').safe, false, 'Loopback IPv4 must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('https://localhost/ad.jpg').safe, false, 'localhost must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('http://10.0.0.5/ad.jpg').safe, false, 'RFC1918 10.0.0.0/8 must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('http://192.168.1.10/ad.jpg').safe, false, 'RFC1918 192.168.0.0/16 must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('http://172.16.0.1/ad.jpg').safe, false, 'RFC1918 172.16.0.0/12 must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('http://169.254.169.254/latest/meta-data/').safe, false, 'Cloud metadata IP must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('http://0.0.0.0/ad.jpg').safe, false, '0.0.0.0 must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('http://metadata.google.internal/computeMetadata/v1/').safe, false, 'Internal metadata host must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('file:///etc/passwd').safe, false, 'file:// protocol must fail SSRF check');
+    assert.strictEqual(validateSafeScrapeUrl('https://fpsc.gov.pk/media/ad.jpg').safe, true, 'Public HTTPS URL must pass SSRF check');
   });
 
   await runTest('STEP-8.2-C Case 2 [Unit]: Job-specific government classification isolation via classifyExtractedJobEvidence', () => {
@@ -3712,9 +3729,8 @@ async function runSuite() {
       }
     ];
 
-    const sourceOrg = 'FPSC';
     const mappedJobs = rawJobs.map((rj, idx) => {
-      const classification = classifyExtractedJobEvidence(rj, sourceOrg);
+      const classification = classifyExtractedJobEvidence(rj);
       return {
         id: `ocr-test-${idx}`,
         title: rj.title,
@@ -3745,28 +3761,36 @@ async function runSuite() {
     assert.strictEqual(mappedJobs[2].resolvedProvince, undefined);
   });
 
-  await runTest('STEP-8.2-C Case 3 [Unit]: Linked-image OCR Pending approval protection verification', () => {
-    const simulatedOcrResult = {
-      success: true,
-      extractedJobs: [
-        {
-          id: 'ocr-linked-1',
-          title: 'Junior Clerk (BPS-11)',
-          company: 'Provincial Department',
-          status: 'Pending' as const
-        }
-      ]
-    };
+  await runTest('STEP-8.2-C Case 3 [Unit]: Actual mapLinkedImageOcrJobs production helper enforces Pending status for autoApprove=true and autoApprove=false', () => {
+    const extracted = [
+      {
+        id: 'ocr-linked-1',
+        title: 'Junior Clerk (BPS-11)',
+        company: 'Provincial Department'
+      }
+    ];
 
-    const statusEnforced = simulatedOcrResult.extractedJobs.map(j => ({
-      ...j,
-      status: 'Pending' as const,
-      extractionMethod: 'linked_image_ocr'
-    }));
+    const withAutoApproveTrue = mapLinkedImageOcrJobs(
+      extracted,
+      { name: 'Official Portal', autoApprove: true },
+      'https://fpsc.gov.pk/jobs',
+      'https://fpsc.gov.pk/ads/clerk.jpg'
+    );
 
-    assert.strictEqual(statusEnforced.length, 1);
-    assert.strictEqual(statusEnforced[0].status, 'Pending', 'Linked-image OCR job must remain in Pending review state');
-    assert.strictEqual(statusEnforced[0].extractionMethod, 'linked_image_ocr');
+    const withAutoApproveFalse = mapLinkedImageOcrJobs(
+      extracted,
+      { name: 'Official Portal', autoApprove: false },
+      'https://fpsc.gov.pk/jobs',
+      'https://fpsc.gov.pk/ads/clerk.jpg'
+    );
+
+    assert.strictEqual(withAutoApproveTrue.length, 1);
+    assert.strictEqual(withAutoApproveTrue[0].status, 'Pending', 'Production mapper must enforce Pending when autoApprove=true');
+    assert.strictEqual(withAutoApproveTrue[0].extractionMethod, 'linked_image_ocr');
+
+    assert.strictEqual(withAutoApproveFalse.length, 1);
+    assert.strictEqual(withAutoApproveFalse[0].status, 'Pending', 'Production mapper must enforce Pending when autoApprove=false');
+    assert.strictEqual(withAutoApproveFalse[0].extractionMethod, 'linked_image_ocr');
   });
 
   console.log('------------------------------------------------------------------');

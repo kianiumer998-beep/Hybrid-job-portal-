@@ -157,13 +157,16 @@ export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolea
     const candidateObj = new URL(candidateUrl);
     const baseObj = new URL(baseUrl);
 
-    // Reject HTTP downgrade from an HTTPS source
-    if (baseObj.protocol === 'https:' && candidateObj.protocol !== 'https:') {
+    // Only permit HTTP(S) protocols
+    if (
+      (candidateObj.protocol !== 'http:' && candidateObj.protocol !== 'https:') ||
+      (baseObj.protocol !== 'http:' && baseObj.protocol !== 'https:')
+    ) {
       return false;
     }
 
-    // Reject unapproved port changes for cross-origin requests
-    if (candidateObj.port !== baseObj.port) {
+    // Reject HTTP downgrade from an HTTPS source
+    if (baseObj.protocol === 'https:' && candidateObj.protocol !== 'https:') {
       return false;
     }
 
@@ -172,17 +175,25 @@ export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolea
       return true;
     }
 
-    const candidateHost = candidateObj.hostname.toLowerCase();
-    const baseHost = baseObj.hostname.toLowerCase();
-
-    // Reject public-suffix and multi-tenant hosting collisions & tenant domains
-    const multiTenantSuffixes = ['pages.dev', 'blogspot.com', 'github.io', 'vercel.app', 'netlify.app', 'herokuapp.com', 'co.uk', 'com.pk'];
-    if (multiTenantSuffixes.some(s => candidateHost.endsWith(s) || baseHost.endsWith(s))) {
-      // Unless exact same origin (already checked above), reject cross-origin requests involving public suffix / shared hosting
+    // Reject unapproved port changes or non-default ports for cross-origin media
+    if (candidateObj.port !== baseObj.port || candidateObj.port !== '') {
       return false;
     }
 
-    // Explicit, verified cross-origin CDN hostname allowlist only
+    const candidateHost = candidateObj.hostname.toLowerCase();
+    const baseHost = baseObj.hostname.toLowerCase();
+
+    // Reject public-suffix and multi-tenant hosting collisions & tenant domains using strict hostname boundaries
+    const multiTenantSuffixes = ['pages.dev', 'blogspot.com', 'github.io', 'vercel.app', 'netlify.app', 'herokuapp.com', 'co.uk', 'com.pk'];
+    if (
+      multiTenantSuffixes.some(
+        s => candidateHost === s || candidateHost.endsWith(`.${s}`) || baseHost === s || baseHost.endsWith(`.${s}`)
+      )
+    ) {
+      return false;
+    }
+
+    // Explicit, verified cross-origin CDN hostname allowlist only (HTTPS required)
     const OFFICIAL_CDN_ALLOWLIST = new Set([
       'fpsc.gov.pk',
       'ppsc.gop.pk',
@@ -190,16 +201,13 @@ export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolea
       'kppsc.gov.pk',
       'bpsc.gob.pk',
       'cdn.fpsc.gov.pk',
-      'cdn.ppsc.gop.pk'
+      'cdn.ppsc.gop.pk',
+      'cdn.spsc.gos.pk',
+      'cdn.kppsc.gov.pk',
+      'cdn.bpsc.gob.pk'
     ]);
 
-    if (OFFICIAL_CDN_ALLOWLIST.has(candidateHost)) {
-      return true;
-    }
-
-    // Strict hostname boundary matching for verified official government domain CDNs (e.g. cdn.<baseHost>)
-    const isOfficialGovApex = /\.(gov\.pk|gop\.pk|gos\.pk|gob\.pk)$/i.test(baseHost);
-    if (isOfficialGovApex && candidateHost === `cdn.${baseHost}`) {
+    if (candidateObj.protocol === 'https:' && OFFICIAL_CDN_ALLOWLIST.has(candidateHost)) {
       return true;
     }
 
@@ -207,6 +215,64 @@ export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolea
   } catch {
     return false;
   }
+}
+
+/**
+ * Maps raw extracted OCR jobs from linked recruitment images to ScrapedJobResult records.
+ * Strictly enforces status: 'Pending' and extractionMethod: 'linked_image_ocr' regardless of config.autoApprove.
+ */
+export function mapLinkedImageOcrJobs(
+  extractedJobs: any[],
+  config: Pick<ScraperTargetConfig, 'name' | 'autoApprove'>,
+  targetUrl: string,
+  imgUrl: string,
+  imgContext: { fullExtractedText?: string; rawTextSample?: string } = {},
+  options: Pick<ScrapeOptions, 'runId'> = {}
+): ScrapedJobResult[] {
+  return (extractedJobs || []).map(j => ({
+    id: j.id,
+    title: j.title,
+    company: j.company || config.name,
+    jobType: j.jobType || 'On-site',
+    region: (j.region || 'Pakistan') as Region,
+    province: j.province,
+    city: j.city,
+    salary: j.salary || 'Per Advertisement',
+    currency: 'PKR' as Currency,
+    experienceLevel: (j.experienceLevel || 'Mid') as any,
+    department: j.department || config.name,
+    tags: j.tags || [config.name, 'Linked Image Ad'],
+    description: j.description || `Vacancy extracted via OCR from linked advertisement image.`,
+    extractedText: j.extractedText || imgContext.fullExtractedText || imgContext.rawTextSample,
+    requirements: j.requirements || [],
+    benefits: j.benefits || [],
+    postedAt: j.postedAt || 'Recent',
+    deadlineDate: j.deadlineDate,
+    applicationsCount: 0,
+    status: 'Pending',
+    sourceUrl: targetUrl,
+    clippingImageUrl: imgUrl,
+    mediaUrl: imgUrl,
+    sourcePortal: config.name,
+    extractionMethod: 'linked_image_ocr',
+    scrapeRunId: options.runId,
+    scrapedAt: new Date().toISOString(),
+    isGovtJob: j.isGovtJob,
+    govtDepartment: j.govtDepartment,
+    govtScale: j.govtScale,
+    govtCategory: j.govtCategory,
+    advertisedPositions: j.advertisedPositions,
+    totalVacancies: j.totalVacancies,
+    employmentType: j.employmentType,
+    ageLimit: j.ageLimit,
+    minimumAge: typeof j.minimumAge === 'number' ? j.minimumAge : (j.minimumAge ? Number(j.minimumAge) : undefined),
+    maximumAge: typeof j.maximumAge === 'number' ? j.maximumAge : (j.maximumAge ? Number(j.maximumAge) : undefined),
+    qualificationSummary: j.qualificationSummary,
+    domicile: j.domicile,
+    contactEmail: j.contactEmail,
+    responsibilitiesList: j.responsibilitiesList,
+    relatedSourceUrls: [imgUrl]
+  }));
 }
 
 /**
@@ -1338,50 +1404,14 @@ export async function scrapeTargetPortal(
           try {
             const imgResult = await parsePdfFromUrl(imgUrl, config.name);
             if (imgResult.success && imgResult.extractedJobs && imgResult.extractedJobs.length > 0) {
-              const mapped: ScrapedJobResult[] = imgResult.extractedJobs.map(j => ({
-                id: j.id,
-                title: j.title,
-                company: j.company || config.name,
-                jobType: j.jobType || 'On-site',
-                region: (j.region || 'Pakistan') as Region,
-                province: j.province,
-                city: j.city,
-                salary: j.salary || 'Per Advertisement',
-                currency: 'PKR' as Currency,
-                experienceLevel: (j.experienceLevel || 'Mid') as any,
-                department: j.department || config.name,
-                tags: j.tags || [config.name, 'Linked Image Ad'],
-                description: j.description || `Vacancy extracted via OCR from linked advertisement image.`,
-                extractedText: j.extractedText || imgResult.fullExtractedText || imgResult.rawTextSample,
-                requirements: j.requirements || [],
-                benefits: j.benefits || [],
-                postedAt: j.postedAt || 'Recent',
-                deadlineDate: j.deadlineDate,
-                applicationsCount: 0,
-                status: 'Pending',
-                sourceUrl: targetUrl,
-                clippingImageUrl: imgUrl,
-                mediaUrl: imgUrl,
-                sourcePortal: config.name,
-                extractionMethod: 'linked_image_ocr',
-                scrapeRunId: options.runId,
-                scrapedAt: new Date().toISOString(),
-                isGovtJob: j.isGovtJob,
-                govtDepartment: j.govtDepartment,
-                govtScale: j.govtScale,
-                govtCategory: j.govtCategory,
-                advertisedPositions: j.advertisedPositions,
-                totalVacancies: j.totalVacancies,
-                employmentType: j.employmentType,
-                ageLimit: j.ageLimit,
-                minimumAge: typeof j.minimumAge === 'number' ? j.minimumAge : (j.minimumAge ? Number(j.minimumAge) : undefined),
-                maximumAge: typeof j.maximumAge === 'number' ? j.maximumAge : (j.maximumAge ? Number(j.maximumAge) : undefined),
-                qualificationSummary: j.qualificationSummary,
-                domicile: j.domicile,
-                contactEmail: j.contactEmail,
-                responsibilitiesList: j.responsibilitiesList,
-                relatedSourceUrls: [imgUrl]
-              }));
+              const mapped = mapLinkedImageOcrJobs(
+                imgResult.extractedJobs,
+                config,
+                targetUrl,
+                imgUrl,
+                imgResult,
+                options
+              );
               linkedImageJobs.push(...mapped);
             }
           } catch (imgErr) {

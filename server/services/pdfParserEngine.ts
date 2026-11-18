@@ -298,8 +298,7 @@ export interface OcrExtractionResult {
  * STRICT ZERO-FABRICATION RULE: Transcribes ONLY what is visually present in the image.
  */
 export function classifyExtractedJobEvidence(
-  rj: { title?: string; company?: string; description?: string; requirements?: string | string[]; province?: string; location?: string; bpsScale?: string },
-  sourceOrg?: string
+  rj: { title?: string; company?: string; description?: string; requirements?: string | string[]; province?: string; location?: string; bpsScale?: string }
 ) {
   const title = (rj.title || '').trim();
   const scale = rj.bpsScale
@@ -436,7 +435,7 @@ STRICT FACTUAL INTEGRITY MANDATE:
       .filter((rj: any) => rj && rj.title && rj.title.trim().length >= 3)
       .map((rj: any, idx: number) => {
         const title = rj.title.trim();
-        const classification = classifyExtractedJobEvidence(rj, org);
+        const classification = classifyExtractedJobEvidence(rj);
         const { isGovtJob, scale, govtCategory, resolvedProvince } = classification;
 
         return {

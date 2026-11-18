@@ -98,6 +98,9 @@ import {
 import {
   JobRepository,
   JobApprovalConflictError,
+  ScraperPersistenceCollisionError,
+  MAX_SCRAPER_INSERT_RETRIES,
+  isMongoDuplicateKeyError,
   isSameLogicalJobRecord
 } from '../db/repositories/JobRepository';
 import { Database } from '../db/database';
@@ -6069,6 +6072,7 @@ async function runSuite() {
     find: (query: any) => {
       const isExact = Boolean(query && '$or' in query);
       return {
+        toArray: async () => [],
         sort: () => ({
           limit: () => ({
             toArray: async () => {
@@ -7414,6 +7418,9 @@ async function runSuite() {
     const makeMockColl = (store: Map<string, any>) => ({
       find(query: any) {
         const docs = Array.from(store.values()).filter((doc) => {
+          if (query?.id !== undefined && doc.id === query.id) {
+            return true;
+          }
           if (query?.$or && Array.isArray(query.$or)) {
             return query.$or.some((clause: any) => {
               if (clause.id !== undefined) return doc.id === clause.id;
@@ -7528,6 +7535,9 @@ async function runSuite() {
     const makeMockColl = (store: Map<string, any>) => ({
       find(query: any) {
         const docs = Array.from(store.values()).filter((doc) => {
+          if (query?.id !== undefined && doc.id === query.id) {
+            return true;
+          }
           if (query?.$or && Array.isArray(query.$or)) {
             return query.$or.some((clause: any) => clause.id !== undefined && doc.id === clause.id);
           }
@@ -8128,6 +8138,805 @@ async function runSuite() {
 
     // Clean up memory job
     await JobRepository.delete(memPendingId);
+  });
+
+  // =========================================================================
+  // STEP-8.5-A1 — Complete Atomic Scraper ID Collision Protection (12 Tests)
+  // =========================================================================
+
+  await runTest('STEP-8.5-A1 Case 1 [Mocked]: Internal ID lookup in findDuplicateCandidates is independent and NOT truncated by the 50-record exact limit', async () => {
+    const noisyExactDocs = Array.from({ length: 65 }, (_, idx) => ({
+      id: `noise-exact-${idx}`,
+      title: `Noisy Exact Match ${idx}`,
+      company: 'Audit Authority',
+      sourceJobId: 'SHARED-SRC-65',
+      sourceUrl: 'https://audit.gov.pk/shared',
+      status: 'Approved'
+    }));
+    const targetIdDoc = {
+      id: 'target-id-beyond-50',
+      title: 'Distinct Role With Matching Internal ID',
+      company: 'Distinct Org',
+      sourceJobId: 'UNRELATED-999',
+      sourceUrl: 'https://unrelated.org/999',
+      status: 'Approved',
+      applicationsCount: 44
+    };
+
+    const recordedIdQueries: Array<{ query: any; limitCalled: number | null }> = [];
+    const recordedOrQueries: Array<{ query: any; limitCalled: number | null }> = [];
+
+    const makeLargeColl = (extraTarget?: any) => ({
+      find(query: any) {
+        let appliedLimit: number | null = null;
+        const isDirectIdQuery = query && typeof query.id === 'string' && !query.$or;
+        const isOrQuery = Boolean(query && Array.isArray(query.$or));
+
+        const cursor = {
+          limit(n: number) {
+            appliedLimit = n;
+            return cursor;
+          },
+          sort() {
+            return cursor;
+          },
+          async toArray() {
+            if (isDirectIdQuery) {
+              recordedIdQueries.push({ query, limitCalled: appliedLimit });
+              return extraTarget && extraTarget.id === query.id ? [extraTarget] : [];
+            }
+            if (isOrQuery) {
+              recordedOrQueries.push({ query, limitCalled: appliedLimit });
+              const matched = noisyExactDocs.filter((d) =>
+                query.$or.some((c: any) => c.sourceJobId === d.sourceJobId)
+              );
+              return typeof appliedLimit === 'number' ? matched.slice(0, appliedLimit) : matched;
+            }
+            return [];
+          }
+        };
+        return cursor;
+      }
+    });
+
+    const pool = await JobRepository.findDuplicateCandidates(
+      {
+        id: 'target-id-beyond-50',
+        title: 'Fresh Unrelated Position',
+        company: 'Completely New Dept',
+        sourceJobId: 'SHARED-SRC-65',
+        sourceUrl: 'https://audit.gov.pk/shared'
+      },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => makeLargeColl(targetIdDoc),
+        getPendingJobsCollectionFn: async () => makeLargeColl(undefined)
+      }
+    );
+
+    assert.strictEqual(recordedIdQueries.length, 2, 'Both Live and Pending collections must receive independent { id } queries');
+    for (const q of recordedIdQueries) {
+      assert.strictEqual(q.limitCalled, null, 'Independent internal-ID lookup must NEVER apply the 50-record limit');
+      assert.strictEqual(q.query.$or, undefined, 'Internal-ID lookup must not be combined with $or');
+      assert.strictEqual(q.query.id, 'target-id-beyond-50');
+    }
+    for (const q of recordedOrQueries) {
+      assert.strictEqual(q.limitCalled, 50, 'External sourceJobId/URL $or lookup must preserve limit(50)');
+      assert.strictEqual(
+        q.query.$or.some((c: any) => c.id !== undefined),
+        false,
+        '$or query must not contain internal id clause'
+      );
+    }
+    assert.strictEqual(
+      pool.some((c) => c.id === 'target-id-beyond-50'),
+      true,
+      'Matching internal ID record must be included even when >50 external exact matches exist'
+    );
+  });
+
+  await runTest('STEP-8.5-A1 Case 2 [Mocked]: Live collection exact internal ID match is returned even when cursor omits limit()', async () => {
+    const liveDoc = {
+      id: 'live-only-id-9',
+      title: 'Chief Medical Officer',
+      company: 'Hospital Board',
+      status: 'Approved',
+      applicationsCount: 14
+    };
+
+    const pool = await JobRepository.findDuplicateCandidates(
+      { id: 'live-only-id-9', title: 'Junior Clerk', company: 'Tax Office' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => ({
+          find(query: any) {
+            // Supports both direct .toArray() (for { id }) and .sort/.limit/.toArray() (for content queries)
+            const res = query?.id === 'live-only-id-9' ? [liveDoc] : [];
+            return {
+              limit() { return this; },
+              sort() { return this; },
+              async toArray() { return res; }
+            };
+          }
+        }),
+        getPendingJobsCollectionFn: async () => ({
+          find() {
+            return {
+              limit() { return this; },
+              sort() { return this; },
+              async toArray() { return []; }
+            };
+          }
+        })
+      }
+    );
+
+    const matched = pool.find((d) => d.id === 'live-only-id-9');
+    assert.ok(matched, 'Live record with matching internal id must be present in duplicate candidate pool');
+    assert.strictEqual(matched.applicationsCount, 14);
+  });
+
+  await runTest('STEP-8.5-A1 Case 3 [Mocked]: Pending collection exact internal ID match is returned independently', async () => {
+    const pendingDoc = {
+      id: 'pending-only-id-17',
+      title: 'Research Officer',
+      company: 'Planning Commission',
+      status: 'Pending',
+      applicationsCount: 0
+    };
+
+    const pool = await JobRepository.findDuplicateCandidates(
+      { id: 'pending-only-id-17', title: 'Network Admin', company: 'IT Authority' },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => ({
+          find() {
+            return {
+              limit() { return this; },
+              sort() { return this; },
+              async toArray() { return []; }
+            };
+          }
+        }),
+        getPendingJobsCollectionFn: async () => ({
+          find(query: any) {
+            const res = query?.id === 'pending-only-id-17' ? [pendingDoc] : [];
+            return {
+              limit() { return this; },
+              sort() { return this; },
+              async toArray() { return res; }
+            };
+          }
+        })
+      }
+    );
+
+    assert.strictEqual(pool.some((d) => d.id === 'pending-only-id-17'), true);
+  });
+
+  await runTest('STEP-8.5-A1 Case 4 [Mocked]: Fail-closed when either Live or Pending independent internal-ID lookup throws', async () => {
+    const okColl = (doc?: any) => ({
+      find() {
+        return {
+          limit() { return this; },
+          sort() { return this; },
+          async toArray() { return doc ? [doc] : []; }
+        };
+      }
+    });
+    const failingIdColl = (label: string) => ({
+      find(query: any) {
+        return {
+          limit() { return this; },
+          sort() { return this; },
+          async toArray() {
+            if (query?.id !== undefined) {
+              throw new Error(`${label} id lookup failure`);
+            }
+            return [];
+          }
+        };
+      }
+    });
+
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(
+          { id: 'fail-live-id' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => failingIdColl('live'),
+            getPendingJobsCollectionFn: async () => okColl({ id: 'fail-live-id', title: 'Partial' })
+          }
+        ),
+      /internal-ID lookup failed/i
+    );
+
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(
+          { id: 'fail-pending-id' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => okColl({ id: 'fail-pending-id', title: 'Partial' }),
+            getPendingJobsCollectionFn: async () => failingIdColl('pending')
+          }
+        ),
+      /internal-ID lookup failed/i
+    );
+  });
+
+  await runTest('STEP-8.5-A1 Case 5 [Mocked]: createScrapedLive and addScrapedPending perform atomic insertOne without upsert and require confirmation', async () => {
+    const liveOps: string[] = [];
+    const pendingOps: string[] = [];
+
+    const savedLive = await JobRepository.createScrapedLive(
+      {
+        id: 'atomic-live-free-1',
+        title: 'Systems Architect',
+        company: 'NADRA',
+        city: 'Islamabad',
+        sourceJobId: 'NAD-1',
+        sourceUrl: 'https://nadra.gov.pk/1'
+      },
+      {
+        isMongoConfiguredFn: () => true,
+        applyVisibilityPolicyFn: async (j) => j,
+        getPendingJobsCollectionFn: async () => ({
+          findOne: async () => null
+        }),
+        getJobsCollectionFn: async () => ({
+          updateOne: async () => {
+            liveOps.push('updateOne-FORBIDDEN');
+            throw new Error('upsert updateOne must never be called by createScrapedLive');
+          },
+          insertOne: async (doc: any) => {
+            liveOps.push(`insertOne:${doc.id}`);
+            return { acknowledged: true, insertedId: 'oid-live-1' };
+          }
+        })
+      }
+    );
+    assert.strictEqual(savedLive.id, 'atomic-live-free-1');
+    assert.strictEqual(savedLive.status, 'Approved');
+    assert.deepStrictEqual(liveOps, ['insertOne:atomic-live-free-1']);
+
+    const savedPending = await JobRepository.addScrapedPending(
+      {
+        id: 'atomic-pending-free-1',
+        title: 'Data Officer',
+        company: 'PBS',
+        city: 'Lahore',
+        sourceJobId: 'PBS-1',
+        sourceUrl: 'https://pbs.gov.pk/1'
+      },
+      {
+        isMongoConfiguredFn: () => true,
+        getJobsCollectionFn: async () => ({
+          findOne: async () => null
+        }),
+        getPendingJobsCollectionFn: async () => ({
+          updateOne: async () => {
+            pendingOps.push('updateOne-FORBIDDEN');
+            throw new Error('upsert updateOne must never be called by addScrapedPending');
+          },
+          insertOne: async (doc: any) => {
+            pendingOps.push(`insertOne:${doc.id}`);
+            return { acknowledged: true, insertedId: 'oid-pending-1' };
+          }
+        })
+      }
+    );
+    assert.strictEqual(savedPending.id, 'atomic-pending-free-1');
+    assert.strictEqual(savedPending.status, 'Pending');
+    assert.deepStrictEqual(pendingOps, ['insertOne:atomic-pending-free-1']);
+
+    // Unacknowledged or missing insertedId must fail closed
+    await assert.rejects(
+      () =>
+        JobRepository.createScrapedLive(
+          { id: 'unacked-live-1', title: 'Test', company: 'Org' },
+          {
+            isMongoConfiguredFn: () => true,
+            applyVisibilityPolicyFn: async (j) => j,
+            getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
+            getJobsCollectionFn: async () => ({
+              insertOne: async () => ({ acknowledged: false, insertedId: 'oid-x' })
+            })
+          }
+        ),
+      /could not be confirmed/i
+    );
+
+    await assert.rejects(
+      () =>
+        JobRepository.addScrapedPending(
+          { id: 'missing-oid-pending-1', title: 'Test', company: 'Org' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => ({ findOne: async () => null }),
+            getPendingJobsCollectionFn: async () => ({
+              insertOne: async () => ({ acknowledged: true })
+            })
+          }
+        ),
+      /could not be confirmed/i
+    );
+  });
+
+  await runTest('STEP-8.5-A1 Case 6 [Mocked]: Concurrent E11000 race on Live scraper insert preserves existing live job and retries with fresh ID', async () => {
+    resetActiveRun();
+    const existingLiveDoc = {
+      id: 'race-live-id-1',
+      slug: 'original-doctor-race-live-id-1',
+      title: 'Original Consultant Cardiologist',
+      company: 'NICVD',
+      status: 'Approved',
+      applicationsCount: 53,
+      applications: [{ id: 'app-90' }],
+      applicationHistory: [{ ts: '2026-03-01' }]
+    };
+    const liveStore = new Map<string, any>([['race-live-id-1', existingLiveDoc]]);
+    const insertAttempts: string[] = [];
+
+    const mockJobsColl = {
+      async insertOne(doc: any) {
+        insertAttempts.push(doc.id);
+        if (liveStore.has(doc.id)) {
+          const dupErr: any = new Error(`E11000 duplicate key error collection: jobs index: id_1 dup key: { id: "${doc.id}" }`);
+          dupErr.code = 11000;
+          throw dupErr;
+        }
+        liveStore.set(doc.id, doc);
+        return { acknowledged: true, insertedId: `oid-${doc.id}` };
+      },
+      async updateOne() {
+        throw new Error('upsert must NOT be used by scraped live insert');
+      }
+    };
+
+    // Simulate race: findDuplicateCandidates returned empty BEFORE concurrent writer inserted race-live-id-1
+    const summary = await executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['src-race-live'], autoPublishTrusted: true },
+      {
+        getConfigsFn: async () => [
+          { id: 'src-race-live', name: 'Works Portal', url: 'https://works.gov.pk/jobs', status: 'Active Scheduled', autoApprove: true }
+        ],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => [
+          {
+            id: 'race-live-id-1',
+            slug: 'stale-slug-race-live-id-1',
+            title: 'Structural Project Engineer',
+            company: 'PWD',
+            city: 'Islamabad',
+            jobType: 'On-site',
+            region: 'Pakistan',
+            salary: 'PKR 175,000',
+            currency: 'PKR',
+            experienceLevel: 'Mid',
+            department: 'Engineering',
+            tags: [],
+            description: 'Race condition protection test for live collection.',
+            requirements: [],
+            benefits: [],
+            postedAt: 'Today',
+            applicationsCount: 0,
+            status: 'Pending',
+            sourceJobId: 'PWD-88',
+            sourceUrl: 'https://pwd.gov.pk/88',
+            extractionMethod: 'html_cheerio'
+          }
+        ],
+        enrichJobsFn: async (jobs) => jobs,
+        findDuplicateCandidatesFn: async () => [],
+        createJobFn: (job) =>
+          JobRepository.createScrapedLive(job, {
+            isMongoConfiguredFn: () => true,
+            applyVisibilityPolicyFn: async (j) => j,
+            getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
+            getJobsCollectionFn: async () => mockJobsColl
+          }),
+        auditAddFn: () => {}
+      }
+    );
+
+    assert.deepStrictEqual(insertAttempts[0], 'race-live-id-1');
+    assert.strictEqual(insertAttempts.length, 2, 'Should fail once on E11000 and succeed cleanly on second attempt');
+    assert.strictEqual(liveStore.size, 2, 'Both existing and new live records must coexist');
+    assert.strictEqual(liveStore.get('race-live-id-1').title, 'Original Consultant Cardiologist');
+    assert.strictEqual(liveStore.get('race-live-id-1').applicationsCount, 53);
+    assert.strictEqual(liveStore.get('race-live-id-1').applications.length, 1);
+    assert.strictEqual(liveStore.get('race-live-id-1').applicationHistory.length, 1);
+
+    assert.strictEqual(summary.totalPublished, 1);
+    assert.notStrictEqual(summary.publishedJobs[0].id, 'race-live-id-1');
+    assert.ok(liveStore.has(summary.publishedJobs[0].id));
+    assert.notStrictEqual(summary.publishedJobs[0].slug, 'stale-slug-race-live-id-1');
+    const expectedSlugSuffix = String(summary.publishedJobs[0].id).replace(/[^a-z0-9]+/gi, '').slice(-8);
+    assert.ok(String(summary.publishedJobs[0].slug).endsWith(expectedSlugSuffix));
+    resetActiveRun();
+  });
+
+  await runTest('STEP-8.5-A1 Case 7 [Mocked]: Concurrent E11000 race on Pending scraper insert preserves existing pending job and retries cleanly', async () => {
+    resetActiveRun();
+    const existingPendingDoc = {
+      id: 'race-pending-id-1',
+      title: 'Existing Pending Tax Auditor',
+      company: 'FBR',
+      sourceJobId: 'FBR-11',
+      status: 'Pending',
+      applicationsCount: 0
+    };
+    const pendingStore = new Map<string, any>([['race-pending-id-1', existingPendingDoc]]);
+    const insertAttempts: string[] = [];
+
+    const mockPendingColl = {
+      async insertOne(doc: any) {
+        insertAttempts.push(doc.id);
+        if (pendingStore.has(doc.id)) {
+          const dupErr: any = new Error(`E11000 duplicate key error collection: pending_jobs index: id_1 dup key: { id: "${doc.id}" }`);
+          dupErr.code = 11000;
+          throw dupErr;
+        }
+        pendingStore.set(doc.id, doc);
+        return { acknowledged: true, insertedId: `oid-${doc.id}` };
+      }
+    };
+
+    const summary = await executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['src-race-pending'] },
+      {
+        getConfigsFn: async () => [
+          { id: 'src-race-pending', name: 'Transport Portal', url: 'https://transport.gov.pk/jobs', status: 'Active Scheduled', autoApprove: false }
+        ],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => [
+          {
+            id: 'race-pending-id-1',
+            title: 'Traffic Signal Technician',
+            company: 'Traffic Authority',
+            city: 'Karachi',
+            jobType: 'On-site',
+            region: 'Pakistan',
+            salary: 'PKR 75,000',
+            currency: 'PKR',
+            experienceLevel: 'Junior',
+            department: 'Operations',
+            tags: [],
+            description: 'Pending E11000 collision protection test.',
+            requirements: [],
+            benefits: [],
+            postedAt: 'Today',
+            applicationsCount: 0,
+            status: 'Pending',
+            sourceJobId: 'TA-502',
+            sourceUrl: 'https://ta.gov.pk/502',
+            extractionMethod: 'html_cheerio'
+          }
+        ],
+        enrichJobsFn: async (jobs) => jobs,
+        findDuplicateCandidatesFn: async () => [],
+        addPendingJobFn: (job) =>
+          JobRepository.addScrapedPending(job, {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => ({ findOne: async () => null }),
+            getPendingJobsCollectionFn: async () => mockPendingColl
+          }),
+        auditAddFn: () => {}
+      }
+    );
+
+    assert.strictEqual(insertAttempts[0], 'race-pending-id-1');
+    assert.strictEqual(insertAttempts.length, 2);
+    assert.strictEqual(pendingStore.size, 2);
+    assert.strictEqual(pendingStore.get('race-pending-id-1').title, 'Existing Pending Tax Auditor');
+    assert.strictEqual(summary.totalPending, 1);
+    assert.notStrictEqual(summary.pendingJobs[0].id, 'race-pending-id-1');
+    assert.ok(pendingStore.has(summary.pendingJobs[0].id));
+    resetActiveRun();
+  });
+
+  await runTest('STEP-8.5-A1 Case 8 [Mocked]: Source identity fields and cross-collection uniqueness are preserved across E11000 collision retries', async () => {
+    let calls = 0;
+    const saved = await JobRepository.createScrapedLive(
+      {
+        id: 'cross-coll-id-1',
+        slug: 'old-cross-coll-slug',
+        title: 'Hydraulic Engineer',
+        company: 'IRSA',
+        city: 'Islamabad',
+        scraperSourceId: 'irsa-portal',
+        scraperSourceName: 'IRSA Official Portal',
+        sourceJobId: 'IRSA-2026-44',
+        sourceUrl: 'https://irsa.gov.pk/jobs/44',
+        originalApplyUrl: 'https://irsa.gov.pk/apply/44',
+        applicationUrl: 'https://careers.irsa.gov.pk/form/44'
+      },
+      {
+        isMongoConfiguredFn: () => true,
+        applyVisibilityPolicyFn: async (j) => j,
+        getPendingJobsCollectionFn: async () => ({
+          // First ID exists in opposite (pending) collection!
+          findOne: async ({ id }: any) => (id === 'cross-coll-id-1' ? { id } : null)
+        }),
+        getJobsCollectionFn: async () => ({
+          insertOne: async (doc: any) => {
+            calls++;
+            // Also simulate one concurrent E11000 on the first fresh live ID
+            if (calls === 1) {
+              const e: any = new Error('E11000 duplicate key');
+              e.code = 11000;
+              throw e;
+            }
+            return { acknowledged: true, insertedId: `oid-${doc.id}` };
+          }
+        })
+      }
+    );
+
+    assert.strictEqual(calls, 2);
+    assert.notStrictEqual(saved.id, 'cross-coll-id-1');
+    assert.ok(saved.id.startsWith('scraped-irsa-portal-'));
+    assert.notStrictEqual(saved.slug, 'old-cross-coll-slug');
+    const expectedSavedSlugSuffix = String(saved.id).replace(/[^a-z0-9]+/gi, '').slice(-8);
+    assert.ok(String(saved.slug).endsWith(expectedSavedSlugSuffix));
+    assert.strictEqual(saved.sourceJobId, 'IRSA-2026-44');
+    assert.strictEqual(saved.sourceUrl, 'https://irsa.gov.pk/jobs/44');
+    assert.strictEqual(saved.originalApplyUrl, 'https://irsa.gov.pk/apply/44');
+    assert.strictEqual(saved.applicationUrl, 'https://careers.irsa.gov.pk/form/44');
+    assert.strictEqual(saved.scraperSourceId, 'irsa-portal');
+    assert.strictEqual(saved.scraperSourceName, 'IRSA Official Portal');
+  });
+
+  await runTest('STEP-8.5-A1 Case 9 [Mocked]: Exhausting bounded retries on persistent E11000 fails closed without upsert and records scraper save failure', async () => {
+    resetActiveRun();
+    let upsertCalled = false;
+    let insertCount = 0;
+
+    await assert.rejects(
+      () =>
+        JobRepository.createScrapedLive(
+          {
+            id: 'always-collide-1',
+            title: 'Persistent Conflict Job',
+            company: 'Test Org',
+            scraperSourceId: 'conflict-src'
+          },
+          {
+            isMongoConfiguredFn: () => true,
+            applyVisibilityPolicyFn: async (j) => j,
+            getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
+            getJobsCollectionFn: async () => ({
+              insertOne: async () => {
+                insertCount++;
+                const err: any = new Error('E11000 duplicate key error');
+                err.code = 11000;
+                throw err;
+              },
+              updateOne: async () => {
+                upsertCalled = true;
+                return { acknowledged: true, matchedCount: 1 };
+              }
+            })
+          }
+        ),
+      (err: any) =>
+        err instanceof ScraperPersistenceCollisionError &&
+        err.collisionRetriesExhausted === true &&
+        err.attempts === MAX_SCRAPER_INSERT_RETRIES + 1
+    );
+
+    assert.strictEqual(insertCount, MAX_SCRAPER_INSERT_RETRIES + 1);
+    assert.strictEqual(upsertCalled, false, 'Must NEVER fall back to upsert when collision retries exhaust');
+
+    // End-to-end inside executeScraperWithWizard with custom direct insert fn throwing E11000 endlessly
+    let engineCalls = 0;
+    let checkpointStatsCaptured: any = null;
+    const summary = await executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['src-exhaust'], autoPublishTrusted: true },
+      {
+        getConfigsFn: async () => [
+          {
+            id: 'src-exhaust',
+            name: 'Exhaust Portal',
+            url: 'https://exhaust.gov.pk/jobs',
+            status: 'Active Scheduled',
+            autoApprove: true,
+            lastSuccessfulScrapeAt: '2026-11-01T00:00:00.000Z'
+          }
+        ],
+        updateSourceStatsFn: async (_id, stats) => {
+          if (stats && stats.lastCompletedAt) checkpointStatsCaptured = stats;
+        },
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => [
+          {
+            id: 'exhaust-job-1',
+            title: 'Biosecurity Officer',
+            company: 'Food Authority',
+            jobType: 'On-site',
+            region: 'Pakistan',
+            salary: 'PKR 110,000',
+            currency: 'PKR',
+            experienceLevel: 'Mid',
+            department: 'Lab',
+            tags: [],
+            description: 'Bounded retry exhaustion check.',
+            requirements: [],
+            benefits: [],
+            postedAt: 'Today',
+            applicationsCount: 0,
+            status: 'Pending',
+            sourceJobId: 'FA-1',
+            sourceUrl: 'https://fa.gov.pk/1',
+            extractionMethod: 'html_cheerio'
+          }
+        ],
+        enrichJobsFn: async (jobs) => jobs,
+        findDuplicateCandidatesFn: async () => [],
+        createJobFn: async () => {
+          engineCalls++;
+          const err: any = new Error('E11000 duplicate key error');
+          err.code = 11000;
+          throw err;
+        },
+        auditAddFn: () => {}
+      }
+    );
+
+    assert.strictEqual(engineCalls, MAX_SCRAPER_INSERT_RETRIES + 1);
+    assert.strictEqual(summary.totalPublished, 0);
+    assert.strictEqual(summary.totalPending, 0);
+    assert.strictEqual(summary.totalFailedToSave, 1);
+    assert.strictEqual(summary.failedToSaveErrors?.length, 1);
+    assert.strictEqual(
+      checkpointStatsCaptured?.lastSuccessfulScrapeAt,
+      '2026-11-01T00:00:00.000Z',
+      'Save failure from collision exhaustion must block checkpoint advancement'
+    );
+    resetActiveRun();
+  });
+
+  await runTest('STEP-8.5-A1 Case 10 [Mocked]: Non-collision DB errors are NOT retried as ID collisions and fail immediately', async () => {
+    assert.strictEqual(isMongoDuplicateKeyError({ code: 11000 }), true);
+    assert.strictEqual(isMongoDuplicateKeyError({ code: 11001 }), true);
+    assert.strictEqual(isMongoDuplicateKeyError(new Error('E11000 duplicate key error')), true);
+    assert.strictEqual(isMongoDuplicateKeyError(new Error('MongoNetworkTimeoutError: socket timed out')), false);
+
+    let networkAttempts = 0;
+    await assert.rejects(
+      () =>
+        JobRepository.addScrapedPending(
+          { id: 'net-err-1', title: 'Analyst', company: 'Org' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => ({ findOne: async () => null }),
+            getPendingJobsCollectionFn: async () => ({
+              insertOne: async () => {
+                networkAttempts++;
+                const err: any = new Error('MongoNetworkTimeoutError: timed out');
+                err.code = 89;
+                throw err;
+              }
+            })
+          }
+        ),
+      /MongoNetworkTimeoutError/
+    );
+    assert.strictEqual(networkAttempts, 1, 'Non-collision errors must not trigger collision retry loop');
+  });
+
+  await runTest('STEP-8.5-A1 Case 11 [Unit]: Legacy non-scraper JobRepository.create and JobRepository.addPending methods remain intact and preserve existing signatures', () => {
+    assert.strictEqual(typeof JobRepository.create, 'function');
+    assert.strictEqual(typeof JobRepository.addPending, 'function');
+    assert.strictEqual(typeof JobRepository.createScrapedLive, 'function');
+    assert.strictEqual(typeof JobRepository.addScrapedPending, 'function');
+    assert.strictEqual(JobRepository.create === JobRepository.createScrapedLive, false);
+    assert.strictEqual(JobRepository.addPending === JobRepository.addScrapedPending, false);
+  });
+
+  await runTest('STEP-8.5-A1 Case 12 [Mocked]: Existing duplicateMode (with/without) and normal approvePending flows continue working properly after atomic persistence update', async () => {
+    resetActiveRun();
+    const pendingStore = new Map<string, any>();
+    const liveStore = new Map<string, any>([
+      [
+        'existing-live-base-1',
+        {
+          id: 'existing-live-base-1',
+          title: 'Director Planning',
+          company: 'HEC',
+          sourceJobId: 'HEC-10',
+          sourceUrl: 'https://hec.gov.pk/10',
+          status: 'Approved',
+          applicationsCount: 6
+        }
+      ]
+    ]);
+
+    const summaryWith = await executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['src-hec'], duplicateMode: 'with' },
+      {
+        getConfigsFn: async () => [
+          { id: 'src-hec', name: 'HEC', url: 'https://hec.gov.pk', status: 'Active Scheduled', autoApprove: true }
+        ],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => [
+          {
+            id: 'existing-live-base-1',
+            title: 'Director Planning',
+            company: 'HEC',
+            city: 'Islamabad',
+            jobType: 'On-site',
+            region: 'Pakistan',
+            salary: 'PKR 220,000',
+            currency: 'PKR',
+            experienceLevel: 'Senior',
+            department: 'Planning',
+            tags: [],
+            description: 'Duplicate job in with mode.',
+            requirements: [],
+            benefits: [],
+            postedAt: 'Today',
+            applicationsCount: 0,
+            status: 'Pending',
+            sourceJobId: 'HEC-10',
+            sourceUrl: 'https://hec.gov.pk/10',
+            extractionMethod: 'html_cheerio'
+          }
+        ],
+        enrichJobsFn: async (jobs) => jobs,
+        findDuplicateCandidatesFn: async () => [liveStore.get('existing-live-base-1')],
+        addPendingJobFn: (job) =>
+          JobRepository.addScrapedPending(job, {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => ({ findOne: async ({ id }: any) => liveStore.get(id) || null }),
+            getPendingJobsCollectionFn: async () => ({
+              insertOne: async (doc: any) => {
+                pendingStore.set(doc.id, doc);
+                return { acknowledged: true, insertedId: `oid-${doc.id}` };
+              }
+            })
+          }),
+        auditAddFn: () => {}
+      }
+    );
+
+    assert.strictEqual(summaryWith.totalDuplicates, 1);
+    assert.strictEqual(summaryWith.totalPending, 1);
+    assert.strictEqual(pendingStore.size, 1);
+    const savedPendingDup = Array.from(pendingStore.values())[0];
+    assert.notStrictEqual(savedPendingDup.id, 'existing-live-base-1');
+    assert.strictEqual(savedPendingDup.isDuplicate, true);
+    assert.strictEqual(savedPendingDup.duplicateOfJobId, 'existing-live-base-1');
+
+    // Approve a distinct non-conflicting pending record cleanly
+    const approvedNormal = await JobRepository.approvePending(savedPendingDup.id, {
+      isMongoConfiguredFn: () => true,
+      applyVisibilityPolicyFn: async (j) => j,
+      getPendingJobsCollectionFn: async () => ({
+        findOne: async ({ id }: any) => pendingStore.get(id) || null,
+        deleteOne: async ({ id }: any) => {
+          pendingStore.delete(id);
+          return { acknowledged: true, deletedCount: 1 };
+        }
+      }),
+      getJobsCollectionFn: async () => ({
+        findOne: async ({ id }: any) => liveStore.get(id) || null,
+        updateOne: async ({ id }: any, update: any) => {
+          liveStore.set(id, update.$set);
+          return { acknowledged: true, matchedCount: 0, upsertedCount: 1 };
+        }
+      })
+    });
+
+    assert.strictEqual(approvedNormal?.status, 'Approved');
+    assert.strictEqual(liveStore.get('existing-live-base-1')?.applicationsCount, 6);
+    assert.strictEqual(pendingStore.size, 0);
+    resetActiveRun();
   });
 
   console.log('------------------------------------------------------------------');

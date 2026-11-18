@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { ScraperRepository, isTransientMongoError } from '../db/repositories/ScraperRepository';
-import { JobRepository } from '../db/repositories/JobRepository';
+import {
+  JobRepository,
+  MAX_SCRAPER_INSERT_RETRIES,
+  ScraperPersistenceCollisionError,
+  isMongoDuplicateKeyError
+} from '../db/repositories/JobRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
 import { scrapeTargetPortal, ScrapedJobResult, ScraperTargetConfig } from '../../src/services/scraperService';
 import { validateSafeScrapeUrl } from '../utils/ssrfProtection';
@@ -684,6 +689,77 @@ export function resolveNonCollidingCandidateId(
 }
 
 /**
+ * Executes atomic scraper persistence with bounded retry on duplicate-key / ID collisions.
+ * Synchronizes any newly assigned ID/slug back onto standardizedJob (preserving source identity fields).
+ * Never falls back to upsert; throws if retries are exhausted or a non-collision error occurs.
+ */
+async function persistScrapedCandidateWithRetry(
+  standardizedJob: any,
+  persistFn: (jobData: any) => Promise<any>,
+  harvestedJobs: any[],
+  sourceId?: string,
+  maxRetries: number = MAX_SCRAPER_INSERT_RETRIES
+): Promise<any> {
+  const usedIds = new Set<string>();
+  for (const item of harvestedJobs) {
+    if (item && item.id) usedIds.add(String(item.id).trim());
+  }
+
+  let candidateToPersist = standardizedJob;
+  let lastErr: any = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (candidateToPersist?.id) {
+      usedIds.add(String(candidateToPersist.id).trim());
+    }
+    try {
+      const saved = await persistFn(candidateToPersist);
+      if (saved && typeof saved === 'object' && saved.id) {
+        standardizedJob.id = saved.id;
+        if (saved.slug) {
+          standardizedJob.slug = saved.slug;
+        }
+      } else if (candidateToPersist?.id && candidateToPersist.id !== standardizedJob.id) {
+        standardizedJob.id = candidateToPersist.id;
+        if (candidateToPersist.slug) {
+          standardizedJob.slug = candidateToPersist.slug;
+        } else {
+          delete standardizedJob.slug;
+        }
+      }
+      return saved;
+    } catch (err: any) {
+      if (!isMongoDuplicateKeyError(err) || err?.collisionRetriesExhausted === true) {
+        throw err;
+      }
+      lastErr = err;
+      if (attempt < maxRetries) {
+        const freshId = generateUniqueScrapedJobId(sourceId || standardizedJob?.scraperSourceId, usedIds);
+        usedIds.add(freshId);
+        candidateToPersist = {
+          ...standardizedJob,
+          id: freshId
+        };
+        if (candidateToPersist.slug) {
+          delete candidateToPersist.slug;
+        }
+        continue;
+      }
+      throw new ScraperPersistenceCollisionError(
+        `Scraper persistence failed after ${maxRetries + 1} attempts due to persistent ID collisions.`,
+        {
+          attempts: maxRetries + 1,
+          attemptedIds: Array.from(usedIds),
+          cause: lastErr
+        }
+      );
+    }
+  }
+
+  throw lastErr;
+}
+
+/**
  * Authoritative Scraper Execution Engine with Multi-Source, Dynamic Pagination,
  * Cutoffs, and Centralized Duplication Control.
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
@@ -707,8 +783,8 @@ export async function executeScraperWithWizard(
   const enrichJobsFn = _deps?.enrichJobsFn || enrichScrapedJobsBatch;
   const findDuplicateCandidatesFn =
     _deps?.findDuplicateCandidatesFn || ((job: any) => JobRepository.findDuplicateCandidates(job));
-  const createJobFn = _deps?.createJobFn || ((job: any) => JobRepository.create(job));
-  const addPendingJobFn = _deps?.addPendingJobFn || ((job: any) => JobRepository.addPending(job));
+  const createJobFn = _deps?.createJobFn || ((job: any) => JobRepository.createScrapedLive(job));
+  const addPendingJobFn = _deps?.addPendingJobFn || ((job: any) => JobRepository.addScrapedPending(job));
   const auditAddFn = _deps?.auditAddFn || ((entry: any) => AuditRepository.add(entry));
 
   const startTime = new Date();
@@ -992,7 +1068,7 @@ export async function executeScraperWithWizard(
 
             // Duplicates are NEVER published live. Saved to pending queue with duplicate flags
             try {
-              await addPendingJobFn(standardizedJob);
+              await persistScrapedCandidateWithRetry(standardizedJob, addPendingJobFn, harvestedJobs, target.id);
               pendingJobs.push(standardizedJob);
               activeRunState.totalPending++;
               sourcePersisted++;
@@ -1013,7 +1089,7 @@ export async function executeScraperWithWizard(
 
             if (standardizedJob.status === 'Approved') {
               try {
-                await createJobFn(standardizedJob);
+                await persistScrapedCandidateWithRetry(standardizedJob, createJobFn, harvestedJobs, target.id);
                 publishedJobs.push(standardizedJob);
                 activeRunState.totalPublished++;
                 sourcePersisted++;
@@ -1029,7 +1105,7 @@ export async function executeScraperWithWizard(
               }
             } else {
               try {
-                await addPendingJobFn(standardizedJob);
+                await persistScrapedCandidateWithRetry(standardizedJob, addPendingJobFn, harvestedJobs, target.id);
                 pendingJobs.push(standardizedJob);
                 activeRunState.totalPending++;
                 sourcePersisted++;

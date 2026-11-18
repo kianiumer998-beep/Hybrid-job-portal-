@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import path from 'path';
 import {
   getJobsCollection,
@@ -133,6 +134,59 @@ export class JobApprovalConflictError extends Error {
     this.status = 409;
     this.statusCode = 409;
   }
+}
+
+export const MAX_SCRAPER_INSERT_RETRIES = 3;
+
+export class ScraperPersistenceCollisionError extends Error {
+  code: string;
+  status: number;
+  statusCode: number;
+  collisionRetriesExhausted: boolean;
+  attempts: number;
+  attemptedIds: string[];
+  cause?: unknown;
+
+  constructor(
+    message: string,
+    opts?: { attempts?: number; attemptedIds?: string[]; cause?: unknown }
+  ) {
+    super(message);
+    this.name = 'ScraperPersistenceCollisionError';
+    this.code = 'SCRAPER_JOB_ID_COLLISION';
+    this.status = 409;
+    this.statusCode = 409;
+    this.collisionRetriesExhausted = true;
+    this.attempts = opts?.attempts ?? 0;
+    this.attemptedIds = opts?.attemptedIds ?? [];
+    if (opts?.cause !== undefined) {
+      this.cause = opts.cause;
+    }
+  }
+}
+
+export function isMongoDuplicateKeyError(err: any): boolean {
+  if (!err || typeof err !== 'object') return false;
+  if (err.code === 11000 || err.code === 11001 || err.code === '11000') return true;
+  if (err.code === 'SCRAPER_JOB_ID_COLLISION') return true;
+  if (err.name === 'ScraperIdCollisionError' || err.name === 'ScraperPersistenceCollisionError') return true;
+  const msg = typeof err.message === 'string' ? err.message : '';
+  return /e11000/i.test(msg) || /duplicate key/i.test(msg);
+}
+
+function generateUniqueScrapedRecordId(sourceId?: string, excludeIds?: Set<string>): string {
+  const safeSource = (sourceId || 'src').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'src';
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const randPart =
+      typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().replace(/-/g, '').slice(0, 10)
+        : `${Math.random().toString(36).substring(2, 8)}${Math.random().toString(36).substring(2, 6)}`;
+    const candidate = `scraped-${safeSource}-${Date.now().toString(36)}-${randPart}`;
+    if (!excludeIds || !excludeIds.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `scraped-${safeSource}-${Date.now().toString(36)}-${crypto.randomBytes(5).toString('hex')}`;
 }
 
 function normalizeJobIdentityToken(value: any): string {
@@ -1305,13 +1359,32 @@ export class JobRepository {
     const jobsColl = await getJobsCollFn();
     const pendingColl = await getPendingCollFn();
 
-    // 1. Gather exact identifier signals (including internal job ID across Live & Pending collections)
-    const exactOrClauses: any[] = [];
-
+    // 1A. Independent exact internal-ID lookup across Live & Pending collections (unbounded, no $or, no limit(50))
     const rawCandidateId = candidateJob.id ? String(candidateJob.id).trim() : '';
     if (rawCandidateId) {
-      exactOrClauses.push({ id: rawCandidateId });
+      try {
+        const [liveById, pendingById] = await Promise.all([
+          jobsColl.find({ id: rawCandidateId }).toArray(),
+          pendingColl.find({ id: rawCandidateId }).toArray()
+        ]);
+        for (const doc of [...(liveById || []), ...(pendingById || [])]) {
+          if (doc && doc.id && !candidatePoolMap.has(doc.id)) {
+            candidatePoolMap.set(doc.id, normalizeMongoJob(doc));
+          }
+        }
+      } catch (err: any) {
+        const msg = `Duplicate candidate internal-ID lookup failed across live and pending collections: ${err?.message || err}`;
+        console.error(`[JobRepository] ${msg}`);
+        const lookupErr: any = new Error(msg);
+        lookupErr.name = err?.name || 'MongoDuplicateLookupError';
+        lookupErr.isDatabaseError = true;
+        lookupErr.cause = err;
+        throw lookupErr;
+      }
     }
+
+    // 1B. Gather exact external identifier signals (sourceJobId & URLs) across Live & Pending collections
+    const exactOrClauses: any[] = [];
 
     const rawSourceJobId = candidateJob.sourceJobId ? String(candidateJob.sourceJobId).trim() : '';
     if (rawSourceJobId) {
@@ -1474,6 +1547,178 @@ export class JobRepository {
 
     await pendingColl.updateOne({ id }, { $set: newPending }, { upsert: true });
     return newPending;
+  }
+
+  private static async persistScrapedAtomic(
+    target: 'live' | 'pending',
+    jobData: any,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getJobsCollectionFn?: () => Promise<any>;
+      getPendingJobsCollectionFn?: () => Promise<any>;
+      applyVisibilityPolicyFn?: (job: any) => Promise<any>;
+      maxRetries?: number;
+    }
+  ): Promise<any> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    if (!isMongoCfgFn()) {
+      throw new Error(
+        'Database Configuration Error: MONGODB_URI environment variable is not defined or invalid. Production requires a valid MongoDB connection string.'
+      );
+    }
+    if (!_deps?.isMongoConfiguredFn) {
+      assertMongoAvailable();
+    }
+
+    const targetColl =
+      target === 'live'
+        ? (_deps?.getJobsCollectionFn ? await _deps.getJobsCollectionFn() : await getJobsCollection())
+        : (_deps?.getPendingJobsCollectionFn
+            ? await _deps.getPendingJobsCollectionFn()
+            : await getPendingJobsCollection());
+
+    const usingDefaultCollections = !_deps?.getJobsCollectionFn && !_deps?.getPendingJobsCollectionFn;
+    let otherColl: any = null;
+    if (target === 'live' && (usingDefaultCollections || _deps?.getPendingJobsCollectionFn)) {
+      otherColl = _deps?.getPendingJobsCollectionFn
+        ? await _deps.getPendingJobsCollectionFn()
+        : await getPendingJobsCollection();
+    } else if (target === 'pending' && (usingDefaultCollections || _deps?.getJobsCollectionFn)) {
+      otherColl = _deps?.getJobsCollectionFn
+        ? await _deps.getJobsCollectionFn()
+        : await getJobsCollection();
+    }
+
+    const applyVisibilityPolicyFn =
+      _deps?.applyVisibilityPolicyFn || ((j: any) => JobVisibilityRepository.applyPolicyToJob(j));
+    const maxRetries = Math.max(
+      0,
+      typeof _deps?.maxRetries === 'number' ? _deps.maxRetries : MAX_SCRAPER_INSERT_RETRIES
+    );
+
+    const now = new Date().toISOString();
+    const rawCountry = typeof jobData?.country === 'string' ? jobData.country.trim() : '';
+    const resolvedCountry =
+      rawCountry ||
+      (jobData?.country === undefined || jobData?.country === null || jobData?.country === ''
+        ? 'Pakistan'
+        : jobData.country);
+
+    const attemptedIds = new Set<string>();
+    let currentId = jobData?.id ? String(jobData.id).trim() : '';
+    if (!currentId) {
+      currentId = generateUniqueScrapedRecordId(jobData?.scraperSourceId, attemptedIds);
+    }
+    let lastCollisionErr: any = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      attemptedIds.add(currentId);
+      const resolvedSlug =
+        attempt === 0 && jobData?.slug
+          ? jobData.slug
+          : generateJobSlug(jobData?.title, jobData?.city, currentId);
+
+      let candidateDoc: any = {
+        ...jobData,
+        id: currentId,
+        slug: resolvedSlug,
+        country: resolvedCountry,
+        status: target === 'live' ? (jobData?.status || 'Approved') : 'Pending',
+        createdAt: jobData?.createdAt || now,
+        updatedAt: now,
+        applicationsCount:
+          target === 'live' && typeof jobData?.applicationsCount === 'number'
+            ? jobData.applicationsCount
+            : 0
+      };
+      delete candidateDoc._id;
+
+      if (target === 'live') {
+        candidateDoc = await applyVisibilityPolicyFn(candidateDoc);
+      }
+
+      const normalized = normalizeMongoJob(candidateDoc);
+
+      if (otherColl && typeof otherColl.findOne === 'function') {
+        const crossMatch = await otherColl.findOne({ id: currentId });
+        if (crossMatch) {
+          lastCollisionErr = new ScraperPersistenceCollisionError(
+            `Scraped job ID "${currentId}" already exists in opposite collection.`,
+            { attempts: attempt + 1, attemptedIds: Array.from(attemptedIds) }
+          );
+          if (attempt < maxRetries) {
+            currentId = generateUniqueScrapedRecordId(jobData?.scraperSourceId, attemptedIds);
+            continue;
+          }
+          break;
+        }
+      }
+
+      try {
+        const insertRes = await targetColl.insertOne(normalized);
+        if (!insertRes || insertRes.acknowledged !== true || !insertRes.insertedId) {
+          const unackedErr: any = new Error(
+            `MongoDB atomic insert for ${target} scraped job "${currentId}" could not be confirmed.`
+          );
+          unackedErr.isDatabaseError = true;
+          throw unackedErr;
+        }
+        return normalized;
+      } catch (err: any) {
+        if (isMongoDuplicateKeyError(err)) {
+          lastCollisionErr = err;
+          if (attempt < maxRetries) {
+            currentId = generateUniqueScrapedRecordId(jobData?.scraperSourceId, attemptedIds);
+            continue;
+          }
+          break;
+        }
+        throw err;
+      }
+    }
+
+    throw new ScraperPersistenceCollisionError(
+      `Atomic ${target} scraped job insert failed after ${maxRetries + 1} attempts due to persistent ID collisions (last attempted ID: "${currentId}").`,
+      {
+        attempts: maxRetries + 1,
+        attemptedIds: Array.from(attemptedIds),
+        cause: lastCollisionErr
+      }
+    );
+  }
+
+  /**
+   * Atomically inserts a newly scraped live job without upsert/overwriting any existing record.
+   * Retries cleanly on duplicate-key ID collisions with a fresh unique ID & slug.
+   */
+  static async createScrapedLive(
+    jobData: any,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getJobsCollectionFn?: () => Promise<any>;
+      getPendingJobsCollectionFn?: () => Promise<any>;
+      applyVisibilityPolicyFn?: (job: any) => Promise<any>;
+      maxRetries?: number;
+    }
+  ): Promise<any> {
+    return this.persistScrapedAtomic('live', jobData, _deps);
+  }
+
+  /**
+   * Atomically inserts a newly scraped pending job without upsert/overwriting any existing record.
+   * Retries cleanly on duplicate-key ID collisions with a fresh unique ID & slug.
+   */
+  static async addScrapedPending(
+    jobData: any,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getJobsCollectionFn?: () => Promise<any>;
+      getPendingJobsCollectionFn?: () => Promise<any>;
+      applyVisibilityPolicyFn?: (job: any) => Promise<any>;
+      maxRetries?: number;
+    }
+  ): Promise<any> {
+    return this.persistScrapedAtomic('pending', jobData, _deps);
   }
 
   /**

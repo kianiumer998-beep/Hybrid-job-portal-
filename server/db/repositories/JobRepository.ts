@@ -121,6 +121,76 @@ function assertMongoAvailable() {
   }
 }
 
+export class JobApprovalConflictError extends Error {
+  code: string;
+  status: number;
+  statusCode: number;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'JobApprovalConflictError';
+    this.code = 'LIVE_JOB_ID_CONFLICT';
+    this.status = 409;
+    this.statusCode = 409;
+  }
+}
+
+function normalizeJobIdentityToken(value: any): string {
+  if (value === undefined || value === null) return '';
+  return String(value).trim().toLowerCase();
+}
+
+function normalizeJobIdentityUrl(value: any): string {
+  const normalized = normalizeJobIdentityToken(value);
+  if (!normalized) return '';
+  return normalized.replace(/\/+$/, '');
+}
+
+/**
+ * Verifies whether a pending job record and an existing live job record sharing
+ * the same internal ID safely represent the same logical job (e.g. an idempotent retry).
+ */
+export function isSameLogicalJobRecord(pendingDoc: any, existingLive: any): boolean {
+  if (!pendingDoc || !existingLive) return false;
+
+  const pendingId = normalizeJobIdentityToken(pendingDoc.id);
+  const liveId = normalizeJobIdentityToken(existingLive.id);
+  if (!pendingId || !liveId || pendingId !== liveId) return false;
+
+  const pendingTitle = normalizeJobIdentityToken(pendingDoc.title);
+  const liveTitle = normalizeJobIdentityToken(existingLive.title);
+  const pendingCompany = normalizeJobIdentityToken(pendingDoc.company);
+  const liveCompany = normalizeJobIdentityToken(existingLive.company);
+  if (!pendingTitle || !liveTitle || pendingTitle !== liveTitle) return false;
+  if (!pendingCompany || !liveCompany || pendingCompany !== liveCompany) return false;
+
+  const pendingSourceJobId = normalizeJobIdentityToken(pendingDoc.sourceJobId);
+  const liveSourceJobId = normalizeJobIdentityToken(existingLive.sourceJobId);
+  if ((pendingSourceJobId || liveSourceJobId) && pendingSourceJobId !== liveSourceJobId) {
+    return false;
+  }
+
+  const pendingSourceUrl = normalizeJobIdentityUrl(pendingDoc.sourceUrl);
+  const liveSourceUrl = normalizeJobIdentityUrl(existingLive.sourceUrl);
+  if ((pendingSourceUrl || liveSourceUrl) && pendingSourceUrl !== liveSourceUrl) {
+    return false;
+  }
+
+  const pendingSubmitter = normalizeJobIdentityToken(pendingDoc.submittedByUserId);
+  const liveSubmitter = normalizeJobIdentityToken(existingLive.submittedByUserId);
+  if ((pendingSubmitter || liveSubmitter) && pendingSubmitter !== liveSubmitter) {
+    return false;
+  }
+
+  const pendingScraperSource = normalizeJobIdentityToken(pendingDoc.scraperSourceId);
+  const liveScraperSource = normalizeJobIdentityToken(existingLive.scraperSourceId);
+  if ((pendingScraperSource || liveScraperSource) && pendingScraperSource !== liveScraperSource) {
+    return false;
+  }
+
+  return true;
+}
+
 export class JobRepository {
   /**
    * Reads all approved / active jobs directly from MongoDB with filtering, sorting, and pagination.
@@ -1235,8 +1305,13 @@ export class JobRepository {
     const jobsColl = await getJobsCollFn();
     const pendingColl = await getPendingCollFn();
 
-    // 1. Gather exact identifier signals
+    // 1. Gather exact identifier signals (including internal job ID across Live & Pending collections)
     const exactOrClauses: any[] = [];
+
+    const rawCandidateId = candidateJob.id ? String(candidateJob.id).trim() : '';
+    if (rawCandidateId) {
+      exactOrClauses.push({ id: rawCandidateId });
+    }
 
     const rawSourceJobId = candidateJob.sourceJobId ? String(candidateJob.sourceJobId).trim() : '';
     if (rawSourceJobId) {
@@ -1410,16 +1485,36 @@ export class JobRepository {
 
   /**
    * Atomically approves a pending job:
-   * 1. Finds and removes the record from pending_jobs.
-   * 2. Sets status to 'Approved' and inserts/upserts into live jobs.
+   * 1. Checks whether a live record already exists with the same internal ID; rejects conflicting records without overwriting.
+   * 2. Preserves existing live application fields on safe idempotent retry of the same logical record.
+   * 3. Requires explicit MongoDB write confirmation (acknowledged === true && (matchedCount > 0 || upsertedCount > 0))
+   *    before removing the pending record.
    */
-  static async approvePending(id: string): Promise<any | null> {
-    if (!isMongoConfigured()) {
+  static async approvePending(
+    id: string,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getPendingJobsCollectionFn?: () => Promise<any>;
+      getJobsCollectionFn?: () => Promise<any>;
+      applyVisibilityPolicyFn?: (job: any) => Promise<any>;
+    }
+  ): Promise<any | null> {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    if (!isMongoCfgFn()) {
       return Database.approvePendingJob(id);
     }
-    assertMongoAvailable();
-    const pendingColl = await getPendingJobsCollection();
-    const jobsColl = await getJobsCollection();
+    if (!_deps?.isMongoConfiguredFn) {
+      assertMongoAvailable();
+    }
+    const pendingColl = _deps?.getPendingJobsCollectionFn
+      ? await _deps.getPendingJobsCollectionFn()
+      : await getPendingJobsCollection();
+    const jobsColl = _deps?.getJobsCollectionFn
+      ? await _deps.getJobsCollectionFn()
+      : await getJobsCollection();
+    const applyPolicyFn =
+      _deps?.applyVisibilityPolicyFn ||
+      ((job: any) => JobVisibilityRepository.applyPolicyToJob(job));
 
     const pendingDoc = await pendingColl.findOne({ id });
     if (!pendingDoc) {
@@ -1428,7 +1523,12 @@ export class JobRepository {
       if (existing) {
         const updated = await jobsColl.findOneAndUpdate(
           { id },
-          { $set: { status: 'Approved', verifiedDate: new Date().toISOString() } },
+          {
+            $set: {
+              status: 'Approved',
+              verifiedDate: existing.verifiedDate || new Date().toISOString()
+            }
+          },
           { returnDocument: 'after' }
         );
         return updated ? normalizeMongoJob(updated) : null;
@@ -1436,22 +1536,99 @@ export class JobRepository {
       return null;
     }
 
-    let rawApproved = {
-      ...pendingDoc,
+    const now = new Date().toISOString();
+    const existingLive = await jobsColl.findOne({ id });
+    const { _id: _pendingMongoId, ...pendingWithoutMongoId } = pendingDoc;
+
+    let rawApproved: any;
+    let writeResult: any;
+
+    if (existingLive) {
+      if (!isSameLogicalJobRecord(pendingDoc, existingLive)) {
+        throw new JobApprovalConflictError(
+          `Approval conflict: existing live job "${id}" ("${existingLive.title || 'Unknown'}" at "${existingLive.company || 'Unknown'}") does not match pending record ("${pendingDoc.title || 'Unknown'}" at "${pendingDoc.company || 'Unknown'}"). Pending record preserved.`
+        );
+      }
+
+      const { _id: _liveMongoId, ...liveWithoutMongoId } = existingLive;
+      const existingAppCount =
+        typeof existingLive.applicationsCount === 'number' ? existingLive.applicationsCount : 0;
+      const pendingAppCount =
+        typeof pendingDoc.applicationsCount === 'number' ? pendingDoc.applicationsCount : 0;
+
+      rawApproved = {
+        ...pendingWithoutMongoId,
+        ...liveWithoutMongoId,
+        id,
+        status: 'Approved',
+        verifiedDate: existingLive.verifiedDate || now,
+        updatedAt: now,
+        applicationsCount: Math.max(existingAppCount, pendingAppCount)
+      };
+
+      if (existingLive.applications !== undefined) {
+        rawApproved.applications = existingLive.applications;
+      }
+      if (existingLive.applicants !== undefined) {
+        rawApproved.applicants = existingLive.applicants;
+      }
+      if (existingLive.applicationHistory !== undefined) {
+        rawApproved.applicationHistory = existingLive.applicationHistory;
+      }
+
+      rawApproved = JobRepository.applyLocationProtection(rawApproved, existingLive);
+      rawApproved = await applyPolicyFn(rawApproved);
+      const approvedJob = normalizeMongoJob(rawApproved);
+
+      writeResult = await jobsColl.updateOne({ id }, { $set: approvedJob });
+
+      const isConfirmed = Boolean(
+        writeResult &&
+        writeResult.acknowledged === true &&
+        ((typeof writeResult.matchedCount === 'number' && writeResult.matchedCount > 0) ||
+          (typeof writeResult.upsertedCount === 'number' && writeResult.upsertedCount > 0))
+      );
+
+      if (!isConfirmed) {
+        throw new Error(
+          `Live job update could not be confirmed by MongoDB for pending job "${id}". Pending record preserved.`
+        );
+      }
+
+      await pendingColl.deleteOne({ id });
+      return approvedJob;
+    }
+
+    rawApproved = {
+      ...pendingWithoutMongoId,
+      id,
       status: 'Approved',
-      verifiedDate: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      verifiedDate: now,
+      updatedAt: now
     };
 
     // Apply visibility policy (merging defaults with any existing overrides)
-    rawApproved = await JobVisibilityRepository.applyPolicyToJob(rawApproved);
+    rawApproved = await applyPolicyFn(rawApproved);
 
     const approvedJob = normalizeMongoJob(rawApproved);
 
     // Write to live jobs collection FIRST before deleting from pending collection
-    await jobsColl.updateOne({ id }, { $set: approvedJob }, { upsert: true });
+    writeResult = await jobsColl.updateOne({ id }, { $set: approvedJob }, { upsert: true });
 
-    // Only after live write succeeds, remove from pending collection
+    const isLiveWriteConfirmed = Boolean(
+      writeResult &&
+      writeResult.acknowledged === true &&
+      ((typeof writeResult.matchedCount === 'number' && writeResult.matchedCount > 0) ||
+        (typeof writeResult.upsertedCount === 'number' && writeResult.upsertedCount > 0))
+    );
+
+    if (!isLiveWriteConfirmed) {
+      throw new Error(
+        `Live job write could not be confirmed by MongoDB for pending job "${id}". Pending record preserved.`
+      );
+    }
+
+    // Only after explicitly confirmed live write succeeds, remove from pending collection
     await pendingColl.deleteOne({ id });
 
     return approvedJob;

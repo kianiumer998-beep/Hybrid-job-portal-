@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { ScraperRepository, isTransientMongoError } from '../db/repositories/ScraperRepository';
 import { JobRepository } from '../db/repositories/JobRepository';
 import { AuditRepository } from '../db/repositories/AuditRepository';
@@ -630,6 +631,58 @@ export async function crawlPortalPages(
   };
 }
 
+export function generateUniqueScrapedJobId(sourceId?: string, usedIds?: Set<string>): string {
+  const safeSource = (sourceId || 'src').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'src';
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const randPart =
+      typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().replace(/-/g, '').slice(0, 10)
+        : `${Math.random().toString(36).substring(2, 8)}${Math.random().toString(36).substring(2, 6)}`;
+    const candidate = `scraped-${safeSource}-${Date.now().toString(36)}-${randPart}`;
+    if (!usedIds || !usedIds.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `scraped-${safeSource}-${Date.now().toString(36)}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+}
+
+/**
+ * Ensures a scraped candidate job has a unique internal ID that does not collide with
+ * any existing Live, Pending, or current-batch job record. Preserves all source identity fields
+ * (sourceJobId, sourceUrl, originalApplyUrl, applicationUrl, scraperSourceId) untouched.
+ */
+export function resolveNonCollidingCandidateId(
+  standardizedJob: any,
+  duplicateCandidates: any[] = [],
+  harvestedJobs: any[] = [],
+  sourceId?: string
+): { collided: boolean; previousId: string; resolvedId: string } {
+  const usedIds = new Set<string>();
+  for (const item of duplicateCandidates) {
+    if (item && item.id) usedIds.add(String(item.id).trim());
+  }
+  for (const item of harvestedJobs) {
+    if (item && item.id) usedIds.add(String(item.id).trim());
+  }
+
+  const currentId = standardizedJob?.id ? String(standardizedJob.id).trim() : '';
+  const collided = !currentId || usedIds.has(currentId);
+
+  if (collided) {
+    const freshId = generateUniqueScrapedJobId(sourceId || standardizedJob?.scraperSourceId, usedIds);
+    standardizedJob.id = freshId;
+    if (standardizedJob.slug) {
+      delete standardizedJob.slug;
+    }
+    console.warn(
+      `[Scraper Engine] Internal job ID collision detected (${currentId || 'empty'}). Assigned fresh ID "${freshId}" while preserving source identity.`
+    );
+    return { collided: true, previousId: currentId, resolvedId: freshId };
+  }
+
+  return { collided: false, previousId: currentId, resolvedId: currentId };
+}
+
 /**
  * Authoritative Scraper Execution Engine with Multi-Source, Dynamic Pagination,
  * Cutoffs, and Centralized Duplication Control.
@@ -900,6 +953,9 @@ export async function executeScraperWithWizard(
             lookupErr.cause = candErr;
             throw lookupErr;
           }
+
+          // Reassign a fresh unique internal ID if standardizedJob.id collides with any Live/Pending/batch record
+          resolveNonCollidingCandidateId(standardizedJob, duplicateCandidates, harvestedJobs, target.id);
 
           // Multi-signal deduplication check against Live/Pending candidates + intra-batch harvestedJobs
           const dupCheck: DuplicateMatchResult = detectJobDuplicate(

@@ -122,11 +122,10 @@ export function isPrivateOrBlockedIp(ip: string): { blocked: boolean; reason?: s
       return { blocked: true, reason: 'IPv6 unspecified address (::)' };
     }
 
-    // 3. IPv4-mapped IPv6 (::ffff:0:0/96) and IPv4-compatible IPv6 (::/96)
+    // 3. IPv4-mapped IPv6 (::ffff:0:0/96)
     // Supports both dotted decimal (::ffff:127.0.0.1) and hexadecimal (::ffff:7f00:1) representations
     const isMapped = words.slice(0, 5).every(w => w === 0) && words[5] === 0xffff;
-    const isCompat = words.slice(0, 6).every(w => w === 0);
-    if (isMapped || isCompat) {
+    if (isMapped) {
       const a = (words[6] >> 8) & 0xff;
       const b = words[6] & 0xff;
       const c = (words[7] >> 8) & 0xff;
@@ -136,6 +135,37 @@ export function isPrivateOrBlockedIp(ip: string): { blocked: boolean; reason?: s
         return { blocked: true, reason: `IPv4-mapped ${v4Check.reason}` };
       }
       return { blocked: false };
+    }
+
+    // 4. Deprecated IPv4-compatible IPv6 (::/96)
+    // Deprecated transition mechanism (RFC 4291 section 2.5.5.1); rejected rather than treated as public
+    if (words.slice(0, 6).every(w => w === 0)) {
+      return { blocked: true, reason: 'Deprecated IPv4-compatible address (::/96)' };
+    }
+
+    // 5. 6to4 transition prefix (2002::/16)
+    // Embeds IPv4 addresses and must not bypass SSRF protection
+    if (words[0] === 0x2002) {
+      return { blocked: true, reason: 'IPv6 6to4 transition address (2002::/16)' };
+    }
+
+    // 6. Teredo tunneling prefix (2001:0000::/32)
+    // Embeds IPv4 addresses and is an IPv6 transition mechanism not accepted as a public target
+    if (words[0] === 0x2001 && words[1] === 0x0000) {
+      return { blocked: true, reason: 'IPv6 Teredo tunneling address (2001::/32)' };
+    }
+
+    // 7. NAT64 well-known prefix (64:ff9b::/96)
+    // Translation prefix representing embedded IPv4 destinations; blocked from bypassing private IPv4 checks
+    if (
+      words[0] === 0x0064 &&
+      words[1] === 0xff9b &&
+      words[2] === 0 &&
+      words[3] === 0 &&
+      words[4] === 0 &&
+      words[5] === 0
+    ) {
+      return { blocked: true, reason: 'IPv6 NAT64 well-known prefix (64:ff9b::/96)' };
     }
 
     // 4. IPv6 unique-local address (fc00::/7 covering fc00::/8 and fd00::/8)

@@ -9253,6 +9253,62 @@ async function runSuite() {
     }
   });
 
+  await runTest('STEP-8.6-A2 Case 1 [Unit]: Special-purpose IPv6 range validation blocks 6to4, Teredo, NAT64, and deprecated IPv4-compatible addresses while preserving public IPv4-mapped and public IPv6', () => {
+    // 1. 6to4 transition prefix (2002::/16)
+    const t6to4_1 = isPrivateOrBlockedIp('2002:0a00:0001::1');
+    assert.strictEqual(t6to4_1.blocked, true);
+    assert.ok(t6to4_1.reason?.includes('6to4'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[2002:0a00:0001::1]/jobs').safe, false);
+
+    const t6to4_2 = isPrivateOrBlockedIp('2002:c0a8:0101::1');
+    assert.strictEqual(t6to4_2.blocked, true);
+    assert.ok(t6to4_2.reason?.includes('6to4'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[2002:c0a8:0101::1]/jobs').safe, false);
+
+    // 2. Teredo tunneling prefix (2001:0000::/32)
+    const teredo = isPrivateOrBlockedIp('2001:0000:4136:e378:8000:63bf:3fff:fdd2');
+    assert.strictEqual(teredo.blocked, true);
+    assert.ok(teredo.reason?.includes('Teredo'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[2001:0000:4136:e378:8000:63bf:3fff:fdd2]/jobs').safe, false);
+
+    // 3. NAT64 well-known prefix (64:ff9b::/96)
+    const nat64 = isPrivateOrBlockedIp('64:ff9b::a00:1');
+    assert.strictEqual(nat64.blocked, true);
+    assert.ok(nat64.reason?.includes('NAT64'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[64:ff9b::a00:1]/jobs').safe, false);
+
+    // 4. Deprecated IPv4-compatible IPv6 (::/96)
+    const compatHex = isPrivateOrBlockedIp('::a00:1');
+    assert.strictEqual(compatHex.blocked, true);
+    assert.ok(compatHex.reason?.includes('IPv4-compatible'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::a00:1]/jobs').safe, false);
+
+    const compatDotted = isPrivateOrBlockedIp('::8.8.8.8');
+    assert.strictEqual(compatDotted.blocked, true);
+    assert.ok(compatDotted.reason?.includes('IPv4-compatible'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::8.8.8.8]/jobs').safe, false);
+
+    // 5. Legitimate public IPv4-mapped IPv6 (::ffff:0:0/96) must remain allowed
+    const mappedDotted = isPrivateOrBlockedIp('::ffff:8.8.8.8');
+    assert.strictEqual(mappedDotted.blocked, false);
+    assert.strictEqual(validateSafeScrapeUrl('https://[::ffff:8.8.8.8]/jobs').safe, true);
+
+    const mappedHex = isPrivateOrBlockedIp('::ffff:808:808');
+    assert.strictEqual(mappedHex.blocked, false);
+    assert.strictEqual(validateSafeScrapeUrl('https://[::ffff:808:808]/jobs').safe, true);
+
+    // 6. Legitimate public IPv6 addresses continue passing
+    for (const pubIpv6 of [
+      '2607:f8b0:4005:805::200e',
+      '2001:4860:4860::8888',
+      '2a00:1450:4009:81f::200e'
+    ]) {
+      const res = isPrivateOrBlockedIp(pubIpv6);
+      assert.strictEqual(res.blocked, false, `Expected public IPv6 ${pubIpv6} to be allowed`);
+      assert.strictEqual(validateSafeScrapeUrl(`https://[${pubIpv6}]/jobs`).safe, true);
+    }
+  });
+
   console.log('------------------------------------------------------------------');
   console.log(`Summary: Passed=${counts.passed}, Failed=${counts.failed}, Skipped=${counts.skipped}`);
   console.log('==================================================================');

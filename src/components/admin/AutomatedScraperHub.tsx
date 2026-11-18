@@ -379,7 +379,8 @@ export interface ScraperRunRecord {
   duplicatesFlagged?: number;
   failedSources?: number;
   totalFailedSources?: number;
-  status?: 'Completed' | 'Partial' | 'Failed';
+  stopped?: boolean;
+  status?: 'Completed' | 'Partial' | 'Failed' | 'Stopped';
   message?: string;
   sourceId?: string;
   sourceIds?: string[];
@@ -394,7 +395,10 @@ export interface ScraperRunRecord {
   }>;
 }
 
-export function deriveRunStatus(run: any): 'Completed' | 'Partial' | 'Failed' {
+export function deriveRunStatus(run: any): 'Completed' | 'Partial' | 'Failed' | 'Stopped' {
+  if (run?.stopped === true || run?.status === 'Stopped') {
+    return 'Stopped';
+  }
   if (run?.status === 'Completed' || run?.status === 'Partial' || run?.status === 'Failed') {
     return run.status;
   }
@@ -403,6 +407,182 @@ export function deriveRunStatus(run: any): 'Completed' | 'Partial' | 'Failed' {
   if (failed === 0) return 'Completed';
   if (failed < total) return 'Partial';
   return 'Failed';
+}
+
+export function buildScraperRunFeedback(
+  res: any,
+  context: {
+    actionLabel: string;
+    successText: string;
+    emptyWarningText: string;
+  }
+): {
+  type: 'success' | 'error' | 'info';
+  text: string;
+  logText: string;
+  historyFailed: boolean;
+} {
+  if (!res?.success) {
+    const errText = res?.message || context.emptyWarningText;
+    return {
+      type: 'error',
+      text: errText,
+      logText: `${context.actionLabel} warning: ${errText}`,
+      historyFailed: false
+    };
+  }
+
+  const historyFailed =
+    res.historyPersistenceMode === 'failed' ||
+    (res.historyPersistedToMongo === false && Boolean(res.historyPersistenceError));
+  const wasStopped = res.stopped === true || res.status === 'Stopped';
+
+  if (historyFailed) {
+    const reason = res.historyPersistenceError || 'database write failed';
+    const warningText = `${context.successText} Warning: Run history was NOT saved to MongoDB (${reason}).`;
+    return {
+      type: 'error',
+      text: warningText,
+      logText: `${context.actionLabel} warning: Jobs were processed, but run history failed to persist to MongoDB (${reason}).`,
+      historyFailed: true
+    };
+  }
+
+  if (wasStopped) {
+    const stoppedText = res.message || `${context.actionLabel} stopped early before all sources finished.`;
+    return {
+      type: 'info',
+      text: stoppedText,
+      logText: stoppedText,
+      historyFailed: false
+    };
+  }
+
+  return {
+    type: 'success',
+    text: context.successText,
+    logText: `${context.actionLabel} completed: ${context.successText}`,
+    historyFailed: false
+  };
+}
+
+export function applyResetActiveRunResult(
+  res: any,
+  setters: {
+    setActiveRunStatus: (s: any) => void;
+    setIsScrapingActive: (active: boolean) => void;
+    logMessage: (msg: string) => void;
+    setStatusMessage: (msg: { text: string; type: 'success' | 'error' | 'info' }) => void;
+  }
+): boolean {
+  if (res?.activeRun) {
+    setters.setActiveRunStatus(res.activeRun);
+  }
+  if (res?.success) {
+    setters.setIsScrapingActive(false);
+    setters.logMessage('Active crawler status reset.');
+    setters.setStatusMessage({ text: 'Active crawler status reset.', type: 'info' });
+    return true;
+  }
+  const msg = res?.message || 'Cannot reset active crawler while execution is still running. Stop the run first.';
+  setters.logMessage(`Reset blocked: ${msg}`);
+  setters.setStatusMessage({ text: msg, type: 'error' });
+  return false;
+}
+
+export function computeToggledSourceStatus(sources: ScraperSourceItem[], sourceId: string): ScraperSourceItem[] {
+  return sources.map(s => {
+    if (s.id === sourceId) {
+      return {
+        ...s,
+        status: s.status === 'Active Scheduled' ? 'Paused' : 'Active Scheduled'
+      } as ScraperSourceItem;
+    }
+    return s;
+  });
+}
+
+export function computeToggledAutoApprove(sources: ScraperSourceItem[], sourceId: string): ScraperSourceItem[] {
+  return sources.map(s => {
+    if (s.id === sourceId) {
+      return { ...s, autoApprove: !s.autoApprove } as ScraperSourceItem;
+    }
+    return s;
+  });
+}
+
+export function computeDeletedSourceList(sources: ScraperSourceItem[], sourceId: string): ScraperSourceItem[] {
+  return sources.filter(s => s.id !== sourceId);
+}
+
+export function computeAddedSourceList(sources: ScraperSourceItem[], newSource: ScraperSourceItem): ScraperSourceItem[] {
+  return [newSource, ...sources];
+}
+
+export function computeBulkStatusSources(
+  sources: ScraperSourceItem[],
+  selectedIds: string[],
+  enable: boolean
+): ScraperSourceItem[] {
+  return sources.map(s => {
+    if (selectedIds.includes(s.id)) {
+      return { ...s, status: enable ? 'Active Scheduled' : 'Paused' } as ScraperSourceItem;
+    }
+    return s;
+  });
+}
+
+export function computeBulkAutoApproveSources(
+  sources: ScraperSourceItem[],
+  selectedIds: string[],
+  enable: boolean
+): ScraperSourceItem[] {
+  return sources.map(s => {
+    if (selectedIds.includes(s.id)) {
+      return { ...s, autoApprove: enable } as ScraperSourceItem;
+    }
+    return s;
+  });
+}
+
+export async function saveAndApplySourceConfigUpdate(params: {
+  updatedSources: ScraperSourceItem[];
+  saveConfigsFn: (configs: any[]) => Promise<any>;
+  setLiveSourcesFn: (sources: ScraperSourceItem[]) => void;
+  propsSetSourcesFn?: (sources: ScraperSourceItem[]) => void;
+  afterApplyFn?: () => void;
+  setStatusMessageFn: (msg: { text: string; type: 'success' | 'error' | 'info' }) => void;
+  successText: string;
+  fallbackErrorText: string;
+}): Promise<boolean> {
+  try {
+    const res = await params.saveConfigsFn(params.updatedSources);
+    if (!res?.success) {
+      params.setStatusMessageFn({
+        text: res?.message || params.fallbackErrorText,
+        type: 'error'
+      });
+      return false;
+    }
+    params.setLiveSourcesFn(params.updatedSources);
+    if (params.propsSetSourcesFn) {
+      params.propsSetSourcesFn(params.updatedSources);
+    }
+    if (params.afterApplyFn) {
+      params.afterApplyFn();
+    }
+    params.setStatusMessageFn({
+      text: params.successText,
+      type: 'success'
+    });
+    return true;
+  } catch (err: any) {
+    params.setStatusMessageFn({
+      text: err?.message || params.fallbackErrorText,
+      type: 'error'
+    });
+    return false;
+  }
 }
 
 interface AutomatedScraperHubProps {
@@ -1086,20 +1266,16 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       };
 
       const res = await api.scraper.run(payload);
-      if (res?.success) {
-        const found = res.totalFound || 0;
-        const approved = res.jobsAccepted || res.approvedCount || 0;
-        const duplicates = res.totalDuplicates || 0;
-
-        logMessage(`Run completed successfully: ${found} found (${approved} approved, ${duplicates} duplicates)`);
-        setStatusMessage({
-          text: `Scraper finished! Discovered ${found} jobs (${approved} approved, ${duplicates} duplicates).`,
-          type: 'success'
-        });
-      } else {
-        logMessage(`Run warning: ${res?.message || 'Check server logs'}`);
-        setStatusMessage({ text: res?.message || 'Scraper execution finished with notices.', type: 'error' });
-      }
+      const found = res?.totalFound || 0;
+      const approved = res?.jobsAccepted || res?.approvedCount || 0;
+      const duplicates = res?.totalDuplicates || 0;
+      const feedback = buildScraperRunFeedback(res, {
+        actionLabel: 'Run',
+        successText: `Scraper finished! Discovered ${found} jobs (${approved} approved, ${duplicates} duplicates).`,
+        emptyWarningText: 'Scraper execution finished with notices.'
+      });
+      logMessage(feedback.logText);
+      setStatusMessage({ text: feedback.text, type: feedback.type });
     } catch (err: any) {
       logMessage(`Run error: ${err.message || 'Network error'}`);
       setStatusMessage({ text: `Scraper run error: ${err.message || 'Network error'}`, type: 'error' });
@@ -1179,11 +1355,15 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   const handleResetScraper = async () => {
     try {
       const res = await api.scraper.resetActiveRun();
-      if (res?.activeRun) setActiveRunStatus(res.activeRun);
-      setIsScrapingActive(false);
-      logMessage('Active crawler status reset.');
+      applyResetActiveRunResult(res, {
+        setActiveRunStatus,
+        setIsScrapingActive,
+        logMessage,
+        setStatusMessage
+      });
     } catch (e: any) {
       logMessage(`Reset notice: ${e.message}`);
+      setStatusMessage({ text: `Reset error: ${e.message}`, type: 'error' });
     }
   };
 
@@ -1313,47 +1493,49 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
   };
 
   // -------------------------------------------------------------
-  // Source Management Handlers (Step 1)
+  // Source Management Handlers (Step 1) - Fail-Closed Persistence
   // -------------------------------------------------------------
   const handleToggleSourceStatus = async (sourceId: string) => {
-    const updated = sourcesList.map(s => {
-      if (s.id === sourceId) {
-        return {
-          ...s,
-          status: s.status === 'Active Scheduled' ? 'Paused' : 'Active Scheduled'
-        } as ScraperSourceItem;
-      }
-      return s;
+    const updated = computeToggledSourceStatus(sourcesList, sourceId);
+    await saveAndApplySourceConfigUpdate({
+      updatedSources: updated,
+      saveConfigsFn: (configs) => api.scraper.saveConfigs(configs),
+      setLiveSourcesFn: setLiveSources,
+      propsSetSourcesFn: propsSetSources,
+      setStatusMessageFn: setStatusMessage,
+      successText: 'Source status updated.',
+      fallbackErrorText: 'Failed to update source status in backend database.'
     });
-
-    setLiveSources(updated);
-    if (propsSetSources) propsSetSources(updated);
-    await api.scraper.saveConfigs(updated);
-    setStatusMessage({ text: 'Source status updated.', type: 'success' });
   };
 
   const handleToggleAutoApprove = async (sourceId: string) => {
-    const updated = sourcesList.map(s => {
-      if (s.id === sourceId) {
-        return { ...s, autoApprove: !s.autoApprove } as ScraperSourceItem;
-      }
-      return s;
+    const updated = computeToggledAutoApprove(sourcesList, sourceId);
+    await saveAndApplySourceConfigUpdate({
+      updatedSources: updated,
+      saveConfigsFn: (configs) => api.scraper.saveConfigs(configs),
+      setLiveSourcesFn: setLiveSources,
+      propsSetSourcesFn: propsSetSources,
+      setStatusMessageFn: setStatusMessage,
+      successText: 'Auto-approve setting updated for source.',
+      fallbackErrorText: 'Failed to update auto-approve setting in backend database.'
     });
-
-    setLiveSources(updated);
-    if (propsSetSources) propsSetSources(updated);
-    await api.scraper.saveConfigs(updated);
-    setStatusMessage({ text: 'Auto-approve setting updated for source.', type: 'success' });
   };
 
   const handleDeleteSource = async (sourceId: string) => {
     if (!confirm('Are you sure you want to delete this source?')) return;
-    const updated = sourcesList.filter(s => s.id !== sourceId);
-    setLiveSources(updated);
-    if (propsSetSources) propsSetSources(updated);
-    setSelectedSourceIds(prev => prev.filter(id => id !== sourceId));
-    await api.scraper.saveConfigs(updated);
-    setStatusMessage({ text: 'Source removed successfully.', type: 'success' });
+    const updated = computeDeletedSourceList(sourcesList, sourceId);
+    await saveAndApplySourceConfigUpdate({
+      updatedSources: updated,
+      saveConfigsFn: (configs) => api.scraper.saveConfigs(configs),
+      setLiveSourcesFn: setLiveSources,
+      propsSetSourcesFn: propsSetSources,
+      afterApplyFn: () => {
+        setSelectedSourceIds(prev => prev.filter(id => id !== sourceId));
+      },
+      setStatusMessageFn: setStatusMessage,
+      successText: 'Source removed successfully.',
+      fallbackErrorText: 'Failed to delete source from backend database.'
+    });
   };
 
   const handleAddNewSource = async (e: React.FormEvent) => {
@@ -1376,45 +1558,51 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       autoApprove: newSourceAutoApprove
     };
 
-    const updated = [newSource, ...sourcesList];
-    setLiveSources(updated);
-    if (propsSetSources) propsSetSources(updated);
-    await api.scraper.saveConfigs(updated);
-
-    setNewSourceName('');
-    setNewSourceUrl('');
-    setNewSourceKeywords('');
-    setIsAddSourceOpen(false);
-    setStatusMessage({ text: `Source "${newSource.name}" added successfully!`, type: 'success' });
+    const updated = computeAddedSourceList(sourcesList, newSource);
+    await saveAndApplySourceConfigUpdate({
+      updatedSources: updated,
+      saveConfigsFn: (configs) => api.scraper.saveConfigs(configs),
+      setLiveSourcesFn: setLiveSources,
+      propsSetSourcesFn: propsSetSources,
+      afterApplyFn: () => {
+        setNewSourceName('');
+        setNewSourceUrl('');
+        setNewSourceKeywords('');
+        setIsAddSourceOpen(false);
+      },
+      setStatusMessageFn: setStatusMessage,
+      successText: `Source "${newSource.name}" added successfully!`,
+      fallbackErrorText: 'Failed to save new source to backend database.'
+    });
   };
 
   // Bulk actions for Step 1
   const handleBulkToggleStatus = async (enable: boolean) => {
     if (selectedSourceIds.length === 0) return;
-    const updated = sourcesList.map(s => {
-      if (selectedSourceIds.includes(s.id)) {
-        return { ...s, status: enable ? 'Active Scheduled' : 'Paused' } as ScraperSourceItem;
-      }
-      return s;
+    const updated = computeBulkStatusSources(sourcesList, selectedSourceIds, enable);
+    await saveAndApplySourceConfigUpdate({
+      updatedSources: updated,
+      saveConfigsFn: (configs) => api.scraper.saveConfigs(configs),
+      setLiveSourcesFn: setLiveSources,
+      propsSetSourcesFn: propsSetSources,
+      setStatusMessageFn: setStatusMessage,
+      successText: `${enable ? 'Enabled' : 'Paused'} ${selectedSourceIds.length} sources.`,
+      fallbackErrorText: 'Failed to save bulk source status changes.'
     });
-    setLiveSources(updated);
-    if (propsSetSources) propsSetSources(updated);
-    await api.scraper.saveConfigs(updated);
-    setStatusMessage({ text: `${enable ? 'Enabled' : 'Paused'} ${selectedSourceIds.length} sources.`, type: 'success' });
   };
 
   const handleBulkSetAutoApprove = async (enable: boolean) => {
     if (selectedSourceIds.length === 0) return;
-    const updated = sourcesList.map(s => {
-      if (selectedSourceIds.includes(s.id)) {
-        return { ...s, autoApprove: enable } as ScraperSourceItem;
-      }
-      return s;
+    const updated = computeBulkAutoApproveSources(sourcesList, selectedSourceIds, enable);
+    await saveAndApplySourceConfigUpdate({
+      updatedSources: updated,
+      saveConfigsFn: (configs) => api.scraper.saveConfigs(configs),
+      setLiveSourcesFn: setLiveSources,
+      propsSetSourcesFn: propsSetSources,
+      setStatusMessageFn: setStatusMessage,
+      successText: `Auto-approve turned ${enable ? 'ON' : 'OFF'} for ${selectedSourceIds.length} sources.`,
+      fallbackErrorText: 'Failed to save bulk auto-approve changes.'
     });
-    setLiveSources(updated);
-    if (propsSetSources) propsSetSources(updated);
-    await api.scraper.saveConfigs(updated);
-    setStatusMessage({ text: `Auto-approve turned ${enable ? 'ON' : 'OFF'} for ${selectedSourceIds.length} sources.`, type: 'success' });
   };
 
   // -------------------------------------------------------------
@@ -1590,14 +1778,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
     try {
       const res = await api.scraper.runGroup(groupId);
-      if (res?.success) {
-        setStatusMessage({
-          text: `Group "${targetGroup.name}" scraped! Found ${res.totalFound || 0} jobs, ${res.duplicatesFound || 0} duplicates.`,
-          type: 'success'
-        });
-      } else {
-        setStatusMessage({ text: res?.message || 'Error running group scraper.', type: 'error' });
-      }
+      const feedback = buildScraperRunFeedback(res, {
+        actionLabel: `Group "${targetGroup.name}"`,
+        successText: `Group "${targetGroup.name}" scraped! Found ${res?.totalFound || 0} jobs, ${res?.duplicatesFound ?? res?.totalDuplicates ?? 0} duplicates.`,
+        emptyWarningText: 'Error running group scraper.'
+      });
+      logMessage(feedback.logText);
+      setStatusMessage({ text: feedback.text, type: feedback.type });
     } catch (err: any) {
       setStatusMessage({ text: `Run group error: ${err.message}`, type: 'error' });
     } finally {
@@ -1632,15 +1819,13 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
     try {
       const res = await api.scraper.retrySources(targetSourceIds, retryAllFailed);
-      if (res?.success) {
-        logMessage(`[RETRY COMPLETED] Found ${res.totalFound || 0} jobs, ${res.duplicatesFound || 0} duplicates`);
-        setStatusMessage({
-          text: `Retry completed! Harvested ${res.totalFound || 0} jobs across ${res.retriedCount || count} retried sources.`,
-          type: 'success'
-        });
-      } else {
-        setStatusMessage({ text: res?.message || 'Retry completed with notice.', type: 'error' });
-      }
+      const feedback = buildScraperRunFeedback(res, {
+        actionLabel: '[RETRY]',
+        successText: `Retry completed! Harvested ${res?.totalFound || 0} jobs across ${res?.retriedCount || res?.targetsScraped || count} retried sources.`,
+        emptyWarningText: 'Retry completed with notice.'
+      });
+      logMessage(feedback.logText);
+      setStatusMessage({ text: feedback.text, type: feedback.type });
     } catch (err: any) {
       setStatusMessage({ text: `Retry error: ${err.message || 'Network error'}`, type: 'error' });
     } finally {
@@ -2481,6 +2666,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                 : runStatus === 'Partial'
                                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : runStatus === 'Stopped'
+                                ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
                                 : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                             }`}
                           >
@@ -2671,6 +2858,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                     : runStatus === 'Partial'
                                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : runStatus === 'Stopped'
+                                    ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
                                     : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                                 }`}
                               >
@@ -4444,6 +4633,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                     : runStatus === 'Partial'
                                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : runStatus === 'Stopped'
+                                    ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
                                     : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                                 }`}
                               >
@@ -5129,6 +5320,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                           : runStatus === 'Partial'
                           ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : runStatus === 'Stopped'
+                          ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
                           : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                       }`}
                     >

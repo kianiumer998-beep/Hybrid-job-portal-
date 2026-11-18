@@ -1202,23 +1202,38 @@ export class JobRepository {
   /**
    * Performs targeted candidate lookup across Live and Pending jobs collections
    * based on exact identifiers (sourceJobId, URLs) and content signals (company, title tokens).
+   * Fail-closed: if MongoDB is configured and any required Live or Pending lookup fails,
+   * rejects with a descriptive error rather than returning a partial candidate pool.
    */
-  static async findDuplicateCandidates(candidateJob: any): Promise<any[]> {
+  static async findDuplicateCandidates(
+    candidateJob: any,
+    _deps?: {
+      isMongoConfiguredFn?: () => boolean;
+      getJobsCollectionFn?: () => Promise<any>;
+      getPendingJobsCollectionFn?: () => Promise<any>;
+    }
+  ): Promise<any[]> {
     if (!candidateJob || typeof candidateJob !== 'object') {
       return [];
     }
 
-    if (!isMongoConfigured()) {
+    const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
+    const getJobsCollFn = _deps?.getJobsCollectionFn || getJobsCollection;
+    const getPendingCollFn = _deps?.getPendingJobsCollectionFn || getPendingJobsCollection;
+
+    if (!isMongoCfgFn()) {
       const allLive = Database.getJobs();
       const allPending = Database.getPendingJobs();
       return [...allLive, ...allPending];
     }
 
-    assertMongoAvailable();
+    if (!_deps?.isMongoConfiguredFn) {
+      assertMongoAvailable();
+    }
 
     const candidatePoolMap = new Map<string, any>();
-    const jobsColl = await getJobsCollection();
-    const pendingColl = await getPendingJobsCollection();
+    const jobsColl = await getJobsCollFn();
+    const pendingColl = await getPendingCollFn();
 
     // 1. Gather exact identifier signals
     const exactOrClauses: any[] = [];
@@ -1272,7 +1287,13 @@ export class JobRepository {
           }
         }
       } catch (err: any) {
-        console.warn('[JobRepository] Notice querying exact duplicate candidates:', err?.message || err);
+        const msg = `Duplicate candidate exact-match lookup failed across live and pending collections: ${err?.message || err}`;
+        console.error(`[JobRepository] ${msg}`);
+        const lookupErr: any = new Error(msg);
+        lookupErr.name = err?.name || 'MongoDuplicateLookupError';
+        lookupErr.isDatabaseError = true;
+        lookupErr.cause = err;
+        throw lookupErr;
       }
     }
 
@@ -1331,7 +1352,13 @@ export class JobRepository {
           }
         }
       } catch (err: any) {
-        console.warn('[JobRepository] Notice querying content duplicate candidates:', err?.message || err);
+        const msg = `Duplicate candidate content-match lookup failed across live and pending collections: ${err?.message || err}`;
+        console.error(`[JobRepository] ${msg}`);
+        const lookupErr: any = new Error(msg);
+        lookupErr.name = err?.name || 'MongoDuplicateLookupError';
+        lookupErr.isDatabaseError = true;
+        lookupErr.cause = err;
+        throw lookupErr;
       }
     }
 

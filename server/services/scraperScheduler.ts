@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { ScraperRepository, ScraperSchedulerSettings } from '../db/repositories/ScraperRepository';
-import { executeScraperWithWizard } from './scraperEngine';
+import { executeScraperWithWizard, isScraperRunConflictError } from './scraperEngine';
 import { featureFlags } from '../config/featureFlags';
 import { deriveSourceClassification } from '../../src/services/scraperClassification';
 
@@ -146,7 +146,7 @@ export interface SchedulerRuntimeDeps {
  */
 export async function runSchedulerTick(
   _deps?: SchedulerRuntimeDeps
-): Promise<{ triggeredSources: string[]; aborted?: boolean; error?: string; summary: any }> {
+): Promise<{ triggeredSources: string[]; aborted?: boolean; skippedDueToConflict?: boolean; error?: string; summary: any }> {
   if (isTickExecuting) {
     console.log('[Scheduler Engine] Previous tick still executing. Skipping tick.');
     return { triggeredSources: [], summary: 'Concurrent tick avoided' };
@@ -230,7 +230,6 @@ export async function runSchedulerTick(
         // Check if source is due
         if (now >= nextRunMs) {
           console.log(`[Scheduler Engine] Source "${src.name}" (${src.id}) is due for scrape (Interval: ${src.interval || settings.interval || '24h'}, Scope: ${settings.scope}).`);
-          triggered.push(src.id);
 
           try {
             // Resolve scheduled mode: preserve 'since_last' as backward-compatible default
@@ -253,8 +252,21 @@ export async function runSchedulerTick(
               duplicateMode: settings.duplicateMode === 'without' ? 'without' : 'with'
             });
 
+            triggered.push(src.id);
             console.log(`[Scheduler Engine] Source "${src.name}" scraped. Found: ${runResult.totalFound}, Duplicates: ${runResult.totalDuplicates}`);
           } catch (srcErr: any) {
+            if (isScraperRunConflictError(srcErr)) {
+              const conflictMsg = srcErr?.message || 'Another scraper execution is already in progress';
+              console.warn(`[Scheduler Engine] Skipped due source "${src.name}" (${src.id}) and aborted tick cleanly without advancing schedule: ${conflictMsg}`);
+              return {
+                triggeredSources: triggered,
+                aborted: true,
+                skippedDueToConflict: true,
+                error: conflictMsg,
+                summary: `Scheduler tick skipped due source "${src.id}" and aborted cleanly (${conflictMsg}).`
+              };
+            }
+            triggered.push(src.id);
             console.log(`[Scheduler Engine] Source "${src.name}" execution notice: ${srcErr?.message || srcErr}. Scheduler continuing with other due sources.`);
           }
 

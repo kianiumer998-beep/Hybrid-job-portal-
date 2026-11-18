@@ -83,8 +83,31 @@ import {
   validateDiscoveredNextPageUrl,
   crawlPortalPages,
   evaluateCheckpointEligibility,
-  buildSourceCompletionStatsUpdate
+  buildSourceCompletionStatsUpdate,
+  executeScraperWithWizard,
+  getActiveRunStatus,
+  pauseActiveRun,
+  resumeActiveRun,
+  stopActiveRun,
+  resetActiveRun,
+  isScraperExecutionActive,
+  isScraperRunConflictError,
+  SCRAPER_RUN_ALREADY_ACTIVE_CODE
 } from '../services/scraperEngine';
+import { JobRepository } from '../db/repositories/JobRepository';
+import { scraperRouter } from '../routes/scraperRoutes';
+import {
+  deriveRunStatus,
+  buildScraperRunFeedback,
+  applyResetActiveRunResult,
+  computeToggledSourceStatus,
+  computeToggledAutoApprove,
+  computeDeletedSourceList,
+  computeAddedSourceList,
+  computeBulkStatusSources,
+  computeBulkAutoApproveSources,
+  saveAndApplySourceConfigUpdate
+} from '../../src/components/admin/AutomatedScraperHub';
 import {
   ScraperRepository,
   getDefaultSchedulerSettings
@@ -6024,6 +6047,983 @@ async function runSuite() {
     }
   });
 
+
+  // ============================================================================
+  // STEP-8.4-C1: DUPLICATE LOOKUP FAIL-CLOSED, SINGLE-RUN LOCK, SAFE RESET/STOP,
+  //              RUN-HISTORY FEEDBACK & ADMIN SOURCE SETTINGS SAVE SAFETY
+  // ============================================================================
+
+  const makeMockCursorCollection = (handlers: {
+    exactLive?: () => Promise<any[]>;
+    exactPending?: () => Promise<any[]>;
+    contentLive?: () => Promise<any[]>;
+    contentPending?: () => Promise<any[]>;
+  }, isPending: boolean) => ({
+    find: (query: any) => {
+      const isExact = Boolean(query && '$or' in query);
+      return {
+        sort: () => ({
+          limit: () => ({
+            toArray: async () => {
+              if (isPending) {
+                return handlers.contentPending ? handlers.contentPending() : [];
+              }
+              return handlers.contentLive ? handlers.contentLive() : [];
+            }
+          })
+        }),
+        limit: () => ({
+          toArray: async () => {
+            if (isExact) {
+              if (isPending) {
+                return handlers.exactPending ? handlers.exactPending() : [];
+              }
+              return handlers.exactLive ? handlers.exactLive() : [];
+            }
+            return [];
+          }
+        })
+      };
+    }
+  });
+
+  const candidateSample = {
+    id: 'cand-84c1-1',
+    title: 'Software Engineer',
+    company: 'Tech Corp Pakistan',
+    sourceJobId: 'ext-101',
+    sourceUrl: 'https://portal.gov.pk/jobs/101',
+    description: 'Full stack engineering vacancy',
+    extractionMethod: 'html_cheerio'
+  };
+
+  await runTest('STEP-8.4-C1 Case 1 [Mocked]: JobRepository.findDuplicateCandidates rejects when Live or Pending exact-match query fails', async () => {
+    // 1. Live exact query fails even when Pending succeeds
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(candidateSample, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactLive: async () => {
+                  throw new Error('live exact query failed');
+                }
+              },
+              false
+            ),
+          getPendingJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactPending: async () => [{ id: 'p-1', title: 'Old Job', company: 'Tech Corp Pakistan' }]
+              },
+              true
+            )
+        }),
+      /exact-match lookup failed.*live exact query failed/i
+    );
+
+    // 2. Pending exact query fails even when Live succeeds
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(candidateSample, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactLive: async () => [{ id: 'l-1', title: 'Live Job', company: 'Tech Corp Pakistan' }]
+              },
+              false
+            ),
+          getPendingJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactPending: async () => {
+                  throw new Error('pending exact query failed');
+                }
+              },
+              true
+            )
+        }),
+      /exact-match lookup failed.*pending exact query failed/i
+    );
+  });
+
+  await runTest('STEP-8.4-C1 Case 2 [Mocked]: JobRepository.findDuplicateCandidates rejects when Live or Pending content-match query fails', async () => {
+    // 1. Live content query fails after exact-match succeeded
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(candidateSample, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactLive: async () => [],
+                contentLive: async () => {
+                  throw new Error('live content query timed out');
+                }
+              },
+              false
+            ),
+          getPendingJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactPending: async () => [],
+                contentPending: async () => [{ id: 'p-2', title: 'Software Engineer', company: 'Tech Corp Pakistan' }]
+              },
+              true
+            )
+        }),
+      /content-match lookup failed.*live content query timed out/i
+    );
+
+    // 2. Pending content query fails after exact-match succeeded
+    await assert.rejects(
+      () =>
+        JobRepository.findDuplicateCandidates(candidateSample, {
+          isMongoConfiguredFn: () => true,
+          getJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactLive: async () => [],
+                contentLive: async () => [{ id: 'l-2', title: 'Software Engineer', company: 'Tech Corp Pakistan' }]
+              },
+              false
+            ),
+          getPendingJobsCollectionFn: async () =>
+            makeMockCursorCollection(
+              {
+                exactPending: async () => [],
+                contentPending: async () => {
+                  throw new Error('pending content query timed out');
+                }
+              },
+              true
+            )
+        }),
+      /content-match lookup failed.*pending content query timed out/i
+    );
+  });
+
+  await runTest('STEP-8.4-C1 Case 3 [Mocked]: Failed duplicate lookup prevents candidate publish/pending insert, surfaces Database Error, preserves checkpoint, and retains earlier saved jobs', async () => {
+    const prevCheckpoint = '2026-11-10T00:00:00.000Z';
+    const createdLive: any[] = [];
+    const insertedPending: any[] = [];
+    const recordedStats: any[] = [];
+
+    const sourceCfg = {
+      id: 'src-dup-fail',
+      name: 'Dup Fail Portal',
+      url: 'https://portal.gov.pk/jobs',
+      status: 'Active Scheduled',
+      autoApprove: true,
+      lastSuccessfulScrapeAt: prevCheckpoint
+    };
+
+    try {
+      const summary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: [sourceCfg.id], autoPublishTrusted: true, duplicateMode: 'with' },
+        {
+          getConfigsFn: async () => [{ ...sourceCfg }],
+          updateSourceStatsFn: async (_id, stats) => {
+            recordedStats.push(stats);
+          },
+          addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+          scrapePageFn: async () => [
+            {
+              id: 'raw-1',
+              title: 'Civil Engineer',
+              company: 'National Highway Authority',
+              jobType: 'On-site',
+              region: 'Pakistan',
+              salary: 'PKR 120,000',
+              currency: 'PKR',
+              experienceLevel: 'Mid',
+              department: 'Engineering',
+              tags: [],
+              description: 'First job valid and saved before second candidate lookup fails.',
+              requirements: [],
+              benefits: [],
+              postedAt: 'Today',
+              applicationsCount: 0,
+              status: 'Pending',
+              sourceUrl: 'https://portal.gov.pk/jobs/1',
+              extractionMethod: 'html_cheerio'
+            },
+            {
+              id: 'raw-2',
+              title: 'Network Security Officer',
+              company: 'Cyber Wing Islamabad',
+              jobType: 'On-site',
+              region: 'Pakistan',
+              salary: 'PKR 150,000',
+              currency: 'PKR',
+              experienceLevel: 'Senior',
+              department: 'IT',
+              tags: [],
+              description: 'Second job triggers duplicate lookup failure.',
+              requirements: [],
+              benefits: [],
+              postedAt: 'Today',
+              applicationsCount: 0,
+              status: 'Pending',
+              sourceUrl: 'https://portal.gov.pk/jobs/2',
+              extractionMethod: 'html_cheerio'
+            }
+          ],
+          enrichJobsFn: async (jobs) => jobs,
+          findDuplicateCandidatesFn: async (job) => {
+            if (job.title === 'Network Security Officer') {
+              throw new Error('MongoDB connection closed during duplicate lookup');
+            }
+            return [];
+          },
+          createJobFn: async (job) => {
+            createdLive.push(job);
+            return job;
+          },
+          addPendingJobFn: async (job) => {
+            insertedPending.push(job);
+            return job;
+          },
+          auditAddFn: () => {}
+        }
+      );
+
+      // Earlier saved job preserved, second candidate NEVER published or inserted into Pending
+      assert.strictEqual(createdLive.length, 1, 'First verified job must remain saved without rollback');
+      assert.strictEqual(createdLive[0].title, 'Civil Engineer');
+      assert.strictEqual(insertedPending.length, 0, 'Failing candidate must NOT be inserted into Pending');
+      assert.strictEqual(createdLive.some(j => j.title === 'Network Security Officer'), false);
+
+      // Source failed cleanly with Database Error and checkpoint preserved
+      assert.strictEqual(summary.totalFailedSources, 1);
+      assert.strictEqual(summary.sourcesStats.length, 1);
+      assert.strictEqual(summary.sourcesStats[0].failed, true);
+      assert.strictEqual(summary.sourcesStats[0].lastSuccessfulScrapeAt, prevCheckpoint);
+      assert.ok(summary.sourcesStats[0].error?.toLowerCase().includes('duplicate verification failed'));
+
+      const failureStat = recordedStats[recordedStats.length - 1];
+      assert.strictEqual(failureStat.healthStatus, 'Database Error');
+      assert.strictEqual(failureStat.lastSuccessfulScrapeAt, undefined, 'Must not advance lastSuccessfulScrapeAt on failure');
+    } finally {
+      if (!isScraperExecutionActive()) resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 4 [Mocked]: Process-wide execution lock rejects second concurrent executeScraperWithWizard immediately (before first finishes, including while paused)', async () => {
+    let releaseFirstRun!: () => void;
+    const gate = new Promise<void>(resolve => {
+      releaseFirstRun = resolve;
+    });
+    let secondInvocationStartedConfigRead = false;
+
+    const firstPromise = executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['src-lock-1'] },
+      {
+        getConfigsFn: async () => [
+          { id: 'src-lock-1', name: 'Lock Source 1', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }
+        ],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => {
+          // Pause while active to verify lock stays held when paused too
+          pauseActiveRun();
+          await gate;
+          return [];
+        },
+        enrichJobsFn: async (jobs) => jobs,
+        findDuplicateCandidatesFn: async () => [],
+        auditAddFn: () => {}
+      }
+    );
+
+    try {
+      // Wait one microtask until pauseActiveRun is hit inside scrapePageFn
+      await new Promise(r => setTimeout(r, 15));
+      assert.strictEqual(isScraperExecutionActive(), true);
+      const snapshotBeforeSecond = getActiveRunStatus();
+      assert.strictEqual(snapshotBeforeSecond.isActive, true);
+      assert.strictEqual(snapshotBeforeSecond.isPaused, true);
+
+      // Concurrent second attempt must throw synchronously/immediately without overwriting activeRunState
+      let caughtErr: any = null;
+      try {
+        await executeScraperWithWizard(
+          { mode: 'complete', sourceIds: ['src-lock-2'] },
+          {
+            getConfigsFn: async () => {
+              secondInvocationStartedConfigRead = true;
+              return [];
+            }
+          }
+        );
+      } catch (err) {
+        caughtErr = err;
+      }
+
+      assert.ok(caughtErr, 'Second concurrent run must reject');
+      assert.strictEqual(isScraperRunConflictError(caughtErr), true);
+      assert.strictEqual(caughtErr.code, SCRAPER_RUN_ALREADY_ACTIVE_CODE);
+      assert.strictEqual(caughtErr.status, 409);
+      assert.strictEqual(secondInvocationStartedConfigRead, false, 'Lock must be acquired before first await');
+
+      // Active state and pause state must remain intact
+      const snapshotAfterSecond = getActiveRunStatus();
+      assert.strictEqual(snapshotAfterSecond.runId, snapshotBeforeSecond.runId);
+      assert.strictEqual(snapshotAfterSecond.isPaused, true);
+    } finally {
+      resumeActiveRun();
+      releaseFirstRun();
+      await firstPromise;
+      resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 5 [Mocked]: executeScraperWithWizard releases execution lock reliably on success, failure, and empty-target early exits', async () => {
+    try {
+      // 1. Empty sourceIds early exit releases lock
+      const emptySummary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: [] },
+        { getConfigsFn: async () => [] }
+      );
+      assert.strictEqual(emptySummary.totalFound, 0);
+      assert.strictEqual(isScraperExecutionActive(), false, 'Lock must release after empty sourceIds early exit');
+
+      // 2. Unmatched sourceIds early exit releases lock
+      const noMatchSummary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: ['nonexistent-src'] },
+        { getConfigsFn: async () => [{ id: 'other-src', name: 'Other', url: 'https://portal.gov.pk', status: 'Active Scheduled' }] }
+      );
+      assert.strictEqual(noMatchSummary.totalFound, 0);
+      assert.strictEqual(isScraperExecutionActive(), false, 'Lock must release after no-match early exit');
+
+      // 3. Throwing getConfigsFn releases lock
+      await assert.rejects(
+        () =>
+          executeScraperWithWizard(
+            { mode: 'complete' },
+            {
+              getConfigsFn: async () => {
+                throw new Error('DB read error during config fetch');
+              }
+            }
+          ),
+        /DB read error/
+      );
+      assert.strictEqual(isScraperExecutionActive(), false, 'Lock must release on config fetch failure');
+
+      // 4. Subsequent run succeeds cleanly proving lock was released
+      const okSummary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: ['src-after'] },
+        {
+          getConfigsFn: async () => [{ id: 'src-after', name: 'After Source', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }],
+          updateSourceStatsFn: async () => {},
+          addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+          scrapePageFn: async () => [],
+          enrichJobsFn: async (jobs) => jobs,
+          auditAddFn: () => {}
+        }
+      );
+      assert.ok(okSummary.runId);
+      assert.strictEqual(isScraperExecutionActive(), false);
+    } finally {
+      if (!isScraperExecutionActive()) resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 6 [Mocked]: scraperScheduler.runSchedulerTick aborts cleanly on SCRAPER_RUN_ALREADY_ACTIVE (409) without advancing schedules or counting skipped source', async () => {
+    const dueTime = new Date(Date.now() - 60000).toISOString();
+    const sources = [
+      {
+        id: 'sched-409-1',
+        name: 'Due Source 1',
+        status: 'Active Scheduled',
+        interval: '1h',
+        lastRunAt: undefined as string | undefined,
+        lastCompletedAt: undefined as string | undefined,
+        nextRunAt: dueTime
+      },
+      {
+        id: 'sched-409-2',
+        name: 'Due Source 2',
+        status: 'Active Scheduled',
+        interval: '1h',
+        lastRunAt: undefined as string | undefined,
+        lastCompletedAt: undefined as string | undefined,
+        nextRunAt: dueTime
+      }
+    ];
+    const scheduleUpdates: any[] = [];
+    const executedIds: string[] = [];
+
+    const tickRes = await runSchedulerTick({
+      isScraperEnabledFn: () => true,
+      isAutoApproveEnabledFn: () => false,
+      getSchedulerSettingsFn: async () => ({
+        ...getDefaultSchedulerSettings(),
+        enabled: true,
+        scope: 'all'
+      }),
+      getConfigsFn: async () => sources,
+      updateSourceScheduleFn: async (id, sched) => {
+        scheduleUpdates.push({ id, sched });
+        return true;
+      },
+      executeScraperFn: async (opts) => {
+        executedIds.push(opts.sourceId || '');
+        const err: any = new Error('Another scraper execution is already in progress');
+        err.code = SCRAPER_RUN_ALREADY_ACTIVE_CODE;
+        err.status = 409;
+        err.statusCode = 409;
+        throw err;
+      }
+    });
+
+    assert.strictEqual(executedIds.length, 1, 'Must stop tick on first 409 conflict without hitting second source');
+    assert.deepStrictEqual(tickRes.triggeredSources, [], 'Skipped source must not be counted in triggeredSources');
+    assert.strictEqual(tickRes.aborted, true);
+    assert.strictEqual(tickRes.skippedDueToConflict, true);
+    assert.strictEqual(scheduleUpdates.length, 0, 'Skipped source schedule (lastRunAt/lastCompletedAt/nextRunAt) must not be updated');
+    assert.strictEqual(sources[0].nextRunAt, dueTime, 'Original nextRunAt must remain due so next tick can pick it up');
+    assert.strictEqual(sources[0].lastRunAt, undefined);
+    assert.strictEqual(sources[0].lastCompletedAt, undefined);
+  });
+
+  await runTest('STEP-8.4-C1 Case 7 [Integration]: POST /run, POST /retry, and POST /groups/:id/run return HTTP 409 when a run is active', async () => {
+    const repoAny = ScraperRepository as any;
+    const prevCachedSources = repoAny.cachedSources ? [...repoAny.cachedSources] : [];
+    const prevCachedGroups = repoAny.cachedGroups ? [...repoAny.cachedGroups] : [];
+
+    let releaseRun!: () => void;
+    const gate = new Promise<void>(resolve => {
+      releaseRun = resolve;
+    });
+
+    const invokePostRoute = async (routePath: string, body: any = {}, params: any = {}) => {
+      const layer = (scraperRouter as any).stack.find(
+        (l: any) => l.route && l.route.path === routePath && l.route.methods.post
+      );
+      assert.ok(layer, `Expected POST route ${routePath} on scraperRouter`);
+      const finalHandler = layer.route.stack[layer.route.stack.length - 1].handle;
+      let statusCode = 200;
+      let payload: any = null;
+      const req: any = { body, params, user: { name: 'Admin' } };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return res;
+        },
+        json(data: any) {
+          payload = data;
+          return res;
+        }
+      };
+      await finalHandler(req, res, () => {});
+      return { statusCode, payload };
+    };
+
+    repoAny.cachedSources = [
+      { id: 'route-409-src', name: 'Route 409 Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }
+    ];
+    repoAny.cachedGroups = [
+      { id: 'route-409-grp', name: 'Route 409 Group', description: 'Test', sourceIds: ['route-409-src'], createdAt: '2026-01-01', updatedAt: '2026-01-01' }
+    ];
+
+    const activePromise = executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['route-409-src'] },
+      {
+        getConfigsFn: async () => repoAny.cachedSources,
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => {
+          await gate;
+          return [];
+        },
+        enrichJobsFn: async (jobs) => jobs,
+        auditAddFn: () => {}
+      }
+    );
+
+    try {
+      await new Promise(r => setTimeout(r, 15));
+
+      const runResp = await invokePostRoute('/run', { mode: 'complete', sourceIds: ['route-409-src'] });
+      assert.strictEqual(runResp.statusCode, 409, 'POST /run must return HTTP 409 while active');
+      assert.strictEqual(runResp.payload.success, false);
+      assert.strictEqual(runResp.payload.code, SCRAPER_RUN_ALREADY_ACTIVE_CODE);
+
+      const retryResp = await invokePostRoute('/retry', { sourceIds: ['route-409-src'] });
+      assert.strictEqual(retryResp.statusCode, 409, 'POST /retry must return HTTP 409 while active');
+      assert.strictEqual(retryResp.payload.success, false);
+      assert.strictEqual(retryResp.payload.code, SCRAPER_RUN_ALREADY_ACTIVE_CODE);
+
+      const groupResp = await invokePostRoute('/groups/:id/run', {}, { id: 'route-409-grp' });
+      assert.strictEqual(groupResp.statusCode, 409, 'POST /groups/:id/run must return HTTP 409 while active');
+      assert.strictEqual(groupResp.payload.success, false);
+      assert.strictEqual(groupResp.payload.code, SCRAPER_RUN_ALREADY_ACTIVE_CODE);
+    } finally {
+      releaseRun();
+      await activePromise;
+      resetActiveRun();
+      repoAny.cachedSources = prevCachedSources;
+      repoAny.cachedGroups = prevCachedGroups;
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 8 [Integration]: resetActiveRun refuses reset while run is active and POST /active-run/reset returns HTTP 409', async () => {
+    let releaseRun!: () => void;
+    const gate = new Promise<void>(resolve => {
+      releaseRun = resolve;
+    });
+
+    const resetLayer = (scraperRouter as any).stack.find(
+      (l: any) => l.route && l.route.path === '/active-run/reset' && l.route.methods.post
+    );
+    assert.ok(resetLayer);
+    const resetHandler = resetLayer.route.stack[resetLayer.route.stack.length - 1].handle;
+
+    const activePromise = executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['reset-lock-src'] },
+      {
+        getConfigsFn: async () => [{ id: 'reset-lock-src', name: 'Reset Lock Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => {
+          pauseActiveRun();
+          await gate;
+          return [];
+        },
+        enrichJobsFn: async (jobs) => jobs,
+        auditAddFn: () => {}
+      }
+    );
+
+    try {
+      await new Promise(r => setTimeout(r, 15));
+      const beforeStatus = getActiveRunStatus();
+      assert.strictEqual(beforeStatus.isActive, true);
+      assert.strictEqual(beforeStatus.isPaused, true);
+
+      // Direct resetActiveRun throws conflict without clearing state
+      assert.throws(() => resetActiveRun(), /Cannot reset active scraper run/i);
+      const afterDirect = getActiveRunStatus();
+      assert.strictEqual(afterDirect.isActive, true);
+      assert.strictEqual(afterDirect.isPaused, true);
+      assert.strictEqual(afterDirect.runId, beforeStatus.runId);
+
+      // Route POST /active-run/reset returns HTTP 409 with success=false
+      let routeStatus = 200;
+      let routeJson: any = null;
+      await resetHandler(
+        { body: {}, params: {} },
+        {
+          status(code: number) {
+            routeStatus = code;
+            return this;
+          },
+          json(data: any) {
+            routeJson = data;
+            return this;
+          }
+        },
+        () => {}
+      );
+      assert.strictEqual(routeStatus, 409);
+      assert.strictEqual(routeJson.success, false);
+      assert.strictEqual(routeJson.code, SCRAPER_RUN_ALREADY_ACTIVE_CODE);
+      assert.strictEqual(routeJson.activeRun.isActive, true);
+    } finally {
+      resumeActiveRun();
+      releaseRun();
+      await activePromise;
+      resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 9 [Unit]: resetActiveRun succeeds normally after active run ends or stops', async () => {
+    const summary = await executeScraperWithWizard(
+      { mode: 'complete', sourceIds: ['reset-ok-src'] },
+      {
+        getConfigsFn: async () => [{ id: 'reset-ok-src', name: 'Reset OK Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }],
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: false }),
+        scrapePageFn: async () => [],
+        enrichJobsFn: async (jobs) => jobs,
+        auditAddFn: () => {}
+      }
+    );
+    assert.strictEqual(summary.status, 'Completed');
+    assert.strictEqual(isScraperExecutionActive(), false);
+
+    const resetState = resetActiveRun();
+    assert.strictEqual(resetState.isActive, false);
+    assert.strictEqual(resetState.completedSources, 0);
+    assert.strictEqual(resetState.runProgress, 0);
+    assert.strictEqual(resetState.stopped, false);
+  });
+
+  await runTest('STEP-8.4-C1 Case 10 [Mocked]: Graceful stop marks run Stopped (not Completed), preserves partial completedSources/runProgress, and deriveRunStatus returns Stopped', async () => {
+    const savedRuns: any[] = [];
+    const sources = [
+      { id: 'stop-1', name: 'Source 1', url: 'https://portal1.gov.pk/jobs', status: 'Active Scheduled' },
+      { id: 'stop-2', name: 'Source 2', url: 'https://portal2.gov.pk/jobs', status: 'Active Scheduled' },
+      { id: 'stop-3', name: 'Source 3', url: 'https://portal3.gov.pk/jobs', status: 'Active Scheduled' }
+    ];
+    let crawledSourceCount = 0;
+
+    try {
+      const summary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: ['stop-1', 'stop-2', 'stop-3'] },
+        {
+          getConfigsFn: async () => sources,
+          updateSourceStatsFn: async () => {},
+          addRunFn: async (run) => {
+            savedRuns.push(run);
+            return { ...run, isPersistedToMongo: false };
+          },
+          scrapePageFn: async () => {
+            crawledSourceCount++;
+            if (crawledSourceCount === 1) {
+              // Trigger stop while processing first source so source 2 and 3 are skipped
+              stopActiveRun();
+            }
+            return [];
+          },
+          enrichJobsFn: async (jobs) => jobs,
+          auditAddFn: () => {}
+        }
+      );
+
+      assert.strictEqual(crawledSourceCount, 1, 'Remaining 2 sources must not run after stop');
+      assert.strictEqual(summary.stopped, true);
+      assert.strictEqual(summary.status, 'Stopped');
+      assert.strictEqual(summary.targetsScraped, 1);
+      assert.ok(summary.message?.toLowerCase().includes('stopped early after 1 of 3 sources'));
+
+      const postStatus = getActiveRunStatus();
+      assert.strictEqual(postStatus.isActive, false);
+      assert.strictEqual(postStatus.stopped, true);
+      assert.strictEqual(postStatus.completedSources, 1, 'Must reflect actual processed sources, not 3');
+      assert.strictEqual(postStatus.remainingSources, 2);
+      assert.strictEqual(postStatus.runProgress, 33, 'Must not force runProgress to 100 after early stop');
+
+      assert.strictEqual(savedRuns.length, 1);
+      assert.strictEqual(savedRuns[0].stopped, true);
+      assert.strictEqual(savedRuns[0].status, 'Stopped');
+      assert.strictEqual(savedRuns[0].targetsScraped, 1);
+
+      assert.strictEqual(deriveRunStatus(savedRuns[0]), 'Stopped');
+      assert.strictEqual(deriveRunStatus({ failedSources: 0, targetsScraped: 3, stopped: true }), 'Stopped');
+      assert.strictEqual(deriveRunStatus({ failedSources: 0, targetsScraped: 3 }), 'Completed');
+      assert.strictEqual(deriveRunStatus({ failedSources: 1, targetsScraped: 3 }), 'Partial');
+      assert.strictEqual(deriveRunStatus({ failedSources: 3, targetsScraped: 3 }), 'Failed');
+    } finally {
+      if (!isScraperExecutionActive()) resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 11 [Mocked]: executeScraperWithWizard surfaces failed addRun persistence cleanly without losing saved jobs', async () => {
+    const savedJobs: any[] = [];
+    try {
+      const summary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: ['hist-fail-src'] },
+        {
+          getConfigsFn: async () => [
+            { id: 'hist-fail-src', name: 'Hist Fail Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled', autoApprove: false }
+          ],
+          updateSourceStatsFn: async () => {},
+          addRunFn: async (run) => ({
+            ...run,
+            isPersistedToMongo: false,
+            persistenceError: 'MongoDB write timeout on scraper_runs'
+          }),
+          scrapePageFn: async () => [
+            {
+              id: 'hist-job-1',
+              title: 'Project Coordinator',
+              company: 'Planning Commission',
+              jobType: 'On-site',
+              region: 'Pakistan',
+              salary: 'PKR 100,000',
+              currency: 'PKR',
+              experienceLevel: 'Mid',
+              department: 'Planning',
+              tags: [],
+              description: 'Valid saved vacancy even when addRun fails.',
+              requirements: [],
+              benefits: [],
+              postedAt: 'Today',
+              applicationsCount: 0,
+              status: 'Pending',
+              sourceUrl: 'https://portal.gov.pk/jobs/pc',
+              extractionMethod: 'html_cheerio'
+            }
+          ],
+          enrichJobsFn: async (jobs) => jobs,
+          findDuplicateCandidatesFn: async () => [],
+          addPendingJobFn: async (job) => {
+            savedJobs.push(job);
+            return job;
+          },
+          auditAddFn: () => {}
+        }
+      );
+
+      assert.strictEqual(savedJobs.length, 1, 'Saved jobs must remain intact');
+      assert.strictEqual(summary.totalPending, 1);
+      assert.strictEqual(summary.totalFailedSources, 0);
+      assert.strictEqual(summary.historyPersistedToMongo, false);
+      assert.strictEqual(summary.historyPersistenceMode, 'failed');
+      assert.strictEqual(summary.historyPersistenceError, 'MongoDB write timeout on scraper_runs');
+      assert.ok(summary.message?.includes('Run history was not saved to MongoDB'));
+    } finally {
+      if (!isScraperExecutionActive()) resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 12 [Mocked]: Successful ScraperRepository.addRun persistence distinguishes mongodb vs memory modes in run summary', async () => {
+    try {
+      const mongoResult = await ScraperRepository.addRun(
+        { id: 'run-mongo-ok', mode: 'complete', totalFound: 2 },
+        {
+          isMongoConfiguredFn: () => true,
+          getCollectionFn: async () => ({
+            insertOne: async () => ({ acknowledged: true })
+          })
+        }
+      );
+      assert.strictEqual(mongoResult.isPersistedToMongo, true);
+
+      const mongoSummary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: ['hist-ok-src'] },
+        {
+          getConfigsFn: async () => [
+            { id: 'hist-ok-src', name: 'Hist OK Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }
+          ],
+          updateSourceStatsFn: async () => {},
+          addRunFn: async () => mongoResult,
+          scrapePageFn: async () => [],
+          enrichJobsFn: async (jobs) => jobs,
+          auditAddFn: () => {}
+        }
+      );
+      assert.strictEqual(mongoSummary.historyPersistedToMongo, true);
+      assert.strictEqual(mongoSummary.historyPersistenceMode, 'mongodb');
+      assert.strictEqual(mongoSummary.historyPersistenceError, undefined);
+
+      const memorySummary = await executeScraperWithWizard(
+        { mode: 'complete', sourceIds: ['hist-mem-src'] },
+        {
+          getConfigsFn: async () => [
+            { id: 'hist-mem-src', name: 'Hist Mem Portal', url: 'https://portal.gov.pk/jobs', status: 'Active Scheduled' }
+          ],
+          updateSourceStatsFn: async () => {},
+          addRunFn: async (run) =>
+            ScraperRepository.addRun(run, { isMongoConfiguredFn: () => false }),
+          scrapePageFn: async () => [],
+          enrichJobsFn: async (jobs) => jobs,
+          auditAddFn: () => {}
+        }
+      );
+      assert.strictEqual(memorySummary.historyPersistedToMongo, false);
+      assert.strictEqual(memorySummary.historyPersistenceMode, 'memory');
+      assert.strictEqual(memorySummary.historyPersistenceError, undefined);
+    } finally {
+      if (!isScraperExecutionActive()) resetActiveRun();
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 13 [Mocked]: All 6 admin source config handlers retain previous state and report error when saveConfigs fails or returns success=false', async () => {
+    const initialSources: any[] = [
+      { id: 's-1', name: 'Portal One', url: 'https://one.gov.pk', category: 'Government Sector', region: 'Pakistan', status: 'Active Scheduled', interval: '24h', autoApprove: false },
+      { id: 's-2', name: 'Portal Two', url: 'https://two.gov.pk', category: 'Government Sector', region: 'Pakistan', status: 'Paused', interval: '24h', autoApprove: true }
+    ];
+
+    const runFailureCase = async (name: string, updatedSources: any[], mode: 'false' | 'reject') => {
+      let liveState = initialSources.map(s => ({ ...s }));
+      let propsState = initialSources.map(s => ({ ...s }));
+      let selectedIds = ['s-1', 's-2'];
+      let modalClosed = false;
+      let statusMsg: any = null;
+
+      const ok = await saveAndApplySourceConfigUpdate({
+        updatedSources,
+        saveConfigsFn: async () => {
+          if (mode === 'reject') throw new Error(`Network failure on ${name}`);
+          return { success: false, message: `MongoDB error on ${name}` };
+        },
+        setLiveSourcesFn: (next) => {
+          liveState = next;
+        },
+        propsSetSourcesFn: (next) => {
+          propsState = next;
+        },
+        afterApplyFn: () => {
+          selectedIds = selectedIds.filter(id => id !== 's-1');
+          modalClosed = true;
+        },
+        setStatusMessageFn: (msg) => {
+          statusMsg = msg;
+        },
+        successText: 'Saved',
+        fallbackErrorText: 'Save failed'
+      });
+
+      assert.strictEqual(ok, false, `${name} (${mode}) must return false`);
+      assert.deepStrictEqual(liveState, initialSources, `${name} (${mode}): liveSources must remain unchanged`);
+      assert.deepStrictEqual(propsState, initialSources, `${name} (${mode}): propsSetSources must remain unchanged`);
+      assert.deepStrictEqual(selectedIds, ['s-1', 's-2'], `${name} (${mode}): selectedSourceIds must remain unchanged`);
+      assert.strictEqual(modalClosed, false, `${name} (${mode}): post-save cleanup must not execute on failure`);
+      assert.strictEqual(statusMsg?.type, 'error', `${name} (${mode}): must surface error status`);
+    };
+
+    const newSrc: any = { id: 's-3', name: 'Portal Three', url: 'https://three.gov.pk', category: 'Government Sector', region: 'Pakistan', status: 'Active Scheduled', interval: '24h', autoApprove: false };
+    const candidateMutations: Array<[string, any[]]> = [
+      ['handleToggleSourceStatus', computeToggledSourceStatus(initialSources, 's-1')],
+      ['handleToggleAutoApprove', computeToggledAutoApprove(initialSources, 's-1')],
+      ['handleDeleteSource', computeDeletedSourceList(initialSources, 's-1')],
+      ['handleAddNewSource', computeAddedSourceList(initialSources, newSrc)],
+      ['handleBulkToggleStatus', computeBulkStatusSources(initialSources, ['s-1', 's-2'], false)],
+      ['handleBulkSetAutoApprove', computeBulkAutoApproveSources(initialSources, ['s-1', 's-2'], true)]
+    ];
+
+    for (const [handlerName, updatedList] of candidateMutations) {
+      await runFailureCase(handlerName, updatedList, 'false');
+      await runFailureCase(handlerName, updatedList, 'reject');
+    }
+  });
+
+  await runTest('STEP-8.4-C1 Case 14 [Mocked]: All 6 admin source config handlers update state and show success only after confirmed saveConfigs success=true', async () => {
+    const initialSources: any[] = [
+      { id: 's-1', name: 'Portal One', url: 'https://one.gov.pk', category: 'Government Sector', region: 'Pakistan', status: 'Active Scheduled', interval: '24h', autoApprove: false },
+      { id: 's-2', name: 'Portal Two', url: 'https://two.gov.pk', category: 'Government Sector', region: 'Pakistan', status: 'Paused', interval: '24h', autoApprove: false }
+    ];
+
+    // Verify async ordering: state must NOT be updated before saveConfigs resolves
+    let resolveSave!: (val: any) => void;
+    const pendingSave = new Promise(resolve => {
+      resolveSave = resolve;
+    });
+    let liveState = initialSources.map(s => ({ ...s }));
+    let propsState = initialSources.map(s => ({ ...s }));
+    let selectedIds = ['s-1', 's-2'];
+    let statusMsg: any = null;
+
+    const toggled = computeToggledSourceStatus(initialSources, 's-1');
+    const togglePromise = saveAndApplySourceConfigUpdate({
+      updatedSources: toggled,
+      saveConfigsFn: () => pendingSave,
+      setLiveSourcesFn: next => { liveState = next; },
+      propsSetSourcesFn: next => { propsState = next; },
+      setStatusMessageFn: msg => { statusMsg = msg; },
+      successText: 'Source status updated.',
+      fallbackErrorText: 'Failed'
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+    assert.strictEqual(liveState[0].status, 'Active Scheduled', 'State must wait for backend confirmation before updating');
+    assert.strictEqual(statusMsg, null);
+
+    resolveSave({ success: true });
+    const toggleOk = await togglePromise;
+    assert.strictEqual(toggleOk, true);
+    assert.strictEqual(liveState[0].status, 'Paused');
+    assert.strictEqual(propsState[0].status, 'Paused');
+    assert.strictEqual(statusMsg.type, 'success');
+
+    // Verify remaining 5 mutations succeed after saveConfigs resolves { success: true }
+    const deleteOk = await saveAndApplySourceConfigUpdate({
+      updatedSources: computeDeletedSourceList(initialSources, 's-1'),
+      saveConfigsFn: async () => ({ success: true }),
+      setLiveSourcesFn: next => { liveState = next; },
+      propsSetSourcesFn: next => { propsState = next; },
+      afterApplyFn: () => { selectedIds = selectedIds.filter(id => id !== 's-1'); },
+      setStatusMessageFn: msg => { statusMsg = msg; },
+      successText: 'Deleted',
+      fallbackErrorText: 'Failed'
+    });
+    assert.strictEqual(deleteOk, true);
+    assert.strictEqual(liveState.length, 1);
+    assert.deepStrictEqual(selectedIds, ['s-2']);
+
+    const bulkAuto = computeBulkAutoApproveSources(initialSources, ['s-1', 's-2'], true);
+    assert.strictEqual(bulkAuto.every(s => s.autoApprove === true), true);
+    const bulkStat = computeBulkStatusSources(initialSources, ['s-1', 's-2'], true);
+    assert.strictEqual(bulkStat.every(s => s.status === 'Active Scheduled'), true);
+    const toggledAuto = computeToggledAutoApprove(initialSources, 's-1');
+    assert.strictEqual(toggledAuto[0].autoApprove, true);
+    const added = computeAddedSourceList(initialSources, { ...initialSources[0], id: 's-3', name: 'New' });
+    assert.strictEqual(added.length, 3);
+    assert.strictEqual(added[0].id, 's-3');
+  });
+
+  await runTest('STEP-8.4-C1 Case 15 [Unit]: Admin feedback surfaces run-history persistence warning and preserves active state on reset 409 conflict', () => {
+    // 1. Run succeeded at scraping jobs, but run history failed to persist to MongoDB
+    const histWarn = buildScraperRunFeedback(
+      {
+        success: true,
+        totalFound: 12,
+        jobsAccepted: 10,
+        totalDuplicates: 2,
+        historyPersistedToMongo: false,
+        historyPersistenceMode: 'failed',
+        historyPersistenceError: 'E11000 duplicate key / timeout'
+      },
+      {
+        actionLabel: 'Run',
+        successText: 'Scraper finished! Discovered 12 jobs (10 approved, 2 duplicates).',
+        emptyWarningText: 'Scraper execution finished with notices.'
+      }
+    );
+    assert.strictEqual(histWarn.historyFailed, true);
+    assert.strictEqual(histWarn.type, 'error', 'History persistence failure must surface as visible warning/error alert');
+    assert.ok(histWarn.text.includes('12 jobs'));
+    assert.ok(histWarn.text.includes('Run history was NOT saved to MongoDB'));
+    assert.ok(histWarn.logText.includes('E11000'));
+
+    // 2. Clean stopped run feedback renders honest stopped notice
+    const stoppedFeedback = buildScraperRunFeedback(
+      {
+        success: true,
+        stopped: true,
+        status: 'Stopped',
+        message: 'Scrape run stopped early after 1 of 3 sources.'
+      },
+      {
+        actionLabel: 'Run',
+        successText: 'Completed',
+        emptyWarningText: 'Notice'
+      }
+    );
+    assert.strictEqual(stoppedFeedback.type, 'info');
+    assert.ok(stoppedFeedback.text.includes('stopped early'));
+
+    // 3. Reset blocked by 409 does not clear isScrapingActive
+    let isScraping = true;
+    let activeRun = { isActive: true, runId: 'RUN-ACTIVE' };
+    let resetStatus: any = null;
+    const logs: string[] = [];
+    const didReset = applyResetActiveRunResult(
+      {
+        success: false,
+        code: SCRAPER_RUN_ALREADY_ACTIVE_CODE,
+        message: 'Cannot reset active scraper run while execution is running.',
+        activeRun: { isActive: true, runId: 'RUN-ACTIVE' }
+      },
+      {
+        setActiveRunStatus: s => { activeRun = s; },
+        setIsScrapingActive: v => { isScraping = v; },
+        logMessage: m => logs.push(m),
+        setStatusMessage: m => { resetStatus = m; }
+      }
+    );
+    assert.strictEqual(didReset, false);
+    assert.strictEqual(isScraping, true, 'Rejected reset must not clear active UI state');
+    assert.strictEqual(activeRun.isActive, true);
+    assert.strictEqual(resetStatus.type, 'error');
+    assert.ok(logs.some(l => l.includes('Reset blocked')));
+  });
 
   console.log('------------------------------------------------------------------');
   console.log(`Summary: Passed=${counts.passed}, Failed=${counts.failed}, Skipped=${counts.skipped}`);

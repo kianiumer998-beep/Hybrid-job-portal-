@@ -7,7 +7,8 @@ import {
   pauseActiveRun,
   resumeActiveRun,
   stopActiveRun,
-  resetActiveRun
+  resetActiveRun,
+  isScraperRunConflictError
 } from '../services/scraperEngine';
 import { requireAdminPermission } from '../auth/authManager';
 import { ScraperRepository, AuditRepository } from '../db/repositories';
@@ -359,6 +360,14 @@ scraperRouter.post('/run', requireAdminPermission('scraper.manage'), async (req,
     res.json({ success: true, ...result });
   } catch (err: any) {
     console.error('Error in /api/scraper/run:', err);
+    if (isScraperRunConflictError(err)) {
+      return res.status(409).json({
+        success: false,
+        code: err?.code || 'SCRAPER_RUN_ALREADY_ACTIVE',
+        message: err?.message || 'Another scraper execution is already in progress.',
+        activeRun: err?.activeRun || getActiveRunStatus()
+      });
+    }
     res.status(500).json({ success: false, message: err.message || 'Error executing scraper run' });
   }
 });
@@ -405,6 +414,14 @@ scraperRouter.post('/active-run/reset', requireAdminPermission('scraper.manage')
     const status = resetActiveRun();
     res.json({ success: true, activeRun: status });
   } catch (err: any) {
+    if (isScraperRunConflictError(err)) {
+      return res.status(409).json({
+        success: false,
+        code: err?.code || 'SCRAPER_RUN_ALREADY_ACTIVE',
+        message: err?.message || 'Cannot reset active scraper run while execution is in progress.',
+        activeRun: err?.activeRun || getActiveRunStatus()
+      });
+    }
     res.status(500).json({ success: false, message: err?.message || 'Error resetting active run' });
   }
 });
@@ -460,6 +477,14 @@ scraperRouter.post('/retry', requireAdminPermission('scraper.manage'), async (re
     res.json({ success: true, ...result });
   } catch (err: any) {
     console.error('Error in /api/scraper/retry:', err);
+    if (isScraperRunConflictError(err)) {
+      return res.status(409).json({
+        success: false,
+        code: err?.code || 'SCRAPER_RUN_ALREADY_ACTIVE',
+        message: err?.message || 'Another scraper execution is already in progress.',
+        activeRun: err?.activeRun || getActiveRunStatus()
+      });
+    }
     res.status(500).json({ success: false, message: err.message || 'Error retrying scraper sources' });
   }
 });
@@ -577,6 +602,14 @@ scraperRouter.post('/groups/:id/run', requireAdminPermission('scraper.manage'), 
     res.json({ success: true, group: group.name, ...result });
   } catch (err: any) {
     console.error('Error running group:', err);
+    if (isScraperRunConflictError(err)) {
+      return res.status(409).json({
+        success: false,
+        code: err?.code || 'SCRAPER_RUN_ALREADY_ACTIVE',
+        message: err?.message || 'Another scraper execution is already in progress.',
+        activeRun: err?.activeRun || getActiveRunStatus()
+      });
+    }
     res.status(500).json({ success: false, message: err.message || 'Error executing group scraper' });
   }
 });

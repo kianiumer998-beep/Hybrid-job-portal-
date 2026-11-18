@@ -20,9 +20,51 @@ export interface ScraperRunOptions {
   duplicateMode?: 'with' | 'without';
 }
 
+export const SCRAPER_RUN_ALREADY_ACTIVE_CODE = 'SCRAPER_RUN_ALREADY_ACTIVE';
+
+export class ScraperRunConflictError extends Error {
+  code: string;
+  status: number;
+  statusCode: number;
+  activeRun: ActiveRunStatus;
+
+  constructor(message?: string, activeRun?: ActiveRunStatus) {
+    const activeInfo = activeRun?.runId ? ` (active run: ${activeRun.runId})` : '';
+    super(message || `Another scraper execution is already in progress${activeInfo}.`);
+    this.name = 'ScraperRunConflictError';
+    this.code = SCRAPER_RUN_ALREADY_ACTIVE_CODE;
+    this.status = 409;
+    this.statusCode = 409;
+    this.activeRun = activeRun ? { ...activeRun } : { ...activeRunState };
+  }
+}
+
+export function isScraperRunConflictError(err: any): boolean {
+  return Boolean(
+    err &&
+      (err.code === SCRAPER_RUN_ALREADY_ACTIVE_CODE ||
+        err.name === 'ScraperRunConflictError' ||
+        err.statusCode === 409 ||
+        err.status === 409)
+  );
+}
+
+export interface ScraperEngineRuntimeDeps {
+  getConfigsFn?: () => Promise<any[]>;
+  updateSourceStatsFn?: (sourceId: string, stats: any) => Promise<void>;
+  addRunFn?: (run: any) => Promise<any>;
+  scrapePageFn?: typeof scrapeTargetPortal;
+  enrichJobsFn?: typeof enrichScrapedJobsBatch;
+  findDuplicateCandidatesFn?: (candidateJob: any) => Promise<any[]>;
+  createJobFn?: (jobData: any) => Promise<any>;
+  addPendingJobFn?: (jobData: any) => Promise<any>;
+  auditAddFn?: (entry: any) => Promise<any> | void;
+}
+
 export interface ActiveRunStatus {
   isActive: boolean;
   isPaused: boolean;
+  stopped?: boolean;
   runId?: string;
   mode?: string;
   duplicateMode?: 'with' | 'without';
@@ -50,6 +92,7 @@ export interface ActiveRunStatus {
 let activeRunState: ActiveRunStatus = {
   isActive: false,
   isPaused: false,
+  stopped: false,
   totalSources: 0,
   completedSources: 0,
   remainingSources: 0,
@@ -62,9 +105,14 @@ let activeRunState: ActiveRunStatus = {
   runProgress: 0
 };
 
+let isScraperExecutionLocked = false;
 let shouldStopActiveRun = false;
 let pauseResolver: (() => void) | null = null;
 let pausePromise: Promise<void> | null = null;
+
+export function isScraperExecutionActive(): boolean {
+  return isScraperExecutionLocked || activeRunState.isActive;
+}
 
 export function getActiveRunStatus(): ActiveRunStatus {
   return { ...activeRunState };
@@ -102,6 +150,12 @@ export function stopActiveRun(): boolean {
 }
 
 export function resetActiveRun(): ActiveRunStatus {
+  if (isScraperExecutionLocked || activeRunState.isActive) {
+    throw new ScraperRunConflictError(
+      `Cannot reset active scraper run (${activeRunState.runId || 'in progress'}) while execution is running. Stop the run first.`,
+      activeRunState
+    );
+  }
   shouldStopActiveRun = false;
   if (pauseResolver) {
     pauseResolver();
@@ -111,6 +165,7 @@ export function resetActiveRun(): ActiveRunStatus {
   activeRunState = {
     isActive: false,
     isPaused: false,
+    stopped: false,
     totalSources: 0,
     completedSources: 0,
     remainingSources: 0,
@@ -130,6 +185,12 @@ export interface ScraperRunSummary {
   duplicateMode?: 'with' | 'without';
   startTime: string;
   endTime: string;
+  stopped?: boolean;
+  status?: 'Completed' | 'Partial' | 'Failed' | 'Stopped';
+  targetsScraped?: number;
+  historyPersistedToMongo?: boolean;
+  historyPersistenceMode?: 'mongodb' | 'memory' | 'failed';
+  historyPersistenceError?: string;
   totalFound: number;
   totalNew: number;
   totalDuplicates: number;
@@ -571,547 +632,648 @@ export async function crawlPortalPages(
  * Cutoffs, and Centralized Duplication Control.
  * STRICT ZERO-FAKE-JOB POLICY: Never fabricates or synthesizes jobs.
  */
-export async function executeScraperWithWizard(options: ScraperRunOptions): Promise<ScraperRunSummary> {
+export async function executeScraperWithWizard(
+  options: ScraperRunOptions,
+  _deps?: ScraperEngineRuntimeDeps
+): Promise<ScraperRunSummary> {
+  if (isScraperExecutionLocked || activeRunState.isActive) {
+    throw new ScraperRunConflictError(
+      `Another scraper execution is already in progress${activeRunState.runId ? ` (${activeRunState.runId})` : ''}.`,
+      activeRunState
+    );
+  }
+  isScraperExecutionLocked = true;
+
+  const getConfigsFn = _deps?.getConfigsFn || (() => ScraperRepository.getConfigs());
+  const updateSourceStatsFn = _deps?.updateSourceStatsFn || ((id: string, stats: any) => ScraperRepository.updateSourceStats(id, stats));
+  const addRunFn = _deps?.addRunFn || ((run: any) => ScraperRepository.addRun(run));
+  const scrapePageFn = _deps?.scrapePageFn || scrapeTargetPortal;
+  const enrichJobsFn = _deps?.enrichJobsFn || enrichScrapedJobsBatch;
+  const findDuplicateCandidatesFn =
+    _deps?.findDuplicateCandidatesFn || ((job: any) => JobRepository.findDuplicateCandidates(job));
+  const createJobFn = _deps?.createJobFn || ((job: any) => JobRepository.create(job));
+  const addPendingJobFn = _deps?.addPendingJobFn || ((job: any) => JobRepository.addPending(job));
+  const auditAddFn = _deps?.auditAddFn || ((entry: any) => AuditRepository.add(entry));
+
   const startTime = new Date();
   const timestampStr = startTime.toISOString().replace('T', ' ').substring(0, 19);
   const runId = `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-  const allSources = await ScraperRepository.getConfigs();
-  let targets: ScraperTargetConfig[] = [];
+  try {
+    const allSources = await getConfigsFn();
+    let targets: ScraperTargetConfig[] = [];
 
-  // Filter sources based on requested options
-  if (options.sourceIds !== undefined) {
-    if (options.sourceIds.length === 0) {
-      // User or caller explicitly provided an empty selection - abort without action
-      console.log('[Scraper Engine] Empty source selection provided. Run aborted.');
-      return createEmptySummary(runId, startTime, 'No scraper sources selected. Scraper run was not executed.');
-    }
-    targets = allSources.filter(s => options.sourceIds!.includes(s.id));
-  } else if (options.sourceId) {
-    targets = allSources.filter(s => s.id === options.sourceId);
-  } else {
-    // Run All Enabled: skip Disabled, Invalid/404, permanently blocked sources
-    // Failed sources (Timeout, HTML, Fetch Error, No Jobs) remain available through Retry
-    targets = allSources.filter(s => {
-      if (s.status === 'Disabled' || s.status === 'Paused') return false;
-      const isActive = s.status === 'Active Scheduled' || s.status === 'Active';
-      if (!isActive) return false;
+    // Filter sources based on requested options
+    if (options.sourceIds !== undefined) {
+      if (options.sourceIds.length === 0) {
+        // User or caller explicitly provided an empty selection - abort without action
+        console.log('[Scraper Engine] Empty source selection provided. Run aborted.');
+        return createEmptySummary(runId, startTime, 'No scraper sources selected. Scraper run was not executed.');
+      }
+      targets = allSources.filter(s => options.sourceIds!.includes(s.id));
+    } else if (options.sourceId) {
+      targets = allSources.filter(s => s.id === options.sourceId);
+    } else {
+      // Run All Enabled: skip Disabled, Invalid/404, permanently blocked sources
+      // Failed sources (Timeout, HTML, Fetch Error, No Jobs) remain available through Retry
+      targets = allSources.filter(s => {
+        if (s.status === 'Disabled' || s.status === 'Paused') return false;
+        const isActive = s.status === 'Active Scheduled' || s.status === 'Active';
+        if (!isActive) return false;
 
-      // Skip Invalid / 404
-      const h = s.healthStatus || '';
-      const errMsg = (s.lastErrorMessage || '').toLowerCase();
-      if (h === '404' || h === 'Invalid PDF' || errMsg.includes('404') || errMsg.includes('invalid pdf')) return false;
+        // Skip Invalid / 404
+        const h = s.healthStatus || '';
+        const errMsg = (s.lastErrorMessage || '').toLowerCase();
+        if (h === '404' || h === 'Invalid PDF' || errMsg.includes('404') || errMsg.includes('invalid pdf')) return false;
 
-      // Skip permanently blocked sources (403, permanently blocked)
-      if (h === '403' || errMsg.includes('permanently blocked') || errMsg.includes('access denied')) return false;
+        // Skip permanently blocked sources (403, permanently blocked)
+        if (h === '403' || errMsg.includes('permanently blocked') || errMsg.includes('access denied')) return false;
 
-      return true;
-    });
-  }
-
-  // If no matching sources exist, return early. NEVER automatically default to first 5 sources!
-  if (targets.length === 0) {
-    console.log('[Scraper Engine] No active or matching scraper sources found to execute.');
-    return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
-  }
-
-  // Initialize active-run live state
-  shouldStopActiveRun = false;
-  if (pauseResolver) {
-    pauseResolver();
-    pauseResolver = null;
-    pausePromise = null;
-  }
-
-  const duplicateMode: 'with' | 'without' = options.duplicateMode === 'without' ? 'without' : 'with';
-
-  activeRunState = {
-    isActive: true,
-    isPaused: false,
-    runId,
-    mode: options.mode,
-    duplicateMode,
-    totalSources: targets.length,
-    completedSources: 0,
-    remainingSources: targets.length,
-    totalFound: 0,
-    totalNew: 0,
-    totalDuplicates: 0,
-    totalPending: 0,
-    totalPublished: 0,
-    totalFailedSources: 0,
-    runProgress: 0,
-    startTime: startTime.toISOString(),
-    lastUpdated: startTime.toISOString()
-  };
-
-  const harvestedJobs: any[] = [];
-  const duplicateJobs: any[] = [];
-  const uniqueJobs: any[] = [];
-  const publishedJobs: any[] = [];
-  const pendingJobs: any[] = [];
-  const failedToSaveErrors: Array<{ title: string; error: string; isDuplicate: boolean }> = [];
-  let failedCount = 0;
-  let totalPagesAttempted = 0;
-  let totalPagesSuccessful = 0;
-  let totalJobsRejected = 0;
-
-  const sourcesStats: ScraperRunSummary['sourcesStats'] = [];
-
-  for (let targetIdx = 0; targetIdx < targets.length; targetIdx++) {
-    if (shouldStopActiveRun) {
-      console.log(`[Scraper Engine] Active scraper run ${runId} stopped by user request.`);
-      break;
+        return true;
+      });
     }
 
-    if (activeRunState.isPaused && pausePromise) {
-      console.log(`[Scraper Engine] Active scraper run ${runId} paused. Awaiting resume...`);
-      await pausePromise;
-      if (shouldStopActiveRun) break;
+    // If no matching sources exist, return early. NEVER automatically default to first 5 sources!
+    if (targets.length === 0) {
+      console.log('[Scraper Engine] No active or matching scraper sources found to execute.');
+      return createEmptySummary(runId, startTime, 'No active or matching scraper sources found to execute.');
     }
 
-    const target = targets[targetIdx];
-    activeRunState.currentSource = {
-      id: target.id,
-      name: target.name,
-      url: target.url || '',
-      index: targetIdx + 1
+    // Initialize active-run live state
+    shouldStopActiveRun = false;
+    if (pauseResolver) {
+      pauseResolver();
+      pauseResolver = null;
+      pausePromise = null;
+    }
+
+    const duplicateMode: 'with' | 'without' = options.duplicateMode === 'without' ? 'without' : 'with';
+
+    activeRunState = {
+      isActive: true,
+      isPaused: false,
+      stopped: false,
+      runId,
+      mode: options.mode,
+      duplicateMode,
+      totalSources: targets.length,
+      completedSources: 0,
+      remainingSources: targets.length,
+      totalFound: 0,
+      totalNew: 0,
+      totalDuplicates: 0,
+      totalPending: 0,
+      totalPublished: 0,
+      totalFailedSources: 0,
+      runProgress: 0,
+      startTime: startTime.toISOString(),
+      lastUpdated: startTime.toISOString()
     };
-    activeRunState.completedSources = targetIdx;
-    activeRunState.remainingSources = targets.length - targetIdx;
-    activeRunState.runProgress = Math.round((targetIdx / targets.length) * 100);
-    activeRunState.lastUpdated = new Date().toISOString();
 
-    const effectiveUrl = target.url || (target as any).portalUrl || (target as any).pdfUrl || '';
-    target.url = effectiveUrl;
-    const sourceRunStart = new Date().toISOString();
+    const harvestedJobs: any[] = [];
+    const duplicateJobs: any[] = [];
+    const uniqueJobs: any[] = [];
+    const publishedJobs: any[] = [];
+    const pendingJobs: any[] = [];
+    const failedToSaveErrors: Array<{ title: string; error: string; isDuplicate: boolean }> = [];
+    let failedCount = 0;
+    let totalPagesAttempted = 0;
+    let totalPagesSuccessful = 0;
+    let totalJobsRejected = 0;
+    let wasStopped = false;
 
-    let sourceFound = 0;
-    let sourceValid = 0;
-    let sourceNew = 0;
-    let sourceDup = 0;
-    let sourcePersisted = 0;
-    let sourceSaveFailures = 0;
-    let sourceUniqueSaveFailures = 0;
-    let sourceDupSaveFailures = 0;
-    let sourceIntentionalSkips = 0;
-    let sourcePagesAttempted = 0;
-    let sourcePagesSuccessful = 0;
-    let sourceFailed = false;
-    let sourceError = '';
+    const sourcesStats: ScraperRunSummary['sourcesStats'] = [];
 
-    try {
+    for (let targetIdx = 0; targetIdx < targets.length; targetIdx++) {
+      if (shouldStopActiveRun) {
+        wasStopped = true;
+        console.log(`[Scraper Engine] Active scraper run ${runId} stopped by user request.`);
+        break;
+      }
+
+      if (activeRunState.isPaused && pausePromise) {
+        console.log(`[Scraper Engine] Active scraper run ${runId} paused. Awaiting resume...`);
+        await pausePromise;
+        if (shouldStopActiveRun) {
+          wasStopped = true;
+          console.log(`[Scraper Engine] Active scraper run ${runId} stopped while paused.`);
+          break;
+        }
+      }
+
+      const target = targets[targetIdx];
+      activeRunState.currentSource = {
+        id: target.id,
+        name: target.name,
+        url: target.url || '',
+        index: targetIdx + 1
+      };
+      activeRunState.completedSources = sourcesStats.length;
+      activeRunState.remainingSources = targets.length - sourcesStats.length;
+      activeRunState.runProgress = Math.round((sourcesStats.length / targets.length) * 100);
+      activeRunState.lastUpdated = new Date().toISOString();
+
+      const effectiveUrl = target.url || (target as any).portalUrl || (target as any).pdfUrl || '';
+      target.url = effectiveUrl;
+      const sourceRunStart = new Date().toISOString();
+
+      let sourceFound = 0;
+      let sourceValid = 0;
+      let sourceNew = 0;
+      let sourceDup = 0;
+      let sourcePersisted = 0;
+      let sourceSaveFailures = 0;
+      let sourceUniqueSaveFailures = 0;
+      let sourceDupSaveFailures = 0;
+      let sourceIntentionalSkips = 0;
+      let sourcePagesAttempted = 0;
+      let sourcePagesSuccessful = 0;
+      let sourceFailed = false;
+      let sourceError = '';
+
       try {
-        await ScraperRepository.updateSourceStats(target.id, {
-          lastStartedAt: sourceRunStart,
-          lastRunId: runId
-        });
-      } catch (startStatErr: any) {
-        console.warn(`[Scraper Engine] Notice recording start timestamp for "${target.name}":`, startStatErr?.message || startStatErr);
-      }
-
-      // 1. Determine cutoff date
-      let sinceTimestamp = options.sinceTimestamp;
-      if (options.mode === 'since_last') {
-        sinceTimestamp = target.lastSuccessfulScrapeAt || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      } else if (options.mode === 'custom_date') {
-        sinceTimestamp = options.fromTimestamp;
-      }
-
-      // 2. Dynamic next-page crawl loop (follows validated discovered nextPageUrl or numeric fallback)
-      const crawlResult = await crawlPortalPages(target, options, sinceTimestamp, runId);
-      const {
-        rawResults,
-        lastPageError,
-        hitSafetyLimit,
-        paginationDiagnostic,
-        maxSafetyPages: MAX_SAFETY_PAGES
-      } = crawlResult;
-      sourcePagesAttempted = crawlResult.sourcePagesAttempted;
-      sourcePagesSuccessful = crawlResult.sourcePagesSuccessful;
-      totalPagesAttempted += sourcePagesAttempted;
-      totalPagesSuccessful += sourcePagesSuccessful;
-
-      // If all page attempts failed, surface the root error for proper health categorization
-      if (sourcePagesSuccessful === 0 && lastPageError) {
-        throw lastPageError;
-      }
-
-      // Custom date upper cutoff (toTimestamp) filter
-      let filteredResults = rawResults;
-      if (options.mode === 'custom_date' && options.toTimestamp) {
-        const toTime = new Date(options.toTimestamp).getTime();
-        if (!isNaN(toTime)) {
-          filteredResults = filteredResults.filter(j => {
-            if (!j.datePosted) return true;
-            const postTime = new Date(j.datePosted).getTime();
-            return isNaN(postTime) || postTime <= toTime;
-          });
-        }
-      }
-
-      sourceFound = filteredResults.length;
-
-      // Detail page enrichment: fetch linked detail pages to obtain complete job descriptions,
-      // specific employers, grades, deadlines, and requirements before duplicate evaluation.
-      const enrichedResults = await enrichScrapedJobsBatch(filteredResults, target);
-
-      for (const raw of enrichedResults) {
-        // Factual integrity: Never invent missing information
-        const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable')
-          ? raw.salary
-          : 'Salary not disclosed';
-
-        // Assess extraction quality
-        const isQualityAcceptable = !!(raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2);
-        if (!isQualityAcceptable) {
-          totalJobsRejected++;
-          continue; // Reject low quality / invalid vacancies
-        }
-
-        const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
-
-        const standardizedJob: any = {
-          ...raw,
-          id: raw.id || `scraped-${target.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-          salary: standardizedSalary,
-          scraperSourceId: target.id,
-          scraperSourceName: target.name,
-          scrapedSourceDomain: domain,
-          sourceUrl: raw.sourceUrl || target.url,
-          originalApplyUrl: raw.originalApplyUrl || undefined,
-          sourceJobId: raw.sourceJobId || undefined,
-          scrapedAt: timestampStr,
-          scrapedTime: startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
-          extractionMethod: raw.extractionMethod || 'html_cheerio',
-          scrapeRunId: runId,
-          jobCategory: (target as any).category || 'General',
-          region: raw.region || (target as any).region || 'Pakistan',
-          isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || raw.isGovtJob,
-          isNewspaperAd: (target as any).category === 'Newspaper Classified',
-          newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : undefined,
-          status: (target.autoApprove && options.autoPublishTrusted) ? 'Approved' : 'Pending'
-        };
-
-        // Multi-signal targeted duplicate candidates lookup across Live + Pending MongoDB
-        let duplicateCandidates: any[] = [];
         try {
-          duplicateCandidates = await JobRepository.findDuplicateCandidates(standardizedJob);
-        } catch (candErr: any) {
-          console.warn(`[Scraper Engine] Notice querying duplicate candidates for "${standardizedJob.title}":`, candErr?.message || candErr);
+          await updateSourceStatsFn(target.id, {
+            lastStartedAt: sourceRunStart,
+            lastRunId: runId
+          });
+        } catch (startStatErr: any) {
+          console.warn(`[Scraper Engine] Notice recording start timestamp for "${target.name}":`, startStatErr?.message || startStatErr);
         }
 
-        // Multi-signal deduplication check against Live/Pending candidates + intra-batch harvestedJobs
-        const dupCheck: DuplicateMatchResult = detectJobDuplicate(
-          standardizedJob,
-          duplicateCandidates,
-          harvestedJobs
-        );
+        // 1. Determine cutoff date
+        let sinceTimestamp = options.sinceTimestamp;
+        if (options.mode === 'since_last') {
+          sinceTimestamp = target.lastSuccessfulScrapeAt || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        } else if (options.mode === 'custom_date') {
+          sinceTimestamp = options.fromTimestamp;
+        }
 
-        standardizedJob.isDuplicate = dupCheck.isDuplicate;
-        standardizedJob.duplicateScore = dupCheck.confidence;
-        standardizedJob.duplicateCategory = dupCheck.duplicateCategory;
-        standardizedJob.duplicateTags = dupCheck.duplicateTags;
-        standardizedJob.duplicateMatchReason = dupCheck.reason;
-        standardizedJob.duplicateOfJobId = dupCheck.matchedExistingJob?.id;
-        standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
+        // 2. Dynamic next-page crawl loop (follows validated discovered nextPageUrl or numeric fallback)
+        const crawlResult = await crawlPortalPages(target, options, sinceTimestamp, runId, scrapePageFn);
+        const {
+          rawResults,
+          lastPageError,
+          hitSafetyLimit,
+          paginationDiagnostic,
+          maxSafetyPages: MAX_SAFETY_PAGES
+        } = crawlResult;
+        sourcePagesAttempted = crawlResult.sourcePagesAttempted;
+        sourcePagesSuccessful = crawlResult.sourcePagesSuccessful;
+        totalPagesAttempted += sourcePagesAttempted;
+        totalPagesSuccessful += sourcePagesSuccessful;
 
-        harvestedJobs.push(standardizedJob);
-        activeRunState.totalFound++;
-        sourceValid++;
+        // If all page attempts failed, surface the root error for proper health categorization
+        if (sourcePagesSuccessful === 0 && lastPageError) {
+          throw lastPageError;
+        }
 
-        if (dupCheck.isDuplicate) {
-          sourceDup++;
-          duplicateJobs.push(standardizedJob);
-          activeRunState.totalDuplicates++;
-
-          if (duplicateMode === 'without') {
-            // "Without Duplicates" mode:
-            // Do not create a NEW pending vacancy from this duplicate.
-            // Do not publish it, and do not modify or delete the original job.
-            // Duplicate counter is incremented, intentional skip recorded, continue processing next candidate.
-            sourceIntentionalSkips++;
-            continue;
-          }
-
-          // Duplicates are NEVER published live. Saved to pending queue with duplicate flags
-          try {
-            await JobRepository.addPending(standardizedJob);
-            pendingJobs.push(standardizedJob);
-            activeRunState.totalPending++;
-            sourcePersisted++;
-          } catch (pErr: any) {
-            console.error(`[Scraper Engine] Failed saving duplicate pending job (${standardizedJob.title}):`, pErr?.message || pErr);
-            sourceSaveFailures++;
-            sourceDupSaveFailures++;
-            failedToSaveErrors.push({
-              title: standardizedJob.title,
-              error: pErr?.message || String(pErr),
-              isDuplicate: true
+        // Custom date upper cutoff (toTimestamp) filter
+        let filteredResults = rawResults;
+        if (options.mode === 'custom_date' && options.toTimestamp) {
+          const toTime = new Date(options.toTimestamp).getTime();
+          if (!isNaN(toTime)) {
+            filteredResults = filteredResults.filter(j => {
+              if (!j.datePosted) return true;
+              const postTime = new Date(j.datePosted).getTime();
+              return isNaN(postTime) || postTime <= toTime;
             });
           }
-        } else {
-          sourceNew++;
-          uniqueJobs.push(standardizedJob);
-          activeRunState.totalNew++;
+        }
 
-          if (standardizedJob.status === 'Approved') {
-            try {
-              await JobRepository.create(standardizedJob);
-              publishedJobs.push(standardizedJob);
-              activeRunState.totalPublished++;
-              sourcePersisted++;
-            } catch (cErr: any) {
-              console.error(`[Scraper Engine] Failed saving approved job (${standardizedJob.title}):`, cErr?.message || cErr);
-              sourceSaveFailures++;
-              sourceUniqueSaveFailures++;
-              failedToSaveErrors.push({
-                title: standardizedJob.title,
-                error: cErr?.message || String(cErr),
-                isDuplicate: false
-              });
+        sourceFound = filteredResults.length;
+
+        // Detail page enrichment: fetch linked detail pages to obtain complete job descriptions,
+        // specific employers, grades, deadlines, and requirements before duplicate evaluation.
+        const enrichedResults = await enrichJobsFn(filteredResults, target);
+
+        for (const raw of enrichedResults) {
+          // Factual integrity: Never invent missing information
+          const standardizedSalary = (raw.salary && raw.salary.trim() && raw.salary.toLowerCase() !== 'negotiable')
+            ? raw.salary
+            : 'Salary not disclosed';
+
+          // Assess extraction quality
+          const isQualityAcceptable = !!(raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2);
+          if (!isQualityAcceptable) {
+            totalJobsRejected++;
+            continue; // Reject low quality / invalid vacancies
+          }
+
+          const domain = target.url ? new URL(target.url.startsWith('http') ? target.url : 'https://' + target.url).hostname : 'target-portal.com';
+
+          const standardizedJob: any = {
+            ...raw,
+            id: raw.id || `scraped-${target.id}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+            salary: standardizedSalary,
+            scraperSourceId: target.id,
+            scraperSourceName: target.name,
+            scrapedSourceDomain: domain,
+            sourceUrl: raw.sourceUrl || target.url,
+            originalApplyUrl: raw.originalApplyUrl || undefined,
+            sourceJobId: raw.sourceJobId || undefined,
+            scrapedAt: timestampStr,
+            scrapedTime: startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+            extractionMethod: raw.extractionMethod || 'html_cheerio',
+            scrapeRunId: runId,
+            jobCategory: (target as any).category || 'General',
+            region: raw.region || (target as any).region || 'Pakistan',
+            isGovtJob: (target as any).category === 'Government Sector' || (target as any).isGovtPortal || raw.isGovtJob,
+            isNewspaperAd: (target as any).category === 'Newspaper Classified',
+            newspaperName: (target as any).category === 'Newspaper Classified' ? target.name : undefined,
+            status: (target.autoApprove && options.autoPublishTrusted) ? 'Approved' : 'Pending'
+          };
+
+          // Multi-signal targeted duplicate candidates lookup across Live + Pending MongoDB (FAIL-CLOSED)
+          let duplicateCandidates: any[];
+          try {
+            duplicateCandidates = await findDuplicateCandidatesFn(standardizedJob);
+          } catch (candErr: any) {
+            const lookupErr: any = new Error(
+              `Duplicate verification failed during database lookup for "${standardizedJob.title}": ${candErr?.message || candErr}`
+            );
+            lookupErr.name = candErr?.name || 'MongoDuplicateLookupError';
+            lookupErr.isDatabaseError = true;
+            lookupErr.cause = candErr;
+            throw lookupErr;
+          }
+
+          // Multi-signal deduplication check against Live/Pending candidates + intra-batch harvestedJobs
+          const dupCheck: DuplicateMatchResult = detectJobDuplicate(
+            standardizedJob,
+            duplicateCandidates,
+            harvestedJobs
+          );
+
+          standardizedJob.isDuplicate = dupCheck.isDuplicate;
+          standardizedJob.duplicateScore = dupCheck.confidence;
+          standardizedJob.duplicateCategory = dupCheck.duplicateCategory;
+          standardizedJob.duplicateTags = dupCheck.duplicateTags;
+          standardizedJob.duplicateMatchReason = dupCheck.reason;
+          standardizedJob.duplicateOfJobId = dupCheck.matchedExistingJob?.id;
+          standardizedJob.duplicateMatchedJob = dupCheck.matchedExistingJob;
+
+          harvestedJobs.push(standardizedJob);
+          activeRunState.totalFound++;
+          sourceValid++;
+
+          if (dupCheck.isDuplicate) {
+            sourceDup++;
+            duplicateJobs.push(standardizedJob);
+            activeRunState.totalDuplicates++;
+
+            if (duplicateMode === 'without') {
+              // "Without Duplicates" mode:
+              // Do not create a NEW pending vacancy from this duplicate.
+              // Do not publish it, and do not modify or delete the original job.
+              // Duplicate counter is incremented, intentional skip recorded, continue processing next candidate.
+              sourceIntentionalSkips++;
+              continue;
             }
-          } else {
+
+            // Duplicates are NEVER published live. Saved to pending queue with duplicate flags
             try {
-              await JobRepository.addPending(standardizedJob);
+              await addPendingJobFn(standardizedJob);
               pendingJobs.push(standardizedJob);
               activeRunState.totalPending++;
               sourcePersisted++;
             } catch (pErr: any) {
-              console.error(`[Scraper Engine] Failed saving pending job (${standardizedJob.title}):`, pErr?.message || pErr);
+              console.error(`[Scraper Engine] Failed saving duplicate pending job (${standardizedJob.title}):`, pErr?.message || pErr);
               sourceSaveFailures++;
-              sourceUniqueSaveFailures++;
+              sourceDupSaveFailures++;
               failedToSaveErrors.push({
                 title: standardizedJob.title,
                 error: pErr?.message || String(pErr),
-                isDuplicate: false
+                isDuplicate: true
               });
+            }
+          } else {
+            sourceNew++;
+            uniqueJobs.push(standardizedJob);
+            activeRunState.totalNew++;
+
+            if (standardizedJob.status === 'Approved') {
+              try {
+                await createJobFn(standardizedJob);
+                publishedJobs.push(standardizedJob);
+                activeRunState.totalPublished++;
+                sourcePersisted++;
+              } catch (cErr: any) {
+                console.error(`[Scraper Engine] Failed saving approved job (${standardizedJob.title}):`, cErr?.message || cErr);
+                sourceSaveFailures++;
+                sourceUniqueSaveFailures++;
+                failedToSaveErrors.push({
+                  title: standardizedJob.title,
+                  error: cErr?.message || String(cErr),
+                  isDuplicate: false
+                });
+              }
+            } else {
+              try {
+                await addPendingJobFn(standardizedJob);
+                pendingJobs.push(standardizedJob);
+                activeRunState.totalPending++;
+                sourcePersisted++;
+              } catch (pErr: any) {
+                console.error(`[Scraper Engine] Failed saving pending job (${standardizedJob.title}):`, pErr?.message || pErr);
+                sourceSaveFailures++;
+                sourceUniqueSaveFailures++;
+                failedToSaveErrors.push({
+                  title: standardizedJob.title,
+                  error: pErr?.message || String(pErr),
+                  isDuplicate: false
+                });
+              }
             }
           }
         }
-      }
 
-      // Accurate source success & checkpoint accounting:
-      // 1. Detection success: at least one valid vacancy was detected and either successfully persisted
-      //    OR intentionally skipped from new DB insertion (as in 'without' duplicates mode).
-      const hasValidDetections = sourceValid > 0;
-      const hasSuccessfulHandledVacancies = (sourcePersisted + sourceIntentionalSkips) > 0;
-      const isAllPersistAttemptsFailed = hasValidDetections && !hasSuccessfulHandledVacancies && sourceSaveFailures > 0;
-      const isDetectionSuccessful = hasValidDetections && hasSuccessfulHandledVacancies;
+        // Accurate source success & checkpoint accounting:
+        const hasValidDetections = sourceValid > 0;
+        const hasSuccessfulHandledVacancies = (sourcePersisted + sourceIntentionalSkips) > 0;
+        const isAllPersistAttemptsFailed = hasValidDetections && !hasSuccessfulHandledVacancies && sourceSaveFailures > 0;
+        const isDetectionSuccessful = hasValidDetections && hasSuccessfulHandledVacancies;
 
-      // 2. Critical Checkpoint Safety Rule:
-      //    Do NOT advance "lastSuccessfulScrapeAt" unless:
-      //    - mode is 'complete' (exhaustive crawl from page 1; partial/windowed modes must not overwrite full checkpoint);
-      //    - natural end of pagination was reached without truncation by MAX_SAFETY_PAGES (!hitSafetyLimit)
-      //      or incomplete pagination diagnostic (!paginationDiagnostic);
-      //    - no page fetch or parse errors occurred during crawling (!lastPageError && sourcePagesAttempted === sourcePagesSuccessful);
-      //    - valid vacancies were detected and successfully handled (isDetectionSuccessful);
-      //    - no required vacancy persistence failed (hasUnsavedRequiredVacancies === false).
-      const isCompleteMode = options.mode === 'complete';
-      const hasNoPageErrors = !lastPageError && (sourcePagesAttempted === sourcePagesSuccessful);
-      const hasUnsavedUniqueVacancies = sourceUniqueSaveFailures > 0;
-      const hasUnsavedRequiredDuplicates = duplicateMode === 'with' && sourceDupSaveFailures > 0;
-      const hasUnsavedRequiredVacancies = hasUnsavedUniqueVacancies || hasUnsavedRequiredDuplicates;
-      const isCheckpointEligible = evaluateCheckpointEligibility({
-        mode: options.mode,
-        hasNoPageErrors,
-        hitSafetyLimit,
-        paginationDiagnostic,
-        isDetectionSuccessful,
-        hasUnsavedRequiredVacancies
-      });
-
-      const sourceCompletedAt = new Date().toISOString();
-      const completion = buildSourceCompletionStatsUpdate({
-        sourceCompletedAt,
-        previousLastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt,
-        runId,
-        isCheckpointEligible,
-        isDetectionSuccessful,
-        isAllPersistAttemptsFailed,
-        hasUnsavedRequiredVacancies,
-        sourceSaveFailures,
-        sourceUniqueSaveFailures,
-        sourceDupSaveFailures,
-        sourcePagesAttempted,
-        lastPageError,
-        paginationDiagnostic,
-        hitSafetyLimit,
-        maxSafetyPages: MAX_SAFETY_PAGES,
-        isCompleteMode,
-        sourceValid,
-        sourceFound,
-        sourcePersisted,
-        sourceIntentionalSkips
-      });
-
-      const successHealth = completion.successHealth;
-      const lastErrorNotice = completion.lastErrorNotice;
-
-      if (isAllPersistAttemptsFailed && completion.sourceError) {
-        // Valid vacancies detected but 100% of required DB persistence attempts failed.
-        // Record failure so checkpoint does not advance and jobs can be re-scraped.
-        sourceFailed = true;
-        failedCount++;
-        activeRunState.totalFailedSources++;
-        sourceError = completion.sourceError;
-        activeRunState.currentError = sourceError;
-      }
-
-      await ScraperRepository.updateSourceStats(target.id, completion.statsUpdate);
-
-      sourcesStats.push({
-        sourceId: target.id,
-        sourceName: target.name,
-        sourceUrl: target.url,
-        startedAt: sourceRunStart,
-        completedAt: sourceCompletedAt,
-        found: sourceValid,
-        rawCandidateCount: sourceFound,
-        newCount: sourceNew,
-        dupCount: sourceDup,
-        pagesAttempted: sourcePagesAttempted,
-        pagesSuccessful: sourcePagesSuccessful,
-        failed: sourceFailed,
-        error: sourceError || lastErrorNotice,
-        lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt
-      });
-    } catch (err: any) {
-      failedCount++;
-      sourceFailed = true;
-      sourceError = err.message || 'Scraping target failed';
-      activeRunState.totalFailedSources++;
-      activeRunState.currentError = sourceError;
-      console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${err?.message || err}`);
-
-      const errLower = sourceError.toLowerCase();
-      let classifiedHealth: string = 'Fetch Error';
-      let httpStatus: number | undefined = err.status || err.statusCode || err.httpStatus;
-
-      const isDbError =
-        err?.name === 'MongoNetworkTimeoutError' ||
-        err?.name === 'MongoConnectionUnavailableError' ||
-        err?.name?.includes('Mongo') ||
-        errLower.includes('mongodb') ||
-        errLower.includes('mongo') ||
-        errLower.includes('topology was destroyed');
-
-      if (isDbError) {
-        classifiedHealth = 'Database Error';
-      } else if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
-        classifiedHealth = '404';
-        if (!httpStatus) httpStatus = 404;
-      } else if (httpStatus === 403 || errLower.includes('403') || errLower.includes('forbidden') || errLower.includes('access denied')) {
-        classifiedHealth = '403';
-        if (!httpStatus) httpStatus = 403;
-      } else if (errLower.includes('timeout') || errLower.includes('timed out') || errLower.includes('etimedout') || errLower.includes('aborterror')) {
-        classifiedHealth = 'Timeout';
-      } else if (errLower.includes('html instead of pdf') || errLower.includes('non-pdf') || errLower.includes('cheerio') || errLower.includes('html parse') || errLower.includes('invalid html') || errLower.includes('selector')) {
-        classifiedHealth = 'HTML';
-      } else if (errLower.includes('invalid pdf') || errLower.includes('pdf error') || errLower.includes('corrupt pdf') || (errLower.includes('pdf') && errLower.includes('fail'))) {
-        classifiedHealth = 'Invalid PDF';
-      } else {
-        classifiedHealth = 'Fetch Error';
-      }
-
-      const sourceCompletedAt = new Date().toISOString();
-      try {
-        await ScraperRepository.updateSourceStats(target.id, {
-          lastCompletedAt: sourceCompletedAt,
-          healthStatus: classifiedHealth,
-          lastErrorMessage: sourceError,
-          lastHttpStatus: httpStatus
+        const isCompleteMode = options.mode === 'complete';
+        const hasNoPageErrors = !lastPageError && (sourcePagesAttempted === sourcePagesSuccessful);
+        const hasUnsavedUniqueVacancies = sourceUniqueSaveFailures > 0;
+        const hasUnsavedRequiredDuplicates = duplicateMode === 'with' && sourceDupSaveFailures > 0;
+        const hasUnsavedRequiredVacancies = hasUnsavedUniqueVacancies || hasUnsavedRequiredDuplicates;
+        const isCheckpointEligible = evaluateCheckpointEligibility({
+          mode: options.mode,
+          hasNoPageErrors,
+          hitSafetyLimit,
+          paginationDiagnostic,
+          isDetectionSuccessful,
+          hasUnsavedRequiredVacancies
         });
-      } catch (saveErr: any) {
-        console.warn(`[Scraper Engine] Notice saving failure stats for "${target.name}":`, saveErr?.message || saveErr);
-      }
 
-      sourcesStats.push({
-        sourceId: target.id,
-        sourceName: target.name,
-        sourceUrl: target.url,
-        startedAt: sourceRunStart,
-        completedAt: sourceCompletedAt,
-        found: 0,
-        newCount: 0,
-        dupCount: 0,
-        pagesAttempted: sourcePagesAttempted,
-        pagesSuccessful: sourcePagesSuccessful,
-        failed: true,
-        error: sourceError,
-        lastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt
+        const sourceCompletedAt = new Date().toISOString();
+        const completion = buildSourceCompletionStatsUpdate({
+          sourceCompletedAt,
+          previousLastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt,
+          runId,
+          isCheckpointEligible,
+          isDetectionSuccessful,
+          isAllPersistAttemptsFailed,
+          hasUnsavedRequiredVacancies,
+          sourceSaveFailures,
+          sourceUniqueSaveFailures,
+          sourceDupSaveFailures,
+          sourcePagesAttempted,
+          lastPageError,
+          paginationDiagnostic,
+          hitSafetyLimit,
+          maxSafetyPages: MAX_SAFETY_PAGES,
+          isCompleteMode,
+          sourceValid,
+          sourceFound,
+          sourcePersisted,
+          sourceIntentionalSkips
+        });
+
+        const lastErrorNotice = completion.lastErrorNotice;
+
+        if (isAllPersistAttemptsFailed && completion.sourceError) {
+          sourceFailed = true;
+          failedCount++;
+          activeRunState.totalFailedSources++;
+          sourceError = completion.sourceError;
+          activeRunState.currentError = sourceError;
+        }
+
+        await updateSourceStatsFn(target.id, completion.statsUpdate);
+
+        sourcesStats.push({
+          sourceId: target.id,
+          sourceName: target.name,
+          sourceUrl: target.url,
+          startedAt: sourceRunStart,
+          completedAt: sourceCompletedAt,
+          found: sourceValid,
+          rawCandidateCount: sourceFound,
+          newCount: sourceNew,
+          dupCount: sourceDup,
+          pagesAttempted: sourcePagesAttempted,
+          pagesSuccessful: sourcePagesSuccessful,
+          failed: sourceFailed,
+          error: sourceError || lastErrorNotice,
+          lastSuccessfulScrapeAt: isCheckpointEligible ? sourceCompletedAt : target.lastSuccessfulScrapeAt
+        });
+      } catch (err: any) {
+        failedCount++;
+        sourceFailed = true;
+        sourceError = err.message || 'Scraping target failed';
+        activeRunState.totalFailedSources++;
+        activeRunState.currentError = sourceError;
+        console.log(`[Scraper Engine] Source notice on ${target.name} (${target.url}): ${err?.message || err}`);
+
+        const errLower = sourceError.toLowerCase();
+        let classifiedHealth: string = 'Fetch Error';
+        let httpStatus: number | undefined = err.status || err.statusCode || err.httpStatus;
+
+        const isDbError =
+          err?.isDatabaseError === true ||
+          err?.name === 'MongoNetworkTimeoutError' ||
+          err?.name === 'MongoConnectionUnavailableError' ||
+          err?.name?.includes('Mongo') ||
+          errLower.includes('mongodb') ||
+          errLower.includes('mongo') ||
+          errLower.includes('duplicate verification') ||
+          errLower.includes('duplicate candidate') ||
+          errLower.includes('topology was destroyed');
+
+        if (isDbError) {
+          classifiedHealth = 'Database Error';
+        } else if (httpStatus === 404 || errLower.includes('404') || errLower.includes('not found')) {
+          classifiedHealth = '404';
+          if (!httpStatus) httpStatus = 404;
+        } else if (httpStatus === 403 || errLower.includes('403') || errLower.includes('forbidden') || errLower.includes('access denied')) {
+          classifiedHealth = '403';
+          if (!httpStatus) httpStatus = 403;
+        } else if (errLower.includes('timeout') || errLower.includes('timed out') || errLower.includes('etimedout') || errLower.includes('aborterror')) {
+          classifiedHealth = 'Timeout';
+        } else if (errLower.includes('html instead of pdf') || errLower.includes('non-pdf') || errLower.includes('cheerio') || errLower.includes('html parse') || errLower.includes('invalid html') || errLower.includes('selector')) {
+          classifiedHealth = 'HTML';
+        } else if (errLower.includes('invalid pdf') || errLower.includes('pdf error') || errLower.includes('corrupt pdf') || (errLower.includes('pdf') && errLower.includes('fail'))) {
+          classifiedHealth = 'Invalid PDF';
+        } else {
+          classifiedHealth = 'Fetch Error';
+        }
+
+        const sourceCompletedAt = new Date().toISOString();
+        try {
+          await updateSourceStatsFn(target.id, {
+            lastCompletedAt: sourceCompletedAt,
+            healthStatus: classifiedHealth,
+            lastErrorMessage: sourceError,
+            lastHttpStatus: httpStatus
+          });
+        } catch (saveErr: any) {
+          console.warn(`[Scraper Engine] Notice saving failure stats for "${target.name}":`, saveErr?.message || saveErr);
+        }
+
+        sourcesStats.push({
+          sourceId: target.id,
+          sourceName: target.name,
+          sourceUrl: target.url,
+          startedAt: sourceRunStart,
+          completedAt: sourceCompletedAt,
+          found: sourceValid,
+          rawCandidateCount: sourceFound,
+          newCount: sourceNew,
+          dupCount: sourceDup,
+          pagesAttempted: sourcePagesAttempted,
+          pagesSuccessful: sourcePagesSuccessful,
+          failed: true,
+          error: sourceError,
+          lastSuccessfulScrapeAt: target.lastSuccessfulScrapeAt
+        });
+      }
+    }
+
+    if (shouldStopActiveRun) {
+      wasStopped = true;
+    }
+
+    const processedSourcesCount = sourcesStats.length;
+    const derivedRunStatus: 'Completed' | 'Partial' | 'Failed' | 'Stopped' = wasStopped
+      ? 'Stopped'
+      : failedCount === 0
+      ? 'Completed'
+      : failedCount < targets.length
+      ? 'Partial'
+      : 'Failed';
+
+    // Update final active run state accurately (do not mark unscraped sources complete or force 100% if stopped)
+    activeRunState.isActive = false;
+    activeRunState.isPaused = false;
+    activeRunState.stopped = wasStopped;
+    activeRunState.currentSource = undefined;
+    if (wasStopped) {
+      activeRunState.completedSources = processedSourcesCount;
+      activeRunState.remainingSources = Math.max(0, targets.length - processedSourcesCount);
+      activeRunState.runProgress = targets.length > 0 ? Math.round((processedSourcesCount / targets.length) * 100) : 0;
+    } else {
+      activeRunState.completedSources = targets.length;
+      activeRunState.remainingSources = 0;
+      activeRunState.runProgress = 100;
+    }
+    activeRunState.lastUpdated = new Date().toISOString();
+
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+
+    // Save audit log for the scraper execution run and surface history persistence status
+    let runRecordResult: any = null;
+    let historyPersistenceThrownError: string | undefined;
+    try {
+      runRecordResult = await addRunFn({
+        id: runId,
+        batchId: runId,
+        startedAt: startTime.toISOString(),
+        completedAt: endTime.toISOString(),
+        mode: options.mode,
+        duplicateMode,
+        targetsScraped: processedSourcesCount,
+        totalTargetsPlanned: targets.length,
+        stopped: wasStopped,
+        status: derivedRunStatus,
+        totalFound: harvestedJobs.length,
+        newPublished: publishedJobs.length,
+        newPending: pendingJobs.length,
+        duplicatesFlagged: duplicateJobs.length,
+        failedSources: failedCount,
+        executionTimeMs: duration,
+        sourcesStats
       });
+    } catch (addRunErr: any) {
+      historyPersistenceThrownError = addRunErr?.message || String(addRunErr);
+      console.error(`[Scraper Engine] Error persisting scraper run history "${runId}":`, historyPersistenceThrownError);
+    }
+
+    const historyPersistedToMongo = Boolean(runRecordResult?.isPersistedToMongo);
+    const historyPersistenceError: string | undefined =
+      historyPersistenceThrownError ||
+      (typeof runRecordResult?.persistenceError === 'string' && runRecordResult.persistenceError.trim()
+        ? runRecordResult.persistenceError.trim()
+        : undefined);
+    const historyPersistenceMode: 'mongodb' | 'memory' | 'failed' = historyPersistedToMongo
+      ? 'mongodb'
+      : historyPersistenceError
+      ? 'failed'
+      : 'memory';
+
+    auditAddFn({
+      user: 'Administrator',
+      role: 'Scraper Hub',
+      action: wasStopped ? 'Scraper Run Stopped' : 'Scraper Run Completed',
+      target: `${processedSourcesCount}/${targets.length} Source Portals (${harvestedJobs.length} Jobs Harvested)`,
+      status: (wasStopped || failedCount > 0 || failedToSaveErrors.length > 0 || historyPersistenceMode === 'failed') ? 'Warning' : 'Success',
+      metadata: {
+        mode: options.mode,
+        duplicateMode,
+        stopped: wasStopped,
+        runStatus: derivedRunStatus,
+        targetsScraped: processedSourcesCount,
+        totalTargetsPlanned: targets.length,
+        totalFound: harvestedJobs.length,
+        published: publishedJobs.length,
+        pending: pendingJobs.length,
+        duplicates: duplicateJobs.length,
+        failedSources: failedCount,
+        historyPersistedToMongo,
+        historyPersistenceMode,
+        historyPersistenceError
+      }
+    });
+
+    const baseMessage = wasStopped
+      ? `Scrape run stopped early after ${processedSourcesCount} of ${targets.length} sources. Extracted ${harvestedJobs.length} verified vacancies.`
+      : `Scrape run completed across ${targets.length} sources. Extracted ${harvestedJobs.length} verified vacancies.`;
+    const summaryMessage = historyPersistenceMode === 'failed'
+      ? `${baseMessage} Warning: Run history was not saved to MongoDB (${historyPersistenceError || 'database write failed'}).`
+      : baseMessage;
+
+    return {
+      runId,
+      duplicateMode,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      stopped: wasStopped,
+      status: derivedRunStatus,
+      targetsScraped: processedSourcesCount,
+      historyPersistedToMongo,
+      historyPersistenceMode,
+      historyPersistenceError,
+      totalFound: harvestedJobs.length,
+      totalNew: uniqueJobs.length,
+      totalDuplicates: duplicateJobs.length,
+      totalPending: pendingJobs.length,
+      totalPublished: publishedJobs.length,
+      totalFailedSources: failedCount,
+      totalFailedToSave: failedToSaveErrors.length,
+      failedToSaveErrors: failedToSaveErrors.length > 0 ? failedToSaveErrors : undefined,
+      pagesAttempted: totalPagesAttempted,
+      pagesSuccessful: totalPagesSuccessful,
+      jobsAccepted: uniqueJobs.length,
+      jobsRejected: totalJobsRejected,
+      publishedJobs,
+      pendingJobs,
+      duplicateJobs,
+      sourcesStats,
+      executionDurationMs: duration,
+      message: summaryMessage
+    };
+  } finally {
+    isScraperExecutionLocked = false;
+    activeRunState.isActive = false;
+    activeRunState.isPaused = false;
+    shouldStopActiveRun = false;
+    if (pauseResolver) {
+      pauseResolver();
+      pauseResolver = null;
+      pausePromise = null;
     }
   }
-
-  // Mark active run state complete
-  activeRunState.isActive = false;
-  activeRunState.isPaused = false;
-  activeRunState.completedSources = targets.length;
-  activeRunState.remainingSources = 0;
-  activeRunState.runProgress = 100;
-  activeRunState.lastUpdated = new Date().toISOString();
-
-  const endTime = new Date();
-  const duration = endTime.getTime() - startTime.getTime();
-
-  // Save audit log for the scraper execution run
-  await ScraperRepository.addRun({
-    id: runId,
-    batchId: runId,
-    startedAt: startTime.toISOString(),
-    completedAt: endTime.toISOString(),
-    mode: options.mode,
-    duplicateMode,
-    targetsScraped: targets.length,
-    totalFound: harvestedJobs.length,
-    newPublished: publishedJobs.length,
-    newPending: pendingJobs.length,
-    duplicatesFlagged: duplicateJobs.length,
-    failedSources: failedCount,
-    executionTimeMs: duration,
-    sourcesStats
-  });
-
-  AuditRepository.add({
-    user: 'Administrator',
-    role: 'Scraper Hub',
-    action: 'Scraper Run Completed',
-    target: `${targets.length} Source Portals (${harvestedJobs.length} Jobs Harvested)`,
-    status: (failedCount > 0 || failedToSaveErrors.length > 0) ? 'Warning' : 'Success',
-    metadata: {
-      mode: options.mode,
-      duplicateMode,
-      totalFound: harvestedJobs.length,
-      published: publishedJobs.length,
-      pending: pendingJobs.length,
-      duplicates: duplicateJobs.length,
-      failedSources: failedCount
-    }
-  });
-
-  return {
-    runId,
-    duplicateMode,
-    startTime: startTime.toISOString(),
-    endTime: endTime.toISOString(),
-    totalFound: harvestedJobs.length,
-    totalNew: uniqueJobs.length,
-    totalDuplicates: duplicateJobs.length,
-    totalPending: pendingJobs.length,
-    totalPublished: publishedJobs.length,
-    totalFailedSources: failedCount,
-    totalFailedToSave: failedToSaveErrors.length,
-    failedToSaveErrors: failedToSaveErrors.length > 0 ? failedToSaveErrors : undefined,
-    pagesAttempted: totalPagesAttempted,
-    pagesSuccessful: totalPagesSuccessful,
-    jobsAccepted: uniqueJobs.length,
-    jobsRejected: totalJobsRejected,
-    publishedJobs,
-    pendingJobs,
-    duplicateJobs,
-    sourcesStats,
-    executionDurationMs: duration,
-    message: `Scrape run completed across ${targets.length} sources. Extracted ${harvestedJobs.length} verified vacancies.`
-  };
 }

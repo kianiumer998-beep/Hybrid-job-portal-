@@ -137,8 +137,12 @@ import {
   enrichScrapedJobsBatch
 } from '../services/detailPageEnricher';
 import {
-  validateSafeScrapeUrl
+  validateSafeScrapeUrl,
+  isPrivateOrBlockedIp,
+  safeFetchWithRetry,
+  scraperTlsDispatcher
 } from '../utils/ssrfProtection';
+import { Agent } from 'undici';
 import {
   AdminAiQualityEnhancer,
   evaluateRuleBasedJobQuality,
@@ -8937,6 +8941,316 @@ async function runSuite() {
     assert.strictEqual(liveStore.get('existing-live-base-1')?.applicationsCount, 6);
     assert.strictEqual(pendingStore.size, 0);
     resetActiveRun();
+  });
+
+  // =========================================================================
+  // STEP-8.6-A — TARGETED SSRF SECURITY FIXES (5 Tests)
+  // =========================================================================
+
+  await runTest('STEP-8.6-A Case 1 [Unit]: Robust IPv4-mapped IPv6 validation blocks loopback, private, and metadata ranges in both dotted and hex formats while allowing public IPs', () => {
+    // 1. ::ffff:127.0.0.1 (dotted loopback)
+    const t1 = isPrivateOrBlockedIp('::ffff:127.0.0.1');
+    assert.strictEqual(t1.blocked, true);
+    assert.ok(t1.reason?.includes('Loopback'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::ffff:127.0.0.1]/jobs').safe, false);
+
+    // 2. ::ffff:7f00:1 (hex loopback)
+    const t2 = isPrivateOrBlockedIp('::ffff:7f00:1');
+    assert.strictEqual(t2.blocked, true);
+    assert.ok(t2.reason?.includes('Loopback'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::ffff:7f00:1]/jobs').safe, false);
+
+    // 3. ::ffff:a00:5 (hex RFC1918 10.0.0.5)
+    const t3 = isPrivateOrBlockedIp('::ffff:a00:5');
+    assert.strictEqual(t3.blocked, true);
+    assert.ok(t3.reason?.includes('10.0.0.0/8'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::ffff:a00:5]/jobs').safe, false);
+
+    // 4. ::ffff:c0a8:101 (hex RFC1918 192.168.1.1)
+    const t4 = isPrivateOrBlockedIp('::ffff:c0a8:101');
+    assert.strictEqual(t4.blocked, true);
+    assert.ok(t4.reason?.includes('192.168.0.0/16'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::ffff:c0a8:101]/jobs').safe, false);
+
+    // 5. ::ffff:a9fe:a9fe (hex Cloud metadata / link-local 169.254.169.254)
+    const t5 = isPrivateOrBlockedIp('::ffff:a9fe:a9fe');
+    assert.strictEqual(t5.blocked, true);
+    assert.ok(t5.reason?.includes('169.254.0.0/16'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::ffff:a9fe:a9fe]/latest/meta-data/').safe, false);
+
+    // 6. Legitimate public IPv4-mapped IPv6 (dotted and hex) must NOT be blocked
+    const pubDotted = isPrivateOrBlockedIp('::ffff:8.8.8.8');
+    assert.strictEqual(pubDotted.blocked, false);
+    assert.strictEqual(validateSafeScrapeUrl('https://[::ffff:8.8.8.8]/jobs').safe, true);
+
+    const pubHex = isPrivateOrBlockedIp('::ffff:808:808');
+    assert.strictEqual(pubHex.blocked, false);
+    assert.strictEqual(validateSafeScrapeUrl('https://[::ffff:808:808]/jobs').safe, true);
+  });
+
+  await runTest('STEP-8.6-A Case 2 [Unit]: Comprehensive IPv6 validation identifies loopback, unspecified, ULA, link-local, multicast, and documentation while permitting public IPv6', () => {
+    // 1. Compressed loopback
+    const cLoop = isPrivateOrBlockedIp('::1');
+    assert.strictEqual(cLoop.blocked, true);
+    assert.ok(cLoop.reason?.includes('loopback'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::1]/api').safe, false);
+
+    // 2. Expanded loopback (with and without brackets)
+    for (const expLoop of ['0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '[0:0:0:0:0:0:0:1]']) {
+      const res = isPrivateOrBlockedIp(expLoop);
+      assert.strictEqual(res.blocked, true);
+      assert.ok(res.reason?.includes('loopback'));
+    }
+    assert.strictEqual(validateSafeScrapeUrl('http://[0:0:0:0:0:0:0:1]/api').safe, false);
+
+    // 3. Compressed unspecified
+    const cUnspec = isPrivateOrBlockedIp('::');
+    assert.strictEqual(cUnspec.blocked, true);
+    assert.ok(cUnspec.reason?.includes('unspecified'));
+    assert.strictEqual(validateSafeScrapeUrl('http://[::]/api').safe, false);
+
+    // 4. Expanded unspecified
+    for (const expUnspec of ['0:0:0:0:0:0:0:0', '0000:0000:0000:0000:0000:0000:0000:0000']) {
+      const res = isPrivateOrBlockedIp(expUnspec);
+      assert.strictEqual(res.blocked, true);
+      assert.ok(res.reason?.includes('unspecified'));
+    }
+    assert.strictEqual(validateSafeScrapeUrl('http://[0:0:0:0:0:0:0:0]/api').safe, false);
+
+    // 5. Unique-local addresses (fc00::/7 covering fc00:: and fd00::)
+    for (const ula of ['fc00::1', 'fd00::1', 'fd12:3456:789a::1']) {
+      const res = isPrivateOrBlockedIp(ula);
+      assert.strictEqual(res.blocked, true, `Expected ${ula} to be blocked as unique-local`);
+      assert.ok(res.reason?.includes('unique-local'));
+      assert.strictEqual(validateSafeScrapeUrl(`http://[${ula}]/jobs`).safe, false);
+    }
+
+    // 6. Link-local addresses (fe80::/10 covering fe80:: to febf::)
+    for (const linkLocal of ['fe80::1', 'fe80::200:f8ff:fe21:67cf', 'febf::1']) {
+      const res = isPrivateOrBlockedIp(linkLocal);
+      assert.strictEqual(res.blocked, true, `Expected ${linkLocal} to be blocked as link-local`);
+      assert.ok(res.reason?.includes('link-local'));
+      assert.strictEqual(validateSafeScrapeUrl(`http://[${linkLocal}]/jobs`).safe, false);
+    }
+
+    // 7. Multicast addresses (ff00::/8)
+    for (const mc of ['ff02::1', 'ff01::1', 'ff05::2']) {
+      const res = isPrivateOrBlockedIp(mc);
+      assert.strictEqual(res.blocked, true, `Expected ${mc} to be blocked as multicast`);
+      assert.ok(res.reason?.includes('multicast'));
+      assert.strictEqual(validateSafeScrapeUrl(`http://[${mc}]/jobs`).safe, false);
+    }
+
+    // 8. Documentation addresses (2001:db8::/32)
+    for (const doc of ['2001:db8::1', '2001:0db8:85a3:0000:0000:8a2e:0370:7334']) {
+      const res = isPrivateOrBlockedIp(doc);
+      assert.strictEqual(res.blocked, true, `Expected ${doc} to be blocked as documentation`);
+      assert.ok(res.reason?.includes('documentation'));
+      assert.strictEqual(validateSafeScrapeUrl(`http://[${doc}]/jobs`).safe, false);
+    }
+
+    // 9. Legitimate public IPv6 addresses must NOT be blocked
+    for (const pubIpv6 of [
+      '2607:f8b0:4005:805::200e',
+      '2001:4860:4860::8888',
+      '2a00:1450:4009:81f::200e'
+    ]) {
+      const res = isPrivateOrBlockedIp(pubIpv6);
+      assert.strictEqual(res.blocked, false, `Expected public IPv6 ${pubIpv6} to be allowed`);
+      assert.strictEqual(validateSafeScrapeUrl(`https://[${pubIpv6}]/jobs`).safe, true);
+    }
+  });
+
+  await runTest('STEP-8.6-A Case 3 [Unit]: Caller-supplied dispatcher cannot override scraperTlsDispatcher and normal request options are preserved', async () => {
+    const originalFetch = globalThis.fetch;
+    let interceptedInit: any = null;
+    const foreignDispatcher = new Agent({ connect: { timeout: 1234 } });
+
+    globalThis.fetch = (async (_input: any, init: any) => {
+      interceptedInit = init;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }) as any;
+
+    try {
+      const res = await safeFetchWithRetry(
+        'https://[2607:f8b0:4005:805::200e]/test-endpoint',
+        {
+          method: 'POST',
+          body: JSON.stringify({ query: 'vacancies' }),
+          headers: {
+            'X-Custom-Client': 'AutomatedPortalEngine',
+            'Authorization': 'Bearer secret-token-123'
+          },
+          // Attempt to pass custom foreign dispatcher to override internal protection
+          dispatcher: foreignDispatcher
+        } as any,
+        5000,
+        0
+      );
+
+      assert.strictEqual(res.status, 200);
+      assert.ok(interceptedInit, 'fetch must have been called');
+      assert.strictEqual(
+        interceptedInit.dispatcher,
+        scraperTlsDispatcher,
+        'Internal scraperTlsDispatcher MUST be enforced'
+      );
+      assert.notStrictEqual(
+        interceptedInit.dispatcher,
+        foreignDispatcher,
+        'Caller-supplied dispatcher must NEVER replace internal scraperTlsDispatcher'
+      );
+      assert.strictEqual(interceptedInit.method, 'POST');
+      assert.strictEqual(interceptedInit.body, JSON.stringify({ query: 'vacancies' }));
+      assert.strictEqual(interceptedInit.headers['X-Custom-Client'], 'AutomatedPortalEngine');
+      assert.strictEqual(interceptedInit.headers['Authorization'], 'Bearer secret-token-123');
+      assert.ok(interceptedInit.headers['User-Agent'], 'Default User-Agent header must be preserved');
+      assert.strictEqual(interceptedInit.redirect, 'manual');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-A Case 4 [Unit]: Intermediate 429 and redirect response bodies are cancelled, final body is readable, and timers/listeners cleaned up', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalClearTimeout = globalThis.clearTimeout;
+
+    let cancelCalled429 = false;
+    let cancelCalled302 = false;
+    let cancelCalled200 = false;
+    let fetchCalls = 0;
+    let clearTimeoutCount = 0;
+
+    globalThis.clearTimeout = (id: any) => {
+      clearTimeoutCount++;
+      return originalClearTimeout(id);
+    };
+
+    function createTrackedResponse(bodyText: string, init: ResponseInit, type: '429' | '302' | '200') {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(bodyText));
+          controller.close();
+        },
+        cancel() {
+          if (type === '429') cancelCalled429 = true;
+          if (type === '302') cancelCalled302 = true;
+          if (type === '200') cancelCalled200 = true;
+        }
+      });
+      return new Response(stream, init);
+    }
+
+    // Call sequence:
+    // Hop 1: 429 -> will be retried (attempt 0 -> attempt 1)
+    // Hop 2: 302 -> redirects to target URL
+    // Hop 3: 200 -> final response
+    globalThis.fetch = (async () => {
+      fetchCalls++;
+      if (fetchCalls === 1) {
+        return createTrackedResponse('Rate limited, retry shortly', { status: 429, headers: { 'Retry-After': '0' } }, '429');
+      }
+      if (fetchCalls === 2) {
+        return createTrackedResponse('Redirecting to secure target', {
+          status: 302,
+          headers: { Location: 'https://[2001:4860:4860::8888]/final-target' }
+        }, '302');
+      }
+      return createTrackedResponse(JSON.stringify({ success: true, count: 42 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }, '200');
+    }) as any;
+
+    const parentController = new AbortController();
+    const parentSignal = parentController.signal;
+    let activeAbortListeners = 0;
+    const origAddListener = parentSignal.addEventListener.bind(parentSignal);
+    const origRemoveListener = parentSignal.removeEventListener.bind(parentSignal);
+    parentSignal.addEventListener = (type: string, listener: any, opts: any) => {
+      if (type === 'abort') activeAbortListeners++;
+      return origAddListener(type, listener, opts);
+    };
+    parentSignal.removeEventListener = (type: string, listener: any, opts: any) => {
+      if (type === 'abort') activeAbortListeners--;
+      return origRemoveListener(type, listener, opts);
+    };
+
+    try {
+      const finalRes = await safeFetchWithRetry(
+        'https://[2607:f8b0:4005:805::200e]/initial',
+        { signal: parentSignal },
+        5000,
+        1
+      );
+
+      assert.strictEqual(finalRes.status, 200);
+      assert.strictEqual(cancelCalled429, true, 'Intermediate 429 response body MUST be canceled before retry');
+      assert.strictEqual(cancelCalled302, true, 'Intermediate 302 redirect response body MUST be canceled before next hop');
+      assert.strictEqual(cancelCalled200, false, 'Final 200 response body must NOT be canceled by safeFetchWithRetry');
+
+      // Final response body remains fully readable by caller
+      const text = await finalRes.text();
+      assert.strictEqual(JSON.parse(text).count, 42);
+
+      // Verify timer and listener cleanup
+      assert.strictEqual(activeAbortListeners, 0, 'Parent abort signal listener must be removed after completion');
+      assert.ok(clearTimeoutCount >= 2, 'Timeouts must be cleared for each attempt');
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+
+  await runTest('STEP-8.6-A Case 5 [Unit]: Timeout and parent abort listener are cleaned up safely on failure paths without resource leaks', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalClearTimeout = globalThis.clearTimeout;
+
+    let clearedTimeouts = 0;
+    globalThis.clearTimeout = (id: any) => {
+      clearedTimeouts++;
+      return originalClearTimeout(id);
+    };
+
+    globalThis.fetch = (async () => {
+      throw new Error('Simulated network failure on target host');
+    }) as any;
+
+    const parentController = new AbortController();
+    const parentSignal = parentController.signal;
+    let activeAbortListeners = 0;
+    const origAddListener = parentSignal.addEventListener.bind(parentSignal);
+    const origRemoveListener = parentSignal.removeEventListener.bind(parentSignal);
+    parentSignal.addEventListener = (type: string, listener: any, opts: any) => {
+      if (type === 'abort') activeAbortListeners++;
+      return origAddListener(type, listener, opts);
+    };
+    parentSignal.removeEventListener = (type: string, listener: any, opts: any) => {
+      if (type === 'abort') activeAbortListeners--;
+      return origRemoveListener(type, listener, opts);
+    };
+
+    try {
+      await assert.rejects(
+        () =>
+          safeFetchWithRetry(
+            'https://[2607:f8b0:4005:805::200e]/fail-path',
+            { signal: parentSignal },
+            3000,
+            0
+          ),
+        /Remote portal unavailable.*Simulated network failure/
+      );
+
+      assert.strictEqual(activeAbortListeners, 0, 'Parent abort listener must be cleaned up on failure path');
+      assert.ok(clearedTimeouts >= 1, 'Attempt timeout must be cleared on failure path');
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
   });
 
   console.log('------------------------------------------------------------------');

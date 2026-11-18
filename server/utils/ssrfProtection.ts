@@ -7,13 +7,92 @@ import { Agent } from 'undici';
  * Evaluates whether a literal IPv4 or IPv6 string falls into a private,
  * loopback, link-local, carrier-grade NAT, multicast, reserved, or cloud metadata IP range.
  */
+function evaluateIpv4(a: number, b: number, c: number, d: number): { blocked: boolean; reason?: string } {
+  // 127.0.0.0/8 (loopback)
+  if (a === 127) return { blocked: true, reason: 'Loopback IP address (127.0.0.0/8)' };
+  // 0.0.0.0/8 (broadcast / current network)
+  if (a === 0) return { blocked: true, reason: 'Current network IP address (0.0.0.0/8)' };
+  // 10.0.0.0/8 (private)
+  if (a === 10) return { blocked: true, reason: 'Private RFC1918 IP address (10.0.0.0/8)' };
+  // 172.16.0.0/12 (private: 172.16.0.0 - 172.31.255.255)
+  if (a === 172 && b >= 16 && b <= 31) return { blocked: true, reason: 'Private RFC1918 IP address (172.16.0.0/12)' };
+  // 192.168.0.0/16 (private)
+  if (a === 192 && b === 168) return { blocked: true, reason: 'Private RFC1918 IP address (192.168.0.0/16)' };
+  // 169.254.0.0/16 (link-local & AWS/GCP/Azure cloud metadata: 169.254.169.254)
+  if (a === 169 && b === 254) return { blocked: true, reason: 'Link-local / Cloud metadata address (169.254.0.0/16)' };
+  // 100.64.0.0/10 (carrier-grade NAT / shared space)
+  if (a === 100 && b >= 64 && b <= 127) return { blocked: true, reason: 'Shared address space (100.64.0.0/10)' };
+  // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NETs)
+  if ((a === 192 && b === 0 && c === 2) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)) {
+    return { blocked: true, reason: 'Test-net reserved IP address' };
+  }
+  // 198.18.0.0/15 (benchmarking)
+  if (a === 198 && (b === 18 || b === 19)) return { blocked: true, reason: 'Benchmarking reserved IP address' };
+  // 224.0.0.0/4 (multicast) & 240.0.0.0/4 (reserved)
+  if (a >= 224) return { blocked: true, reason: 'Multicast or reserved IP address' };
+
+  return { blocked: false };
+}
+
+function parseIpv6(ip: string): number[] | null {
+  let s = ip.trim().toLowerCase();
+  if (s.startsWith('[') && s.endsWith(']')) {
+    s = s.slice(1, -1).trim();
+  }
+
+  // Check for embedded IPv4 dotted-quad suffix (e.g. ::ffff:192.168.1.1)
+  const lastColon = s.lastIndexOf(':');
+  if (lastColon !== -1) {
+    const tail = s.slice(lastColon + 1);
+    if (tail.includes('.')) {
+      const parts = tail.split('.').map(x => parseInt(x, 10));
+      if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
+        return null;
+      }
+      const hex1 = (((parts[0] << 8) | parts[1]) >>> 0).toString(16);
+      const hex2 = (((parts[2] << 8) | parts[3]) >>> 0).toString(16);
+      s = s.slice(0, lastColon) + ':' + hex1 + ':' + hex2;
+    }
+  }
+
+  // Handle double-colon compression
+  let parts: string[];
+  if (s.includes('::')) {
+    const halves = s.split('::');
+    if (halves.length !== 2) return null; // Only one :: is allowed
+    const left = halves[0] ? halves[0].split(':') : [];
+    const right = halves[1] ? halves[1].split(':') : [];
+    const missing = 8 - (left.length + right.length);
+    if (missing < 1) return null;
+    parts = [...left, ...Array(missing).fill('0'), ...right];
+  } else {
+    parts = s.split(':');
+  }
+
+  if (parts.length !== 8) return null;
+
+  const words: number[] = [];
+  for (const p of parts) {
+    if (!/^[0-9a-f]{1,4}$/i.test(p)) return null;
+    words.push(parseInt(p, 16));
+  }
+  return words;
+}
+
+/**
+ * Evaluates whether a literal IPv4 or IPv6 string falls into a private,
+ * loopback, link-local, carrier-grade NAT, multicast, reserved, or cloud metadata IP range.
+ * Fully supports IPv4-mapped IPv6 (both dotted decimal and hexadecimal formats),
+ * compressed and expanded IPv6, unique-local, link-local, multicast, documentation,
+ * and other special-purpose non-global ranges without blocking legitimate public addresses.
+ */
 export function isPrivateOrBlockedIp(ip: string): { blocked: boolean; reason?: string } {
   if (!ip || typeof ip !== 'string') return { blocked: false };
   let cleanIp = ip.trim().toLowerCase();
 
-  // Strip IPv4-mapped IPv6 prefix if present (e.g. ::ffff:127.0.0.1 -> 127.0.0.1)
-  if (cleanIp.startsWith('::ffff:')) {
-    cleanIp = cleanIp.slice(7);
+  // Strip enclosing brackets if passed in IPv6 URL host format (e.g. [::1] -> ::1)
+  if (cleanIp.startsWith('[') && cleanIp.endsWith(']')) {
+    cleanIp = cleanIp.slice(1, -1).trim();
   }
 
   const ipType = net.isIP(cleanIp);
@@ -24,50 +103,74 @@ export function isPrivateOrBlockedIp(ip: string): { blocked: boolean; reason?: s
     if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
       return { blocked: true, reason: 'Malformed IPv4 address' };
     }
-    const [a, b, c, d] = parts;
-
-    // 127.0.0.0/8 (loopback)
-    if (a === 127) return { blocked: true, reason: 'Loopback IP address (127.0.0.0/8)' };
-    // 0.0.0.0/8 (broadcast / current network)
-    if (a === 0) return { blocked: true, reason: 'Current network IP address (0.0.0.0/8)' };
-    // 10.0.0.0/8 (private)
-    if (a === 10) return { blocked: true, reason: 'Private RFC1918 IP address (10.0.0.0/8)' };
-    // 172.16.0.0/12 (private: 172.16.0.0 - 172.31.255.255)
-    if (a === 172 && b >= 16 && b <= 31) return { blocked: true, reason: 'Private RFC1918 IP address (172.16.0.0/12)' };
-    // 192.168.0.0/16 (private)
-    if (a === 192 && b === 168) return { blocked: true, reason: 'Private RFC1918 IP address (192.168.0.0/16)' };
-    // 169.254.0.0/16 (link-local & AWS/GCP/Azure cloud metadata: 169.254.169.254)
-    if (a === 169 && b === 254) return { blocked: true, reason: 'Link-local / Cloud metadata address (169.254.0.0/16)' };
-    // 100.64.0.0/10 (carrier-grade NAT / shared space)
-    if (a === 100 && b >= 64 && b <= 127) return { blocked: true, reason: 'Shared address space (100.64.0.0/10)' };
-    // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NETs)
-    if ((a === 192 && b === 0 && c === 2) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)) {
-      return { blocked: true, reason: 'Test-net reserved IP address' };
-    }
-    // 198.18.0.0/15 (benchmarking)
-    if (a === 198 && (b === 18 || b === 19)) return { blocked: true, reason: 'Benchmarking reserved IP address' };
-    // 224.0.0.0/4 (multicast) & 240.0.0.0/4 (reserved)
-    if (a >= 224) return { blocked: true, reason: 'Multicast or reserved IP address' };
+    return evaluateIpv4(parts[0], parts[1], parts[2], parts[3]);
   }
 
   if (ipType === 6) {
-    if (cleanIp === '::1' || cleanIp === '0:0:0:0:0:0:0:1') {
-      return { blocked: true, reason: 'IPv6 loopback address' };
+    const words = parseIpv6(cleanIp);
+    if (!words) {
+      return { blocked: true, reason: 'Malformed IPv6 address' };
     }
-    if (cleanIp === '::' || cleanIp === '0:0:0:0:0:0:0:0') {
-      return { blocked: true, reason: 'IPv6 unspecified address' };
+
+    // 1. IPv6 loopback address ::1/128 (compressed or expanded)
+    if (words.every((w, i) => (i === 7 ? w === 1 : w === 0))) {
+      return { blocked: true, reason: 'IPv6 loopback address (::1)' };
     }
-    if (cleanIp.startsWith('fc') || cleanIp.startsWith('fd')) {
+
+    // 2. IPv6 unspecified address ::/128 (compressed or expanded)
+    if (words.every(w => w === 0)) {
+      return { blocked: true, reason: 'IPv6 unspecified address (::)' };
+    }
+
+    // 3. IPv4-mapped IPv6 (::ffff:0:0/96) and IPv4-compatible IPv6 (::/96)
+    // Supports both dotted decimal (::ffff:127.0.0.1) and hexadecimal (::ffff:7f00:1) representations
+    const isMapped = words.slice(0, 5).every(w => w === 0) && words[5] === 0xffff;
+    const isCompat = words.slice(0, 6).every(w => w === 0);
+    if (isMapped || isCompat) {
+      const a = (words[6] >> 8) & 0xff;
+      const b = words[6] & 0xff;
+      const c = (words[7] >> 8) & 0xff;
+      const d = words[7] & 0xff;
+      const v4Check = evaluateIpv4(a, b, c, d);
+      if (v4Check.blocked) {
+        return { blocked: true, reason: `IPv4-mapped ${v4Check.reason}` };
+      }
+      return { blocked: false };
+    }
+
+    // 4. IPv6 unique-local address (fc00::/7 covering fc00::/8 and fd00::/8)
+    if ((words[0] & 0xfe00) === 0xfc00) {
       return { blocked: true, reason: 'IPv6 unique-local address (fc00::/7)' };
     }
-    if (cleanIp.startsWith('fe80:') || cleanIp.startsWith('fe8') || cleanIp.startsWith('fe9') || cleanIp.startsWith('fea') || cleanIp.startsWith('feb')) {
+
+    // 5. IPv6 link-local unicast address (fe80::/10 covering fe80:: - febf:ffff:...)
+    if ((words[0] & 0xffc0) === 0xfe80) {
       return { blocked: true, reason: 'IPv6 link-local address (fe80::/10)' };
     }
-    if (cleanIp.startsWith('ff')) {
-      return { blocked: true, reason: 'IPv6 multicast address' };
+
+    // 6. IPv6 multicast address (ff00::/8)
+    if ((words[0] & 0xff00) === 0xff00) {
+      return { blocked: true, reason: 'IPv6 multicast address (ff00::/8)' };
     }
-    if (cleanIp.startsWith('2001:db8:')) {
-      return { blocked: true, reason: 'IPv6 documentation address' };
+
+    // 7. IPv6 documentation address (2001:db8::/32)
+    if (words[0] === 0x2001 && words[1] === 0x0db8) {
+      return { blocked: true, reason: 'IPv6 documentation address (2001:db8::/32)' };
+    }
+
+    // 8. IPv6 discard-only prefix (100::/64)
+    if (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && words[3] === 0) {
+      return { blocked: true, reason: 'IPv6 discard-only address (100::/64)' };
+    }
+
+    // 9. IPv6 benchmarking address (2001:2::/48)
+    if (words[0] === 0x2001 && words[1] === 0x0002) {
+      return { blocked: true, reason: 'IPv6 benchmarking address (2001:2::/48)' };
+    }
+
+    // 10. IPv6 deprecated site-local address (fec0::/10)
+    if ((words[0] & 0xffc0) === 0xfec0) {
+      return { blocked: true, reason: 'IPv6 site-local address (fec0::/10)' };
     }
   }
 
@@ -104,7 +207,7 @@ function safeDnsLookup(
 }
 
 // Resilient dispatcher for public scraper requests with standard TLS verification and DNS rebinding protection
-const scraperTlsDispatcher = new Agent({
+export const scraperTlsDispatcher = new Agent({
   headersTimeout: 15000,
   bodyTimeout: 15000,
   connect: {
@@ -143,25 +246,28 @@ export function validateSafeScrapeUrl(urlStr: string): SafeUrlResult {
   }
 
   const hostname = parsed.hostname.toLowerCase();
+  const rawHost = hostname.startsWith('[') && hostname.endsWith(']')
+    ? hostname.slice(1, -1).trim()
+    : hostname;
 
   // Block localhost and common local/internal hostnames
   if (
-    hostname === 'localhost' ||
-    hostname.endsWith('.localhost') ||
-    hostname.endsWith('.local') ||
-    hostname.endsWith('.internal') ||
-    hostname.endsWith('.lan') ||
-    hostname.endsWith('.corp') ||
-    hostname === 'metadata.google.internal' ||
-    hostname === 'instance-data'
+    rawHost === 'localhost' ||
+    rawHost.endsWith('.localhost') ||
+    rawHost.endsWith('.local') ||
+    rawHost.endsWith('.internal') ||
+    rawHost.endsWith('.lan') ||
+    rawHost.endsWith('.corp') ||
+    rawHost === 'metadata.google.internal' ||
+    rawHost === 'instance-data'
   ) {
     return { safe: false, error: `Access to internal host "${hostname}" is blocked for security.` };
   }
 
-  // Check if hostname is a literal IP address
-  const isIp = net.isIP(hostname);
+  // Check if hostname is a literal IP address (IPv4 or IPv6)
+  const isIp = net.isIP(rawHost);
   if (isIp) {
-    const ipCheck = isPrivateOrBlockedIp(hostname);
+    const ipCheck = isPrivateOrBlockedIp(rawHost);
     if (ipCheck.blocked) {
       return { safe: false, error: ipCheck.reason || 'IP address is blocked.' };
     }
@@ -175,10 +281,13 @@ export function validateSafeScrapeUrl(urlStr: string): SafeUrlResult {
  */
 export async function resolveAndValidateDns(parsedUrl: URL): Promise<{ safe: boolean; error?: string }> {
   const hostname = parsedUrl.hostname.toLowerCase();
+  const rawHost = hostname.startsWith('[') && hostname.endsWith(']')
+    ? hostname.slice(1, -1).trim()
+    : hostname;
 
   // If hostname is already a literal IP address, it was already validated by validateSafeScrapeUrl
-  if (net.isIP(hostname)) {
-    const ipCheck = isPrivateOrBlockedIp(hostname);
+  if (net.isIP(rawHost)) {
+    const ipCheck = isPrivateOrBlockedIp(rawHost);
     if (ipCheck.blocked) {
       return { safe: false, error: `Literal IP address "${hostname}" is blocked (${ipCheck.reason}).` };
     }
@@ -210,9 +319,22 @@ export async function resolveAndValidateDns(parsedUrl: URL): Promise<{ safe: boo
   }
 }
 
+async function cancelResponseBody(res: any): Promise<void> {
+  if (!res) return;
+  try {
+    if (res.body && !res.bodyUsed && typeof res.body.cancel === 'function') {
+      await res.body.cancel();
+    }
+  } catch {
+    // Ignore stream cancellation errors on closed/consumed streams
+  }
+}
+
 /**
  * Fetches a URL with SSRF protection, timeout, automatic retry with exponential backoff,
  * safe DNS resolution checks, and safe manual redirect validation to prevent redirect-based SSRF bypass.
+ * Enforces use of the internal DNS-validated scraperTlsDispatcher (caller dispatcher cannot override).
+ * Performs safe resource cleanup of intermediate 429 and redirect response bodies and attempt timers.
  */
 export async function safeFetchWithRetry(
   url: string,
@@ -242,11 +364,22 @@ export async function safeFetchWithRetry(
     }
 
     const controller = new AbortController();
+    let timerCleared = false;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     const onParentAbort = () => controller.abort();
     if (options.signal) {
       options.signal.addEventListener('abort', onParentAbort, { once: true });
     }
+
+    const cleanupAttemptTimers = () => {
+      if (!timerCleared) {
+        timerCleared = true;
+        clearTimeout(timeoutId);
+        if (options.signal) {
+          options.signal.removeEventListener('abort', onParentAbort);
+        }
+      }
+    };
 
     try {
       let currentUrl = url;
@@ -256,23 +389,29 @@ export async function safeFetchWithRetry(
       const visitedUrls = new Set<string>([currentUrl]);
 
       const mergedHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,application/pdf;q=0.8,*/*;q=0.7',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept':
+          'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,application/pdf;q=0.8,*/*;q=0.7',
         'Accept-Language': 'en-US,en;q=0.9,ur;q=0.8',
         ...(options.headers || {})
       };
 
+      // FIX 2: Caller-supplied options.dispatcher must NEVER replace scraperTlsDispatcher.
+      // Every protected request must use the internal scraperTlsDispatcher.
+      const { dispatcher: _ignoredCallerDispatcher, ...safeOptions } = (options as any) || {};
+
       while (true) {
         // Enforce manual redirect handling to intercept and validate every redirect target
         const res = await fetch(currentUrl, {
-          ...options,
+          ...safeOptions,
           method: currentMethod,
           body: currentBody,
           redirect: 'manual',
           signal: controller.signal,
           headers: mergedHeaders,
           // @ts-ignore - dispatcher is supported by undici in Node.js
-          dispatcher: (options as any)?.dispatcher || scraperTlsDispatcher
+          dispatcher: scraperTlsDispatcher
         });
 
         // Handle HTTP 429 Rate Limiting with bounded backoff
@@ -286,14 +425,16 @@ export async function safeFetchWithRetry(
             }
           }
           if (attempt < maxRetries) {
+            // FIX 3: Cancel previous response body before retrying
+            await cancelResponseBody(res);
+            // FIX 3: Clear previous attempt timeout & remove parent abort listener before next attempt
+            cleanupAttemptTimers();
             attempt++;
             await new Promise(r => setTimeout(r, delayMs));
-            continue;
+            break; // Start fresh attempt with clean timers/controller from initial URL
           }
-          clearTimeout(timeoutId);
-          if (options.signal) {
-            options.signal.removeEventListener('abort', onParentAbort);
-          }
+          // Final 429 response when retries exhausted: return response to caller WITHOUT canceling body
+          cleanupAttemptTimers();
           return res;
         }
 
@@ -301,16 +442,14 @@ export async function safeFetchWithRetry(
         if (REDIRECT_STATUSES.has(res.status)) {
           const location = res.headers.get('location');
           if (!location) {
-            // No location header provided with redirect status, return response as is
-            clearTimeout(timeoutId);
-            if (options.signal) {
-              options.signal.removeEventListener('abort', onParentAbort);
-            }
+            // No location header provided with redirect status, return response as is to caller (final response)
+            cleanupAttemptTimers();
             return res;
           }
 
           redirectHops++;
           if (redirectHops > MAX_REDIRECT_HOPS) {
+            await cancelResponseBody(res);
             throw new Error(`SSRF Blocked: Maximum redirect hops (${MAX_REDIRECT_HOPS}) exceeded`);
           }
 
@@ -318,11 +457,13 @@ export async function safeFetchWithRetry(
           try {
             nextUrl = new URL(location, currentUrl).toString();
           } catch {
+            await cancelResponseBody(res);
             throw new Error(`SSRF Blocked: Invalid redirect Location "${location}"`);
           }
 
           // Check for redirect loop
           if (visitedUrls.has(nextUrl)) {
+            await cancelResponseBody(res);
             throw new Error(`SSRF Blocked: Redirect loop detected (${nextUrl})`);
           }
           visitedUrls.add(nextUrl);
@@ -330,19 +471,27 @@ export async function safeFetchWithRetry(
           // Validate redirect target syntax, protocol, and hostname against SSRF
           const redirectCheck = validateSafeScrapeUrl(nextUrl);
           if (!redirectCheck.safe) {
+            await cancelResponseBody(res);
             throw new Error(`SSRF Blocked on redirect: ${redirectCheck.error}`);
           }
 
           // Resolve and validate redirect target DNS
           const redirectDnsCheck = await resolveAndValidateDns(redirectCheck.parsedUrl!);
           if (!redirectDnsCheck.safe) {
+            await cancelResponseBody(res);
             throw new Error(`SSRF Blocked on redirect: ${redirectDnsCheck.error}`);
           }
+
+          // FIX 3: Cancel intermediate redirect response body before issuing next request
+          await cancelResponseBody(res);
 
           // Adjust method/body for standard HTTP redirect specifications:
           // 303: always convert to GET with no body
           // 301/302: if method was not GET/HEAD, convert to GET with no body
-          if (res.status === 303 || ((res.status === 301 || res.status === 302) && currentMethod !== 'GET' && currentMethod !== 'HEAD')) {
+          if (
+            res.status === 303 ||
+            ((res.status === 301 || res.status === 302) && currentMethod !== 'GET' && currentMethod !== 'HEAD')
+          ) {
             currentMethod = 'GET';
             currentBody = undefined;
           }
@@ -351,18 +500,13 @@ export async function safeFetchWithRetry(
           continue;
         }
 
-        // Not a redirect, return response
-        clearTimeout(timeoutId);
-        if (options.signal) {
-          options.signal.removeEventListener('abort', onParentAbort);
-        }
+        // Non-redirect, non-retryable response (e.g. 200, 404, 500):
+        // Clean up attempt timers, do NOT cancel response body, return to caller
+        cleanupAttemptTimers();
         return res;
       }
     } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (options.signal) {
-        options.signal.removeEventListener('abort', onParentAbort);
-      }
+      cleanupAttemptTimers();
       lastError = err;
 
       // If error is an SSRF Blocked error, do NOT retry - throw immediately
@@ -386,9 +530,11 @@ export async function safeFetchWithRetry(
   const isAbort = lastError?.name === 'AbortError' || lastError?.message?.includes('aborted');
   const errorReason = isAbort
     ? `Connection timed out after ${timeoutMs}ms`
-    : (lastError?.code === 'ENOTFOUND' || lastError?.code === 'EAI_AGAIN' || String(lastError?.message || '').toLowerCase().includes('fetch failed')
-      ? 'Remote server offline or DNS unreachable'
-      : (lastError?.message || 'Host unreachable'));
+    : lastError?.code === 'ENOTFOUND' ||
+      lastError?.code === 'EAI_AGAIN' ||
+      String(lastError?.message || '').toLowerCase().includes('fetch failed')
+    ? 'Remote server offline or DNS unreachable'
+    : lastError?.message || 'Host unreachable';
   throw new Error(`Remote portal unavailable: ${url} (${errorReason})`);
 }
 

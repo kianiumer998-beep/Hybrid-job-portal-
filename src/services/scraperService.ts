@@ -162,21 +162,34 @@ export function isSafeMediaOrigin(candidateUrl: string, baseUrl: string): boolea
       return true;
     }
 
-    // 2. Same apex domain (e.g., cdn.fpsc.gov.pk on fpsc.gov.pk)
-    const getApexDomain = (hostname: string): string => {
-      const parts = hostname.toLowerCase().split('.');
+    const candidateHost = candidateObj.hostname.toLowerCase();
+    const baseHost = baseObj.hostname.toLowerCase();
+
+    // 2. Official CDN Allowlist / Subdomain matching for verified official domains
+    const getRegistrableDomain = (hostname: string): string => {
+      const parts = hostname.split('.');
       if (parts.length <= 2) return hostname.toLowerCase();
-      const secondToLast = parts[parts.length - 2];
-      if (['gov', 'gop', 'gob', 'gos', 'gkp', 'edu', 'org', 'com', 'net', 'mil'].includes(secondToLast) && parts.length >= 3) {
-        return parts.slice(-3).join('.');
+      const lastPart = parts[parts.length - 1];
+      const secondLast = parts[parts.length - 2];
+      if (['pk', 'uk', 'au', 'sg'].includes(lastPart) && ['gov', 'com', 'edu', 'co', 'net', 'org'].includes(secondLast)) {
+        if (parts.length >= 3) {
+          return parts.slice(-3).join('.');
+        }
       }
       return parts.slice(-2).join('.');
     };
 
-    const candidateApex = getApexDomain(candidateObj.hostname);
-    const baseApex = getApexDomain(baseObj.hostname);
+    const candidateReg = getRegistrableDomain(candidateHost);
+    const baseReg = getRegistrableDomain(baseHost);
 
-    return candidateApex.length > 0 && candidateApex === baseApex;
+    if (candidateReg && baseReg && candidateReg === baseReg) {
+      const publicSuffixes = ['co.uk', 'com.pk', 'github.io', 'vercel.app', 'netlify.app', 'herokuapp.com'];
+      if (!publicSuffixes.includes(candidateReg)) {
+        return true;
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }

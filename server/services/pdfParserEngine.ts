@@ -380,19 +380,20 @@ STRICT FACTUAL INTEGRITY MANDATE:
           ? (rj.bpsScale.toUpperCase().startsWith('BPS') ? rj.bpsScale.toUpperCase() : `BPS-${rj.bpsScale}`)
           : undefined;
 
-        const hasGovtSignal = Boolean(
+        const jobTextContext = `${title} ${rj.description || ''} ${Array.isArray(rj.requirements) ? rj.requirements.join(' ') : (rj.requirements || '')}`.toLowerCase();
+        const hasJobSpecificGovtSignal = Boolean(
           scale ||
-          /bps[- ]?\d+/i.test(transcribedText) ||
-          /(?:government|ministry|commission|fpsc|ppsc|spsc|bpsc|kppsc|wapda|nadra|federa[l]?|provincia[l]?|public service)/i.test(`${org} ${title} ${rj.description || ''}`)
+          /bps[- ]?\d+/i.test(jobTextContext) ||
+          /(?:government|ministry|commission|fpsc|ppsc|spsc|bpsc|kppsc|wapda|nadra|public service|gazette|civil service)/i.test(jobTextContext)
         );
 
-        const isGovtJob = hasGovtSignal ? true : undefined;
+        const isGovtJob = hasJobSpecificGovtSignal ? true : undefined;
 
-        const isFederal = /(?:federal|fpsc|islamabad|government of pakistan|national)/i.test(`${org} ${title} ${transcribedText.substring(0, 500)}`);
-        const isPunjab = (rj.province || org).toLowerCase().includes('punjab') || org.toLowerCase().includes('ppsc') || /punjab|lahore/i.test(transcribedText.substring(0, 500));
-        const isSindh = (rj.province || org).toLowerCase().includes('sindh') || org.toLowerCase().includes('spsc') || /sindh|karachi/i.test(transcribedText.substring(0, 500));
-        const isKpk = (rj.province || org).toLowerCase().includes('kpk') || (rj.province || org).toLowerCase().includes('kp') || /kpk|khyber|peshawar/i.test(transcribedText.substring(0, 500));
-        const isBalochistan = (rj.province || org).toLowerCase().includes('balochistan') || /balochistan|quetta/i.test(transcribedText.substring(0, 500));
+        const isFederal = /(?:federal|fpsc|pakistan public service commission|cabinet secretariat)/i.test(`${org} ${jobTextContext}`);
+        const isPunjab = (rj.province || '').toLowerCase().includes('punjab') || org.toLowerCase().includes('ppsc') || /punjab|lahore/i.test(jobTextContext);
+        const isSindh = (rj.province || '').toLowerCase().includes('sindh') || org.toLowerCase().includes('spsc') || /sindh|karachi/i.test(jobTextContext);
+        const isKpk = (rj.province || '').toLowerCase().includes('kpk') || (rj.province || '').toLowerCase().includes('kp') || /kpk|khyber|peshawar/i.test(jobTextContext);
+        const isBalochistan = (rj.province || '').toLowerCase().includes('balochistan') || org.toLowerCase().includes('bpsc') || /balochistan|quetta/i.test(jobTextContext);
 
         const isProvincial = isPunjab || isSindh || isKpk || isBalochistan || (org || '').toLowerCase().includes('provincial');
 
@@ -428,7 +429,7 @@ STRICT FACTUAL INTEGRITY MANDATE:
           govtDepartment: isGovtJob ? (rj.company || org) : undefined,
           govtScale: scale,
           govtCategory,
-          jobCategory: isGovtJob ? 'Government Sector' : 'Private Corporate',
+          jobCategory: isGovtJob ? 'Government Sector' : undefined,
           isPdfScraped: sourceUrl.toLowerCase().endsWith('.pdf') || (fileName && fileName.endsWith('.pdf')),
           pdfFileName: fileName || (sourceUrl.split('/').pop()?.split('?')[0] || 'scanned_document.pdf'),
           pdfSourceUrl: sourceUrl.toLowerCase().endsWith('.pdf') ? sourceUrl : undefined,
@@ -489,7 +490,7 @@ export function sanitizeUrlForLog(rawUrl: string): string {
       }
     }
     for (const key of keysToRedact) {
-      parsed.searchParams.set(key, 'REDACTED');
+      parsed.searchParams.set(key, '[REDACTED]');
     }
     parsed.username = '';
     parsed.password = '';
@@ -505,10 +506,10 @@ export function sanitizeUrlForLog(rawUrl: string): string {
 export function sanitizeSecretString(input: string): string {
   if (!input || typeof input !== 'string') return '';
   return input
-    .replace(/([?&](?:key|api_key|apikey|token|auth|secret|signature|sig)=)[^&\s]+/gi, '$1REDACTED')
+    .replace(/([?&](?:key|api_key|apikey|token|auth|secret|signature|sig)=)[^&\s]+/gi, '$1[REDACTED]')
     .replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]')
     .replace(/Bearer\s+[a-zA-Z0-9_\-\.]+/gi, 'Bearer [REDACTED_TOKEN]')
-    .replace(/(?:password|passwd|secret)[:=]\s*([^\s,;]+)/gi, 'secret=REDACTED');
+    .replace(/(?:password|passwd|secret)[:=]\s*([^\s,;]+)/gi, 'secret=[REDACTED]');
 }
 
 export type SupportedMediaFormat = 'pdf' | 'jpeg' | 'png' | 'webp' | 'bmp' | 'html' | 'unknown';

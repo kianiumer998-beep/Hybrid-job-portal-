@@ -415,7 +415,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     skills: Array.isArray(currentUser.skills) ? currentUser.skills.join(', ') : '', cvUrl: (currentUser as any).cvUrl || '', resumeUrl: (currentUser as any).resumeUrl || '',
     preferences: JSON.stringify((currentUser as any).preferences ?? {}, null, 2), experience: JSON.stringify((currentUser as any).experience ?? [], null, 2),
     education: JSON.stringify((currentUser as any).education ?? [], null, 2), socialLinks: JSON.stringify((currentUser as any).socialLinks ?? {}, null, 2),
-    notificationsEnabled: (currentUser as any).notificationsEnabled ?? true, whatsappAlertsEnabled: (currentUser as any).whatsappAlertsEnabled ?? false
+    notificationsEnabled: (currentUser as any).notificationsEnabled ?? 'Not recorded', whatsappAlertsEnabled: (currentUser as any).whatsappAlertsEnabled ?? 'Not recorded'
   });
 
   useEffect(() => {
@@ -980,9 +980,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       skills: String(profileExtendedFields.skills || '').split(',').map((skill) => skill.trim()).filter(Boolean),
       cvUrl: String(profileExtendedFields.cvUrl || '').trim(),
       resumeUrl: String(profileExtendedFields.resumeUrl || '').trim(),
-      ...structuredProfile,
-      notificationsEnabled: Boolean(profileExtendedFields.notificationsEnabled),
-      whatsappAlertsEnabled: Boolean(profileExtendedFields.whatsappAlertsEnabled)
+      ...structuredProfile
     };
 
     if (onUpdateProfile) {
@@ -2347,10 +2345,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       <textarea rows={3} value={String(profileExtendedFields[field] || '')} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, [field]: e.target.value }))} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-mono" />
                     </label>
                   ))}
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={Boolean(profileExtendedFields.notificationsEnabled)} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, notificationsEnabled: e.target.checked }))} /> Email / in-app notifications enabled</label>
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={Boolean(profileExtendedFields.whatsappAlertsEnabled)} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, whatsappAlertsEnabled: e.target.checked }))} /> WhatsApp alerts enabled</label>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300">
+                    <div className="flex items-center justify-between gap-3"><span>Email / in-app notification preference</span><strong>{typeof profileExtendedFields.notificationsEnabled === 'boolean' ? (profileExtendedFields.notificationsEnabled ? 'Enabled' : 'Disabled') : 'Not recorded'}</strong></div>
+                    <div className="flex items-center justify-between gap-3 mt-2"><span>WhatsApp alert preference</span><strong>{typeof profileExtendedFields.whatsappAlertsEnabled === 'boolean' ? (profileExtendedFields.whatsappAlertsEnabled ? 'Enabled' : 'Disabled') : 'Not recorded'}</strong></div>
+                  </div>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-3">Structured fields are validated before saving. Only fields allowed by the existing self-service API are submitted; account permissions, wallet, membership, and verification fields remain protected.</p>
+                <p className="text-[10px] text-amber-300/80 mt-3">These legacy preference values are displayed read-only. The current notification delivery routes do not enforce them, so changing them here would incorrectly suggest that email or WhatsApp delivery is controlled by these switches. Other profile fields are saved through the authenticated API; account permissions, wallet, membership, and verification fields remain protected.</p>
               </details>
 
               <div className="pt-2">

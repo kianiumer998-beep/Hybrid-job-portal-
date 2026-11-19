@@ -2485,6 +2485,7 @@ export default function App() {
       'education',
       'cvUrl',
       'resumeUrl',
+      'cvData',
       'socialLinks',
       'notificationsEnabled',
       'whatsappAlertsEnabled'
@@ -4483,6 +4484,8 @@ export default function App() {
             {activeTab === 'cv' && (
               <CvBuilder
                 isSubscribed={isSubscribed}
+                initialCvData={currentUser?.cvData}
+                onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />
             )}

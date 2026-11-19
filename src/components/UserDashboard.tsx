@@ -1515,7 +1515,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center space-x-1.5 sm:space-x-2">
+        <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
           <button
             type="button"
             onClick={() => {
@@ -2043,7 +2043,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {userTransactions.map((tx) => (
+                    {userTransactions.length === 0 ? (
+                      <tr><td colSpan={6} className="py-8 px-4 text-center text-slate-400">No payment records yet.</td></tr>
+                    ) : userTransactions.map((tx) => (
                       <tr key={tx.id} className="hover:bg-slate-800/50 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-semibold text-white">{tx.dateTime}</td>
                         <td className="py-3.5 px-4 font-bold text-emerald-400">{tx.type}</td>

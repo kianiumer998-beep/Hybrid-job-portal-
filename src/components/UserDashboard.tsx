@@ -378,6 +378,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [profileCompany, setProfileCompany] = useState(currentUser.companyName || '');
   const [profileAddress, setProfileAddress] = useState(currentUser.address || '');
   const [profileBio, setProfileBio] = useState(currentUser.bio || '');
+  const [profileExtendedFields, setProfileExtendedFields] = useState<Record<string, string | boolean>>({
+    avatarUrl: (currentUser as any).avatarUrl || '', location: (currentUser as any).location || '', city: (currentUser as any).city || '', country: (currentUser as any).country || 'Pakistan',
+    headline: (currentUser as any).headline || '', title: (currentUser as any).title || '', website: (currentUser as any).website || '',
+    skills: Array.isArray(currentUser.skills) ? currentUser.skills.join(', ') : '', cvUrl: (currentUser as any).cvUrl || '', resumeUrl: (currentUser as any).resumeUrl || '',
+    preferences: JSON.stringify((currentUser as any).preferences ?? {}, null, 2), experience: JSON.stringify((currentUser as any).experience ?? [], null, 2),
+    education: JSON.stringify((currentUser as any).education ?? [], null, 2), socialLinks: JSON.stringify((currentUser as any).socialLinks ?? {}, null, 2),
+    notificationsEnabled: (currentUser as any).notificationsEnabled ?? true, whatsappAlertsEnabled: (currentUser as any).whatsappAlertsEnabled ?? false
+  });
 
   useEffect(() => {
     setProfileName(currentUser.name || '');
@@ -385,6 +393,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     setProfileCompany(currentUser.companyName || '');
     setProfileAddress(currentUser.address || '');
     setProfileBio(currentUser.bio || '');
+    setProfileExtendedFields({
+      avatarUrl: (currentUser as any).avatarUrl || '', location: (currentUser as any).location || '', city: (currentUser as any).city || '', country: (currentUser as any).country || 'Pakistan',
+      headline: (currentUser as any).headline || '', title: (currentUser as any).title || '', website: (currentUser as any).website || '',
+      skills: Array.isArray(currentUser.skills) ? currentUser.skills.join(', ') : '', cvUrl: (currentUser as any).cvUrl || '', resumeUrl: (currentUser as any).resumeUrl || '',
+      preferences: JSON.stringify((currentUser as any).preferences ?? {}, null, 2), experience: JSON.stringify((currentUser as any).experience ?? [], null, 2),
+      education: JSON.stringify((currentUser as any).education ?? [], null, 2), socialLinks: JSON.stringify((currentUser as any).socialLinks ?? {}, null, 2),
+      notificationsEnabled: (currentUser as any).notificationsEnabled ?? true, whatsappAlertsEnabled: (currentUser as any).whatsappAlertsEnabled ?? false
+    });
   }, [
     currentUser.id,
     currentUser.name,
@@ -882,12 +898,41 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       return;
     }
 
+    let structuredProfile: Record<string, any>;
+    try {
+      structuredProfile = {
+        preferences: JSON.parse(String(profileExtendedFields.preferences || '{}')),
+        experience: JSON.parse(String(profileExtendedFields.experience || '[]')),
+        education: JSON.parse(String(profileExtendedFields.education || '[]')),
+        socialLinks: JSON.parse(String(profileExtendedFields.socialLinks || '{}'))
+      };
+      if (!Array.isArray(structuredProfile.experience) || !Array.isArray(structuredProfile.education) || !structuredProfile.preferences || typeof structuredProfile.preferences !== 'object' || Array.isArray(structuredProfile.preferences) || !structuredProfile.socialLinks || typeof structuredProfile.socialLinks !== 'object' || Array.isArray(structuredProfile.socialLinks)) {
+        throw new Error('Preferences and social links must be JSON objects; experience and education must be JSON arrays.');
+      }
+    } catch (error: any) {
+      alert(error?.message?.includes('JSON') ? 'Please correct the JSON in Preferences, Experience, Education, and Social Links.' : (error?.message || 'Invalid structured profile data.'));
+      return;
+    }
+
     const allowedUpdates: Partial<UserAccount> = {
       name: profileName.trim(),
       phone: profilePhone.trim(),
       companyName: profileCompany.trim(),
       address: profileAddress.trim(),
-      bio: profileBio.trim()
+      bio: profileBio.trim(),
+      avatarUrl: String(profileExtendedFields.avatarUrl || '').trim(),
+      location: String(profileExtendedFields.location || '').trim(),
+      city: String(profileExtendedFields.city || '').trim(),
+      country: String(profileExtendedFields.country || '').trim(),
+      headline: String(profileExtendedFields.headline || '').trim(),
+      title: String(profileExtendedFields.title || '').trim(),
+      website: String(profileExtendedFields.website || '').trim(),
+      skills: String(profileExtendedFields.skills || '').split(',').map((skill) => skill.trim()).filter(Boolean),
+      cvUrl: String(profileExtendedFields.cvUrl || '').trim(),
+      resumeUrl: String(profileExtendedFields.resumeUrl || '').trim(),
+      ...structuredProfile,
+      notificationsEnabled: Boolean(profileExtendedFields.notificationsEnabled),
+      whatsappAlertsEnabled: Boolean(profileExtendedFields.whatsappAlertsEnabled)
     };
 
     if (onUpdateProfile) {
@@ -2205,6 +2250,30 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs leading-relaxed"
                 />
               </div>
+
+              <details className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                <summary className="cursor-pointer text-xs font-black text-emerald-300">Additional Profile & Career Details</summary>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                  {(['headline', 'title', 'location', 'city', 'country', 'website', 'avatarUrl', 'cvUrl', 'resumeUrl'] as const).map((field) => (
+                    <label key={field} className="block text-xs font-bold text-slate-300">
+                      {({ headline: 'Professional Headline', title: 'Professional Title', location: 'Location', city: 'City', country: 'Country', website: 'Website', avatarUrl: 'Profile Image URL', cvUrl: 'CV URL', resumeUrl: 'Resume URL' } as Record<string, string>)[field]}
+                      <input value={String(profileExtendedFields[field] || '')} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, [field]: e.target.value }))} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-normal" />
+                    </label>
+                  ))}
+                  <label className="block text-xs font-bold text-slate-300 sm:col-span-2">Skills (comma-separated)
+                    <input value={String(profileExtendedFields.skills || '')} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, skills: e.target.value }))} placeholder="e.g. React, Communication, Project Management" className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-normal" />
+                  </label>
+                  {(['preferences', 'experience', 'education', 'socialLinks'] as const).map((field) => (
+                    <label key={field} className="block text-xs font-bold text-slate-300 sm:col-span-2">
+                      {field === 'socialLinks' ? 'Social Links (JSON object)' : field[0].toUpperCase() + field.slice(1) + (field === 'experience' || field === 'education' ? ' (JSON array)' : ' (JSON object)')}
+                      <textarea rows={3} value={String(profileExtendedFields[field] || '')} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, [field]: e.target.value }))} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-mono" />
+                    </label>
+                  ))}
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={Boolean(profileExtendedFields.notificationsEnabled)} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, notificationsEnabled: e.target.checked }))} /> Email / in-app notifications enabled</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={Boolean(profileExtendedFields.whatsappAlertsEnabled)} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, whatsappAlertsEnabled: e.target.checked }))} /> WhatsApp alerts enabled</label>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-3">Structured fields are validated before saving. Only fields allowed by the existing self-service API are submitted; account permissions, wallet, membership, and verification fields remain protected.</p>
+              </details>
 
               <div className="pt-2">
                 <button

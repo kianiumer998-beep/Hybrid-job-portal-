@@ -4053,6 +4053,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               onDuplicateAd(ad);
             }
           }}
+          onNavigateGlobalTab={onNavigateGlobalTab}
         />
       )}
 

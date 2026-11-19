@@ -194,12 +194,22 @@ import {
 import { executeAuthoritativeJobUpdate } from '../../src/App';
 import { DEFAULT_LANDING_PAGE_CONFIG } from '../../src/types/landing';
 import {
+  ConsolidatedPdfGazette,
   DEFAULT_JOB_POSTING_PRICING_CONFIG,
   Job,
   JobPostingFeeLog,
   PaymentTransaction,
+  ScrapedJobAuditEntry,
+  ScraperBatchRun,
   Subscriber
 } from '../../src/types/job';
+import {
+  executeAutoScrapeRunCoordinator,
+  executeScrapeAllPortalsCoordinator,
+  executeManualIngestCoordinator,
+  executeParseUrlExtractionCoordinator,
+  executeOneClickParseUrlCoordinator
+} from '../../src/components/PdfConsolidatedScraperModal';
 import { Advertisement, DEFAULT_AD_PRICING_CONFIG } from '../../src/types/ad';
 import { DEFAULT_ADMIN_RECEIVING_PAYMENT_CONFIG } from '../../src/types/adminPayment';
 import { DEFAULT_WHATSAPP_CONFIG } from '../../src/components/WhatsAppStickyButton';
@@ -11199,6 +11209,337 @@ async function runSuite() {
     assert.ok(schedRecordedRun, 'Scheduler tick with uncaught execution error must record run history');
     assert.strictEqual(schedRecordedRun.status, 'Partial');
     assert.strictEqual(schedRecordedRun.failedSources, 1);
+  });
+
+  // --- STEP-8.4-F: PDF SCRAPER UI DUPLICATE PERSISTENCE PREVENTION TESTS ---
+  await runTest('STEP-8.4-F-1 [Auto-Scrape /scraper/run No Double Import]: handleTriggerAutoScrapeRun coordinator refreshes read-only without calling onBatchImportJobs, keeping counters, portal timestamps, and audit logs working', async () => {
+    const sampleTargets: ConsolidatedPdfGazette[] = [
+      {
+        id: 'fpsc-portal-1',
+        title: 'FPSC Consolidated Advt 08/2026',
+        organization: 'FPSC',
+        pdfFileName: 'fpsc_08_2026.pdf',
+        pdfUrl: 'https://fpsc.gov.pk/advt-08-2026.pdf',
+        fileSizeFormatted: '2.1 MB',
+        totalPages: 4,
+        gazetteIssueNumber: '08/2026',
+        publicationDate: '2026-11-18',
+        closingDeadline: '2026-12-05',
+        rawTextSample: '',
+        extractedVacancies: []
+      }
+    ];
+
+    const publishedJob = {
+      id: 'db-job-pub-1',
+      title: 'Assistant Director (BS-17)',
+      company: 'FPSC',
+      status: 'Approved',
+      salary: 'PKR 95,000',
+      region: 'Pakistan',
+      isGovtJob: true,
+      isPdfScraped: true,
+      tags: ['FPSC']
+    } as unknown as Job;
+
+    const pendingJob = {
+      id: 'db-job-pend-1',
+      title: 'Inspector Customs (BS-16)',
+      company: 'FPSC',
+      status: 'Pending',
+      salary: 'PKR 80,000',
+      region: 'Pakistan',
+      isGovtJob: true,
+      isPdfScraped: true,
+      tags: ['Customs']
+    } as unknown as Job;
+
+    let refreshJobsCalls = 0;
+    let recordedTimestamps: { ids: string[]; counts: Record<string, number> } | null = null;
+    let loggedBatch: ScraperBatchRun | null = null;
+    let loggedAudits: ScrapedJobAuditEntry[] = [];
+
+    const outcome = await executeAutoScrapeRunCoordinator({
+      targets: sampleTargets,
+      autoScrapeConfig: {
+        enabled: true,
+        intervalMinutes: 15,
+        targetScope: 'all',
+        preventDuplicates: true,
+        autoApprove: true
+      },
+      runScraperFn: async () => ({
+        success: true,
+        runId: 'RUN-AUTO-101',
+        publishedJobs: [publishedJob],
+        pendingJobs: [pendingJob],
+        duplicateJobs: [],
+        totalFound: 3,
+        totalDuplicates: 1,
+        totalFailedSources: 0,
+        jobsRejected: 0,
+        executionDurationMs: 850,
+        sourcesStats: [{ sourceId: 'fpsc-portal-1', found: 3 }]
+      }),
+      onRefreshJobs: async () => {
+        refreshJobsCalls++;
+      },
+      updatePortalScrapedTimestamp: (ids, counts) => {
+        recordedTimestamps = { ids, counts };
+      },
+      onLogBatchRun: (batch, audits) => {
+        loggedBatch = batch;
+        loggedAudits = audits;
+      }
+    });
+
+    assert.strictEqual(refreshJobsCalls, 1, 'Should refresh jobs read-only from backend after /scraper/run');
+    assert.deepStrictEqual(recordedTimestamps, {
+      ids: ['fpsc-portal-1'],
+      counts: { 'fpsc-portal-1': 3 }
+    });
+    assert.ok(loggedBatch, 'Batch run log must still be recorded');
+    assert.strictEqual((loggedBatch as ScraperBatchRun).batchId, 'RUN-AUTO-101');
+    assert.strictEqual((loggedBatch as ScraperBatchRun).totalExtracted, 3);
+    assert.strictEqual((loggedBatch as ScraperBatchRun).approvedCount, 1);
+    assert.strictEqual((loggedBatch as ScraperBatchRun).pendingCount, 1);
+    assert.strictEqual((loggedBatch as ScraperBatchRun).duplicatesSkipped, 1);
+    assert.strictEqual(loggedAudits.length, 2);
+    assert.ok(outcome.toastMessage.includes('Harvested 2 new vacancies, skipped 1 duplicates'));
+
+    // Also assert handleTriggerAutoScrapeRun inside PdfConsolidatedScraperModal.tsx has NO onBatchImportJobs call
+    const modalSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/PdfConsolidatedScraperModal.tsx'),
+      'utf8'
+    );
+    const autoFnStart = modalSource.indexOf('const handleTriggerAutoScrapeRun = async () =>');
+    const autoFnEnd = modalSource.indexOf('const handleScrapeAllPortals = async () =>');
+    assert.ok(autoFnStart > 0 && autoFnEnd > autoFnStart);
+    const autoFnSlice = modalSource.slice(autoFnStart, autoFnEnd);
+    assert.strictEqual(
+      autoFnSlice.includes('onBatchImportJobs('),
+      false,
+      'handleTriggerAutoScrapeRun must NOT invoke onBatchImportJobs'
+    );
+    assert.ok(modalSource.includes('executeAutoScrapeRunCoordinator'));
+
+    const adminSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/AdminDashboard.tsx'),
+      'utf8'
+    );
+    assert.ok(
+      adminSource.includes('onRefreshJobs={onReloadJobs}'),
+      'AdminDashboard must pass read-only onReloadJobs as onRefreshJobs to PdfConsolidatedScraperModal'
+    );
+  });
+
+  await runTest('STEP-8.4-F-2 [Scrape All Portals /scraper/run Blocked Re-Import]: handleScrapeAllPortals results display counters & timestamps but CANNOT be re-imported through handleIngest / onBatchImportJobs', async () => {
+    const gazettes: ConsolidatedPdfGazette[] = [
+      {
+        id: 'wapda-portal-1',
+        title: 'WAPDA Career Notice 2026',
+        organization: 'WAPDA',
+        pdfFileName: 'wapda_2026.pdf',
+        pdfUrl: 'https://wapda.gov.pk/careers.pdf',
+        fileSizeFormatted: '1.8 MB',
+        totalPages: 2,
+        gazetteIssueNumber: 'W-02/2026',
+        publicationDate: '2026-11-18',
+        closingDeadline: '2026-12-10',
+        rawTextSample: '',
+        extractedVacancies: []
+      }
+    ];
+
+    const persistedJob1 = {
+      id: 'persisted-wapda-1',
+      title: 'Junior Engineer (Electrical)',
+      company: 'WAPDA',
+      status: 'Approved',
+      salary: 'PKR 110,000',
+      isDuplicate: false
+    } as unknown as Job;
+    const dupJob = {
+      id: 'dup-wapda-1',
+      title: 'Sub Divisional Officer',
+      company: 'WAPDA',
+      status: 'Pending',
+      salary: 'PKR 105,000',
+      isDuplicate: true
+    } as unknown as Job;
+
+    let refreshCount = 0;
+    let timestampUpdate: { ids: string[]; counts: Record<string, number> } | null = null;
+
+    const scrapeOutcome = await executeScrapeAllPortalsCoordinator({
+      targetGazettes: gazettes,
+      runScraperFn: async () => ({
+        success: true,
+        publishedJobs: [persistedJob1],
+        pendingJobs: [],
+        duplicateJobs: [dupJob],
+        totalFound: 2,
+        totalDuplicates: 1,
+        totalFailedSources: 0,
+        sourcesStats: [{ sourceId: 'wapda-portal-1', found: 2 }]
+      }),
+      onRefreshJobs: async () => {
+        refreshCount++;
+      },
+      updatePortalScrapedTimestamp: (ids, counts) => {
+        timestampUpdate = { ids, counts };
+      }
+    });
+
+    assert.strictEqual(scrapeOutcome.alreadyPersistedByBackendRun, true);
+    assert.deepStrictEqual(scrapeOutcome.selectedJobIds, []);
+    assert.strictEqual(scrapeOutcome.allJobs.length, 2);
+    assert.strictEqual(scrapeOutcome.uniqueOnes.length, 1);
+    assert.strictEqual(refreshCount, 1);
+    assert.deepStrictEqual(timestampUpdate, {
+      ids: ['wapda-portal-1'],
+      counts: { 'wapda-portal-1': 2 }
+    });
+
+    // Even if all job IDs are selected and ingest is invoked (both direct publish and pending review),
+    // onBatchImportJobs must NEVER be called for already-persisted /scraper/run results.
+    let batchImportCalls = 0;
+    let logCalls = 0;
+    const blockedPublish = executeManualIngestCoordinator({
+      extractedVacancies: scrapeOutcome.allJobs,
+      selectedJobIds: scrapeOutcome.allJobs.map(j => j.id),
+      alreadyPersistedByBackendRun: scrapeOutcome.alreadyPersistedByBackendRun,
+      autoApprove: true,
+      activeGazette: gazettes[0],
+      parserEngine: 'pdfplumber',
+      parseLogs: [],
+      stats: { duplicateCount: 1, overrideCount: 0 },
+      onBatchImportJobs: () => {
+        batchImportCalls++;
+      },
+      onLogBatchRun: () => {
+        logCalls++;
+      }
+    });
+
+    assert.strictEqual(blockedPublish.imported, false);
+    assert.strictEqual(blockedPublish.blockedReason, 'already_persisted_by_backend_run');
+    assert.strictEqual(batchImportCalls, 0, 'Manual ingest must NOT call onBatchImportJobs for /scraper/run jobs');
+    assert.strictEqual(logCalls, 0);
+
+    const modalSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/PdfConsolidatedScraperModal.tsx'),
+      'utf8'
+    );
+    assert.ok(modalSource.includes('disabled={areExtractedJobsPersistedByBackendRun}'));
+    assert.ok(modalSource.includes('Already Persisted by Backend Scraper Engine'));
+  });
+
+  await runTest('STEP-8.4-F-3 [Preserve /scraper/parse-url Workflows]: parse-url extraction + manual ingest and 1-click parse-url still call onBatchImportJobs cleanly with audit logs & timestamps', async () => {
+    const gazette: ConsolidatedPdfGazette = {
+      id: 'ppsc-portal-1',
+      title: 'PPSC Advt 29/2026',
+      organization: 'PPSC',
+      pdfFileName: 'ppsc_29_2026.pdf',
+      pdfUrl: 'https://ppsc.gop.pk/advt-29-2026.pdf',
+      fileSizeFormatted: '1.5 MB',
+      totalPages: 3,
+      gazetteIssueNumber: '29/2026',
+      publicationDate: '2026-11-18',
+      closingDeadline: '2026-12-08',
+      rawTextSample: '',
+      extractedVacancies: []
+    };
+
+    const parsedJob = {
+      id: 'parsed-ppsc-1',
+      title: 'Tehsildar (BS-16)',
+      company: 'PPSC',
+      salary: 'PKR 78,000',
+      description: 'Revenue officer recruitment',
+      requirements: ['Bachelor Degree'],
+      benefits: ['Pension'],
+      tags: ['PPSC'],
+      sourceUrl: 'https://ppsc.gop.pk/advt-29-2026.pdf',
+      isPdfScraped: true
+    } as unknown as Job;
+
+    // 1. parse-url extraction -> manual handleIngest path
+    const parseRes = await executeParseUrlExtractionCoordinator({
+      targetUrl: gazette.pdfUrl,
+      organization: gazette.organization,
+      title: gazette.title,
+      existingJobs: [],
+      parseUrlFn: async () => ({
+        success: true,
+        jobs: [parsedJob],
+        message: 'Extracted 1 job from PDF',
+        rawTextSample: 'Case No 29/2026 Tehsildar'
+      })
+    });
+
+    assert.strictEqual(parseRes.alreadyPersistedByBackendRun, false);
+    assert.strictEqual(parseRes.enrichedJobs.length, 1);
+    assert.deepStrictEqual(parseRes.selectedJobIds, ['parsed-ppsc-1']);
+
+    let importedPayload: { jobs: Job[]; autoApprove: boolean; title: string } | null = null;
+    let manualBatchRun: ScraperBatchRun | null = null;
+    let manualAuditCount = 0;
+
+    const ingestRes = executeManualIngestCoordinator({
+      extractedVacancies: parseRes.enrichedJobs,
+      selectedJobIds: parseRes.selectedJobIds,
+      alreadyPersistedByBackendRun: parseRes.alreadyPersistedByBackendRun,
+      autoApprove: true,
+      activeGazette: gazette,
+      parserEngine: 'pdfplumber',
+      parseLogs: ['Parsed 1 job'],
+      stats: { duplicateCount: 0, overrideCount: 0 },
+      onBatchImportJobs: (jobs, autoApprove, title) => {
+        importedPayload = { jobs, autoApprove, title };
+      },
+      onLogBatchRun: (batch, audits) => {
+        manualBatchRun = batch;
+        manualAuditCount = audits.length;
+      }
+    });
+
+    assert.strictEqual(ingestRes.imported, true);
+    assert.ok(importedPayload);
+    assert.strictEqual((importedPayload as { jobs: Job[] }).jobs.length, 1);
+    assert.strictEqual((importedPayload as { jobs: Job[] }).jobs[0].id, 'parsed-ppsc-1');
+    assert.ok(manualBatchRun);
+    assert.strictEqual((manualBatchRun as ScraperBatchRun).totalExtracted, 1);
+    assert.strictEqual(manualAuditCount, 1);
+
+    // 2. 1-Click parse-url workflow
+    let oneClickImported: Job[] = [];
+    let oneClickTimestampIds: string[] = [];
+    let oneClickBatch: ScraperBatchRun | null = null;
+
+    const oneClickRes = await executeOneClickParseUrlCoordinator({
+      targetG: gazette,
+      existingJobs: [],
+      parseUrlFn: async () => ({
+        success: true,
+        jobs: [parsedJob]
+      }),
+      onBatchImportJobs: (jobs) => {
+        oneClickImported = jobs;
+      },
+      updatePortalScrapedTimestamp: (ids) => {
+        oneClickTimestampIds = ids;
+      },
+      onLogBatchRun: (batch) => {
+        oneClickBatch = batch;
+      }
+    });
+
+    assert.strictEqual(oneClickRes.alreadyPersistedByBackendRun, false);
+    assert.strictEqual(oneClickImported.length, 1);
+    assert.deepStrictEqual(oneClickTimestampIds, ['ppsc-portal-1']);
+    assert.ok(oneClickBatch);
+    assert.strictEqual((oneClickBatch as ScraperBatchRun).approvedCount, 1);
   });
 
   console.log('------------------------------------------------------------------');

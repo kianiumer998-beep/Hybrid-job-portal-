@@ -7740,6 +7740,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         initialSelectedGazetteId={activeSelectedPdfGazetteId}
         existingJobs={[...jobs, ...pendingJobs]}
         onUpdateGazettesLastScraped={handleBatchUpdateGazettesLastScraped}
+        onRefreshJobs={onReloadJobs}
       />
 
       {/* QUICK EDIT / BULK EDIT JOB MODAL */}

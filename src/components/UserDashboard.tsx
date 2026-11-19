@@ -172,6 +172,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
   );
+
+  const safeProfileAvatarUrl = useMemo(() => {
+    try {
+      const parsed = new URL(String(currentUser.avatarUrl || ''));
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : null;
+    } catch {
+      return null;
+    }
+  }, [currentUser.avatarUrl]);
   const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
   const [activeNavId, setActiveNavId] = useState<string | null>(() => 
     safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
@@ -1536,8 +1545,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </button>
             )}
             <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center font-black text-base sm:text-2xl text-emerald-400">
-                {currentUser.name.charAt(0).toUpperCase()}
+              <div className="relative w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center overflow-hidden font-black text-base sm:text-2xl text-emerald-400">
+                <span>{(currentUser.name || '?').charAt(0).toUpperCase()}</span>
+                {safeProfileAvatarUrl && (
+                  <img
+                    src={safeProfileAvatarUrl}
+                    alt="Profile"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                )}
               </div>
             </div>
 

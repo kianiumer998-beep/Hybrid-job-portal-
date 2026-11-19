@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CvData } from '../types/job';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
   isSubscribed: boolean;
+  initialCvData?: CvData;
+  onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onOpenPaywall: () => void;
 }
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywall }) => {
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall }) => {
   const [step, setStep] = useState<number>(1);
+  const [isSavingCv, setIsSavingCv] = useState(false);
+  const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Start with a genuinely blank CV. No sample identity, employment, education, or credentials are prefilled.
-  const [cvData, setCvData] = useState<CvData>({
+  // Load the authenticated user's saved CV when available; otherwise start with a genuinely blank draft.
+  const [cvData, setCvData] = useState<CvData>(initialCvData || {
     personalInfo: {
       fullName: '',
       jobTitle: '',
@@ -34,6 +38,10 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
     templateStyle: 'modern',
     themeColor: '#10b981'
   });
+
+  useEffect(() => {
+    if (initialCvData) setCvData(initialCvData);
+  }, [initialCvData]);
 
   // Add an empty achievement line for the user to complete; no simulated AI output is presented as generated content.
   const handleGenerateAiBullets = (expIndex: number) => {
@@ -74,6 +82,22 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
     });
   };
 
+  const handleSaveCv = async () => {
+    if (isSavingCv) return;
+    setIsSavingCv(true);
+    setCvSaveMessage(null);
+    try {
+      const saved = await onSaveCv(cvData);
+      setCvSaveMessage(saved
+        ? { type: 'success', text: 'Your CV draft has been saved to your account.' }
+        : { type: 'error', text: 'The CV could not be saved. Please try again.' });
+    } catch (error: any) {
+      setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to save your CV right now.' });
+    } finally {
+      setIsSavingCv(false);
+    }
+  };
+
   // Trigger Print Engine
   const handleDownloadPdf = () => {
     if (!isSubscribed) {
@@ -86,7 +110,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       
-      <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">Your CV is a temporary draft in this session. It is not saved to your account or backend yet. Download/print your completed CV before leaving this page.</div>
+      {cvSaveMessage && <div className={`mb-4 rounded-xl border px-4 py-3 text-xs ${cvSaveMessage.type === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`} role="status">{cvSaveMessage.text}</div>}
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-950 border border-indigo-500/30 rounded-2xl p-6 mb-8 text-white flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
         <div>
@@ -96,11 +120,20 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
           </div>
           <h2 className="text-2xl font-black">Build a Professional Resume in 3 Minutes</h2>
           <p className="text-xs text-slate-300 mt-1 max-w-xl">
-            Fill in your details, choose an ATS-friendly layout, generate AI bullet points, and export standard PDF for instant job applications.
+            Fill in your details, choose an ATS-friendly layout, add achievement points, save your CV to your account, and export a PDF for job applications.
           </p>
         </div>
 
         <div className="flex items-center space-x-3">
+          <button
+            type="button"
+            onClick={handleSaveCv}
+            disabled={isSavingCv}
+            className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-black text-sm flex items-center space-x-2 disabled:opacity-50"
+          >
+            <FileText className="w-4 h-4" />
+            <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
+          </button>
           <button
             onClick={handleDownloadPdf}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 flex items-center space-x-2 hover:scale-105 active:scale-95 transition-all"

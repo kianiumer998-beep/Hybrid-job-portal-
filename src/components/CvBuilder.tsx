@@ -9,38 +9,78 @@ interface CvBuilderProps {
   onOpenPaywall: () => void;
 }
 
+const createBlankCvData = (): CvData => ({
+  personalInfo: {
+    fullName: '',
+    jobTitle: '',
+    email: '',
+    phone: '',
+    location: '',
+    website: '',
+    linkedin: '',
+    github: '',
+    summary: ''
+  },
+  experience: [],
+  education: [],
+  skills: { technical: [], soft: [], languages: [] },
+  certifications: [],
+  templateStyle: 'modern',
+  themeColor: '#10b981'
+});
+
+const normalizeCvData = (value?: CvData): CvData => {
+  const blank = createBlankCvData();
+  const raw = value && typeof value === 'object' ? value : blank;
+  const validStyles = ['modern', 'executive', 'tech', 'classic'];
+  return {
+    ...(typeof raw.photoBase64 === 'string' ? { photoBase64: raw.photoBase64 } : {}),
+    personalInfo: { ...blank.personalInfo, ...(raw.personalInfo || {}) },
+    experience: Array.isArray(raw.experience) ? raw.experience.map((item, index) => ({
+      id: String(item?.id || `exp-${index + 1}`),
+      company: String(item?.company || ''),
+      position: String(item?.position || ''),
+      location: String(item?.location || ''),
+      startDate: String(item?.startDate || ''),
+      endDate: String(item?.endDate || ''),
+      current: Boolean(item?.current),
+      bullets: Array.isArray(item?.bullets) ? item.bullets.filter((bullet) => typeof bullet === 'string') : []
+    })) : [],
+    education: Array.isArray(raw.education) ? raw.education.map((item, index) => ({
+      id: String(item?.id || `edu-${index + 1}`),
+      institution: String(item?.institution || ''),
+      degree: String(item?.degree || ''),
+      fieldOfStudy: String(item?.fieldOfStudy || ''),
+      startDate: String(item?.startDate || ''),
+      endDate: String(item?.endDate || ''),
+      ...(typeof item?.gpa === 'string' ? { gpa: item.gpa } : {})
+    })) : [],
+    skills: {
+      technical: Array.isArray(raw.skills?.technical) ? raw.skills.technical.filter((item) => typeof item === 'string') : [],
+      soft: Array.isArray(raw.skills?.soft) ? raw.skills.soft.filter((item) => typeof item === 'string') : [],
+      languages: Array.isArray(raw.skills?.languages) ? raw.skills.languages.filter((item) => typeof item === 'string') : []
+    },
+    certifications: Array.isArray(raw.certifications) ? raw.certifications.map((item, index) => ({
+      id: String(item?.id || `cert-${index + 1}`),
+      name: String(item?.name || ''),
+      issuer: String(item?.issuer || ''),
+      year: String(item?.year || '')
+    })) : [],
+    templateStyle: validStyles.includes(raw.templateStyle) ? raw.templateStyle : blank.templateStyle,
+    themeColor: typeof raw.themeColor === 'string' && /^#[0-9a-f]{6}$/i.test(raw.themeColor) ? raw.themeColor : blank.themeColor
+  };
+};
+
 export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall }) => {
   const [step, setStep] = useState<number>(1);
   const [isSavingCv, setIsSavingCv] = useState(false);
   const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(initialCvData));
 
-  // Load the authenticated user's saved CV when available; otherwise start with a genuinely blank draft.
-  const [cvData, setCvData] = useState<CvData>(initialCvData || {
-    personalInfo: {
-      fullName: '',
-      jobTitle: '',
-      email: '',
-      phone: '',
-      location: '',
-      website: '',
-      linkedin: '',
-      github: '',
-      summary: ''
-    },
-    experience: [],
-    education: [],
-    skills: {
-      technical: [],
-      soft: [],
-      languages: []
-    },
-    certifications: [],
-    templateStyle: 'modern',
-    themeColor: '#10b981'
-  });
-
+  // Always reset to the current account's saved CV (or a blank draft) when the account data changes.
   useEffect(() => {
-    if (initialCvData) setCvData(initialCvData);
+    setCvData(normalizeCvData(initialCvData));
+    setCvSaveMessage(null);
   }, [initialCvData]);
 
   // Add an empty achievement line for the user to complete; no simulated AI output is presented as generated content.
@@ -80,6 +120,41 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
       ...cvData,
       experience: cvData.experience.filter((e) => e.id !== id)
     });
+  };
+
+  const handleAddEducation = () => {
+    setCvData({
+      ...cvData,
+      education: [...cvData.education, {
+        id: `edu-${Date.now()}`,
+        institution: '',
+        degree: '',
+        fieldOfStudy: '',
+        startDate: '',
+        endDate: '',
+        gpa: ''
+      }]
+    });
+  };
+
+  const handleRemoveEducation = (id: string) => {
+    setCvData({ ...cvData, education: cvData.education.filter((item) => item.id !== id) });
+  };
+
+  const handleAddCertification = () => {
+    setCvData({
+      ...cvData,
+      certifications: [...cvData.certifications, {
+        id: `cert-${Date.now()}`,
+        name: '',
+        issuer: '',
+        year: ''
+      }]
+    });
+  };
+
+  const handleRemoveCertification = (id: string) => {
+    setCvData({ ...cvData, certifications: cvData.certifications.filter((item) => item.id !== id) });
   };
 
   const handleSaveCv = async () => {

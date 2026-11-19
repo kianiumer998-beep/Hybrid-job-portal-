@@ -1842,8 +1842,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-white text-xs sm:text-sm">Subscription Renewal Setting</span>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${currentUser.autoRenew ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
-                      {currentUser.autoRenew ? 'Auto-renew enabled' : 'Manual renewal'}
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${currentUser.autoRenew === true ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : currentUser.autoRenew === false ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}>
+                      {typeof currentUser.autoRenew === 'boolean' ? (currentUser.autoRenew ? 'Auto-renew enabled' : 'Manual renewal') : 'Not recorded'}
                     </span>
                   </div>
                   <p className="text-[10px] sm:text-xs text-slate-400">

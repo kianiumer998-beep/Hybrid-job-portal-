@@ -944,8 +944,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         education: JSON.parse(String(profileExtendedFields.education || '[]')),
         socialLinks: JSON.parse(String(profileExtendedFields.socialLinks || '{}'))
       };
-      if (!Array.isArray(structuredProfile.experience) || !Array.isArray(structuredProfile.education) || !structuredProfile.preferences || typeof structuredProfile.preferences !== 'object' || Array.isArray(structuredProfile.preferences) || !structuredProfile.socialLinks || typeof structuredProfile.socialLinks !== 'object' || Array.isArray(structuredProfile.socialLinks)) {
-        throw new Error('Preferences and social links must be JSON objects; experience and education must be JSON arrays.');
+      // The backend historically accepts experience/education as either structured arrays or legacy text strings.
+      // Preserve existing string values rather than forcing old accounts into an incompatible array shape.
+      const isValidListOrLegacyText = (value: unknown) => Array.isArray(value) || typeof value === 'string';
+      if (!isValidListOrLegacyText(structuredProfile.experience) || !isValidListOrLegacyText(structuredProfile.education) || !structuredProfile.preferences || typeof structuredProfile.preferences !== 'object' || Array.isArray(structuredProfile.preferences) || !structuredProfile.socialLinks || typeof structuredProfile.socialLinks !== 'object' || Array.isArray(structuredProfile.socialLinks)) {
+        throw new Error('Preferences and social links must be JSON objects; experience and education must be JSON arrays or legacy text strings.');
       }
     } catch (error: any) {
       alert(error?.message?.includes('JSON') ? 'Please correct the JSON in Preferences, Experience, Education, and Social Links.' : (error?.message || 'Invalid structured profile data.'));

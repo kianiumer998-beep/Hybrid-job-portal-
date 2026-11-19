@@ -119,7 +119,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onDepositFunds,
   onDeleteAd,
   onDuplicateAd,
-  onToggleAutoRenew,
   onRenewSubscription,
   onSubmitJobForApproval,
   onSendMessageToAdmin,
@@ -143,7 +142,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
-  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>('profile');
+  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(() =>
+    safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile'
+  );
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
@@ -159,6 +160,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   useEffect(() => {
     safeLocalStorageSet(`dashboard_active_nav_id_${currentUser.id}`, activeNavId);
+    if (activeNavId === 'acc-security') setAccountSubTab('security');
+    else if (activeNavId === 'acc-profile') setAccountSubTab('profile');
   }, [activeNavId, currentUser.id]);
 
   // In-App Notifications State
@@ -1369,9 +1372,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [allJobs, currentUser, userApplications, savedJobIds]);
 
   // Derived Billing Dates & Times
-  const activationTimeStr = currentUser.activationDate || '2026-07-25 09:00';
-  const expiryTimeStr = currentUser.expiryDate || '2026-08-24 09:00';
-  const renewalCount = currentUser.renewalCount || 1;
+  const activationTimeStr = currentUser.activationDate || 'Not recorded';
+  const expiryTimeStr = currentUser.expiryDate || 'Not set';
+  const renewalCount = Number.isFinite(Number(currentUser.renewalCount)) ? Number(currentUser.renewalCount) : 0;
   const userTransactions: PaymentTransaction[] = Array.isArray(currentUser.transactions) ? currentUser.transactions : [];
 
   // Subscription Plan Expiry & Days Remaining
@@ -1383,9 +1386,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [currentUser.membershipStatus, currentUser.expiryDate]);
 
   const daysRemaining = useMemo(() => {
-    if (!currentUser.expiryDate) return 30;
+    if (!currentUser.expiryDate) return null;
     const expiryTime = new Date(currentUser.expiryDate).getTime();
-    if (isNaN(expiryTime)) return 30;
+    if (isNaN(expiryTime)) return null;
     return Math.ceil((expiryTime - Date.now()) / (1000 * 60 * 60 * 24));
   }, [currentUser.expiryDate]);
 
@@ -1463,15 +1466,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </button>
             </div>
 
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              aria-expanded={isMobileMenuOpen}
-              aria-label="Toggle Navigation Menu"
-              className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
-            >
-              {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-              <span>Menu</span>
-            </button>
+            {navigationMode === 'classic' && (
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                aria-expanded={isMobileMenuOpen}
+                aria-label="Toggle Classic Navigation Menu"
+                className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+              >
+                {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+                <span>Menu</span>
+              </button>
+            )}
           <button
             onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
             aria-label="Notifications"
@@ -1510,7 +1515,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <span className="text-slate-400">Membership:</span>
             <span className={`font-bold flex items-center space-x-1 ${isPlanExpired ? 'text-rose-400' : 'text-emerald-400'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isPlanExpired ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
-              <span>{isPlanExpired ? 'Expired' : `${daysRemaining > 0 ? `${daysRemaining}d Left` : 'Active Pro'}`}</span>
+              <span>{isPlanExpired ? 'Expired' : daysRemaining === null ? 'Status unavailable' : daysRemaining > 0 ? `${daysRemaining}d Left` : 'Expired'}</span>
             </span>
           </div>
         </div>
@@ -1706,7 +1711,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     {expiryTimeStr}
                   </div>
                   <div className="text-[9px] text-slate-400 mt-0.5 truncate">
-                    {isPlanExpired ? 'Validity Ended' : `${daysRemaining > 0 ? `${daysRemaining} days left` : 'Active'}`}
+                    {isPlanExpired ? 'Validity Ended' : daysRemaining === null ? 'Expiry not recorded' : daysRemaining > 0 ? `${daysRemaining} days left` : 'Validity ended'}
                   </div>
                 </div>
 
@@ -1722,49 +1727,21 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </div>
               </div>
 
-              {/* 1-Term Contract & Monthly Auto-Renewal Control */}
+              {/* Auto-renew is displayed as an account setting; users cannot change it here because the normal-user API does not permit that field. */}
               <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-0.5">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-white text-xs sm:text-sm">
-                      {currentUser.autoRenew ? 'Continuous Monthly Auto-Renewal' : '1-Term Fixed Contract'}
-                    </span>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
-                      currentUser.autoRenew
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                        : 'bg-slate-800 text-slate-400 border-slate-700'
-                    }`}>
-                      {currentUser.autoRenew ? 'Auto-Charge Enabled' : 'Fixed 1-Term'}
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-white text-xs sm:text-sm">Subscription Renewal Setting</span>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${currentUser.autoRenew ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                      {currentUser.autoRenew ? 'Auto-renew enabled' : 'Manual renewal'}
                     </span>
                   </div>
                   <p className="text-[10px] sm:text-xs text-slate-400">
-                    {currentUser.autoRenew
-                      ? 'Subscription auto-renews for 30 days upon reaching expiry date without manual intervention.'
-                      : 'Subscription will terminate exactly on expiry date without any automatic debit.'}
+                    This setting is managed by the portal administrator. Contact support if you need it changed. No automatic charge is initiated from this screen.
                   </p>
                 </div>
-
-                <div className="flex items-center space-x-3 self-end sm:self-auto">
-                  <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
-                    {currentUser.autoRenew ? 'Toggle to 1-Term' : 'Toggle to Auto-Renew'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={onToggleAutoRenew}
-                    aria-label="Toggle Auto Renewal"
-                    className={`w-12 sm:w-14 h-6 sm:h-7 flex items-center rounded-full p-1 transition-colors duration-300 cursor-pointer ${
-                      currentUser.autoRenew ? 'bg-emerald-500' : 'bg-slate-700'
-                    }`}
-                  >
-                    <div
-                      className={`bg-white w-4 sm:w-5 h-4 sm:h-5 rounded-full shadow-md transform transition-transform duration-300 ${
-                        currentUser.autoRenew ? 'translate-x-6 sm:translate-x-7' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
+                <Lock className="w-5 h-5 text-slate-500 shrink-0" />
+              </div>           </div>
           </div>
 
           {/* OVERVIEW SUB-VIEW NAVIGATION PILLS */}

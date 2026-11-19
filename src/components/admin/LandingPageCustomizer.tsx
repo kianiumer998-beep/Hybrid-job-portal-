@@ -46,7 +46,26 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   const [heroForm, setHeroForm] = useState(config.hero);
   const [sections, setSections] = useState<LandingSectionOrder[]>(config.sections || DEFAULT_LANDING_PAGE_CONFIG.sections);
   const [customCards, setCustomCards] = useState<CustomLandingCard[]>(config.customCards || DEFAULT_LANDING_PAGE_CONFIG.customCards);
-  const [jobCardDesignForm, setJobCardDesignForm] = useState(config.jobCardDesign || DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign);
+  const [jobCardDesignForm, setJobCardDesignForm] = useState(() => ({
+    ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign,
+    ...(config.jobCardDesign || {}),
+    theme: {
+      ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.theme,
+      ...(config.jobCardDesign?.theme || {})
+    },
+    visibility: {
+      ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.visibility,
+      ...(config.jobCardDesign?.visibility || {})
+    },
+    labels: {
+      ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.labels,
+      ...(config.jobCardDesign?.labels || {})
+    },
+    limits: {
+      ...DEFAULT_LANDING_PAGE_CONFIG.jobCardDesign.limits,
+      ...(config.jobCardDesign?.limits || {})
+    }
+  }));
   const [promoBanners, setPromoBanners] = useState<PromoDiscountBanner[]>(campaignConfig.promoBanners || []);
   const [saveToast, setSaveToast] = useState<string | null>(null);
 

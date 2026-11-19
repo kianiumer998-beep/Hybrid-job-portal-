@@ -91,6 +91,7 @@ interface UserCampaignHubProps {
   onDuplicateCampaign: (ad: Advertisement) => void;
   onOpenGlobalDepositModal?: () => void;
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  onCampaignSubTabChange?: (tab: 'my-campaigns' | 'create' | 'wallet') => void;
   showInternalNavigation?: boolean;
 }
 
@@ -109,6 +110,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   onDuplicateCampaign,
   onOpenGlobalDepositModal,
   onNavigateGlobalTab,
+  onCampaignSubTabChange,
   showInternalNavigation = true
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(initialSubTab);
@@ -127,6 +129,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       }
     }
   }, [openDepositModal, onDepositModalClose]);
+
+  const changeActiveSubTab = (tab: 'my-campaigns' | 'create' | 'wallet') => {
+    setActiveSubTab(tab);
+    onCampaignSubTabChange?.(tab);
+  };
   
   // Status Filter for My Campaigns
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'rejected' | 'completed'>('all');
@@ -410,7 +417,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormTitle('');
       setFormHeadline('');
       setFormBodyText('');
-      setActiveSubTab('my-campaigns');
+      changeActiveSubTab('my-campaigns');
       alert(
         `Campaign "${newAd.title}" submitted successfully! PKR ${chargedAmount.toLocaleString()} has been deducted from your wallet balance. ${
           campaignConfig.formRules.requireAdminApproval
@@ -645,7 +652,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
               </button>
 
               <button
-                onClick={() => setActiveSubTab('create')}
+                onClick={() => changeActiveSubTab('create')}
                 className="flex-1 sm:flex-none px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md sm:shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-1 sm:space-x-1.5 transition-all cursor-pointer active:scale-95"
               >
                 <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-200" />
@@ -706,7 +713,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveSubTab('wallet')}
+          onClick={() => changeActiveSubTab('wallet')}
           className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'wallet'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-md shadow-emerald-500/20'

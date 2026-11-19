@@ -206,23 +206,39 @@ export async function readBoundedHtmlResponse(
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
+    let streamClosedOrCancelled = false;
 
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          streamClosedOrCancelled = true;
+          break;
+        }
         if (!value || value.byteLength === 0) continue;
 
         totalBytes += value.byteLength;
         if (totalBytes > maxBytes) {
-          await reader.cancel('Detail response exceeded maximum allowed 2 MB size').catch(() => {});
+          streamClosedOrCancelled = true;
+          try {
+            await reader.cancel('Detail response exceeded maximum allowed 2 MB size');
+          } catch {}
           return { html: null, oversized: true };
         }
         chunks.push(value);
       }
     } catch {
-      await reader.cancel().catch(() => {});
+      if (!streamClosedOrCancelled) {
+        streamClosedOrCancelled = true;
+        try {
+          await reader.cancel();
+        } catch {}
+      }
       return { html: null, oversized: false };
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {}
     }
 
     const combined = new Uint8Array(totalBytes);
@@ -314,7 +330,9 @@ export async function enrichJobFromDetailPage(
     );
 
     if (!res.ok) {
-      await res.body?.cancel?.().catch(() => {});
+      try {
+        if (!res.bodyUsed) await res.body?.cancel?.();
+      } catch {}
       console.log(`[Detail Enrichment] Remote detail page returned HTTP ${res.status} for "${detailUrl}"`);
       return rawJob;
     }
@@ -322,14 +340,18 @@ export async function enrichJobFromDetailPage(
     // Post-fetch redirect origin, protocol, port, and SSRF validation
     const finalUrl = typeof res.url === 'string' && res.url.trim().length > 0 ? res.url.trim() : detailUrl!;
     if (!isPermittedDetailOrigin(finalUrl, portalUrl)) {
-      await res.body?.cancel?.().catch(() => {});
+      try {
+        if (!res.bodyUsed) await res.body?.cancel?.();
+      } catch {}
       console.warn(`[Detail Enrichment] Rejected unsafe or external final redirect URL "${finalUrl}" for "${detailUrl}"`);
       return rawJob;
     }
 
     const ctStatus = isHtmlContentTypeAllowed(res.headers?.get('content-type') || null);
     if (ctStatus === 'rejected') {
-      await res.body?.cancel?.().catch(() => {});
+      try {
+        if (!res.bodyUsed) await res.body?.cancel?.();
+      } catch {}
       return rawJob;
     }
 

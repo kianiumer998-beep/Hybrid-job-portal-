@@ -138,6 +138,7 @@ import {
   MAX_DETAIL_HTML_BYTES,
   isEligibleDetailUrl,
   isPermittedDetailOrigin,
+  readBoundedHtmlResponse,
   enrichJobFromDetailPage,
   enrichScrapedJobsBatch
 } from '../services/detailPageEnricher';
@@ -9802,6 +9803,474 @@ async function runSuite() {
         ),
       /Greenhouse Adapter.*Content-Length.*exceeds/i
     );
+  });
+
+  // ============================================================================
+  // STEP-8.6-B2: Special-Purpose IP Protection, HTTPS->HTTP Downgrade & Cleanup
+  // ============================================================================
+
+  await runTest('STEP-8.6-B2 Case 1 [Unit]: IPv4 special-purpose ranges 192.0.0.0/24 and 192.88.99.0/24 blocked while preserving 192.0.0.9 and 192.0.0.10', () => {
+    // Non-globally-reachable entries in 192.0.0.0/24
+    for (const ip of ['192.0.0.0', '192.0.0.1', '192.0.0.8', '192.0.0.11', '192.0.0.170', '192.0.0.255']) {
+      const check = isPrivateOrBlockedIp(ip);
+      assert.strictEqual(check.blocked, true, `Expected ${ip} in 192.0.0.0/24 to be blocked`);
+      assert.strictEqual(validateSafeScrapeUrl(`https://${ip}/jobs`).safe, false);
+      // Verify IPv4-mapped IPv6 form also enforces the same rule
+      const mapped = isPrivateOrBlockedIp(`::ffff:${ip}`);
+      assert.strictEqual(mapped.blocked, true, `Expected ::ffff:${ip} to be blocked`);
+    }
+
+    // Globally reachable exceptions 192.0.0.9 and 192.0.0.10
+    for (const allowedIp of ['192.0.0.9', '192.0.0.10']) {
+      const check = isPrivateOrBlockedIp(allowedIp);
+      assert.strictEqual(check.blocked, false, `Expected globally reachable exception ${allowedIp} to remain allowed`);
+      assert.strictEqual(validateSafeScrapeUrl(`https://${allowedIp}/jobs`).safe, true);
+      assert.strictEqual(isPrivateOrBlockedIp(`::ffff:${allowedIp}`).blocked, false);
+    }
+
+    // Deprecated 192.88.99.0/24 (6to4 relay anycast)
+    for (const ip of ['192.88.99.0', '192.88.99.1', '192.88.99.255']) {
+      const check = isPrivateOrBlockedIp(ip);
+      assert.strictEqual(check.blocked, true, `Expected deprecated 6to4 relay ${ip} to be blocked`);
+      assert.strictEqual(validateSafeScrapeUrl(`http://${ip}/jobs`).safe, false);
+    }
+  });
+
+  await runTest('STEP-8.6-B2 Case 2 [Unit]: IPv6 special-purpose prefixes (64:ff9b:1::/48, 100:0:0:1::/64, 3fff::/20, 5f00::/16, 2001::/23), 2000::/3 gate, and globally reachable exceptions', () => {
+    // Missing special-purpose IPv6 ranges must be blocked
+    const blockedIpv6s = [
+      '64:ff9b:1::1',
+      '64:ff9b:1::c0a8:101',
+      '100:0:0:1::1',
+      '3fff::1',
+      '3fff:0fff:ffff::1',
+      '5f00::1',
+      '5f00:abcd::1',
+      // Non-globally-reachable 2001::/23 portions
+      '2001:1::4',
+      '2001:1:1::1',
+      '2001:4:113::1',
+      '2001:5::1',
+      '2001:1ff:ffff::1',
+      // Non-global-unicast outside 2000::/3
+      '4000::1',
+      '8000::1',
+      'fe00::1',
+      // Existing protections preserved
+      '::ffff:127.0.0.1',
+      '::ffff:7f00:1',
+      '2002:0a00:0001::1',
+      '2001:0000:4136:e378:8000:63bf:3fff:fdd2',
+      '64:ff9b::a00:1',
+      '::8.8.8.8',
+      'fc00::1',
+      'fe80::1',
+      'ff02::1',
+      'fec0::1'
+    ];
+    for (const ip of blockedIpv6s) {
+      const res = isPrivateOrBlockedIp(ip);
+      assert.strictEqual(res.blocked, true, `Expected IPv6 ${ip} to be blocked`);
+      assert.strictEqual(validateSafeScrapeUrl(`https://[${ip}]/jobs`).safe, false);
+    }
+
+    // Globally reachable IPv6 exceptions MUST be preserved
+    const allowedIpv6s = [
+      '2001:1::1',
+      '2001:1::2',
+      '2001:1::3',
+      '2001:3::1',
+      '2001:3:ffff::1',
+      '2001:4:112::1',
+      '2001:20::1',
+      '2001:2f:ffff::1',
+      '2001:30::1',
+      '2001:3f:ffff::1',
+      // Public IPv4-mapped & ordinary 2000::/3 global unicast
+      '::ffff:8.8.8.8',
+      '::ffff:808:808',
+      '2607:f8b0:4005:805::200e',
+      '2001:4860:4860::8888',
+      '2a00:1450:4009:81f::200e',
+      '3fff:1000::1' // Outside 3fff::/20 and inside 2000::/3
+    ];
+    for (const ip of allowedIpv6s) {
+      const res = isPrivateOrBlockedIp(ip);
+      assert.strictEqual(res.blocked, false, `Expected globally reachable IPv6 ${ip} to remain allowed (got blocked: ${res.reason})`);
+      assert.strictEqual(validateSafeScrapeUrl(`https://[${ip}]/jobs`).safe, true);
+    }
+  });
+
+  await runTest('STEP-8.6-B2 Case 3 [Unit]: HTTPS-to-HTTP redirect downgrade is rejected, cancels intermediate body, never issues HTTP request, while preserving HTTP->HTTPS upgrade', async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedUrls: string[] = [];
+    let downgradeRedirectBodyCancelled = false;
+    let upgradeRedirectBodyCancelled = false;
+
+    try {
+      // 1. HTTPS -> HTTP downgrade must be rejected BEFORE making a second request
+      globalThis.fetch = (async (input: any) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        return {
+          status: 302,
+          ok: false,
+          headers: new Headers({ location: 'http://[2607:f8b0:4005:805::200e]/downgraded' }),
+          bodyUsed: false,
+          body: {
+            cancel: async () => {
+              downgradeRedirectBodyCancelled = true;
+            }
+          }
+        } as any;
+      }) as any;
+
+      await assert.rejects(
+        () => safeFetchWithRetry('https://[2607:f8b0:4005:805::200e]/secure-start', {}, 5000, 1),
+        /SSRF Blocked: HTTPS-to-HTTP redirect downgrade rejected/
+      );
+
+      assert.strictEqual(requestedUrls.length, 1, 'Downgraded HTTP second request MUST NOT be made (nor retried)');
+      assert.strictEqual(downgradeRedirectBodyCancelled, true, 'Intermediate HTTPS->HTTP redirect response body must be cancelled');
+
+      // 2. HTTP -> HTTPS upgrade must remain permitted
+      requestedUrls.length = 0;
+      globalThis.fetch = (async (input: any) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        if (url.startsWith('http://')) {
+          return {
+            status: 301,
+            ok: false,
+            headers: new Headers({ location: 'https://[2607:f8b0:4005:805::200e]/upgraded' }),
+            bodyUsed: false,
+            body: {
+              cancel: async () => {
+                upgradeRedirectBodyCancelled = true;
+              }
+            }
+          } as any;
+        }
+        return new Response('<html><body>Upgraded OK</body></html>', { status: 200 });
+      }) as any;
+
+      const upgradedRes = await safeFetchWithRetry('http://[2607:f8b0:4005:805::200e]/upgrade-start', {}, 5000, 1);
+      assert.strictEqual(upgradedRes.status, 200);
+      assert.strictEqual(requestedUrls.length, 2, 'HTTP->HTTPS redirect must follow second request cleanly');
+      assert.strictEqual(requestedUrls[1].startsWith('https://'), true);
+      assert.strictEqual(upgradeRedirectBodyCancelled, true, 'Intermediate HTTP->HTTPS redirect body must be cancelled');
+      assert.strictEqual(await upgradedRes.text(), '<html><body>Upgraded OK</body></html>');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-B2 Case 4 [Unit]: Non-2xx response bodies are cancelled in HTML, ATS, and PDF paths without masking HTTP errors', async () => {
+    // 1. Main HTML fetch non-2xx cancels unused body even if body.cancel throws
+    let htmlCancelAttempted = false;
+    const htmlNonOkFetch = async () => ({
+      ok: false,
+      status: 503,
+      bodyUsed: false,
+      body: {
+        cancel: async () => {
+          htmlCancelAttempted = true;
+          throw new Error('cancel hook noise must not mask HTTP 503');
+        }
+      }
+    } as any);
+
+    await assert.rejects(
+      () => scrapeTargetPortal({ id: 'non2xx-html', name: 'Down HTML', url: 'https://example.com/jobs' }, {}, htmlNonOkFetch),
+      (err: any) => err?.status === 503 && /HTTP 503/.test(err.message)
+    );
+    assert.strictEqual(htmlCancelAttempted, true, 'Main HTML non-2xx body must be cancelled');
+
+    // 2. ATS adapter fetch non-2xx cancels unused body and preserves http_error classification
+    let atsCancelAttempted = false;
+    const atsNonOkFetch = async () => ({
+      ok: false,
+      status: 502,
+      bodyUsed: false,
+      body: {
+        cancel: async () => {
+          atsCancelAttempted = true;
+          throw new Error('ats cancel noise');
+        }
+      }
+    } as any);
+
+    const atsRes = await scrapeGreenhouseApi(
+      { id: 'non2xx-ats', name: 'Down ATS', url: 'https://boards.greenhouse.io/downco' },
+      {},
+      atsNonOkFetch
+    );
+    assert.strictEqual(atsCancelAttempted, true, 'ATS non-2xx body must be cancelled');
+    assert.strictEqual(atsRes?.status, 'error');
+    assert.strictEqual(atsRes?.failureCategory, 'http_error');
+    assert.strictEqual(atsRes?.httpStatus, 502);
+
+    // 3. PDF fetch non-2xx cancels unused body and preserves HTTP_ERROR diagnostic
+    const originalFetch = globalThis.fetch;
+    let pdfCancelAttempted = false;
+    try {
+      globalThis.fetch = (async () => ({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: new Headers(),
+        bodyUsed: false,
+        body: {
+          cancel: async () => {
+            pdfCancelAttempted = true;
+            throw new Error('pdf cancel noise');
+          }
+        }
+      })) as any;
+
+      const pdfRes = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/missing.pdf', 'Missing Dept');
+      assert.strictEqual(pdfCancelAttempted, true, 'PDF non-2xx body must be cancelled');
+      assert.strictEqual(pdfRes.success, false);
+      assert.strictEqual(pdfRes.diagnosticCode, 'HTTP_ERROR');
+      assert.ok(pdfRes.message?.includes('404'));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-B2 Case 5 [Unit]: Stream reader locks released in finally and streams cancelled once on read errors and overflow across HTML, PDF, and Detail Enricher', async () => {
+    const makeTrackedStream = (mode: 'success' | 'error' | 'overflow', chunkBytes = 100) => {
+      let lockActive = false;
+      let releaseCount = 0;
+      let cancelCount = 0;
+      let reads = 0;
+      return {
+        get stats() {
+          return { lockActive, releaseCount, cancelCount };
+        },
+        stream: {
+          getReader() {
+            lockActive = true;
+            return {
+              async read() {
+                reads++;
+                if (mode === 'error') {
+                  throw new Error('Simulated TCP reset mid-stream');
+                }
+                if (mode === 'success') {
+                  if (reads === 1) return { done: false, value: new TextEncoder().encode('<html><body><p>OK</p></body></html>') };
+                  return { done: true, value: undefined };
+                }
+                // overflow mode: yield chunks indefinitely until cancelled
+                return { done: false, value: new Uint8Array(chunkBytes) };
+              },
+              async cancel() {
+                cancelCount++;
+              },
+              releaseLock() {
+                releaseCount++;
+                lockActive = false;
+              }
+            };
+          }
+        }
+      };
+    };
+
+    // A. readBoundedResponseText (scraperService.ts)
+    const okHtmlTracker = makeTrackedStream('success');
+    const okText = await readBoundedResponseText({ headers: new Headers(), body: okHtmlTracker.stream }, 1024, 'OK');
+    assert.ok(okText.includes('<p>OK</p>'));
+    assert.strictEqual(okHtmlTracker.stats.lockActive, false, 'HTML reader lock must be released on success');
+    assert.strictEqual(okHtmlTracker.stats.releaseCount, 1);
+    assert.strictEqual(okHtmlTracker.stats.cancelCount, 0);
+
+    const errHtmlTracker = makeTrackedStream('error');
+    await assert.rejects(
+      () => readBoundedResponseText({ headers: new Headers(), body: errHtmlTracker.stream }, 1024, 'ErrStream'),
+      /Simulated TCP reset mid-stream/
+    );
+    assert.strictEqual(errHtmlTracker.stats.lockActive, false, 'HTML reader lock must be released on read error');
+    assert.strictEqual(errHtmlTracker.stats.releaseCount, 1);
+    assert.strictEqual(errHtmlTracker.stats.cancelCount, 1, 'HTML stream must be cancelled exactly once on read error');
+
+    const overHtmlTracker = makeTrackedStream('overflow', 600);
+    await assert.rejects(
+      () => readBoundedResponseText({ headers: new Headers(), body: overHtmlTracker.stream }, 1000, 'OverStream'),
+      /exceeded maximum allowed limit/
+    );
+    assert.strictEqual(overHtmlTracker.stats.lockActive, false, 'HTML reader lock must be released on overflow');
+    assert.strictEqual(overHtmlTracker.stats.releaseCount, 1);
+    assert.strictEqual(overHtmlTracker.stats.cancelCount, 1, 'HTML stream must be cancelled exactly once on overflow');
+
+    // B. readBoundedHtmlResponse + enrichJobFromDetailPage (detailPageEnricher.ts)
+    const okDetailTracker = makeTrackedStream('success');
+    const detailOkRes = await readBoundedHtmlResponse({ headers: new Headers(), body: okDetailTracker.stream } as any, MAX_DETAIL_HTML_BYTES);
+    assert.ok(detailOkRes.html?.includes('<p>OK</p>'));
+    assert.strictEqual(okDetailTracker.stats.lockActive, false, 'Detail reader lock must be released on success');
+    assert.strictEqual(okDetailTracker.stats.releaseCount, 1);
+
+    const errDetailTracker = makeTrackedStream('error');
+    const baseJob: any = {
+      id: 'job-det-1',
+      title: 'Existing Listing Title',
+      company: 'Existing Co',
+      sourceUrl: 'https://portal.gov.pk/jobs/555',
+      description: 'Original listing description preserved'
+    };
+    const errDetailJob = await enrichJobFromDetailPage(
+      baseJob,
+      { id: 'p1', name: 'Portal', url: 'https://portal.gov.pk/list' },
+      async () => ({
+        ok: true,
+        status: 200,
+        url: 'https://portal.gov.pk/jobs/555',
+        headers: new Headers({ 'content-type': 'text/html' }),
+        body: errDetailTracker.stream
+      } as any)
+    );
+    assert.strictEqual(errDetailJob.title, 'Existing Listing Title', 'Detail read failure must preserve original listing');
+    assert.strictEqual(errDetailTracker.stats.lockActive, false, 'Detail reader lock must be released on read error');
+    assert.strictEqual(errDetailTracker.stats.releaseCount, 1);
+    assert.strictEqual(errDetailTracker.stats.cancelCount, 1, 'Detail stream must be cancelled once on read error');
+
+    const overDetailTracker = makeTrackedStream('overflow', 1024 * 1024);
+    const overDetailRes = await readBoundedHtmlResponse({ headers: new Headers(), body: overDetailTracker.stream } as any, MAX_DETAIL_HTML_BYTES);
+    assert.strictEqual(overDetailRes.oversized, true);
+    assert.strictEqual(overDetailTracker.stats.lockActive, false, 'Detail reader lock must be released on overflow');
+    assert.strictEqual(overDetailTracker.stats.cancelCount, 1, 'Detail stream must be cancelled once on overflow');
+
+    // C. parsePdfFromUrl (pdfParserEngine.ts)
+    const originalFetch = globalThis.fetch;
+    try {
+      const errPdfTracker = makeTrackedStream('error');
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/pdf' }),
+        body: errPdfTracker.stream
+      })) as any;
+
+      const errPdfResult = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/broken.pdf', 'Dept');
+      assert.strictEqual(errPdfResult.success, false);
+      assert.strictEqual(errPdfResult.diagnosticCode, 'NETWORK_ERROR');
+      assert.strictEqual(errPdfTracker.stats.lockActive, false, 'PDF reader lock must be released on read error');
+      assert.strictEqual(errPdfTracker.stats.releaseCount, 1);
+      assert.strictEqual(errPdfTracker.stats.cancelCount, 1, 'PDF stream must be cancelled once on read error');
+
+      const overPdfTracker = makeTrackedStream('overflow', 6 * 1024 * 1024);
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/pdf' }),
+        body: overPdfTracker.stream
+      })) as any;
+
+      const overPdfResult = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/huge.pdf', 'Dept');
+      assert.strictEqual(overPdfResult.success, false);
+      assert.strictEqual(overPdfResult.diagnosticCode, 'OVERSIZED_DOCUMENT');
+      assert.strictEqual(overPdfTracker.stats.lockActive, false, 'PDF reader lock must be released on overflow');
+      assert.strictEqual(overPdfTracker.stats.releaseCount, 1);
+      assert.strictEqual(overPdfTracker.stats.cancelCount, 1, 'PDF stream must be cancelled once on overflow');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-B2 Case 6 [Unit]: Existing Undici dispatcher timeouts, safeFetchWithRetry timeout expiry, and scraperEngine skip-to-next-source behavior remain unchanged', async () => {
+    // 1. Verify existing Undici dispatcher configuration (15000ms idle timeouts) and size constants remain untouched
+    assert.strictEqual(MAX_PORTAL_HTML_BYTES, 8 * 1024 * 1024);
+    assert.strictEqual(MAX_ATS_JSON_BYTES, 5 * 1024 * 1024);
+    assert.strictEqual(MAX_DETAIL_HTML_BYTES, 2 * 1024 * 1024);
+    assert.ok(scraperTlsDispatcher instanceof Agent, 'scraperTlsDispatcher must remain an Undici Agent');
+
+    // 2. Verify existing safeFetchWithRetry AbortController timeout & maxRetries work cleanly
+    const originalFetch = globalThis.fetch;
+    let attemptCount = 0;
+    try {
+      globalThis.fetch = ((_input: any, init: any) =>
+        new Promise((_resolve, reject) => {
+          attemptCount++;
+          init?.signal?.addEventListener('abort', () => {
+            const abortErr: any = new Error('The operation was aborted');
+            abortErr.name = 'AbortError';
+            reject(abortErr);
+          }, { once: true });
+        })) as any;
+
+      await assert.rejects(
+        () => safeFetchWithRetry('https://[2607:f8b0:4005:805::200e]/slow', {}, 40, 1),
+        /Connection timed out after 40ms/
+      );
+      assert.strictEqual(attemptCount, 2, 'Existing maxRetries=1 retry count must execute 2 total attempts before timing out');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    // 3. Verify executeScraperWithWizard marks timed-out source as Timeout and moves cleanly to next source
+    const recordedStats: Array<{ id: string; stats: any }> = [];
+    const persistedJobs: any[] = [];
+    const summary = await executeScraperWithWizard(
+      { mode: 'complete', duplicateMode: 'without', sourceIds: ['src-timeout-1', 'src-healthy-2'] },
+      {
+        getConfigsFn: async () => [
+          { id: 'src-timeout-1', name: 'Slow Source', url: 'https://slow.example.pk/jobs', status: 'Active Scheduled' },
+          { id: 'src-healthy-2', name: 'Healthy Source', url: 'https://fast.example.pk/jobs', status: 'Active Scheduled' }
+        ],
+        updateSourceStatsFn: async (id: string, stats: any) => {
+          recordedStats.push({ id, stats });
+        },
+        addRunFn: async () => ({ persistence: 'memory' }),
+        scrapePageFn: async (config: any) => {
+          if (config.id === 'src-timeout-1') {
+            throw new Error(`Remote portal unavailable: ${config.url} (Connection timed out after 10000ms)`);
+          }
+          return [
+            {
+              id: 'healthy-job-1',
+              title: 'Civil Engineer',
+              company: 'Fast Authority',
+              jobType: 'On-site',
+              region: 'Pakistan',
+              salary: 'Market Competitive',
+              currency: 'PKR',
+              experienceLevel: 'Mid',
+              department: 'Engineering',
+              tags: ['Engineering'],
+              description: 'Civil engineering vacancy on healthy portal',
+              requirements: [],
+              benefits: [],
+              postedAt: 'Today',
+              applicationsCount: 0,
+              status: 'Pending',
+              sourceUrl: 'https://fast.example.pk/jobs/1',
+              extractionMethod: 'html_cheerio'
+            } as any
+          ];
+        },
+        enrichJobsFn: async (jobs: any[]) => jobs,
+        findDuplicateCandidatesFn: async () => [],
+        createJobFn: async (job: any) => {
+          persistedJobs.push(job);
+          return job;
+        },
+        addPendingJobFn: async (job: any) => {
+          persistedJobs.push(job);
+          return job;
+        },
+        auditAddFn: async () => {}
+      }
+    );
+
+    assert.strictEqual(summary.sourcesStats.length, 2, 'Scraper must process both sources without aborting on first timeout');
+    assert.strictEqual(summary.sourcesStats[0].sourceId, 'src-timeout-1');
+    assert.strictEqual(summary.sourcesStats[0].failed, true);
+    assert.strictEqual(summary.sourcesStats[1].sourceId, 'src-healthy-2');
+    assert.strictEqual(summary.sourcesStats[1].failed, false);
+    assert.strictEqual(persistedJobs.length, 1, 'Healthy next source job must be persisted after previous source timed out');
+
+    const timeoutFinalStat = recordedStats.filter(s => s.id === 'src-timeout-1').pop();
+    assert.strictEqual(timeoutFinalStat?.stats?.healthStatus, 'Timeout', 'Timed-out source must retain Timeout healthStatus');
   });
 
   console.log('------------------------------------------------------------------');

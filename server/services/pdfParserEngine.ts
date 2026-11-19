@@ -677,6 +677,13 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
     }
 
     if (!res.ok) {
+      try {
+        if (res.body && !res.bodyUsed && typeof res.body.cancel === 'function') {
+          await res.body.cancel();
+        }
+      } catch {
+        // Ignore stream cancel errors so HTTP error is preserved
+      }
       console.log(`[Document Parser] URL responded with HTTP ${res.status} for ${sanitizeUrlForLog(cleanUrl)}`);
       return {
         success: false,
@@ -699,7 +706,9 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       const contentLength = parseInt(contentLengthHeader, 10);
       if (!Number.isNaN(contentLength) && contentLength > MAX_REMOTE_PDF_BYTES) {
         try {
-          await res.body?.cancel();
+          if (res.body && !res.bodyUsed && typeof res.body.cancel === 'function') {
+            await res.body.cancel();
+          }
         } catch {
           // Ignore stream cancel errors
         }
@@ -721,30 +730,53 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       const reader = res.body.getReader();
       const chunks: Buffer[] = [];
       let totalBytes = 0;
+      let streamClosedOrCancelled = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          totalBytes += value.byteLength;
-          if (totalBytes > MAX_REMOTE_PDF_BYTES) {
-            try {
-              await reader.cancel();
-            } catch {
-              // Ignore stream cancel errors
-            }
-            return {
-              success: false,
-              totalPages: 0,
-              extractedJobs: [],
-              rawTextSample: '',
-              sourceUrl: cleanUrl,
-              fileName,
-              diagnosticCode: 'OVERSIZED_DOCUMENT',
-              message: 'Document exceeds maximum supported size (15 MB)'
-            };
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            streamClosedOrCancelled = true;
+            break;
           }
-          chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+          if (value) {
+            totalBytes += value.byteLength;
+            if (totalBytes > MAX_REMOTE_PDF_BYTES) {
+              streamClosedOrCancelled = true;
+              try {
+                await reader.cancel('Document exceeded maximum supported size (15 MB)');
+              } catch {
+                // Ignore stream cancel errors
+              }
+              return {
+                success: false,
+                totalPages: 0,
+                extractedJobs: [],
+                rawTextSample: '',
+                sourceUrl: cleanUrl,
+                fileName,
+                diagnosticCode: 'OVERSIZED_DOCUMENT',
+                message: 'Document exceeds maximum supported size (15 MB)'
+              };
+            }
+            chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+          }
+        }
+      } catch (readErr) {
+        if (!streamClosedOrCancelled) {
+          streamClosedOrCancelled = true;
+          try {
+            await reader.cancel();
+          } catch {
+            // Ignore stream cancel errors so original read error is preserved
+          }
+        }
+        throw readErr;
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {
+          // Ignore lock release errors
         }
       }
 

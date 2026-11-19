@@ -481,16 +481,16 @@ export class MaxPayloadExceededError extends Error {
 async function cancelStream(stream: any, reader?: any, reason?: string): Promise<void> {
   const cancelMsg = reason || 'Response body exceeded maximum allowed limit';
   if (reader) {
+    let readerCancelled = false;
     try {
       if (typeof reader.cancel === 'function') {
         await reader.cancel(cancelMsg);
+        readerCancelled = true;
       }
     } catch {}
-    try {
-      if (typeof reader.releaseLock === 'function') {
-        reader.releaseLock();
-      }
-    } catch {}
+    if (readerCancelled) {
+      return;
+    }
   }
   if (stream) {
     try {
@@ -507,7 +507,7 @@ async function cancelStream(stream: any, reader?: any, reason?: string): Promise
  * Checks Content-Length header against maxBytes limit before reading body stream.
  * Stops and cancels stream early if header indicates an oversized response.
  */
-function checkContentLengthHeader(response: any, maxBytes: number, contextLabel: string): void {
+async function checkContentLengthHeader(response: any, maxBytes: number, contextLabel: string): Promise<void> {
   let clHeader: any = null;
   if (response?.headers) {
     if (typeof response.headers.get === 'function') {
@@ -522,7 +522,9 @@ function checkContentLengthHeader(response: any, maxBytes: number, contextLabel:
   if (clHeader !== null && clHeader !== undefined) {
     const clNum = parseInt(String(clHeader).trim(), 10);
     if (!isNaN(clNum) && clNum > maxBytes) {
-      cancelStream(response?.body, undefined, `Content-Length ${clNum} exceeds limit ${maxBytes}`);
+      if (!response?.bodyUsed) {
+        await cancelStream(response?.body, undefined, `Content-Length ${clNum} exceeds limit ${maxBytes}`);
+      }
       throw new MaxPayloadExceededError(
         `${contextLabel} Content-Length (${clNum} bytes) exceeds maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
         maxBytes,
@@ -568,7 +570,7 @@ export async function readBoundedResponseText(
   }
 
   // 1. Fast early rejection on Content-Length header if present
-  checkContentLengthHeader(response, maxBytes, contextLabel);
+  await checkContentLengthHeader(response, maxBytes, contextLabel);
 
   // 2. Stream-based bounded reading if body stream is present
   if (response.body) {
@@ -577,14 +579,19 @@ export async function readBoundedResponseText(
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
       let totalBytes = 0;
+      let streamCleanedUp = false;
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            streamCleanedUp = true;
+            break;
+          }
           if (value) {
             const chunkBytes = value.byteLength !== undefined ? value.byteLength : value.length || 0;
             totalBytes += chunkBytes;
             if (totalBytes > maxBytes) {
+              streamCleanedUp = true;
               await cancelStream(response.body, reader, `${contextLabel} exceeded limit of ${maxBytes} bytes`);
               throw new MaxPayloadExceededError(
                 `${contextLabel} body stream exceeded maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
@@ -596,7 +603,10 @@ export async function readBoundedResponseText(
           }
         }
       } catch (readErr: any) {
-        await cancelStream(response.body, reader);
+        if (!streamCleanedUp) {
+          streamCleanedUp = true;
+          await cancelStream(response.body, reader);
+        }
         throw readErr;
       } finally {
         try {
@@ -611,6 +621,7 @@ export async function readBoundedResponseText(
     if (typeof response.body[Symbol.asyncIterator] === 'function') {
       const chunks: Uint8Array[] = [];
       let totalBytes = 0;
+      let streamCleanedUp = false;
       try {
         for await (const chunk of response.body) {
           const u8 = typeof chunk === 'string'
@@ -620,6 +631,7 @@ export async function readBoundedResponseText(
               : new Uint8Array(chunk);
           totalBytes += u8.byteLength;
           if (totalBytes > maxBytes) {
+            streamCleanedUp = true;
             await cancelStream(response.body, undefined, `${contextLabel} exceeded limit of ${maxBytes} bytes`);
             throw new MaxPayloadExceededError(
               `${contextLabel} body stream exceeded maximum allowed limit of ${maxBytes} bytes (${(maxBytes / (1024 * 1024)).toFixed(0)} MB)`,
@@ -629,8 +641,12 @@ export async function readBoundedResponseText(
           }
           chunks.push(u8);
         }
+        streamCleanedUp = true;
       } catch (readErr: any) {
-        await cancelStream(response.body);
+        if (!streamCleanedUp) {
+          streamCleanedUp = true;
+          await cancelStream(response.body);
+        }
         throw readErr;
       }
 
@@ -679,7 +695,7 @@ export async function readBoundedResponseJson<T = any>(
 ): Promise<T> {
   // If response has no stream body and no .text(), but has .json() (lightweight test mock)
   if (!response?.body && typeof response?.text !== 'function' && typeof response?.json === 'function') {
-    checkContentLengthHeader(response, maxBytes, contextLabel);
+    await checkContentLengthHeader(response, maxBytes, contextLabel);
     const data = await response.json();
     return data as T;
   }
@@ -734,6 +750,9 @@ async function executeAtsJsonAdapter<T>(params: {
   }
 
   if (!res || !res.ok) {
+    if (res && !res.bodyUsed) {
+      await cancelStream(res.body, undefined, 'Non-2xx ATS HTTP response');
+    }
     const status = typeof res?.status === 'number' ? res.status : undefined;
     const diagnostic = `[${adapterName} Adapter] failure=http_error${status !== undefined ? ` status=${status}` : ''} target=${safeTargetForLog}`;
     console.warn(diagnostic);
@@ -1662,12 +1681,18 @@ export async function scrapeTargetPortal(
 
     // 6. Safe Fetch with SSRF protection, timeout, and retries
     const response = await fetchFn(targetUrl, {}, 10000, 1);
-    if (!response.ok) {
-      console.log(`[Scraper Pipeline] Target ${config.name} (${sanitizeUrlForLog(targetUrl)}) responded with HTTP ${response.status}.`);
-      const httpErr: any = new Error(`HTTP ${response.status}: Target returned status ${response.status}`);
-      httpErr.status = response.status;
-      httpErr.statusCode = response.status;
-      httpErr.httpStatus = response.status;
+    if (!response || !response.ok) {
+      if (response && !response.bodyUsed) {
+        await cancelStream(response.body, undefined, 'Non-2xx portal HTTP response');
+      }
+      const status = typeof response?.status === 'number' ? response.status : 'unknown';
+      console.log(`[Scraper Pipeline] Target ${config.name} (${sanitizeUrlForLog(targetUrl)}) responded with HTTP ${status}.`);
+      const httpErr: any = new Error(`HTTP ${status}: Target returned status ${status}`);
+      if (typeof response?.status === 'number') {
+        httpErr.status = response.status;
+        httpErr.statusCode = response.status;
+        httpErr.httpStatus = response.status;
+      }
       throw httpErr;
     }
 
@@ -1677,12 +1702,18 @@ export async function scrapeTargetPortal(
       failedPdfUrls.has(canonicalizePdfUrl(targetUrl)) ||
       failedPdfUrls.has(canonicalizePdfUrl(finalResponseUrl))
     ) {
+      if (!response.bodyUsed) {
+        await cancelStream(response.body, undefined, 'PDF Loop Prevented');
+      }
       throw new Error(`PDF Loop Prevented: Target URL or redirect destination is already known to be a failed PDF (${finalResponseUrl || targetUrl})`);
     }
 
     // Check if Content-Type is PDF (e.g. redirected or served without .pdf extension)
     const contentType = (response?.headers && typeof response.headers.get === 'function' ? response.headers.get('content-type') : response?.headers?.['content-type']) || '';
     if (contentType.includes('application/pdf') || finalResponseUrl.toLowerCase().split('?')[0].endsWith('.pdf')) {
+      if (!response.bodyUsed) {
+        await cancelStream(response.body, undefined, 'Redirected to PDF parser engine');
+      }
       const pdfRes = await parsePdfFromUrl(finalResponseUrl, config.name);
       if (!pdfRes.success) {
         throw new Error(pdfRes.message ? `Invalid PDF: ${pdfRes.message}` : 'Invalid PDF: Failed to parse PDF response');

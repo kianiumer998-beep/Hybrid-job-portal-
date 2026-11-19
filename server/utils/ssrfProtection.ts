@@ -22,6 +22,14 @@ function evaluateIpv4(a: number, b: number, c: number, d: number): { blocked: bo
   if (a === 169 && b === 254) return { blocked: true, reason: 'Link-local / Cloud metadata address (169.254.0.0/16)' };
   // 100.64.0.0/10 (carrier-grade NAT / shared space)
   if (a === 100 && b >= 64 && b <= 127) return { blocked: true, reason: 'Shared address space (100.64.0.0/10)' };
+  // 192.0.0.0/24 (IETF protocol assignments - preserve globally reachable exceptions 192.0.0.9 and 192.0.0.10)
+  if (a === 192 && b === 0 && c === 0 && d !== 9 && d !== 10) {
+    return { blocked: true, reason: 'IETF protocol assignments reserved IP address (192.0.0.0/24)' };
+  }
+  // 192.88.99.0/24 (deprecated 6to4 relay anycast)
+  if (a === 192 && b === 88 && c === 99) {
+    return { blocked: true, reason: 'Deprecated 6to4 relay anycast IP address (192.88.99.0/24)' };
+  }
   // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NETs)
   if ((a === 192 && b === 0 && c === 2) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)) {
     return { blocked: true, reason: 'Test-net reserved IP address' };
@@ -168,39 +176,88 @@ export function isPrivateOrBlockedIp(ip: string): { blocked: boolean; reason?: s
       return { blocked: true, reason: 'IPv6 NAT64 well-known prefix (64:ff9b::/96)' };
     }
 
-    // 4. IPv6 unique-local address (fc00::/7 covering fc00::/8 and fd00::/8)
+    // 8. NAT64 local-use prefix (64:ff9b:1::/48)
+    if (words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 0x0001) {
+      return { blocked: true, reason: 'IPv6 NAT64 local-use prefix (64:ff9b:1::/48)' };
+    }
+
+    // 9. IPv6 unique-local address (fc00::/7 covering fc00::/8 and fd00::/8)
     if ((words[0] & 0xfe00) === 0xfc00) {
       return { blocked: true, reason: 'IPv6 unique-local address (fc00::/7)' };
     }
 
-    // 5. IPv6 link-local unicast address (fe80::/10 covering fe80:: - febf:ffff:...)
+    // 10. IPv6 link-local unicast address (fe80::/10 covering fe80:: - febf:ffff:...)
     if ((words[0] & 0xffc0) === 0xfe80) {
       return { blocked: true, reason: 'IPv6 link-local address (fe80::/10)' };
     }
 
-    // 6. IPv6 multicast address (ff00::/8)
+    // 11. IPv6 multicast address (ff00::/8)
     if ((words[0] & 0xff00) === 0xff00) {
       return { blocked: true, reason: 'IPv6 multicast address (ff00::/8)' };
     }
 
-    // 7. IPv6 documentation address (2001:db8::/32)
+    // 12. IPv6 documentation address (2001:db8::/32)
     if (words[0] === 0x2001 && words[1] === 0x0db8) {
       return { blocked: true, reason: 'IPv6 documentation address (2001:db8::/32)' };
     }
 
-    // 8. IPv6 discard-only prefix (100::/64)
+    // 13. IPv6 documentation address (3fff::/20)
+    if (words[0] === 0x3fff && (words[1] & 0xf000) === 0x0000) {
+      return { blocked: true, reason: 'IPv6 documentation address (3fff::/20)' };
+    }
+
+    // 14. IPv6 discard-only prefix (100::/64) and dummy prefix (100:0:0:1::/64)
     if (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && words[3] === 0) {
       return { blocked: true, reason: 'IPv6 discard-only address (100::/64)' };
     }
+    if (words[0] === 0x0100 && words[1] === 0 && words[2] === 0 && words[3] === 0x0001) {
+      return { blocked: true, reason: 'IPv6 special-purpose address (100:0:0:1::/64)' };
+    }
 
-    // 9. IPv6 benchmarking address (2001:2::/48)
+    // 15. IPv6 benchmarking address (2001:2::/48)
     if (words[0] === 0x2001 && words[1] === 0x0002) {
       return { blocked: true, reason: 'IPv6 benchmarking address (2001:2::/48)' };
     }
 
-    // 10. IPv6 deprecated site-local address (fec0::/10)
+    // 16. IPv6 Segment Routing SID prefix (5f00::/16)
+    if (words[0] === 0x5f00) {
+      return { blocked: true, reason: 'IPv6 Segment Routing SID prefix (5f00::/16)' };
+    }
+
+    // 17. IPv6 deprecated site-local address (fec0::/10)
     if ((words[0] & 0xffc0) === 0xfec0) {
       return { blocked: true, reason: 'IPv6 site-local address (fec0::/10)' };
+    }
+
+    // 18. Non-globally-reachable portions of 2001::/23 (IETF protocol assignments)
+    // Preserve globally reachable exceptions:
+    // - 2001:1::1/128, 2001:1::2/128, 2001:1::3/128
+    // - 2001:3::/32
+    // - 2001:4:112::/48
+    // - 2001:20::/28
+    // - 2001:30::/28
+    if (words[0] === 0x2001 && (words[1] & 0xfe00) === 0x0000) {
+      const is20011Global =
+        words[1] === 0x0001 &&
+        words[2] === 0 &&
+        words[3] === 0 &&
+        words[4] === 0 &&
+        words[5] === 0 &&
+        words[6] === 0 &&
+        (words[7] === 1 || words[7] === 2 || words[7] === 3);
+      const isAmtGlobal = words[1] === 0x0003;
+      const isAs112Global = words[1] === 0x0004 && words[2] === 0x0112;
+      const isOrchidV2Global = (words[1] & 0xfff0) === 0x0020;
+      const isDroneIdGlobal = (words[1] & 0xfff0) === 0x0030;
+
+      if (!is20011Global && !isAmtGlobal && !isAs112Global && !isOrchidV2Global && !isDroneIdGlobal) {
+        return { blocked: true, reason: 'IPv6 non-global IETF protocol assignment (2001::/23)' };
+      }
+    }
+
+    // 19. Restrict ordinary IPv6 addresses to Global Unicast (2000::/3)
+    if ((words[0] & 0xe000) !== 0x2000) {
+      return { blocked: true, reason: 'Non-global-unicast IPv6 address (outside 2000::/3)' };
     }
   }
 
@@ -352,8 +409,12 @@ export async function resolveAndValidateDns(parsedUrl: URL): Promise<{ safe: boo
 async function cancelResponseBody(res: any): Promise<void> {
   if (!res) return;
   try {
-    if (res.body && !res.bodyUsed && typeof res.body.cancel === 'function') {
-      await res.body.cancel();
+    if (res.body && !res.bodyUsed) {
+      if (typeof res.body.cancel === 'function') {
+        await res.body.cancel();
+      } else if (typeof res.body.destroy === 'function') {
+        res.body.destroy();
+      }
     }
   } catch {
     // Ignore stream cancellation errors on closed/consumed streams
@@ -503,6 +564,13 @@ export async function safeFetchWithRetry(
           if (!redirectCheck.safe) {
             await cancelResponseBody(res);
             throw new Error(`SSRF Blocked on redirect: ${redirectCheck.error}`);
+          }
+
+          // Reject HTTPS-to-HTTP protocol downgrade redirects while preserving HTTP-to-HTTPS upgrades
+          const currentParsed = new URL(currentUrl);
+          if (currentParsed.protocol === 'https:' && redirectCheck.parsedUrl!.protocol === 'http:') {
+            await cancelResponseBody(res);
+            throw new Error(`SSRF Blocked: HTTPS-to-HTTP redirect downgrade rejected (${nextUrl})`);
           }
 
           // Resolve and validate redirect target DNS

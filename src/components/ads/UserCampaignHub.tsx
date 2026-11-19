@@ -2200,7 +2200,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
               </span>
               <h3 className="text-lg font-black text-white">{previewAd.title}</h3>
               <p className="text-xs text-slate-400">
-                Placement: <strong>{getPlacementDisplayName(previewAd.placement)}</strong> • Duration: <strong>{previewAd.durationDisplay || '24 Hours'}</strong>
+                Placement: <strong>{getPlacementDisplayName(previewAd.placement)}</strong> • Duration: <strong>{previewAd.durationDisplay || (previewAd.durationValue ? `${previewAd.durationValue} ${previewAd.durationUnit || ''}`.trim() : 'Not set')}</strong>
               </p>
             </div>
 

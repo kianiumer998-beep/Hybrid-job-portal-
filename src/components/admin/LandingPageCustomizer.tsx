@@ -34,13 +34,15 @@ interface LandingPageCustomizerProps {
   onUpdateConfig: (newConfig: LandingPageConfig) => Promise<any> | void;
   campaignConfig: CampaignCustomizationConfig;
   onUpdateCampaignConfig: (newConfig: CampaignCustomizationConfig) => Promise<any> | void;
+  jobs?: any[];
 }
 
 export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
   config,
   onUpdateConfig,
   campaignConfig,
-  onUpdateCampaignConfig
+  onUpdateCampaignConfig,
+  jobs = []
 }) => {
   const [activeTab, setActiveTab] = useState<'hero' | 'sections' | 'custom-cards' | 'design' | 'promos' | 'preview'>('sections');
   const [heroForm, setHeroForm] = useState(config.hero);
@@ -712,6 +714,35 @@ export const LandingPageCustomizer: React.FC<LandingPageCustomizerProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Live field availability: based only on real jobs supplied by AdminDashboard */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                <div>
+                  <h4 className="text-sm font-black text-white">Live Job-Data Visibility Status</h4>
+                  <p className="text-[10px] text-slate-400 mt-1">Yeh status loaded job records aur Admin ON/OFF setting ko check karta hai. Koi demo ya synthetic job use nahi hoti.</p>
+                </div>
+                {[
+                  { key: 'poster', label: 'Poster / Source', paths: ['postedByName', 'employerName', 'company', 'sourcePortal', 'sourceName', 'source'] },
+                  { key: 'relativePostedTime', label: 'Relative Posted Time', paths: ['postedAt', 'createdAt'] },
+                  { key: 'exactPostedDate', label: 'Exact Posted Date', paths: ['postedAt', 'createdAt'] },
+                  { key: 'deadlineDate', label: 'Application Deadline', paths: ['deadlineDate', 'applicationDeadline'] },
+                  { key: 'deadlineRemaining', label: 'Deadline Remaining', paths: ['deadlineDate', 'applicationDeadline'] },
+                  { key: 'duplicateOverrideBadge', label: 'Duplicate Override Badge', paths: ['duplicateOverride', 'isDuplicateOverride', 'duplicateOverrideReason'] }
+                ].map((field) => {
+                  const enabled = jobCardDesignForm.visibility[field.key as keyof typeof jobCardDesignForm.visibility] !== false;
+                  const hasData = jobs.some((job) => field.paths.some((path) => {
+                    const value = job?.[path];
+                    return value !== undefined && value !== null && String(value).trim() !== '';
+                  }));
+                  const status = !enabled ? 'Disabled by Admin' : jobs.length === 0 ? 'No live job data loaded' : hasData ? 'Data available in loaded jobs' : 'Data unavailable in loaded jobs';
+                  const tone = !enabled ? 'text-rose-300 bg-rose-500/10 border-rose-500/30' : hasData && jobs.length > 0 ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-amber-300 bg-amber-500/10 border-amber-500/30';
+                  return <div key={field.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2 last:border-0">
+                    <span className="text-xs font-bold text-slate-200">{field.label}</span>
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${tone}`}>{status}</span>
+                  </div>;
+                })}
+                <p className="text-[10px] text-slate-500">Note: “Data available” ka matlab record mein value mojood hai; premium/access policy ya individual job ki publication state ki wajah se har user ko visible hona guaranteed nahi. Final confirmation public user card par hoti hai.</p>
               </div>
 
               {/* Labels & Limits */}

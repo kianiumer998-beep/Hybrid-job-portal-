@@ -8396,6 +8396,30 @@ async function runSuite() {
     );
   });
 
+  const createMockRegistryColl = () => {
+    const registryMap = new Map<string, any>();
+    return {
+      insertOne: async (doc: any) => {
+        if (registryMap.has(doc._id)) {
+          const err: any = new Error(
+            `E11000 duplicate key error collection: scraper_job_id_registry index: _id_ dup key: { _id: "${doc._id}" }`
+          );
+          err.code = 11000;
+          throw err;
+        }
+        registryMap.set(doc._id, doc);
+        return { acknowledged: true, insertedId: doc._id };
+      },
+      deleteOne: async (filter: any) => {
+        const id = filter._id;
+        const existed = registryMap.has(id);
+        registryMap.delete(id);
+        return { acknowledged: true, deletedCount: existed ? 1 : 0 };
+      },
+      findOne: async (filter: any) => registryMap.get(filter._id) || null
+    };
+  };
+
   await runTest('STEP-8.5-A1 Case 5 [Mocked]: createScrapedLive and addScrapedPending perform atomic insertOne without upsert and require confirmation', async () => {
     const liveOps: string[] = [];
     const pendingOps: string[] = [];
@@ -8412,6 +8436,7 @@ async function runSuite() {
       {
         isMongoConfiguredFn: () => true,
         applyVisibilityPolicyFn: async (j) => j,
+        getIdRegistryCollectionFn: async () => createMockRegistryColl(),
         getPendingJobsCollectionFn: async () => ({
           findOne: async () => null
         }),
@@ -8442,6 +8467,7 @@ async function runSuite() {
       },
       {
         isMongoConfiguredFn: () => true,
+        getIdRegistryCollectionFn: async () => createMockRegistryColl(),
         getJobsCollectionFn: async () => ({
           findOne: async () => null
         }),
@@ -8469,6 +8495,7 @@ async function runSuite() {
           {
             isMongoConfiguredFn: () => true,
             applyVisibilityPolicyFn: async (j) => j,
+            getIdRegistryCollectionFn: async () => createMockRegistryColl(),
             getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
             getJobsCollectionFn: async () => ({
               insertOne: async () => ({ acknowledged: false, insertedId: 'oid-x' })
@@ -8484,6 +8511,7 @@ async function runSuite() {
           { id: 'missing-oid-pending-1', title: 'Test', company: 'Org' },
           {
             isMongoConfiguredFn: () => true,
+            getIdRegistryCollectionFn: async () => createMockRegistryColl(),
             getJobsCollectionFn: async () => ({ findOne: async () => null }),
             getPendingJobsCollectionFn: async () => ({
               insertOne: async () => ({ acknowledged: true })
@@ -8565,6 +8593,7 @@ async function runSuite() {
           JobRepository.createScrapedLive(job, {
             isMongoConfiguredFn: () => true,
             applyVisibilityPolicyFn: async (j) => j,
+            getIdRegistryCollectionFn: async () => createMockRegistryColl(),
             getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
             getJobsCollectionFn: async () => mockJobsColl
           }),
@@ -8652,6 +8681,7 @@ async function runSuite() {
         addPendingJobFn: (job) =>
           JobRepository.addScrapedPending(job, {
             isMongoConfiguredFn: () => true,
+            getIdRegistryCollectionFn: async () => createMockRegistryColl(),
             getJobsCollectionFn: async () => ({ findOne: async () => null }),
             getPendingJobsCollectionFn: async () => mockPendingColl
           }),
@@ -8688,6 +8718,7 @@ async function runSuite() {
       {
         isMongoConfiguredFn: () => true,
         applyVisibilityPolicyFn: async (j) => j,
+        getIdRegistryCollectionFn: async () => createMockRegistryColl(),
         getPendingJobsCollectionFn: async () => ({
           // First ID exists in opposite (pending) collection!
           findOne: async ({ id }: any) => (id === 'cross-coll-id-1' ? { id } : null)
@@ -8738,6 +8769,7 @@ async function runSuite() {
           {
             isMongoConfiguredFn: () => true,
             applyVisibilityPolicyFn: async (j) => j,
+            getIdRegistryCollectionFn: async () => createMockRegistryColl(),
             getPendingJobsCollectionFn: async () => ({ findOne: async () => null }),
             getJobsCollectionFn: async () => ({
               insertOne: async () => {
@@ -8843,6 +8875,7 @@ async function runSuite() {
           { id: 'net-err-1', title: 'Analyst', company: 'Org' },
           {
             isMongoConfiguredFn: () => true,
+            getIdRegistryCollectionFn: async () => createMockRegistryColl(),
             getJobsCollectionFn: async () => ({ findOne: async () => null }),
             getPendingJobsCollectionFn: async () => ({
               insertOne: async () => {
@@ -8923,6 +8956,7 @@ async function runSuite() {
         addPendingJobFn: (job) =>
           JobRepository.addScrapedPending(job, {
             isMongoConfiguredFn: () => true,
+            getIdRegistryCollectionFn: async () => createMockRegistryColl(),
             getJobsCollectionFn: async () => ({ findOne: async ({ id }: any) => liveStore.get(id) || null }),
             getPendingJobsCollectionFn: async () => ({
               insertOne: async (doc: any) => {
@@ -12741,6 +12775,78 @@ async function runSuite() {
     const norm = normalizeExactJobUrl('https://Careers.Example.COM:443/jobs/1?tag=b&tag=a&utm_source=feed#top');
     assert.strictEqual(norm, 'https://careers.example.com/jobs/1?tag=b&tag=a');
     assert.strictEqual(isGenericApplicationPortalUrl('https://example.com/apply'), true);
+  });
+
+  await runTest('STEP-8.5-C.4 [Unreachable Test Registry Fallback Removed & Fail-Closed MongoDB Gate]: persistScrapedAtomic resolves real MongoDB scraper_job_id_registry, fails closed when unconfigured or connection unavailable, and supports explicitly injected test registry', async () => {
+    // 1. Verify obsolete symbols are not present or exported
+    assert.strictEqual((JobRepository as any).testRegistryStore, undefined, 'testRegistryStore must be removed');
+    assert.strictEqual((JobRepository as any).getTestIdRegistryCollection, undefined, 'getTestIdRegistryCollection must be removed');
+
+    // 2. Unconfigured MongoDB must throw immediately and NEVER reach registry collection resolution
+    let registryAcquisitionAttempted = false;
+    await assert.rejects(
+      () =>
+        (JobRepository as any).persistScrapedAtomic(
+          'live',
+          { id: 'unconfigured-test-1', title: 'Test', company: 'Co' },
+          {
+            isMongoConfiguredFn: () => false,
+            getIdRegistryCollectionFn: async () => {
+              registryAcquisitionAttempted = true;
+              return createMockRegistryColl();
+            }
+          }
+        ),
+      /Database Configuration Error: MONGODB_URI environment variable is not defined or invalid/
+    );
+    assert.strictEqual(registryAcquisitionAttempted, false, 'Unconfigured MongoDB must fail closed before registry acquisition');
+
+    // 3. Without injected test registry, default path strictly queries getMongoDb() and fails closed when MongoDB is unavailable
+    await assert.rejects(
+      () =>
+        (JobRepository as any).persistScrapedAtomic(
+          'live',
+          { id: 'prod-resolution-test-1', title: 'Test', company: 'Co' },
+          {
+            isMongoConfiguredFn: () => true,
+            getJobsCollectionFn: async () => ({ insertOne: async () => ({ acknowledged: true, insertedId: '1' }) })
+          }
+        ),
+      (err: any) =>
+        err !== null &&
+        (err.message.includes('MongoDB') ||
+          err.message.includes('connect') ||
+          err.message.includes('MONGODB_URI') ||
+          err.name === 'MongoServerSelectionError' ||
+          err.name === 'MongoNetworkError')
+    );
+
+    // 4. Explicit test registry dependency injection functions correctly without any hidden in-memory fallback
+    let customRegistryCalled = false;
+    const customColl = createMockRegistryColl();
+    const res = await (JobRepository as any).persistScrapedAtomic(
+      'live',
+      {
+        id: 'explicit-injected-reg-1',
+        title: 'Injected Registry Job',
+        company: 'Test Org'
+      },
+      {
+        isMongoConfiguredFn: () => true,
+        getIdRegistryCollectionFn: async () => {
+          customRegistryCalled = true;
+          return customColl;
+        },
+        getJobsCollectionFn: async () => ({
+          insertOne: async (doc: any) => ({ acknowledged: true, insertedId: `oid-${doc.id}` })
+        }),
+        getPendingJobsCollectionFn: async () => ({
+          findOne: async () => null
+        })
+      }
+    );
+    assert.strictEqual(customRegistryCalled, true, 'Explicitly injected getIdRegistryCollectionFn must be invoked');
+    assert.strictEqual(res.id, 'explicit-injected-reg-1');
   });
 
   console.log('------------------------------------------------------------------');

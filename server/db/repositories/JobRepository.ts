@@ -179,32 +179,6 @@ export function isMongoDuplicateKeyError(err: any): boolean {
   return /e11000/i.test(msg) || /duplicate key/i.test(msg);
 }
 
-const testRegistryStore = new Map<string, any>();
-
-export function getTestIdRegistryCollection() {
-  return {
-    insertOne: async (doc: any) => {
-      if (testRegistryStore.has(doc._id)) {
-        const err: any = new Error(
-          `E11000 duplicate key error collection: scraper_job_id_registry index: _id_ dup key: { _id: "${doc._id}" }`
-        );
-        err.code = 11000;
-        throw err;
-      }
-      testRegistryStore.set(doc._id, doc);
-      return { acknowledged: true, insertedId: doc._id };
-    },
-    deleteOne: async (filter: any) => {
-      const existed = testRegistryStore.has(filter._id);
-      testRegistryStore.delete(filter._id);
-      return { acknowledged: true, deletedCount: existed ? 1 : 0 };
-    },
-    findOne: async (filter: any) => {
-      return testRegistryStore.get(filter._id) || null;
-    }
-  };
-}
-
 function generateUniqueScrapedRecordId(sourceId?: string, excludeIds?: Set<string>): string {
   const safeSource = (sourceId || 'src').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'src';
   for (let attempt = 0; attempt < 25; attempt++) {
@@ -1756,14 +1730,9 @@ export class JobRepository {
             ? await _deps.getPendingJobsCollectionFn()
             : await getPendingJobsCollection());
 
-    let registryColl: any;
-    if (_deps?.getIdRegistryCollectionFn) {
-      registryColl = await _deps.getIdRegistryCollectionFn();
-    } else if (isMongoConfigured()) {
-      registryColl = (await getMongoDb()).collection('scraper_job_id_registry');
-    } else {
-      registryColl = getTestIdRegistryCollection();
-    }
+    const registryColl = _deps?.getIdRegistryCollectionFn
+      ? await _deps.getIdRegistryCollectionFn()
+      : (await getMongoDb()).collection('scraper_job_id_registry');
 
     const usingDefaultCollections = !_deps?.getJobsCollectionFn && !_deps?.getPendingJobsCollectionFn;
     let otherColl: any = null;
@@ -1919,6 +1888,7 @@ export class JobRepository {
     jobData: any,
     _deps?: {
       isMongoConfiguredFn?: () => boolean;
+      getIdRegistryCollectionFn?: () => Promise<any>;
       getJobsCollectionFn?: () => Promise<any>;
       getPendingJobsCollectionFn?: () => Promise<any>;
       applyVisibilityPolicyFn?: (job: any) => Promise<any>;
@@ -1936,6 +1906,7 @@ export class JobRepository {
     jobData: any,
     _deps?: {
       isMongoConfiguredFn?: () => boolean;
+      getIdRegistryCollectionFn?: () => Promise<any>;
       getJobsCollectionFn?: () => Promise<any>;
       getPendingJobsCollectionFn?: () => Promise<any>;
       applyVisibilityPolicyFn?: (job: any) => Promise<any>;

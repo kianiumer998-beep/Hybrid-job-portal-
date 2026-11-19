@@ -90,6 +90,7 @@ interface UserCampaignHubProps {
   onDeleteCampaign: (adId: string) => void;
   onDuplicateCampaign: (ad: Advertisement) => void;
   onOpenGlobalDepositModal?: () => void;
+  onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
 
 export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
@@ -105,7 +106,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   onSubmitCampaign,
   onDeleteCampaign,
   onDuplicateCampaign,
-  onOpenGlobalDepositModal
+  onOpenGlobalDepositModal,
+  onNavigateGlobalTab
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(initialSubTab);
 
@@ -2219,8 +2221,18 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                   onClick={() => {
                     const target = String(previewAd.ctaUrl || '').trim();
                     if (target.startsWith('#')) {
-                      window.location.hash = target.slice(1);
-                      setPreviewAd(null);
+                      const internalTarget = target.slice(1).split(/[/?]/)[0].toLowerCase();
+                      const internalTabs: Record<string, 'jobs' | 'cv' | 'alerts' | 'dashboard'> = {
+                        jobs: 'jobs',
+                        cv: 'cv',
+                        alerts: 'alerts',
+                        dashboard: 'dashboard'
+                      };
+                      const destinationTab = internalTabs[internalTarget];
+                      if (destinationTab && onNavigateGlobalTab) {
+                        setPreviewAd(null);
+                        onNavigateGlobalTab(destinationTab);
+                      }
                       return;
                     }
                     try {

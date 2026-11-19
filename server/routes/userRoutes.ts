@@ -577,6 +577,14 @@ userRouter.put('/:id', requireAuth, async (req: any, res) => {
           finalUpdates[key] = value;
         }
       }
+
+      // Validate the owner's CV draft in the self-service branch as well as the admin branch.
+      if (Object.prototype.hasOwnProperty.call(finalUpdates, 'cvData')) {
+        const cvDataError = validateCvDataPayload(finalUpdates.cvData);
+        if (cvDataError) {
+          return res.status(400).json({ success: false, message: cvDataError });
+        }
+      }
     } else {
       const updateEntries = Object.entries(updates);
       if (updateEntries.length === 0) {

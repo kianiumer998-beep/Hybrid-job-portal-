@@ -34,7 +34,7 @@ export interface PaymentTransaction {
   amount: number;
   currency: Currency;
   type: 'Subscription' | 'Job Posting Fee' | 'Ad Campaign Fee' | 'Wallet Deposit' | 'Refund';
-  status: 'Success' | 'Pending' | 'Failed';
+  status: 'Success' | 'Pending' | 'Verifying' | 'VerificationUncertain' | 'Failed' | 'Rejected' | 'Refunded';
   paymentMethod: 'JazzCash' | 'Easypaisa' | 'Credit Card' | 'Bank Transfer' | 'Stripe' | 'PayPal' | 'Wallet Balance' | string;
   jobTitleRef?: string;
   
@@ -108,7 +108,23 @@ export interface UserAccount {
   phone?: string;
   address?: string;
   bio?: string;
+  avatarUrl?: string;
+  location?: string;
+  city?: string;
+  country?: string;
+  headline?: string;
+  title?: string;
+  website?: string;
   skills?: string[];
+  preferences?: Record<string, any>;
+  experience?: any[];
+  education?: any[];
+  cvUrl?: string;
+  resumeUrl?: string;
+  cvData?: CvData;
+  socialLinks?: Record<string, any>;
+  notificationsEnabled?: boolean;
+  whatsappAlertsEnabled?: boolean;
   plan: 'Free' | 'Premium';
   paymentStatus?: 'Paid' | 'Unpaid' | 'Overdue';
   membershipStatus?: 'Active' | 'Revoked' | 'Expired' | 'Unpaid';

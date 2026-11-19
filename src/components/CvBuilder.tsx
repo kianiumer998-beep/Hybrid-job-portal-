@@ -1,83 +1,96 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CvData } from '../types/job';
 import { Sparkles, Printer, Download, Plus, Trash2, CheckCircle2, FileText, ChevronRight, ChevronLeft, Palette, User, Briefcase, GraduationCap, Award, Eye } from 'lucide-react';
 
 interface CvBuilderProps {
   isSubscribed: boolean;
+  initialCvData?: CvData;
+  onSaveCv: (data: CvData) => Promise<boolean> | boolean;
   onOpenPaywall: () => void;
 }
 
-export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywall }) => {
-  const [step, setStep] = useState<number>(1);
+const createBlankCvData = (): CvData => ({
+  personalInfo: {
+    fullName: '',
+    jobTitle: '',
+    email: '',
+    phone: '',
+    location: '',
+    website: '',
+    linkedin: '',
+    github: '',
+    summary: ''
+  },
+  experience: [],
+  education: [],
+  skills: { technical: [], soft: [], languages: [] },
+  certifications: [],
+  templateStyle: 'modern',
+  themeColor: '#10b981'
+});
 
-  // Initial Sample CV State
-  const [cvData, setCvData] = useState<CvData>({
-    personalInfo: {
-      fullName: 'Muhammad Hamza Khan',
-      jobTitle: 'Senior Full Stack & AI Engineer',
-      email: 'hamza.khan@example.com',
-      phone: '+92 300 8765432',
-      location: 'Lahore, Pakistan (Open to Remote)',
-      website: 'https://hamzakhan.dev',
-      linkedin: 'linkedin.com/in/hamzakhan-dev',
-      github: 'github.com/hamzakhan-dev',
-      summary: 'Results-driven Senior Full Stack Engineer with 5+ years of experience building scalable distributed web applications, cloud microservices, and AI integrations using React, Node.js, and Python.'
-    },
-    experience: [
-      {
-        id: 'exp-1',
-        company: 'Systems Limited',
-        position: 'Senior Software Engineer',
-        location: 'Lahore, Punjab',
-        startDate: 'Jan 2023',
-        endDate: 'Present',
-        current: true,
-        bullets: [
-          'Architected high-throughput microservices handling 2M+ daily requests using Node.js & React.',
-          'Reduced API latency by 45% through Redis caching and PostgreSQL query optimization.',
-          'Mentored a team of 6 junior developers and established CI/CD pipeline automation.'
-        ]
-      }
-    ],
-    education: [
-      {
-        id: 'edu-1',
-        institution: 'FAST-NUCES Lahore',
-        degree: 'Bachelor of Science',
-        fieldOfStudy: 'Computer Science',
-        startDate: '2018',
-        endDate: '2022',
-        gpa: '3.65 / 4.0'
-      }
-    ],
+const normalizeCvData = (value?: CvData): CvData => {
+  const blank = createBlankCvData();
+  const raw = value && typeof value === 'object' ? value : blank;
+  const validStyles = ['modern', 'executive', 'tech', 'classic'];
+  return {
+    ...(typeof raw.photoBase64 === 'string' ? { photoBase64: raw.photoBase64 } : {}),
+    personalInfo: { ...blank.personalInfo, ...(raw.personalInfo || {}) },
+    experience: Array.isArray(raw.experience) ? raw.experience.map((item, index) => ({
+      id: String(item?.id || `exp-${index + 1}`),
+      company: String(item?.company || ''),
+      position: String(item?.position || ''),
+      location: String(item?.location || ''),
+      startDate: String(item?.startDate || ''),
+      endDate: String(item?.endDate || ''),
+      current: Boolean(item?.current),
+      bullets: Array.isArray(item?.bullets) ? item.bullets.filter((bullet) => typeof bullet === 'string') : []
+    })) : [],
+    education: Array.isArray(raw.education) ? raw.education.map((item, index) => ({
+      id: String(item?.id || `edu-${index + 1}`),
+      institution: String(item?.institution || ''),
+      degree: String(item?.degree || ''),
+      fieldOfStudy: String(item?.fieldOfStudy || ''),
+      startDate: String(item?.startDate || ''),
+      endDate: String(item?.endDate || ''),
+      ...(typeof item?.gpa === 'string' ? { gpa: item.gpa } : {})
+    })) : [],
     skills: {
-      technical: ['React.js', 'TypeScript', 'Node.js', 'Python', 'Next.js', 'AWS', 'Docker', 'PostgreSQL', 'Tailwind CSS'],
-      soft: ['Agile Leadership', 'Problem Solving', 'Cross-functional Communication', 'Code Review'],
-      languages: ['English (Fluent)', 'Urdu (Native)']
+      technical: Array.isArray(raw.skills?.technical) ? raw.skills.technical.filter((item) => typeof item === 'string') : [],
+      soft: Array.isArray(raw.skills?.soft) ? raw.skills.soft.filter((item) => typeof item === 'string') : [],
+      languages: Array.isArray(raw.skills?.languages) ? raw.skills.languages.filter((item) => typeof item === 'string') : []
     },
-    certifications: [
-      {
-        id: 'cert-1',
-        name: 'AWS Certified Solutions Architect',
-        issuer: 'Amazon Web Services',
-        year: '2023'
-      }
-    ],
-    templateStyle: 'modern',
-    themeColor: '#10b981' // emerald
-  });
+    certifications: Array.isArray(raw.certifications) ? raw.certifications.map((item, index) => ({
+      id: String(item?.id || `cert-${index + 1}`),
+      name: String(item?.name || ''),
+      issuer: String(item?.issuer || ''),
+      year: String(item?.year || '')
+    })) : [],
+    templateStyle: validStyles.includes(raw.templateStyle) ? raw.templateStyle : blank.templateStyle,
+    themeColor: typeof raw.themeColor === 'string' && /^#[0-9a-f]{6}$/i.test(raw.themeColor) ? raw.themeColor : blank.themeColor
+  };
+};
 
-  // AI Bullet Generator Helper Simulation
+export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvData, onSaveCv, onOpenPaywall }) => {
+  const [step, setStep] = useState<number>(1);
+  const [isSavingCv, setIsSavingCv] = useState(false);
+  const [cvSaveMessage, setCvSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [cvData, setCvData] = useState<CvData>(() => normalizeCvData(initialCvData));
+
+  // Always reset to the current account's saved CV (or a blank draft) when the account data changes.
+  useEffect(() => {
+    setCvData(normalizeCvData(initialCvData));
+    setCvSaveMessage(null);
+  }, [initialCvData]);
+
+  // Add an empty achievement line for the user to complete; no simulated AI output is presented as generated content.
   const handleGenerateAiBullets = (expIndex: number) => {
-    const role = cvData.experience[expIndex]?.position || 'Software Developer';
-    const sampleBullets = [
-      `Engineered resilient ${role} web solutions improving user retention by 30%.`,
-      `Collaborated with product designers to implement responsive, accessible UI components.`,
-      `Streamlined deployment workflows using Docker containers and automated testing.`
-    ];
-
     const updated = [...cvData.experience];
-    updated[expIndex].bullets = [...updated[expIndex].bullets, ...sampleBullets];
+    if (!updated[expIndex]) return;
+    updated[expIndex] = {
+      ...updated[expIndex],
+      bullets: [...(updated[expIndex].bullets || []), '']
+    };
     setCvData({ ...cvData, experience: updated });
   };
 
@@ -89,13 +102,13 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
         ...cvData.experience,
         {
           id: 'exp-' + Date.now(),
-          company: 'Tech Solutions',
-          position: 'Software Developer',
-          location: 'Remote',
-          startDate: '2021',
-          endDate: '2023',
+          company: '',
+          position: '',
+          location: '',
+          startDate: '',
+          endDate: '',
           current: false,
-          bullets: ['Developed features using modern tech stack.']
+          bullets: []
         }
       ]
     });
@@ -107,6 +120,57 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
       ...cvData,
       experience: cvData.experience.filter((e) => e.id !== id)
     });
+  };
+
+  const handleAddEducation = () => {
+    setCvData({
+      ...cvData,
+      education: [...cvData.education, {
+        id: `edu-${Date.now()}`,
+        institution: '',
+        degree: '',
+        fieldOfStudy: '',
+        startDate: '',
+        endDate: '',
+        gpa: ''
+      }]
+    });
+  };
+
+  const handleRemoveEducation = (id: string) => {
+    setCvData({ ...cvData, education: cvData.education.filter((item) => item.id !== id) });
+  };
+
+  const handleAddCertification = () => {
+    setCvData({
+      ...cvData,
+      certifications: [...cvData.certifications, {
+        id: `cert-${Date.now()}`,
+        name: '',
+        issuer: '',
+        year: ''
+      }]
+    });
+  };
+
+  const handleRemoveCertification = (id: string) => {
+    setCvData({ ...cvData, certifications: cvData.certifications.filter((item) => item.id !== id) });
+  };
+
+  const handleSaveCv = async () => {
+    if (isSavingCv) return;
+    setIsSavingCv(true);
+    setCvSaveMessage(null);
+    try {
+      const saved = await onSaveCv(cvData);
+      setCvSaveMessage(saved
+        ? { type: 'success', text: 'Your CV draft has been saved to your account.' }
+        : { type: 'error', text: 'The CV could not be saved. Please try again.' });
+    } catch (error: any) {
+      setCvSaveMessage({ type: 'error', text: error?.message || 'Unable to save your CV right now.' });
+    } finally {
+      setIsSavingCv(false);
+    }
   };
 
   // Trigger Print Engine
@@ -121,6 +185,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       
+      {cvSaveMessage && <div className={`mb-4 rounded-xl border px-4 py-3 text-xs ${cvSaveMessage.type === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`} role="status">{cvSaveMessage.text}</div>}
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-950 border border-indigo-500/30 rounded-2xl p-6 mb-8 text-white flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
         <div>
@@ -130,11 +195,20 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
           </div>
           <h2 className="text-2xl font-black">Build a Professional Resume in 3 Minutes</h2>
           <p className="text-xs text-slate-300 mt-1 max-w-xl">
-            Fill in your details, choose an ATS-friendly layout, generate AI bullet points, and export standard PDF for instant job applications.
+            Fill in your details, choose an ATS-friendly layout, add achievement points, save your CV to your account, and export a PDF for job applications.
           </p>
         </div>
 
         <div className="flex items-center space-x-3">
+          <button
+            type="button"
+            onClick={handleSaveCv}
+            disabled={isSavingCv}
+            className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-black text-sm flex items-center space-x-2 disabled:opacity-50"
+          >
+            <FileText className="w-4 h-4" />
+            <span>{isSavingCv ? 'Saving...' : 'Save CV Draft'}</span>
+          </button>
           <button
             onClick={handleDownloadPdf}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 flex items-center space-x-2 hover:scale-105 active:scale-95 transition-all"
@@ -212,17 +286,29 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                   <div className="flex-1">
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/png,image/jpeg,image/webp"
                       id="cv-photo-input"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setCvData({ ...cvData, photoBase64: reader.result as string });
-                          };
-                          reader.readAsDataURL(file);
+                        if (!file) return;
+                        if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+                          setCvSaveMessage({ type: 'error', text: 'Please select a PNG, JPEG, or WebP image.' });
+                          e.target.value = '';
+                          return;
                         }
+                        if (file.size > 250 * 1024) {
+                          setCvSaveMessage({ type: 'error', text: 'Profile photo must be 250 KB or smaller to save with your CV.' });
+                          e.target.value = '';
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          if (typeof reader.result === 'string') {
+                            setCvData({ ...cvData, photoBase64: reader.result });
+                            setCvSaveMessage(null);
+                          }
+                        };
+                        reader.readAsDataURL(file);
                       }}
                       className="hidden"
                     />
@@ -232,7 +318,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                     >
                       Upload Headshot Photo
                     </label>
-                    <p className="text-[10px] text-slate-500 mt-1">PNG or JPG, auto-converted to Base64 preview</p>
+                    <p className="text-[10px] text-slate-500 mt-1">PNG, JPG, or WebP · maximum 250 KB</p>
                   </div>
                 </div>
               </div>
@@ -389,6 +475,38 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className="block text-[11px] font-semibold text-slate-400">Work Location
+                      <input type="text" value={exp.location} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], location: e.target.value };
+                        setCvData({ ...cvData, experience: updated });
+                      }} className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs" />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-slate-400">Start Date
+                      <input type="text" value={exp.startDate} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], startDate: e.target.value };
+                        setCvData({ ...cvData, experience: updated });
+                      }} placeholder="e.g. Jan 2022" className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs" />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-slate-400">End Date
+                      <input type="text" value={exp.endDate} disabled={exp.current} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], endDate: e.target.value };
+                        setCvData({ ...cvData, experience: updated });
+                      }} placeholder="e.g. Dec 2024" className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs disabled:opacity-50" />
+                    </label>
+                    <label className="flex items-center gap-2 self-end pb-2 text-xs text-slate-300">
+                      <input type="checkbox" checked={exp.current} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], current: e.target.checked, endDate: e.target.checked ? 'Present' : '' };
+                        setCvData({ ...cvData, experience: updated });
+                      }} />
+                      I currently work here
+                    </label>
+                  </div>
+
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-[11px] font-semibold text-slate-400">Key Achievements / Bullets</label>
@@ -398,7 +516,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                         className="text-[10px] text-amber-400 hover:underline font-bold flex items-center space-x-1"
                       >
                         <Sparkles className="w-3 h-3" />
-                        <span>AI Suggest Bullets</span>
+                        <span>Add Achievement Line</span>
                       </button>
                     </div>
                     <textarea
@@ -417,43 +535,76 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
             </div>
           )}
 
-          {/* STEP 3: EDUCATION */}
+          {/* STEP 3: EDUCATION & CERTIFICATIONS */}
           {step === 3 && (
-            <div className="space-y-4">
-              <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <GraduationCap className="w-4 h-4 text-amber-400" />
-                <span>Education & Qualifications</span>
-              </h3>
+            <div className="space-y-5">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                  <GraduationCap className="w-4 h-4 text-amber-400" />
+                  <span>Education & Qualifications</span>
+                </h3>
+                <button type="button" onClick={handleAddEducation} className="text-xs px-2.5 py-1.5 bg-emerald-500/20 text-emerald-300 font-bold rounded-lg border border-emerald-500/30 flex items-center gap-1">
+                  <Plus className="w-3.5 h-3.5" /> Add Education
+                </button>
+              </div>
 
+              {cvData.education.length === 0 && <p className="text-xs text-slate-500">No education entries added yet.</p>}
               {cvData.education.map((edu, idx) => (
                 <div key={edu.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400">Institution</label>
-                      <input
-                        type="text"
-                        value={edu.institution}
-                        onChange={(e) => {
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300">Education {idx + 1}</span>
+                    <button type="button" onClick={() => handleRemoveEducation(edu.id)} aria-label={`Remove education ${idx + 1}`} className="text-slate-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {([
+                      ['institution', 'Institution / University'],
+                      ['degree', 'Degree'],
+                      ['fieldOfStudy', 'Field of Study'],
+                      ['startDate', 'Start Date'],
+                      ['endDate', 'End Date'],
+                      ['gpa', 'Grade / GPA']
+                    ] as const).map(([field, label]) => (
+                      <label key={field} className="block text-[11px] font-semibold text-slate-400">
+                        {label}
+                        <input type="text" value={edu[field] || ''} onChange={(e) => {
                           const updated = [...cvData.education];
-                          updated[idx].institution = e.target.value;
+                          updated[idx] = { ...updated[idx], [field]: e.target.value };
                           setCvData({ ...cvData, education: updated });
-                        }}
-                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400">Degree & Field</label>
-                      <input
-                        type="text"
-                        value={edu.degree}
-                        onChange={(e) => {
-                          const updated = [...cvData.education];
-                          updated[idx].degree = e.target.value;
-                          setCvData({ ...cvData, education: updated });
-                        }}
-                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs"
-                      />
-                    </div>
+                        }} className="mt-1 w-full px-2.5 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs" />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-4">
+                <h3 className="text-base font-bold text-white flex items-center gap-2"><Award className="w-4 h-4 text-amber-400" /> Certifications</h3>
+                <button type="button" onClick={handleAddCertification} className="text-xs px-2.5 py-1.5 bg-indigo-500/20 text-indigo-300 font-bold rounded-lg border border-indigo-500/30 flex items-center gap-1">
+                  <Plus className="w-3.5 h-3.5" /> Add Certification
+                </button>
+              </div>
+              {cvData.certifications.length === 0 && <p className="text-xs text-slate-500">No certifications added yet.</p>}
+              {cvData.certifications.map((cert, idx) => (
+                <div key={cert.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300">Certification {idx + 1}</span>
+                    <button type="button" onClick={() => handleRemoveCertification(cert.id)} aria-label={`Remove certification ${idx + 1}`} className="text-slate-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {([
+                      ['name', 'Certification'],
+                      ['issuer', 'Issuing Organization'],
+                      ['year', 'Year']
+                    ] as const).map(([field, label]) => (
+                      <label key={field} className="block text-[11px] font-semibold text-slate-400">
+                        {label}
+                        <input type="text" value={cert[field]} onChange={(e) => {
+                          const updated = [...cvData.certifications];
+                          updated[idx] = { ...updated[idx], [field]: e.target.value };
+                          setCvData({ ...cvData, certifications: updated });
+                        }} className="mt-1 w-full px-2.5 py-2 bg-slate-900 border border-slate-800 rounded text-white text-xs" />
+                      </label>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -468,25 +619,19 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                 <span>Skills & Template Theme</span>
               </h3>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">
-                  Technical Skills (Comma separated)
-                </label>
-                <textarea
-                  rows={2}
-                  value={cvData.skills.technical.join(', ')}
-                  onChange={(e) =>
-                    setCvData({
-                      ...cvData,
-                      skills: {
-                        ...cvData.skills,
-                        technical: e.target.value.split(',').map((s) => s.trim())
-                      }
-                    })
-                  }
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm"
-                />
-              </div>
+              {([
+                ['technical', 'Technical Skills'],
+                ['soft', 'Soft Skills'],
+                ['languages', 'Languages']
+              ] as const).map(([field, label]) => (
+                <div key={field}>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">{label} (comma separated)</label>
+                  <textarea rows={2} value={cvData.skills[field].join(', ')} onChange={(e) => setCvData({
+                    ...cvData,
+                    skills: { ...cvData.skills, [field]: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) }
+                  })} className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white text-sm" />
+                </div>
+              ))}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-2">Select Template Style</label>
@@ -497,20 +642,16 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                     { id: 'tech', name: 'Tech Minimalist' },
                     { id: 'classic', name: 'Classic Corporate' }
                   ].map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => setCvData({ ...cvData, templateStyle: t.id as any })}
-                      className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${
-                        cvData.templateStyle === t.id
-                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500'
-                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
+                    <button type="button" key={t.id} onClick={() => setCvData({ ...cvData, templateStyle: t.id as CvData['templateStyle'] })} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all ${cvData.templateStyle === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'}`}>
                       {t.name}
                     </button>
                   ))}
                 </div>
               </div>
+              <label className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-400">
+                Accent Color
+                <input type="color" value={cvData.themeColor} onChange={(e) => setCvData({ ...cvData, themeColor: e.target.value })} className="h-9 w-14 rounded border border-slate-700 bg-slate-900 cursor-pointer" aria-label="CV accent color" />
+              </label>
             </div>
           )}
 
@@ -563,15 +704,20 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
             {/* Simulated Paper Layout Container */}
             <div
               id="cv-print-area"
-              className="bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs font-sans space-y-4"
+              className="bg-white text-slate-900 p-6 rounded-lg shadow-inner min-h-[580px] text-xs space-y-4"
+              style={{
+                borderTop: `5px solid ${cvData.themeColor}`,
+                borderLeft: cvData.templateStyle === 'executive' ? '14px solid #0f172a' : undefined,
+                fontFamily: cvData.templateStyle === 'tech' ? 'ui-monospace, SFMono-Regular, monospace' : cvData.templateStyle === 'classic' ? 'Georgia, serif' : 'Arial, sans-serif'
+              }}
             >
               {/* CV Header */}
-              <div className="border-b-2 border-emerald-600 pb-3 flex items-start justify-between gap-4">
+              <div className="border-b-2 pb-3 flex items-start justify-between gap-4" style={{ borderColor: cvData.themeColor }}>
                 <div className="flex-1">
-                  <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                  <h1 className="text-xl font-black uppercase tracking-tight" style={{ color: cvData.themeColor }}>
                     {cvData.personalInfo.fullName || 'Your Full Name'}
                   </h1>
-                  <p className="text-emerald-700 font-bold text-xs mt-0.5">
+                  <p className="font-bold text-xs mt-0.5" style={{ color: cvData.themeColor }}>
                     {cvData.personalInfo.jobTitle || 'Your Job Title'}
                   </p>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600 mt-2 font-medium">
@@ -580,6 +726,9 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                     <span>{cvData.personalInfo.email}</span>
                     <span>•</span>
                     <span>{cvData.personalInfo.location}</span>
+                    {[cvData.personalInfo.website, cvData.personalInfo.linkedin, cvData.personalInfo.github].filter(Boolean).map((link, index) => (
+                      <span key={index} className="break-all">{link}</span>
+                    ))}
                   </div>
                 </div>
 
@@ -593,7 +742,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
               {/* Summary */}
               {cvData.personalInfo.summary && (
                 <div>
-                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-1 text-emerald-800">
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-1" style={{ color: cvData.themeColor }}>
                     Professional Summary
                   </h3>
                   <p className="text-slate-700 leading-relaxed text-[11px]">
@@ -605,16 +754,17 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
               {/* Experience */}
               {cvData.experience.length > 0 && (
                 <div>
-                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-2 text-emerald-800">
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-2" style={{ color: cvData.themeColor }}>
                     Work Experience
                   </h3>
                   <div className="space-y-2">
                     {cvData.experience.map((exp) => (
                       <div key={exp.id}>
                         <div className="flex justify-between font-bold text-slate-900">
-                          <span>{exp.position} — <span className="text-emerald-700">{exp.company}</span></span>
+                          <span>{exp.position} — <span style={{ color: cvData.themeColor }}>{exp.company}</span></span>
                           <span className="text-[10px] text-slate-500">{exp.startDate} - {exp.endDate}</span>
                         </div>
+                        {exp.location && <div className="text-[10px] text-slate-500">{exp.location}</div>}
                         <ul className="list-disc list-inside text-slate-700 text-[10px] space-y-0.5 mt-1">
                           {exp.bullets.map((b, i) => b.trim() && <li key={i}>{b}</li>)}
                         </ul>
@@ -632,7 +782,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
                   </h3>
                   {cvData.education.map((edu) => (
                     <div key={edu.id} className="flex justify-between text-[11px]">
-                      <span className="font-bold text-slate-900">{edu.degree} in {edu.fieldOfStudy} - {edu.institution}</span>
+                      <span className="font-bold text-slate-900">{edu.degree}{edu.fieldOfStudy ? ` in ${edu.fieldOfStudy}` : ''} - {edu.institution}{edu.gpa ? ` · ${edu.gpa}` : ''}</span>
                       <span className="text-slate-500">{edu.startDate} - {edu.endDate}</span>
                     </div>
                   ))}
@@ -640,16 +790,28 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, onOpenPaywal
               )}
 
               {/* Skills */}
-              {cvData.skills.technical.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-1 text-emerald-800">
-                    Key Technical Skills
+              {(['technical', 'soft', 'languages'] as const).map((field) => cvData.skills[field].length > 0 && (
+                <div key={field}>
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-1" style={{ color: cvData.themeColor }}>
+                    {field === 'technical' ? 'Technical Skills' : field === 'soft' ? 'Soft Skills' : 'Languages'}
                   </h3>
                   <div className="flex flex-wrap gap-1 text-[10px]">
-                    {cvData.skills.technical.map((sk, i) => (
-                      <span key={i} className="bg-slate-100 text-slate-800 font-semibold px-2 py-0.5 rounded">
-                        {sk}
-                      </span>
+                    {cvData.skills[field].map((skill, index) => (
+                      <span key={index} className="bg-slate-100 text-slate-800 font-semibold px-2 py-0.5 rounded">{skill}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {cvData.certifications.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider mb-1" style={{ color: cvData.themeColor }}>Certifications</h3>
+                  <div className="space-y-1">
+                    {cvData.certifications.map((cert) => (
+                      <div key={cert.id} className="text-[11px] text-slate-700">
+                        <strong className="text-slate-900">{cert.name}</strong>
+                        {cert.issuer ? ` — ${cert.issuer}` : ''}{cert.year ? ` (${cert.year})` : ''}
+                      </div>
                     ))}
                   </div>
                 </div>

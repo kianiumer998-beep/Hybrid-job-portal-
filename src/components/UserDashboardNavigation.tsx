@@ -38,6 +38,7 @@ interface NavSubItem {
   tab?: DashboardTab;
   subView?: OverviewSubView;
   subTab?: AppSubTab | CampaignSubTab;
+  accountSubTab?: 'profile' | 'security';
   isGlobal?: boolean;
   globalTab?: GlobalTab;
   isLogout?: boolean;
@@ -55,12 +56,14 @@ interface UserDashboardNavigationProps {
   overviewSubView: OverviewSubView;
   appSubTab: AppSubTab;
   campaignSubTab: CampaignSubTab;
+  accountSubTab: 'profile' | 'security';
   activeNavId: string | null;
   onNavigate: (params: {
     id: string;
     tab?: DashboardTab;
     subView?: OverviewSubView;
     subTab?: AppSubTab | CampaignSubTab;
+    accountSubTab?: 'profile' | 'security';
     isGlobal?: boolean;
     globalTab?: GlobalTab;
     isLogout?: boolean;
@@ -75,6 +78,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   overviewSubView,
   appSubTab,
   campaignSubTab,
+  accountSubTab,
   activeNavId,
   onNavigate,
   onLogout,
@@ -84,77 +88,38 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const [expandedCategory, setExpandedCategory] = useState<string | null>('dashboard');
 
   const menuStructure: NavItem[] = [
-    {
-      id: 'dashboard',
-      label: 'DASHBOARD',
-      icon: LayoutDashboard,
-      subItems: [
-        { id: 'dash-overview', label: 'Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
-        { id: 'dash-recs', label: 'Recommendations', tab: 'overview', subView: 'recommendations', icon: Sparkles },
-        { id: 'dash-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
-      ]
-    },
-    {
-      id: 'find-jobs',
-      label: 'FIND JOBS',
-      icon: Search,
-      subItems: [
-        { id: 'find-explore', label: 'Explore All Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
-      ]
-    },
-    {
-      id: 'career-center',
-      label: 'CAREER CENTER',
-      icon: Briefcase,
-      subItems: [
-        { id: 'career-apps', label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText },
-        { id: 'career-saved', label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark },
-        { id: 'career-alerts', label: 'My Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell },
-        { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText },
-        { id: 'career-cv', label: 'ATS CV Builder', isGlobal: true, globalTab: 'cv', icon: Zap },
-      ]
-    },
-    {
-      id: 'employer-center',
-      label: 'EMPLOYER CENTER',
-      icon: Building2,
-      subItems: [
-        { id: 'emp-post', label: 'Post New Job', tab: 'post-job', icon: Plus },
-        { id: 'emp-listings', label: 'My Job Listings', tab: 'my-jobs', icon: Building2 },
-      ]
-    },
-    {
-      id: 'membership-payments',
-      label: 'MEMBERSHIP & PAYMENTS',
-      icon: CreditCard,
-      subItems: [
-        { id: 'mem-status', label: 'Membership Status', tab: 'overview', subView: 'metrics', icon: ShieldCheck },
-        { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
-        { id: 'mem-wallet', label: 'Wallet & Deposit', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
-        { id: 'mem-whatsapp', label: 'Paid WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
-      ]
-    },
-    {
-      id: 'ads-campaigns',
-      label: 'ADVERTISEMENTS',
-      icon: Megaphone,
-      subItems: [
-        { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone },
-        { id: 'ads-create', label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
-        { id: 'ads-wallet', label: 'Campaign Wallet', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
-      ]
-    },
-    {
-      id: 'account-support',
-      label: 'MY ACCOUNT',
-      icon: User,
-      subItems: [
-        { id: 'acc-profile', label: 'Profile Settings', tab: 'profile', icon: User },
-        { id: 'acc-security', label: 'Security', tab: 'profile', icon: Lock },
-        { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
-        { id: 'acc-logout', label: 'Log Out', isLogout: true, icon: X },
-      ]
-    }
+    { id: 'dashboard', label: 'DASHBOARD', icon: LayoutDashboard, subItems: [
+      { id: 'dash-overview', label: 'Overview & Subscription', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
+    ]},
+    { id: 'jobs', label: 'JOBS', icon: Search, subItems: [
+      { id: 'jobs-explore', label: 'Explore Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },
+      { id: 'jobs-recommended', label: 'Recommended Jobs', tab: 'overview', subView: 'recommendations', icon: Sparkles },
+      { id: 'jobs-applications', label: 'My Applications', tab: 'applications', subTab: 'submitted', icon: FileText },
+      { id: 'jobs-saved', label: 'Saved Jobs', tab: 'applications', subTab: 'saved', icon: Bookmark },
+      { id: 'jobs-alerts', label: 'Job Alerts', tab: 'applications', subTab: 'alerts', icon: Bell },
+    ]},
+    { id: 'career-center', label: 'CAREER CENTER', icon: Briefcase, subItems: [
+      { id: 'career-docs', label: 'My Documents', tab: 'applications', subTab: 'documents', icon: FileText },
+      { id: 'career-cv', label: 'CV Builder', isGlobal: true, globalTab: 'cv', icon: Zap },
+    ]},
+    { id: 'employer-center', label: 'EMPLOYER CENTER', icon: Building2, subItems: [
+      { id: 'emp-post', label: 'Post a Job', tab: 'post-job', icon: Plus },
+      { id: 'emp-listings', label: 'My Job Listings', tab: 'my-jobs', icon: Building2 },
+    ]},
+    { id: 'membership-payments', label: 'MEMBERSHIP & PAYMENTS', icon: CreditCard, subItems: [
+      { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
+      { id: 'mem-wallet', label: 'Wallet & Deposits', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
+      { id: 'mem-whatsapp', label: 'WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
+    ]},
+    { id: 'ads-campaigns', label: 'ADVERTISEMENTS', icon: Megaphone, subItems: [
+      { id: 'ads-list', label: 'My Campaigns', tab: 'campaigns', subTab: 'my-campaigns', icon: Megaphone },
+      { id: 'ads-create', label: 'Create Campaign', tab: 'campaigns', subTab: 'create', icon: Plus },
+    ]},
+    { id: 'account-support', label: 'MY ACCOUNT', icon: User, subItems: [
+      { id: 'acc-profile', label: 'Profile', tab: 'profile', accountSubTab: 'profile', icon: User },
+      { id: 'acc-security', label: 'Security', tab: 'profile', accountSubTab: 'security', icon: Lock },
+      { id: 'acc-chat', label: 'Support Inbox', tab: 'chat', icon: MessageSquare },
+    ]},
   ];
 
   const handleCategoryClick = (id: string) => {
@@ -164,23 +129,37 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
   const isActive = (item: NavSubItem) => {
     if (item.isLogout) return false;
     
-    // If we have an explicit active nav ID (set via clicking in Pro menu), use it.
-    if (activeNavId) {
-        return activeNavId === item.id;
+    // Translate IDs saved by the previous Professional Menu before checking active state.
+    const legacyNavIdMap: Record<string, string> = {
+      'dash-recs': 'jobs-recommended',
+      'dash-history': 'mem-history',
+      'find-explore': 'jobs-explore',
+      'career-apps': 'jobs-applications',
+      'career-saved': 'jobs-saved',
+      'career-alerts': 'jobs-alerts',
+      'mem-status': 'dash-overview',
+      'mem-plans': 'dash-overview',
+      'ads-wallet': 'mem-wallet',
+    };
+    const effectiveActiveNavId = activeNavId ? (legacyNavIdMap[activeNavId] || activeNavId) : null;
+    const activeMenuItem = effectiveActiveNavId
+      ? menuStructure.flatMap((category) => category.subItems).find((subItem) => subItem.id === effectiveActiveNavId)
+      : undefined;
+    // Global destinations unmount the dashboard; when the user returns, highlight the actual dashboard tab instead of a stale global link.
+    if (activeMenuItem && !activeMenuItem.isGlobal) {
+      return effectiveActiveNavId === item.id;
     }
 
     // Fallback: Check if the current dashboard state matches this item.
     // This handles the initial state when switching from Classic to Pro.
     if (activeTab !== item.tab) return false;
     if (item.subView && overviewSubView !== item.subView) return false;
+    if (item.accountSubTab && accountSubTab !== item.accountSubTab) return false;
     if (item.subTab) {
         if (activeTab === 'applications' && appSubTab !== item.subTab) return false;
         if (activeTab === 'campaigns' && campaignSubTab !== item.subTab) return false;
     }
     
-    // For duplicates (like Payment History), without an activeNavId, 
-    // the first one encountered in the tree that matches state will be active.
-    // This is resolved once the user clicks an item.
     return true;
   };
 
@@ -230,6 +209,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
                               tab: subItem.tab,
                               subView: subItem.subView,
                               subTab: subItem.subTab,
+                              accountSubTab: subItem.accountSubTab,
                               isGlobal: subItem.isGlobal,
                               globalTab: subItem.globalTab
                             });
@@ -257,11 +237,11 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-800">
-        <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Preview Mode</p>
-            <p className="text-[11px] text-slate-300 leading-tight">Professional Menu is currently in preview.</p>
-        </div>
+      <div className="p-3 border-t border-slate-800">
+        <button type="button" onClick={onLogout} className="w-full flex items-center space-x-2 px-3 py-2.5 rounded-lg text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-colors">
+          <X className="w-4 h-4" />
+          <span>Log Out</span>
+        </button>
       </div>
     </div>
   );

@@ -90,6 +90,9 @@ interface UserCampaignHubProps {
   onDeleteCampaign: (adId: string) => void;
   onDuplicateCampaign: (ad: Advertisement) => void;
   onOpenGlobalDepositModal?: () => void;
+  onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
+  onCampaignSubTabChange?: (tab: 'my-campaigns' | 'create' | 'wallet') => void;
+  showInternalNavigation?: boolean;
 }
 
 export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
@@ -105,7 +108,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
   onSubmitCampaign,
   onDeleteCampaign,
   onDuplicateCampaign,
-  onOpenGlobalDepositModal
+  onOpenGlobalDepositModal,
+  onNavigateGlobalTab,
+  onCampaignSubTabChange,
+  showInternalNavigation = true
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>(initialSubTab);
 
@@ -123,6 +129,11 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       }
     }
   }, [openDepositModal, onDepositModalClose]);
+
+  const changeActiveSubTab = (tab: 'my-campaigns' | 'create' | 'wallet') => {
+    setActiveSubTab(tab);
+    onCampaignSubTabChange?.(tab);
+  };
   
   // Status Filter for My Campaigns
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'rejected' | 'completed'>('all');
@@ -132,6 +143,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
 
   // Preview Modal for user ads
   const [previewAd, setPreviewAd] = useState<Advertisement | null>(null);
+  const [detailsAd, setDetailsAd] = useState<Advertisement | null>(null);
 
   // Deposit Modal State
   const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
@@ -405,7 +417,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       setFormTitle('');
       setFormHeadline('');
       setFormBodyText('');
-      setActiveSubTab('my-campaigns');
+      changeActiveSubTab('my-campaigns');
       alert(
         `Campaign "${newAd.title}" submitted successfully! PKR ${chargedAmount.toLocaleString()} has been deducted from your wallet balance. ${
           campaignConfig.formRules.requireAdminApproval
@@ -640,7 +652,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
               </button>
 
               <button
-                onClick={() => setActiveSubTab('create')}
+                onClick={() => changeActiveSubTab('create')}
                 className="flex-1 sm:flex-none px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md sm:shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-1 sm:space-x-1.5 transition-all cursor-pointer active:scale-95"
               >
                 <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-200" />
@@ -673,8 +685,9 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         </div>
       </div>
 
-      {/* Sub-Tabs Navigation */}
-      <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2 sm:pb-3 overflow-x-auto text-[11px] sm:text-xs font-bold scrollbar-none">
+      {/* Classic mode keeps the legacy in-page tabs; Professional mode uses the sidebar sub-navigation. */}
+      {showInternalNavigation && (
+        <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2 sm:pb-3 overflow-x-auto text-[11px] sm:text-xs font-bold scrollbar-none">
         <button
           onClick={() => setActiveSubTab('my-campaigns')}
           className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl transition-all cursor-pointer whitespace-nowrap ${
@@ -700,7 +713,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveSubTab('wallet')}
+          onClick={() => changeActiveSubTab('wallet')}
           className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'wallet'
               ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-md shadow-emerald-500/20'
@@ -708,9 +721,10 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
           }`}
         >
           <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span>Wallet Ledger</span>
+          <span>Wallet & Rates</span>
         </button>
       </div>
+      )}
 
       {/* ========================================================================= */}
       {/* SUB-TAB 1: MY CAMPAIGNS & STATUS TRACKER */}
@@ -871,7 +885,15 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                           </div>
                         )}
 
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 flex-wrap justify-end">
+                          <button
+                            onClick={() => setDetailsAd(ad)}
+                            className="px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
+                            title="View complete campaign information"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>Details</span>
+                          </button>
                           <button
                             onClick={() => setPreviewAd(ad)}
                             className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
@@ -1542,7 +1564,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* SUB-TAB 3: WALLET LEDGER & RATE CARD */}
+      {/* SUB-TAB 3: WALLET OVERVIEW & RATE CARD */}
       {/* ========================================================================= */}
       {activeSubTab === 'wallet' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -2077,6 +2099,96 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       })()}
 
       {/* ========================================================================= */}
+      {/* MODAL: COMPLETE CAMPAIGN DETAILS */}
+      {/* ========================================================================= */}
+      {detailsAd && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="Campaign details">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl sm:rounded-3xl p-4 sm:p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-5">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <span className="text-[10px] uppercase tracking-wider font-black text-emerald-400">Campaign record</span>
+                <h3 className="text-lg sm:text-xl font-black text-white mt-1">{detailsAd.title}</h3>
+                <p className="text-xs text-slate-400 mt-1">Campaign ID: <span className="font-mono">{detailsAd.id}</span></p>
+              </div>
+              <button type="button" onClick={() => setDetailsAd(null)} className="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white" aria-label="Close campaign details"><XCircle className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+              {[
+                ['Campaign status', detailsAd.status],
+                ['Approval status', detailsAd.approvalStatus || 'Not provided'],
+                ['Payment status', detailsAd.paymentStatus || 'Not provided'],
+                ['Campaign type', detailsAd.type],
+                ['Placement', getPlacementDisplayName(detailsAd.placement)],
+                ['Duration', detailsAd.durationDisplay || (detailsAd.durationValue ? `${detailsAd.durationValue} ${detailsAd.durationUnit || ''}` : 'Not provided')],
+                ['Start date/time', detailsAd.scheduledStartAt],
+                ['End date/time', detailsAd.scheduledEndAt],
+                ['Campaign cost', typeof detailsAd.campaignCostPkr === 'number' ? `PKR ${detailsAd.campaignCostPkr.toLocaleString()}` : 'Not provided'],
+                ['Wallet transaction', detailsAd.walletTxId],
+                ['Created', detailsAd.createdAt],
+                ['Last updated', detailsAd.updatedAt],
+                ['Approved at', detailsAd.approvedAt],
+                ['Approved by', detailsAd.approvedBy],
+                ['Rejected at', detailsAd.rejectedAt],
+                ['SMS status', detailsAd.smsStatus],
+                ['SMS sender ID', detailsAd.smsSenderId],
+                ['SMS audience', detailsAd.smsAudience],
+                ['SMS recipients', typeof detailsAd.smsRecipientsCount === 'number' ? detailsAd.smsRecipientsCount.toLocaleString() : undefined],
+                ['SMS sent at', detailsAd.smsSentAt],
+                ['Impressions', typeof detailsAd.impressions === 'number' ? detailsAd.impressions.toLocaleString() : '0'],
+                ['Clicks', typeof detailsAd.clicks === 'number' ? detailsAd.clicks.toLocaleString() : '0'],
+                ['Submitted by', detailsAd.submittedByUserName],
+                ['Submitter email', detailsAd.submittedByUserEmail],
+                ['Submitter phone', detailsAd.submittedByUserPhone]
+              ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '').map(([label, value]) => (
+                <div key={label} className="p-3 bg-slate-950 border border-slate-800 rounded-xl min-w-0">
+                  <div className="text-[9px] uppercase tracking-wide text-slate-500 font-bold mb-1">{label}</div>
+                  <div className="text-slate-200 font-semibold break-words">{String(value)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold mb-2">Target pages</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(detailsAd.targetPages || []).length ? detailsAd.targetPages.map((page) => (
+                    <span key={page} className="px-2 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold">{getPageDisplayName(page)}</span>
+                  )) : <span className="text-xs text-slate-400">Not specified</span>}
+                </div>
+              </div>
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold mb-2">Campaign controls</div>
+                <div className="text-xs text-slate-300 space-y-1">
+                  <div>Theme: {detailsAd.theme || 'Default'}</div>
+                  <div>Background color: {detailsAd.customBgColor || 'Theme default'}</div>
+                  <div>Text color: {detailsAd.customTextColor || 'Theme default'}</div>
+                  <div>Dismissable: {detailsAd.dismissable ? 'Yes' : 'No'}</div>
+                  <div>Priority: {detailsAd.priority || 'Normal'}</div>
+                  <div>Auto-close: {typeof detailsAd.autoCloseDelay === 'number' ? `${detailsAd.autoCloseDelay} seconds` : 'Not set'}</div>
+                </div>
+              </div>
+            </div>
+            <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Creative content</div>
+              <div className="text-sm text-white font-bold">{detailsAd.headline || 'No headline provided'}</div>
+              <p className="text-xs text-slate-300 whitespace-pre-wrap break-words">{detailsAd.bodyText || 'No body text provided'}</p>
+              <div className="text-xs text-slate-400">Badge: {detailsAd.badgeText || 'Not set'} · CTA: {detailsAd.ctaText || 'Not set'}</div>
+              <div className="text-xs text-slate-400 break-all">Destination: {detailsAd.ctaUrl || 'Not set'}</div>
+              {detailsAd.imageUrl && <a href={detailsAd.imageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-300 underline">Open campaign image</a>}
+            </div>
+            {detailsAd.rejectionReason && (
+              <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-800/50 text-xs text-rose-200">
+                <div className="font-bold text-rose-300 mb-1">Administrator rejection reason</div>
+                {detailsAd.rejectionReason}
+              </div>
+            )}
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setDetailsAd(null)} className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold">Close details</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* MODAL: LIVE PREVIEW LIGHTBOX */}
       {/* ========================================================================= */}
       {previewAd && (
@@ -2095,7 +2207,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
               </span>
               <h3 className="text-lg font-black text-white">{previewAd.title}</h3>
               <p className="text-xs text-slate-400">
-                Placement: <strong>{getPlacementDisplayName(previewAd.placement)}</strong> • Duration: <strong>{previewAd.durationDisplay || '24 Hours'}</strong>
+                Placement: <strong>{getPlacementDisplayName(previewAd.placement)}</strong> • Duration: <strong>{previewAd.durationDisplay || (previewAd.durationValue ? `${previewAd.durationValue} ${previewAd.durationUnit || ''}`.trim() : 'Not set')}</strong>
               </p>
             </div>
 
@@ -2119,7 +2231,32 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={() => alert(`Redirecting to: ${previewAd.ctaUrl || '#jobs'}`)}
+                  onClick={() => {
+                    const target = String(previewAd.ctaUrl || '').trim();
+                    if (target.startsWith('#')) {
+                      const internalTarget = target.slice(1).split(/[/?]/)[0].toLowerCase();
+                      const internalTabs: Record<string, 'jobs' | 'cv' | 'alerts' | 'dashboard'> = {
+                        jobs: 'jobs',
+                        cv: 'cv',
+                        alerts: 'alerts',
+                        dashboard: 'dashboard'
+                      };
+                      const destinationTab = internalTabs[internalTarget];
+                      if (destinationTab && onNavigateGlobalTab) {
+                        setPreviewAd(null);
+                        onNavigateGlobalTab(destinationTab);
+                      }
+                      return;
+                    }
+                    try {
+                      const parsed = new URL(target, window.location.origin);
+                      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                        window.open(parsed.href, '_blank', 'noopener,noreferrer');
+                      }
+                    } catch {
+                      // Ignore invalid campaign destinations; never execute script URLs.
+                    }
+                  }}
                   className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 cursor-pointer"
                 >
                   {previewAd.ctaText || 'Learn More'}

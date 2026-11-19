@@ -50,7 +50,6 @@ interface UserDashboardProps {
   }) => Promise<{ success: boolean; transaction?: any; message?: string } | boolean | void> | void;
   onDeleteAd?: (adId: string) => void;
   onDuplicateAd?: (ad: Advertisement) => void;
-  onToggleAutoRenew: () => void;
   onRenewSubscription: () => void;
   onSubmitJobForApproval: (
     job: Job,
@@ -76,6 +75,28 @@ interface UserDashboardProps {
   onOpenSubscriptionModal: () => void;
   onNavigateGlobalTab?: (tab: 'jobs' | 'cv' | 'alerts' | 'dashboard') => void;
 }
+
+type PaymentStatusPresentation = { label: string; className: string };
+
+const getPaymentStatusPresentation = (status: PaymentTransaction['status'] | string | undefined): PaymentStatusPresentation => {
+  switch (String(status || '').trim().toLowerCase()) {
+    case 'success':
+      return { label: 'Approved', className: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+    case 'pending':
+      return { label: 'Pending Review', className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+    case 'verifying':
+      return { label: 'Under Verification', className: 'bg-sky-500/15 text-sky-300 border-sky-500/30' };
+    case 'verificationuncertain':
+      return { label: 'Verification Uncertain', className: 'bg-orange-500/15 text-orange-300 border-orange-500/30' };
+    case 'refunded':
+      return { label: 'Refunded', className: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' };
+    case 'failed':
+    case 'rejected':
+      return { label: 'Failed / Rejected', className: 'bg-rose-500/15 text-rose-300 border-rose-500/30' };
+    default:
+      return { label: status ? String(status) : 'Status unavailable', className: 'bg-slate-700/50 text-slate-300 border-slate-600' };
+  }
+};
 
 export function resolveDefaultPaymentMethod(
   methods: PublicPaymentMethodConfig[],
@@ -119,7 +140,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onDepositFunds,
   onDeleteAd,
   onDuplicateAd,
-  onToggleAutoRenew,
   onRenewSubscription,
   onSubmitJobForApproval,
   onSendMessageToAdmin,
@@ -143,10 +163,23 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [overviewSubView, setOverviewSubView] = useState<'metrics' | 'recommendations' | 'history'>('metrics');
   const [appSubTab, setAppSubTab] = useState<'submitted' | 'saved' | 'alerts' | 'documents'>('submitted');
   const [campaignSubTab, setCampaignSubTab] = useState<'my-campaigns' | 'create' | 'wallet'>('my-campaigns');
+  const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(() =>
+    safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile'
+  );
+  const [selectedPaymentTransaction, setSelectedPaymentTransaction] = useState<PaymentTransaction | null>(null);
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
   );
+
+  const safeProfileAvatarUrl = useMemo(() => {
+    try {
+      const parsed = new URL(String(currentUser.avatarUrl || ''));
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : null;
+    } catch {
+      return null;
+    }
+  }, [currentUser.avatarUrl]);
   const [isProMenuOpen, setIsProMenuOpen] = useState<boolean>(false);
   const [activeNavId, setActiveNavId] = useState<string | null>(() => 
     safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null)
@@ -158,6 +191,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   useEffect(() => {
     safeLocalStorageSet(`dashboard_active_nav_id_${currentUser.id}`, activeNavId);
+    if (activeNavId === 'acc-security') setAccountSubTab('security');
+    else if (activeNavId === 'acc-profile') setAccountSubTab('profile');
   }, [activeNavId, currentUser.id]);
 
   // In-App Notifications State
@@ -364,6 +399,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
+      // Clear a previously saved Professional-menu selection when the parent opens
+      // the dashboard on a different destination. The menu then derives the active
+      // item from the actual tab/subtab state instead of highlighting a stale item.
+      setActiveNavId(null);
     }
   }, [initialTab]);
 
@@ -373,6 +412,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [profileCompany, setProfileCompany] = useState(currentUser.companyName || '');
   const [profileAddress, setProfileAddress] = useState(currentUser.address || '');
   const [profileBio, setProfileBio] = useState(currentUser.bio || '');
+  const [profileExtendedFields, setProfileExtendedFields] = useState<Record<string, string | boolean>>({
+    avatarUrl: (currentUser as any).avatarUrl || '', location: (currentUser as any).location || '', city: (currentUser as any).city || '', country: (currentUser as any).country || 'Pakistan',
+    headline: (currentUser as any).headline || '', title: (currentUser as any).title || '', website: (currentUser as any).website || '',
+    skills: Array.isArray(currentUser.skills) ? currentUser.skills.join(', ') : '', cvUrl: (currentUser as any).cvUrl || '', resumeUrl: (currentUser as any).resumeUrl || '',
+    preferences: JSON.stringify((currentUser as any).preferences ?? {}, null, 2), experience: JSON.stringify((currentUser as any).experience ?? [], null, 2),
+    education: JSON.stringify((currentUser as any).education ?? [], null, 2), socialLinks: JSON.stringify((currentUser as any).socialLinks ?? {}, null, 2),
+    notificationsEnabled: (currentUser as any).notificationsEnabled ?? 'Not recorded', whatsappAlertsEnabled: (currentUser as any).whatsappAlertsEnabled ?? 'Not recorded'
+  });
 
   useEffect(() => {
     setProfileName(currentUser.name || '');
@@ -380,13 +427,37 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     setProfileCompany(currentUser.companyName || '');
     setProfileAddress(currentUser.address || '');
     setProfileBio(currentUser.bio || '');
+    setProfileExtendedFields({
+      avatarUrl: (currentUser as any).avatarUrl || '', location: (currentUser as any).location || '', city: (currentUser as any).city || '', country: (currentUser as any).country || 'Pakistan',
+      headline: (currentUser as any).headline || '', title: (currentUser as any).title || '', website: (currentUser as any).website || '',
+      skills: Array.isArray(currentUser.skills) ? currentUser.skills.join(', ') : '', cvUrl: (currentUser as any).cvUrl || '', resumeUrl: (currentUser as any).resumeUrl || '',
+      preferences: JSON.stringify((currentUser as any).preferences ?? {}, null, 2), experience: JSON.stringify((currentUser as any).experience ?? [], null, 2),
+      education: JSON.stringify((currentUser as any).education ?? [], null, 2), socialLinks: JSON.stringify((currentUser as any).socialLinks ?? {}, null, 2),
+      notificationsEnabled: (currentUser as any).notificationsEnabled ?? true, whatsappAlertsEnabled: (currentUser as any).whatsappAlertsEnabled ?? false
+    });
   }, [
     currentUser.id,
     currentUser.name,
     currentUser.phone,
     currentUser.companyName,
     currentUser.address,
-    currentUser.bio
+    currentUser.bio,
+    currentUser.avatarUrl,
+    currentUser.location,
+    currentUser.city,
+    currentUser.country,
+    currentUser.headline,
+    currentUser.title,
+    currentUser.website,
+    currentUser.skills,
+    currentUser.preferences,
+    currentUser.experience,
+    currentUser.education,
+    currentUser.cvUrl,
+    currentUser.resumeUrl,
+    currentUser.socialLinks,
+    currentUser.notificationsEnabled,
+    currentUser.whatsappAlertsEnabled
   ]);
 
   // Password Change Form State
@@ -877,12 +948,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       return;
     }
 
+    let structuredProfile: Record<string, any>;
+    try {
+      structuredProfile = {
+        preferences: JSON.parse(String(profileExtendedFields.preferences || '{}')),
+        experience: JSON.parse(String(profileExtendedFields.experience || '[]')),
+        education: JSON.parse(String(profileExtendedFields.education || '[]')),
+        socialLinks: JSON.parse(String(profileExtendedFields.socialLinks || '{}'))
+      };
+      // The backend historically accepts experience/education as either structured arrays or legacy text strings.
+      // Preserve existing string values rather than forcing old accounts into an incompatible array shape.
+      const isValidListOrLegacyText = (value: unknown) => Array.isArray(value) || typeof value === 'string';
+      if (!isValidListOrLegacyText(structuredProfile.experience) || !isValidListOrLegacyText(structuredProfile.education) || !structuredProfile.preferences || typeof structuredProfile.preferences !== 'object' || Array.isArray(structuredProfile.preferences) || !structuredProfile.socialLinks || typeof structuredProfile.socialLinks !== 'object' || Array.isArray(structuredProfile.socialLinks)) {
+        throw new Error('Preferences and social links must be JSON objects; experience and education must be JSON arrays or legacy text strings.');
+      }
+    } catch (error: any) {
+      alert(error?.message?.includes('JSON') ? 'Please correct the JSON in Preferences, Experience, Education, and Social Links.' : (error?.message || 'Invalid structured profile data.'));
+      return;
+    }
+
     const allowedUpdates: Partial<UserAccount> = {
       name: profileName.trim(),
       phone: profilePhone.trim(),
       companyName: profileCompany.trim(),
       address: profileAddress.trim(),
-      bio: profileBio.trim()
+      bio: profileBio.trim(),
+      avatarUrl: String(profileExtendedFields.avatarUrl || '').trim(),
+      location: String(profileExtendedFields.location || '').trim(),
+      city: String(profileExtendedFields.city || '').trim(),
+      country: String(profileExtendedFields.country || '').trim(),
+      headline: String(profileExtendedFields.headline || '').trim(),
+      title: String(profileExtendedFields.title || '').trim(),
+      website: String(profileExtendedFields.website || '').trim(),
+      skills: String(profileExtendedFields.skills || '').split(',').map((skill) => skill.trim()).filter(Boolean),
+      cvUrl: String(profileExtendedFields.cvUrl || '').trim(),
+      resumeUrl: String(profileExtendedFields.resumeUrl || '').trim(),
+      ...structuredProfile
     };
 
     if (onUpdateProfile) {
@@ -1256,6 +1357,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     tab?: any;
     subView?: any;
     subTab?: any;
+    accountSubTab?: 'profile' | 'security';
     isGlobal?: boolean;
     globalTab?: any;
   }) => {
@@ -1268,9 +1370,20 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
     if (params.tab) setActiveTab(params.tab);
     if (params.subView) setOverviewSubView(params.subView);
+    if (params.accountSubTab) setAccountSubTab(params.accountSubTab);
     if (params.subTab) {
       if (params.tab === 'applications') setAppSubTab(params.subTab);
       if (params.tab === 'campaigns') setCampaignSubTab(params.subTab);
+    }
+  };
+
+  const changeOverviewSubView = (subView: 'metrics' | 'recommendations' | 'history') => {
+    setOverviewSubView(subView);
+    if (navigationMode === 'professional') {
+      setActiveNavId(
+        subView === 'metrics' ? 'dash-overview' :
+        subView === 'recommendations' ? 'jobs-recommended' : 'mem-history'
+      );
     }
   };
 
@@ -1366,20 +1479,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [allJobs, currentUser, userApplications, savedJobIds]);
 
   // Derived Billing Dates & Times
-  const activationTimeStr = currentUser.activationDate || '2026-07-25 09:00';
-  const expiryTimeStr = currentUser.expiryDate || '2026-08-24 09:00';
-  const renewalCount = currentUser.renewalCount || 1;
-  const userTransactions: PaymentTransaction[] = currentUser.transactions || [
-    {
-      id: 'tx-init-1',
-      dateTime: activationTimeStr,
-      amount: 300,
-      currency: 'PKR',
-      type: 'Subscription',
-      status: 'Success',
-      paymentMethod: 'JazzCash'
-    }
-  ];
+  const planDisplayName = currentUser.plan || 'Not recorded';
+  const activationTimeStr = currentUser.activationDate || 'Not recorded';
+  const expiryTimeStr = currentUser.expiryDate || 'Not set';
+  const renewalCount =
+    typeof currentUser.renewalCount === 'number' && Number.isFinite(currentUser.renewalCount)
+      ? currentUser.renewalCount
+      : null;
+  const userTransactions: PaymentTransaction[] = Array.isArray(currentUser.transactions) ? currentUser.transactions : [];
 
   // Subscription Plan Expiry & Days Remaining
   const isPlanExpired = useMemo(() => {
@@ -1390,11 +1497,32 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [currentUser.membershipStatus, currentUser.expiryDate]);
 
   const daysRemaining = useMemo(() => {
-    if (!currentUser.expiryDate) return 30;
+    if (!currentUser.expiryDate) return null;
     const expiryTime = new Date(currentUser.expiryDate).getTime();
-    if (isNaN(expiryTime)) return 30;
+    if (isNaN(expiryTime)) return null;
     return Math.ceil((expiryTime - Date.now()) / (1000 * 60 * 60 * 24));
   }, [currentUser.expiryDate]);
+
+  const membershipStatusLabel = useMemo(() => {
+    const status = String(currentUser.membershipStatus || '').trim().toLowerCase();
+    if (status === 'revoked') return 'Revoked';
+    if (status === 'unpaid') return 'Payment required';
+    if (status === 'expired' || isPlanExpired || (daysRemaining !== null && daysRemaining <= 0)) return 'Expired';
+    if (status === 'active') return daysRemaining === null ? 'Expiry not recorded' : 'Active & Verified';
+    if (status === 'suspended' || status === 'cancelled' || status === 'inactive') {
+      return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+    return 'Status unavailable';
+  }, [currentUser.membershipStatus, isPlanExpired, daysRemaining]);
+
+  const membershipStatusClass =
+    membershipStatusLabel === 'Active & Verified'
+      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+      : ['Expired', 'Revoked', 'Suspended', 'Cancelled'].includes(membershipStatusLabel)
+        ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+        : membershipStatusLabel === 'Payment required'
+          ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+          : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
     <div className={`min-h-screen bg-slate-950 transition-all duration-300 ${navigationMode === 'professional' ? 'lg:pl-64' : ''}`}>
@@ -1405,6 +1533,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           overviewSubView={overviewSubView}
           appSubTab={appSubTab}
           campaignSubTab={campaignSubTab}
+          accountSubTab={accountSubTab}
           activeNavId={activeNavId}
           onNavigate={handleProNavigate}
           onLogout={handleLogout}
@@ -1427,8 +1556,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </button>
             )}
             <div className="w-10 h-10 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-600 p-0.5 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center font-black text-base sm:text-2xl text-emerald-400">
-                {currentUser.name.charAt(0).toUpperCase()}
+              <div className="relative w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center overflow-hidden font-black text-base sm:text-2xl text-emerald-400">
+                <span>{(currentUser.name || '?').charAt(0).toUpperCase()}</span>
+                {safeProfileAvatarUrl && (
+                  <img
+                    src={safeProfileAvatarUrl}
+                    alt="Profile"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                )}
               </div>
             </div>
 
@@ -1469,15 +1607,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </button>
             </div>
 
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              aria-expanded={isMobileMenuOpen}
-              aria-label="Toggle Navigation Menu"
-              className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
-            >
-              {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-              <span>Menu</span>
-            </button>
+            {navigationMode === 'classic' && (
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                aria-expanded={isMobileMenuOpen}
+                aria-label="Toggle Classic Navigation Menu"
+                className="md:hidden flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+              >
+                {isMobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+                <span>Menu</span>
+              </button>
+            )}
           <button
             onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
             aria-label="Notifications"
@@ -1492,12 +1632,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </span>
             )}
           </button>
-          <button
-            onClick={handleLogout}
-            className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
-          >
-            Log Out
-          </button>
+          {navigationMode === 'classic' && (
+            <button
+              onClick={handleLogout}
+              className="px-2.5 sm:px-4 py-1 sm:py-2 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
+            >
+              Log Out
+            </button>
+          )}
         </div>
       </div>
 
@@ -1514,17 +1656,30 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">
             <span className="text-slate-400">Membership:</span>
-            <span className={`font-bold flex items-center space-x-1 ${isPlanExpired ? 'text-rose-400' : 'text-emerald-400'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isPlanExpired ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
-              <span>{isPlanExpired ? 'Expired' : `${daysRemaining > 0 ? `${daysRemaining}d Left` : 'Active Pro'}`}</span>
+            <span className={`font-bold flex items-center space-x-1 ${membershipStatusLabel === 'Active & Verified' ? 'text-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'text-rose-400' : 'text-amber-300'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${membershipStatusLabel === 'Active & Verified' ? 'bg-emerald-400' : membershipStatusLabel === 'Expired' || membershipStatusLabel === 'Revoked' ? 'bg-rose-500' : 'bg-amber-400'}`} />
+              <span>{membershipStatusLabel === 'Active & Verified' && daysRemaining !== null ? `${daysRemaining}d Left` : membershipStatusLabel}</span>
             </span>
           </div>
         </div>
 
-        <div className="flex items-center space-x-1.5 sm:space-x-2">
+        <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
           <button
             type="button"
             onClick={() => {
+              setActiveNavId('emp-post');
+              setActiveTab('post-job');
+            }}
+            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-[11px] sm:text-xs flex items-center space-x-1 cursor-pointer active:scale-95 transition-all"
+            title="Open the existing job posting form"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Post a Job</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveNavId('mem-wallet');
               setActiveTab('campaigns');
               setCampaignSubTab('wallet');
               setOpenDepositModalTrigger(true);
@@ -1539,6 +1694,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           <button
             type="button"
             onClick={() => {
+              setActiveNavId('ads-create');
               setActiveTab('campaigns');
               setCampaignSubTab('create');
             }}
@@ -1605,23 +1761,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <div className="flex items-center space-x-2">
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] sm:text-xs font-black tracking-wider uppercase flex items-center space-x-1">
                       <Sparkles className="w-3 h-3" />
-                      <span>{currentUser.plan || 'Premium'} Pro Pass</span>
+                      <span>{planDisplayName}</span>
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${
-                      isPlanExpired
-                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse'
-                        : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                    }`}>
-                      {isPlanExpired ? '⚠️ Subscription Expired' : '✓ Active & Verified'}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${membershipStatusClass}`}>
+                      {membershipStatusLabel === 'Active & Verified' ? '✓ Active & Verified' : membershipStatusLabel}
                     </span>
                   </div>
 
                   <h3 className="text-base sm:text-2xl font-black text-white tracking-tight flex items-center space-x-2">
-                    <span>{currentUser.plan || 'Premium'} Pro Membership</span>
+                    <span>{planDisplayName} Membership</span>
                     <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
                   </h3>
                   <p className="text-[11px] sm:text-xs text-slate-400">
-                    Unlimited job submissions, automated CV builder access & verified applicant tier.
+                    Plan features and access depend on your recorded subscription status.
                   </p>
                 </div>
 
@@ -1635,7 +1787,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     }`}
                   >
                     <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                    <span>{isPlanExpired ? '⚡ Renew Plan Now (+30 Days) - PKR 300' : 'Renew Plan (+30 Days)'}</span>
+                    <span>{isPlanExpired ? 'Request Renewal' : 'Renew Subscription'}</span>
                   </button>
 
                   <button
@@ -1660,7 +1812,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     onClick={onRenewSubscription}
                     className="px-3 py-1.5 rounded-lg bg-rose-500 text-slate-950 font-black text-xs shrink-0 cursor-pointer shadow-md"
                   >
-                    Renew for PKR 300
+                    Request Renewal
                   </button>
                 </div>
               )}
@@ -1673,7 +1825,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <Sparkles className="w-3 h-3 text-emerald-400" />
                   </div>
                   <div className="text-xs sm:text-base font-black text-emerald-400 mt-1 truncate">
-                    {currentUser.plan || 'Premium'} Pro
+                    {planDisplayName}
                   </div>
                   <div className="text-[9px] text-slate-400 mt-0.5 truncate">Job Portal & CV Engine</div>
                 </div>
@@ -1686,7 +1838,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <div className="text-xs sm:text-sm font-black text-white font-mono mt-1 truncate">
                     {activationTimeStr}
                   </div>
-                  <div className="text-[9px] text-teal-400 mt-0.5 truncate">Verified on Record</div>
+                  <div className="text-[9px] text-teal-400 mt-0.5 truncate">{currentUser.activationDate ? 'Activation recorded' : 'Activation not recorded'}</div>
                 </div>
 
                 <div className="p-2.5 sm:p-3.5 bg-slate-950/70 border border-slate-800 rounded-lg sm:rounded-xl">
@@ -1698,7 +1850,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     {expiryTimeStr}
                   </div>
                   <div className="text-[9px] text-slate-400 mt-0.5 truncate">
-                    {isPlanExpired ? 'Validity Ended' : `${daysRemaining > 0 ? `${daysRemaining} days left` : 'Active'}`}
+                    {membershipStatusLabel === 'Active & Verified' && daysRemaining !== null ? `${daysRemaining} days left` : membershipStatusLabel === 'Expired' ? 'Validity Ended' : membershipStatusLabel}
                   </div>
                 </div>
 
@@ -1708,61 +1860,35 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <RefreshCw className="w-3 h-3 text-indigo-400" />
                   </div>
                   <div className="text-xs sm:text-base font-black text-indigo-400 mt-1 truncate">
-                    {renewalCount} Cycles
+                    {renewalCount === null ? 'Not recorded' : `${renewalCount} Cycles`}
                   </div>
                   <div className="text-[9px] text-slate-400 mt-0.5 truncate">Loyalty Counter</div>
                 </div>
               </div>
 
-              {/* 1-Term Contract & Monthly Auto-Renewal Control */}
+              {/* Auto-renew is displayed as an account setting; users cannot change it here because the normal-user API does not permit that field. */}
               <div className="p-3 sm:p-4 bg-slate-950/80 rounded-xl sm:rounded-2xl border border-slate-800/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-0.5">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-white text-xs sm:text-sm">
-                      {currentUser.autoRenew ? 'Continuous Monthly Auto-Renewal' : '1-Term Fixed Contract'}
-                    </span>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
-                      currentUser.autoRenew
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                        : 'bg-slate-800 text-slate-400 border-slate-700'
-                    }`}>
-                      {currentUser.autoRenew ? 'Auto-Charge Enabled' : 'Fixed 1-Term'}
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-white text-xs sm:text-sm">Subscription Renewal Setting</span>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${currentUser.autoRenew === true ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : currentUser.autoRenew === false ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}>
+                      {typeof currentUser.autoRenew === 'boolean' ? (currentUser.autoRenew ? 'Enabled flag (no auto-charge)' : 'Manual renewal') : 'Not recorded'}
                     </span>
                   </div>
                   <p className="text-[10px] sm:text-xs text-slate-400">
-                    {currentUser.autoRenew
-                      ? 'Subscription auto-renews for 30 days upon reaching expiry date without manual intervention.'
-                      : 'Subscription will terminate exactly on expiry date without any automatic debit.'}
+                    This setting is managed by the portal administrator. Contact support if you need it changed. No automatic charge is initiated from this screen.
                   </p>
                 </div>
-
-                <div className="flex items-center space-x-3 self-end sm:self-auto">
-                  <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
-                    {currentUser.autoRenew ? 'Toggle to 1-Term' : 'Toggle to Auto-Renew'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={onToggleAutoRenew}
-                    aria-label="Toggle Auto Renewal"
-                    className={`w-12 sm:w-14 h-6 sm:h-7 flex items-center rounded-full p-1 transition-colors duration-300 cursor-pointer ${
-                      currentUser.autoRenew ? 'bg-emerald-500' : 'bg-slate-700'
-                    }`}
-                  >
-                    <div
-                      className={`bg-white w-4 sm:w-5 h-4 sm:h-5 rounded-full shadow-md transform transition-transform duration-300 ${
-                        currentUser.autoRenew ? 'translate-x-6 sm:translate-x-7' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
+                <Lock className="w-5 h-5 text-slate-500 shrink-0" />
               </div>
             </div>
           </div>
 
-          {/* OVERVIEW SUB-VIEW NAVIGATION PILLS */}
-          <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2.5">
+          {/* Classic mode keeps the legacy overview pills; Professional mode uses the sidebar sub-navigation. */}
+          {navigationMode === 'classic' && (
+            <div className="flex items-center space-x-1.5 sm:space-x-2 border-b border-slate-800 pb-2.5">
             <button
-              onClick={() => setOverviewSubView('metrics')}
+              onClick={() => changeOverviewSubView('metrics')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 overviewSubView === 'metrics'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
@@ -1774,7 +1900,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </button>
 
             <button
-              onClick={() => setOverviewSubView('recommendations')}
+              onClick={() => changeOverviewSubView('recommendations')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 overviewSubView === 'recommendations'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
@@ -1786,7 +1912,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </button>
 
             <button
-              onClick={() => setOverviewSubView('history')}
+              onClick={() => changeOverviewSubView('history')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 overviewSubView === 'history'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
@@ -1797,6 +1923,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>Payment History ({userTransactions.length})</span>
             </button>
           </div>
+          )}
 
           {/* SUB-VIEW 1: METRICS SNEAK-PEEKS */}
           {overviewSubView === 'metrics' && (
@@ -2032,26 +2159,77 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       <th className="py-3 px-4">Amount</th>
                       <th className="py-3 px-4">Payment Method</th>
                       <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Details</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {userTransactions.map((tx) => (
+                    {userTransactions.length === 0 ? (
+                      <tr><td colSpan={7} className="py-8 px-4 text-center text-slate-400">No payment records yet.</td></tr>
+                    ) : userTransactions.map((tx) => (
                       <tr key={tx.id} className="hover:bg-slate-800/50 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-semibold text-white">{tx.dateTime}</td>
                         <td className="py-3.5 px-4 font-bold text-emerald-400">{tx.type}</td>
-                        <td className="py-3.5 px-4 text-slate-300">{tx.jobTitleRef || 'Monthly Pro Subscription'}</td>
+                        <td className="py-3.5 px-4 text-slate-300">{tx.jobTitleRef || tx.adTitleRef || (tx.type === 'Subscription' ? 'Subscription' : tx.type === 'Wallet Deposit' ? 'Wallet Deposit' : '—')}</td>
                         <td className="py-3.5 px-4 font-black text-white font-mono">{tx.currency} {tx.amount.toLocaleString()}</td>
                         <td className="py-3.5 px-4 font-medium text-slate-300">{tx.paymentMethod}</td>
                         <td className="py-3.5 px-4">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                            {tx.status}
-                          </span>
+                          {(() => {
+                            const status = getPaymentStatusPresentation(tx.status);
+                            return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${status.className}`}>{status.label}</span>;
+                          })()}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <button type="button" onClick={() => setSelectedPaymentTransaction(tx)} className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-bold text-[10px]">View details</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {selectedPaymentTransaction && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Payment transaction details">
+                  <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl p-4 sm:p-6 space-y-4 shadow-2xl">
+                    <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+                      <div>
+                        <h3 className="text-base sm:text-lg font-black text-white">Payment Transaction Details</h3>
+                        <p className="text-[11px] text-slate-400 mt-1">Reference: {selectedPaymentTransaction.transactionId || selectedPaymentTransaction.id}</p>
+                      </div>
+                      <button type="button" onClick={() => setSelectedPaymentTransaction(null)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white" aria-label="Close details"><X className="w-4 h-4" /></button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      {[
+                        ['Date & Time', selectedPaymentTransaction.dateTime],
+                        ['Transaction Type', selectedPaymentTransaction.type],
+                        ['Amount', `${selectedPaymentTransaction.currency || 'PKR'} ${Number(selectedPaymentTransaction.amount || 0).toLocaleString()}`],
+                        ['Payment Method', selectedPaymentTransaction.paymentMethod],
+                        ['Status', getPaymentStatusPresentation(selectedPaymentTransaction.status).label],
+                        ['Item / Campaign', selectedPaymentTransaction.jobTitleRef || selectedPaymentTransaction.adTitleRef || '—'],
+                        ['Sender Name', selectedPaymentTransaction.senderName],
+                        ['Sender Account / Phone', selectedPaymentTransaction.senderPhoneOrAccount],
+                        ['Bank / Wallet', selectedPaymentTransaction.depositBankOrWalletName],
+                        ['Verified At', selectedPaymentTransaction.verifiedAt],
+                        ['Verified By', selectedPaymentTransaction.verifiedBy],
+                        ['Admin Note', selectedPaymentTransaction.adminNote],
+                        ['Rejection Reason', selectedPaymentTransaction.rejectionReason],
+                        ['Proof Note', selectedPaymentTransaction.proofNote]
+                      ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '').map(([label, value]) => (
+                        <div key={label} className="p-3 bg-slate-950 border border-slate-800 rounded-xl min-w-0">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold mb-1">{label}</div>
+                          <div className="text-slate-200 break-words">{String(value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedPaymentTransaction.proofScreenshotUrl && (
+                      <a href={selectedPaymentTransaction.proofScreenshotUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+                        <FileText className="w-4 h-4" /> View submitted payment proof
+                      </a>
+                    )}
+                    <div className="flex justify-end pt-2 border-t border-slate-800">
+                      <button type="button" onClick={() => setSelectedPaymentTransaction(null)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold">Close</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2060,9 +2238,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* TAB 2: MY PROFILE & SECURITY */}
       {activeTab === 'profile' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 text-white">
+        <div className="space-y-4 text-white">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
           
           {/* PROFILE EDIT FORM */}
+          {(navigationMode === 'classic' || accountSubTab === 'profile') && (
           <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 sm:space-y-6 shadow-xl">
             <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
               <div>
@@ -2162,6 +2342,32 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 />
               </div>
 
+              <details className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                <summary className="cursor-pointer text-xs font-black text-emerald-300">Additional Profile & Career Details</summary>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                  {(['headline', 'title', 'location', 'city', 'country', 'website', 'avatarUrl', 'cvUrl', 'resumeUrl'] as const).map((field) => (
+                    <label key={field} className="block text-xs font-bold text-slate-300">
+                      {({ headline: 'Professional Headline', title: 'Professional Title', location: 'Location', city: 'City', country: 'Country', website: 'Website', avatarUrl: 'Profile Image URL', cvUrl: 'CV URL', resumeUrl: 'Resume URL' } as Record<string, string>)[field]}
+                      <input value={String(profileExtendedFields[field] || '')} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, [field]: e.target.value }))} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-normal" />
+                    </label>
+                  ))}
+                  <label className="block text-xs font-bold text-slate-300 sm:col-span-2">Skills (comma-separated)
+                    <input value={String(profileExtendedFields.skills || '')} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, skills: e.target.value }))} placeholder="e.g. React, Communication, Project Management" className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-normal" />
+                  </label>
+                  {(['preferences', 'experience', 'education', 'socialLinks'] as const).map((field) => (
+                    <label key={field} className="block text-xs font-bold text-slate-300 sm:col-span-2">
+                      {field === 'socialLinks' ? 'Social Links (JSON object)' : field[0].toUpperCase() + field.slice(1) + (field === 'experience' || field === 'education' ? ' (JSON array)' : ' (JSON object)')}
+                      <textarea rows={3} value={String(profileExtendedFields[field] || '')} onChange={(e) => setProfileExtendedFields((prev) => ({ ...prev, [field]: e.target.value }))} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-mono" />
+                    </label>
+                  ))}
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300">
+                    <div className="flex items-center justify-between gap-3"><span>Email / in-app notification preference</span><strong>{typeof profileExtendedFields.notificationsEnabled === 'boolean' ? (profileExtendedFields.notificationsEnabled ? 'Enabled' : 'Disabled') : 'Not recorded'}</strong></div>
+                    <div className="flex items-center justify-between gap-3 mt-2"><span>WhatsApp alert preference</span><strong>{typeof profileExtendedFields.whatsappAlertsEnabled === 'boolean' ? (profileExtendedFields.whatsappAlertsEnabled ? 'Enabled' : 'Disabled') : 'Not recorded'}</strong></div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-amber-300/80 mt-3">These legacy preference values are displayed read-only. The current notification delivery routes do not enforce them, so changing them here would incorrectly suggest that email or WhatsApp delivery is controlled by these switches. Other profile fields are saved through the authenticated API; account permissions, wallet, membership, and verification fields remain protected.</p>
+              </details>
+
               <div className="pt-2">
                 <button
                   type="submit"
@@ -2172,8 +2378,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </form>
           </div>
+          )}
 
           {/* CHANGE PASSWORD & SECURITY FORM */}
+          {(navigationMode === 'classic' || accountSubTab === 'security') && (
           <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 sm:space-y-6 shadow-xl">
             <div className="border-b border-slate-800 pb-3">
               <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
@@ -2232,9 +2440,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </div>
             </form>
           </div>
+          )}
 
           {/* EMPLOYER BUSINESS VERIFICATION (KYC) CARD */}
-          {currentUser.role === 'Employer/Job Poster' && (
+          {(navigationMode === 'classic' || accountSubTab === 'profile') && currentUser.role === 'Employer/Job Poster' && (
             <div className="lg:col-span-12 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-6 space-y-4 shadow-xl">
               <div className="border-b border-slate-800 pb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -2446,6 +2655,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           )}
 
+          </div>
         </div>
       )}
 
@@ -2464,7 +2674,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           </div>
 
-          {/* Sub-Tabs: Submitted Apps | Saved Jobs | Job Alerts | My Documents */}
+          {/* Classic mode keeps the legacy in-page tabs; Professional mode uses the sidebar sub-navigation. */}
+          {navigationMode === 'classic' && (
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 border-b border-slate-800 pb-3">
             <button
               onClick={() => setAppSubTab('submitted')}
@@ -2514,6 +2725,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>My Documents & CV ({userDocuments.length})</span>
             </button>
           </div>
+          )}
 
           {/* SUB-TAB 1: SUBMITTED JOB APPLICATIONS */}
           {appSubTab === 'submitted' && (
@@ -3876,6 +4088,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               onDuplicateAd(ad);
             }
           }}
+          onNavigateGlobalTab={onNavigateGlobalTab}
+          onCampaignSubTabChange={(subTab) => {
+            setCampaignSubTab(subTab);
+            if (navigationMode === 'professional') {
+              setActiveNavId(subTab === 'my-campaigns' ? 'ads-list' : subTab === 'create' ? 'ads-create' : 'mem-wallet');
+            }
+          }}
+          showInternalNavigation={navigationMode === 'classic'}
         />
       )}
 

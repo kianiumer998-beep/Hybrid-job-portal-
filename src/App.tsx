@@ -588,7 +588,7 @@ export default function App() {
       impressions: typeof rawAd?.impressions === 'number' ? rawAd.impressions : 0,
       clicks: typeof rawAd?.clicks === 'number' ? rawAd.clicks : 0,
       createdAt:
-        rawAd?.createdAt || new Date().toISOString().replace('T', ' ').substring(0, 16)
+        rawAd?.createdAt || 'Not recorded'
     };
   }, []);
 
@@ -1187,7 +1187,7 @@ export default function App() {
   const normalizeBackendTransaction = useCallback((rawTx: any): PaymentTransaction => {
     const fallbackDate = rawTx?.createdAt
       ? String(rawTx.createdAt).replace('T', ' ').substring(0, 16)
-      : new Date().toISOString().replace('T', ' ').substring(0, 16);
+      : 'Not recorded';
     const mappedType: PaymentTransaction['type'] =
       rawTx?.type === 'Job Posting'
         ? 'Job Posting Fee'
@@ -2485,6 +2485,7 @@ export default function App() {
       'education',
       'cvUrl',
       'resumeUrl',
+      'cvData',
       'socialLinks',
       'notificationsEnabled',
       'whatsappAlertsEnabled'
@@ -2803,7 +2804,6 @@ export default function App() {
           plan: 'Premium',
           membershipStatus: 'Active',
           membershipTier: newSub.plan || 'Pro Alerts',
-          autoRenew: true
         } as UserAccount);
       }
     }
@@ -2833,14 +2833,6 @@ export default function App() {
     if (sanitized.id) {
       loadBackendUserProfile(sanitized.id);
     }
-  };
-
-  // Auto-Renew Toggle Switch Handler for Current User
-  const handleToggleAutoRenew = () => {
-    if (!currentUser) return;
-    const updated = { ...currentUser, autoRenew: !currentUser.autoRenew };
-    setCurrentUser(updated);
-    setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
   };
 
   const applyAuthoritativeUserUpdate = useCallback((rawUser: any): UserAccount => {
@@ -3195,56 +3187,11 @@ export default function App() {
   };
 
   // User Manual Subscription Renewal (+30 Days)
-  const handleRenewSubscription = async () => {
-    if (!currentUser) return;
-
-    const rawTier = (currentUser as any).membershipTier;
-    const targetPackage = subscriptionPackages.find(p => p.enabled && (p.id === rawTier || p.name === rawTier));
-    
-    if (!targetPackage) {
-      alert('Subscription renewal is currently unavailable for your current plan tier. Please contact support or upgrade via the Subscription menu.');
-      return;
-    }
-
-    const selectedPlan = targetPackage.id;
-    const renewalAmount = Number(targetPackage.pricePkr);
-
-    try {
-      const txRes = await api.transactions.submit({
-        amount: renewalAmount,
-        currency: 'PKR',
-        type: 'Subscription',
-        plan: selectedPlan,
-        paymentMethod: 'JazzCash',
-        senderName: currentUser.name,
-        userName: currentUser.name,
-        userEmail: currentUser.email,
-        idempotencyKey: `renew-${currentUser.id}-${Date.now()}`
-      });
-
-      if (txRes && txRes.success && txRes.transaction) {
-        const normalizedTx = normalizeBackendTransaction(txRes.transaction);
-        setPaymentTransactions((prev) => [
-          normalizedTx,
-          ...prev.filter((t) => t.id !== normalizedTx.id)
-        ]);
-        await loadBackendTransactions(currentUser.id);
-
-        if (normalizedTx.status === 'Success') {
-          alert('Subscription renewed and activated!');
-        } else {
-          alert(
-            txRes.message ||
-              'Subscription renewal submitted! Administrator verification is pending.'
-          );
-        }
-      } else {
-        alert(txRes?.message || 'Failed to submit subscription renewal.');
-      }
-    } catch (err: any) {
-      console.error('Error renewing subscription:', err);
-      alert(err?.message || 'Error processing subscription renewal.');
-    }
+  const handleRenewSubscription = () => {
+    // Renewal must use the existing SubscriptionModal so users submit the configured payment method,
+    // transaction reference/receipt, sender details, and any administrator-required custom proof fields.
+    setSelectedJobTitleForSub('');
+    setSubscriptionModalOpen(true);
   };
 
   // Admin Approves Job
@@ -4440,7 +4387,6 @@ export default function App() {
                 onDepositFunds={handleDepositFunds}
                 onDeleteAd={handleDeleteAd}
                 onDuplicateAd={handleAddAd}
-                onToggleAutoRenew={handleToggleAutoRenew}
                 onRenewSubscription={handleRenewSubscription}
                 onSubmitJobForApproval={handleSubmitJobForApproval}
                 onSendMessageToAdmin={handleUserSendMessage}
@@ -4474,7 +4420,10 @@ export default function App() {
                   setShowAdminView(false);
                   setActiveTab('jobs');
                 }}
-                onOpenSubscriptionModal={() => setSubscriptionModalOpen(true)}
+                onOpenSubscriptionModal={() => {
+                  setSelectedJobTitleForSub('');
+                  setSubscriptionModalOpen(true);
+                }}
                 onNavigateGlobalTab={setActiveTab}
               />
             )}
@@ -4483,6 +4432,8 @@ export default function App() {
             {activeTab === 'cv' && (
               <CvBuilder
                 isSubscribed={isSubscribed}
+                initialCvData={currentUser?.cvData}
+                onSaveCv={async (cvData) => handleUpdateProfile({ cvData })}
                 onOpenPaywall={() => setCvPaywallOpen(true)}
               />
             )}

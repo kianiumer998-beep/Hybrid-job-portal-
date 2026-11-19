@@ -22,6 +22,7 @@ export interface ScraperRunOptions {
   sinceTimestamp?: string;
   fromTimestamp?: string;
   toTimestamp?: string;
+  keywords?: string;
   autoPublishTrusted?: boolean;
   duplicateMode?: 'with' | 'without';
 }
@@ -225,6 +226,9 @@ export interface ScraperRunSummary {
     rawCandidateCount?: number;
     newCount: number;
     dupCount: number;
+    persistedCount?: number;
+    failedToSaveCount?: number;
+    rejectedCount?: number;
     pagesAttempted: number;
     pagesSuccessful: number;
     failed: boolean;
@@ -309,6 +313,7 @@ export interface SourceCompletionStatsInput {
   sourceFound: number;
   sourcePersisted: number;
   sourceIntentionalSkips: number;
+  provenExtractionMethodsToAdd?: string[];
 }
 
 /**
@@ -327,6 +332,7 @@ export function buildSourceCompletionStatsUpdate(input: SourceCompletionStatsInp
     scrapedCountIncrement?: number;
     healthStatus: string;
     lastErrorMessage: string;
+    provenExtractionMethodsToAdd?: string[];
   };
 } {
   let successHealth = 'No Jobs';
@@ -355,6 +361,13 @@ export function buildSourceCompletionStatsUpdate(input: SourceCompletionStatsInp
     } else if (input.sourceSaveFailures > 0) {
       lastErrorNotice = `${input.sourceSaveFailures} of ${input.sourceValid} vacancies failed to save to database`;
     }
+  } else if (input.lastPageError) {
+    const errMsg = String(input.lastPageError?.message || input.lastPageError || 'Page crawl error');
+    const errLower = errMsg.toLowerCase();
+    successHealth = errLower.includes('timeout') || errLower.includes('timed out') || errLower.includes('etimedout') || errLower.includes('abort')
+      ? 'Timeout'
+      : 'Fetch Error';
+    lastErrorNotice = `Crawling interrupted on page ${input.sourcePagesAttempted} (${errMsg}) (checkpoint preserved)`;
   } else {
     successHealth = 'No Jobs';
     lastErrorNotice = input.paginationDiagnostic || (
@@ -363,6 +376,11 @@ export function buildSourceCompletionStatsUpdate(input: SourceCompletionStatsInp
         : '0 vacancies extracted from target source'
     );
   }
+
+  const cleanMethods =
+    input.isDetectionSuccessful && input.sourcePersisted > 0 && Array.isArray(input.provenExtractionMethodsToAdd)
+      ? Array.from(new Set(input.provenExtractionMethodsToAdd.map(m => String(m || '').trim()).filter(Boolean)))
+      : [];
 
   return {
     successHealth,
@@ -378,7 +396,8 @@ export function buildSourceCompletionStatsUpdate(input: SourceCompletionStatsInp
         ? (input.sourcePersisted + input.sourceIntentionalSkips)
         : undefined,
       healthStatus: successHealth,
-      lastErrorMessage: lastErrorNotice ?? ''
+      lastErrorMessage: lastErrorNotice ?? '',
+      ...(cleanMethods.length > 0 ? { provenExtractionMethodsToAdd: cleanMethods } : {})
     }
   };
 }
@@ -492,7 +511,7 @@ export function validateDiscoveredNextPageUrl(
 
 export async function crawlPortalPages(
   target: ScraperTargetConfig,
-  options: Pick<ScraperRunOptions, 'mode' | 'startPage' | 'endPage'>,
+  options: Pick<ScraperRunOptions, 'mode' | 'startPage' | 'endPage' | 'toTimestamp' | 'keywords'>,
   sinceTimestamp: string | undefined,
   runId: string,
   scrapePageFn: typeof scrapeTargetPortal = scrapeTargetPortal
@@ -510,14 +529,29 @@ export async function crawlPortalPages(
 
   let startPage = 1;
   let maxAllowedPage = 1;
+  let pageRangeTruncatedBySafetyCap = false;
+
+  const isMultiPageMode =
+    options.mode === 'complete' ||
+    options.mode === 'custom_date' ||
+    options.mode === 'keyword_drill';
 
   if (options.mode === 'page_range') {
     startPage = Math.max(1, options.startPage || 1);
-    maxAllowedPage = Math.max(startPage, Math.min(startPage + MAX_SAFETY_PAGES, options.endPage || startPage));
-  } else if (options.mode === 'complete') {
+    const requestedEndPage = Math.max(startPage, options.endPage || startPage);
+    maxAllowedPage = Math.min(startPage + MAX_SAFETY_PAGES, requestedEndPage);
+    pageRangeTruncatedBySafetyCap = requestedEndPage > maxAllowedPage;
+  } else if (isMultiPageMode) {
     startPage = 1;
     maxAllowedPage = MAX_SAFETY_PAGES;
   }
+
+  const effectiveKeywords =
+    options.mode === 'keyword_drill'
+      ? (options.keywords || target.keywords || '').trim() || undefined
+      : undefined;
+  const effectiveToTimestamp =
+    options.mode === 'custom_date' ? options.toTimestamp : undefined;
 
   const portalBaseUrl = (target.url || target.portalUrl || target.pdfUrl || '').trim();
   const visitedPageUrls = new Set<string>();
@@ -553,6 +587,8 @@ export async function crawlPortalPages(
         startPage,
         endPage: maxAllowedPage,
         sinceTimestamp,
+        toTimestamp: effectiveToTimestamp,
+        keywords: effectiveKeywords,
         runId,
         targetPageUrl: currentTargetPageUrl
       });
@@ -562,7 +598,7 @@ export async function crawlPortalPages(
       if (pageResults && pageResults.length > 0) {
         rawResults.push(...pageResults);
 
-        if (options.mode === 'complete') {
+        if (isMultiPageMode) {
           const discoveredNextUrl = pageResults.find(
             j => typeof j.nextPageUrl === 'string' && j.nextPageUrl.trim().length > 0
           )?.nextPageUrl?.trim();
@@ -611,6 +647,9 @@ export async function crawlPortalPages(
           }
         } else if (options.mode === 'page_range') {
           currentTargetPageUrl = undefined;
+          if (currentPage >= maxAllowedPage && pageRangeTruncatedBySafetyCap) {
+            hitSafetyLimit = true;
+          }
           currentPage++;
         } else {
           hasMorePages = false;
@@ -913,6 +952,7 @@ export async function executeScraperWithWizard(
       let sourceValid = 0;
       let sourceNew = 0;
       let sourceDup = 0;
+      let sourceRejected = 0;
       let sourcePersisted = 0;
       let sourceSaveFailures = 0;
       let sourceUniqueSaveFailures = 0;
@@ -922,6 +962,7 @@ export async function executeScraperWithWizard(
       let sourcePagesSuccessful = 0;
       let sourceFailed = false;
       let sourceError = '';
+      const sourcePersistedMethods = new Set<string>();
 
       try {
         try {
@@ -963,7 +1004,9 @@ export async function executeScraperWithWizard(
         // Custom date upper cutoff (toTimestamp) filter
         let filteredResults = rawResults;
         if (options.mode === 'custom_date' && options.toTimestamp) {
-          const toTime = new Date(options.toTimestamp).getTime();
+          const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(options.toTimestamp.trim());
+          const parsedTo = new Date(options.toTimestamp).getTime();
+          const toTime = !isNaN(parsedTo) ? (isDateOnly ? parsedTo + 24 * 60 * 60 * 1000 - 1 : parsedTo) : NaN;
           if (!isNaN(toTime)) {
             filteredResults = filteredResults.filter(j => {
               if (!j.datePosted) return true;
@@ -988,6 +1031,7 @@ export async function executeScraperWithWizard(
           // Assess extraction quality
           const isQualityAcceptable = !!(raw.title && raw.title.trim().length >= 3 && raw.company && raw.company.trim().length >= 2);
           if (!isQualityAcceptable) {
+            sourceRejected++;
             totalJobsRejected++;
             continue; // Reject low quality / invalid vacancies
           }
@@ -1072,6 +1116,9 @@ export async function executeScraperWithWizard(
               pendingJobs.push(standardizedJob);
               activeRunState.totalPending++;
               sourcePersisted++;
+              if (standardizedJob.extractionMethod) {
+                sourcePersistedMethods.add(String(standardizedJob.extractionMethod).trim());
+              }
             } catch (pErr: any) {
               console.error(`[Scraper Engine] Failed saving duplicate pending job (${standardizedJob.title}):`, pErr?.message || pErr);
               sourceSaveFailures++;
@@ -1083,16 +1130,18 @@ export async function executeScraperWithWizard(
               });
             }
           } else {
-            sourceNew++;
-            uniqueJobs.push(standardizedJob);
-            activeRunState.totalNew++;
-
             if (standardizedJob.status === 'Approved') {
               try {
                 await persistScrapedCandidateWithRetry(standardizedJob, createJobFn, harvestedJobs, target.id);
                 publishedJobs.push(standardizedJob);
                 activeRunState.totalPublished++;
+                sourceNew++;
+                uniqueJobs.push(standardizedJob);
+                activeRunState.totalNew++;
                 sourcePersisted++;
+                if (standardizedJob.extractionMethod) {
+                  sourcePersistedMethods.add(String(standardizedJob.extractionMethod).trim());
+                }
               } catch (cErr: any) {
                 console.error(`[Scraper Engine] Failed saving approved job (${standardizedJob.title}):`, cErr?.message || cErr);
                 sourceSaveFailures++;
@@ -1108,7 +1157,13 @@ export async function executeScraperWithWizard(
                 await persistScrapedCandidateWithRetry(standardizedJob, addPendingJobFn, harvestedJobs, target.id);
                 pendingJobs.push(standardizedJob);
                 activeRunState.totalPending++;
+                sourceNew++;
+                uniqueJobs.push(standardizedJob);
+                activeRunState.totalNew++;
                 sourcePersisted++;
+                if (standardizedJob.extractionMethod) {
+                  sourcePersistedMethods.add(String(standardizedJob.extractionMethod).trim());
+                }
               } catch (pErr: any) {
                 console.error(`[Scraper Engine] Failed saving pending job (${standardizedJob.title}):`, pErr?.message || pErr);
                 sourceSaveFailures++;
@@ -1164,7 +1219,8 @@ export async function executeScraperWithWizard(
           sourceValid,
           sourceFound,
           sourcePersisted,
-          sourceIntentionalSkips
+          sourceIntentionalSkips,
+          provenExtractionMethodsToAdd: Array.from(sourcePersistedMethods)
         });
 
         const lastErrorNotice = completion.lastErrorNotice;
@@ -1189,6 +1245,9 @@ export async function executeScraperWithWizard(
           rawCandidateCount: sourceFound,
           newCount: sourceNew,
           dupCount: sourceDup,
+          persistedCount: sourcePersisted,
+          failedToSaveCount: sourceSaveFailures,
+          rejectedCount: sourceRejected,
           pagesAttempted: sourcePagesAttempted,
           pagesSuccessful: sourcePagesSuccessful,
           failed: sourceFailed,
@@ -1258,6 +1317,9 @@ export async function executeScraperWithWizard(
           rawCandidateCount: sourceFound,
           newCount: sourceNew,
           dupCount: sourceDup,
+          persistedCount: sourcePersisted,
+          failedToSaveCount: sourceSaveFailures,
+          rejectedCount: sourceRejected,
           pagesAttempted: sourcePagesAttempted,
           pagesSuccessful: sourcePagesSuccessful,
           failed: true,
@@ -1315,6 +1377,11 @@ export async function executeScraperWithWizard(
         stopped: wasStopped,
         status: derivedRunStatus,
         totalFound: harvestedJobs.length,
+        totalNew: uniqueJobs.length,
+        totalDuplicates: duplicateJobs.length,
+        totalFailedToSave: failedToSaveErrors.length,
+        jobsAccepted: uniqueJobs.length,
+        jobsRejected: totalJobsRejected,
         newPublished: publishedJobs.length,
         newPending: pendingJobs.length,
         duplicatesFlagged: duplicateJobs.length,

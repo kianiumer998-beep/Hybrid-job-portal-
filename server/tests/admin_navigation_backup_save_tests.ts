@@ -74,6 +74,8 @@ import {
   findCandidateRecruitmentImages,
   isSafeMediaOrigin,
   mapLinkedImageOcrJobs,
+  mapDirectImageOcrJobs,
+  extractNextPageUrl,
   deduplicateJobs,
   scrapeGreenhouseApi,
   scrapeLeverApi,
@@ -111,7 +113,7 @@ import {
   isSameLogicalJobRecord
 } from '../db/repositories/JobRepository';
 import { Database } from '../db/database';
-import { scraperRouter, handleSchedulerTickRequest } from '../routes/scraperRoutes';
+import { scraperRouter, handleSchedulerTickRequest, mapScrapedResultToRouteJob } from '../routes/scraperRoutes';
 import { featureFlags } from '../config/featureFlags';
 import {
   deriveRunStatus,
@@ -10553,6 +10555,650 @@ async function runSuite() {
         delete process.env.GEMINI_API_KEY;
       }
     }
+  });
+
+  // ============================================================================
+  // MASTER STEP (GROUPS A, B, C): SCRAPER RELIABILITY IMPROVEMENTS
+  // ============================================================================
+
+  await runTest('MASTER-STEP Group A Case 1 [Mocked]: Direct image URLs and extensionless image Content-Types route to OCR with media provenance, while unsupported image formats reject cleanly', async () => {
+    let parseMediaCalls = 0;
+    const mockParseMedia = (async (mediaUrl: string) => {
+      parseMediaCalls++;
+      return {
+        success: true,
+        diagnosticCode: 'IMAGE_OCR_SUCCESS',
+        formatType: 'image',
+        fullExtractedText: 'Advertisement for Data Analyst at Public Sector',
+        extractedJobs: [
+          {
+            title: 'Data Analyst',
+            department: 'Planning Board',
+            location: 'Islamabad',
+            closingDate: '2026-12-15',
+            qualifications: ['BS Computer Science'],
+            applicationInstructions: 'Apply online',
+            sourceUrl: mediaUrl,
+            extractionMethod: 'image_ocr'
+          }
+        ]
+      };
+    }) as any;
+
+    const jpgJobs = await scrapeTargetPortal(
+      {
+        id: 'img-src-1',
+        name: 'Jang Classified Image',
+        url: 'https://[2607:f8b0:4005:805::200e]/ads/career-notice.jpg?v=2',
+        keywords: '',
+        interval: '24h',
+        autoApprove: false,
+        status: 'Active Scheduled',
+        scrapedCount: 0
+      },
+      {},
+      undefined,
+      mockParseMedia
+    );
+
+    assert.strictEqual(parseMediaCalls, 1, 'Direct JPG URL must call OCR parser directly');
+    assert.strictEqual(jpgJobs.length, 1);
+    assert.strictEqual(jpgJobs[0].extractionMethod, 'image_ocr');
+    assert.strictEqual(jpgJobs[0].status, 'Pending');
+    assert.ok(jpgJobs[0].clippingImageUrl?.includes('career-notice.jpg'));
+    assert.ok(jpgJobs[0].mediaUrl?.includes('career-notice.jpg'));
+
+    // Unsupported extension (.gif / .svg) rejected before network/OCR
+    await assert.rejects(
+      () =>
+        scrapeTargetPortal(
+          {
+            id: 'img-bad-ext',
+            name: 'SVG Icon Url',
+            url: 'https://[2607:f8b0:4005:805::200e]/logo.svg',
+            keywords: '',
+            interval: '24h',
+            autoApprove: false,
+            status: 'Active Scheduled',
+            scrapedCount: 0
+          },
+          {},
+          undefined,
+          mockParseMedia
+        ),
+      /Unsupported image/i
+    );
+
+    // Extensionless URL returning image/png Content-Type cancels HTML body read and routes to OCR
+    const originalFetch = globalThis.fetch;
+    let bodyCancelled = false;
+    try {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('PNGDATA'));
+        },
+        cancel() {
+          bodyCancelled = true;
+        }
+      });
+      globalThis.fetch = (async () =>
+        new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'image/png' }
+        })) as any;
+
+      const extlessJobs = await scrapeTargetPortal(
+        {
+          id: 'img-src-extless',
+          name: 'Extensionless Image Endpoint',
+          url: 'https://[2607:f8b0:4005:805::200e]/notice/download?id=99',
+          keywords: '',
+          interval: '24h',
+          autoApprove: false,
+          status: 'Active Scheduled',
+          scrapedCount: 0
+        },
+        {},
+        undefined,
+        mockParseMedia
+      );
+
+      assert.strictEqual(bodyCancelled, true, 'Extensionless image response stream must be cancelled before OCR routing');
+      assert.strictEqual(parseMediaCalls, 2);
+      assert.strictEqual(extlessJobs.length, 1);
+      assert.strictEqual(extlessJobs[0].extractionMethod, 'image_ocr');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    // Direct mapper preserves all PDF & image fields in mapScrapedResultToRouteJob
+    const directMapped = mapDirectImageOcrJobs(
+      [
+        {
+          title: 'Network Administrator',
+          department: 'IT Directorate',
+          location: 'Lahore',
+          sourceUrl: 'https://example.pk/ad.png',
+          domicile: 'Punjab'
+        }
+      ],
+      { name: 'Example Org', autoApprove: true },
+      'https://example.pk/ad.png',
+      { fullExtractedText: 'OCR sample text' }
+    );
+    const routeJob = mapScrapedResultToRouteJob({
+      ...directMapped[0],
+      domicileQuota: 'Punjab',
+      isPdfScraped: true,
+      pdfFileName: 'Notice.pdf',
+      pdfSourceUrl: 'https://example.pk/Notice.pdf?page=1',
+      pdfCaseNumber: 'F.4-22/2026',
+      pdfParserEngine: 'gemini-vision-ocr'
+    });
+    assert.strictEqual(routeJob.domicileQuota, 'Punjab');
+    assert.strictEqual(routeJob.isPdfScraped, true);
+    assert.strictEqual(routeJob.pdfFileName, 'Notice.pdf');
+    assert.strictEqual(routeJob.pdfSourceUrl, 'https://example.pk/Notice.pdf?page=1');
+    assert.strictEqual(routeJob.pdfCaseNumber, 'F.4-22/2026');
+    assert.strictEqual(routeJob.pdfParserEngine, 'gemini-vision-ocr');
+    assert.strictEqual(routeJob.clippingImageUrl, 'https://example.pk/ad.png');
+    assert.strictEqual(routeJob.mediaUrl, 'https://example.pk/ad.png');
+  });
+
+  await runTest('MASTER-STEP Group A Case 2 [Mocked]: Zero-vacancy PDF responses accurately report success=false on parsePdfFromUrl without breaking clean empty [] in scrapeTargetPortal, and real OCR failures still throw', async () => {
+    const originalFetch = globalThis.fetch;
+    const origGetText = PDFParse.prototype.getText;
+    const origGetTable = PDFParse.prototype.getTable;
+    const origDestroy = PDFParse.prototype.destroy;
+
+    try {
+      globalThis.fetch = (async () =>
+        new Response(Buffer.from('%PDF-1.4\n%Mock PDF'), {
+          status: 200,
+          headers: { 'content-type': 'application/pdf' }
+        })) as any;
+
+      PDFParse.prototype.getText = (async () => ({
+        text: 'General Public Tender and Office Circular without any employment positions or vacancies listed at all. Reference code T-100/2026.',
+        total: 1
+      })) as any;
+      PDFParse.prototype.getTable = (async () => ({ pages: [] })) as any;
+      PDFParse.prototype.destroy = (async () => {}) as any;
+
+      const zeroVacPdf = await parsePdfFromUrl('https://[2607:f8b0:4005:805::200e]/circular.pdf?id=7', 'Public Dept');
+      assert.strictEqual(zeroVacPdf.diagnosticCode, 'PDF_TEXT_ZERO_VACANCIES');
+      assert.strictEqual(zeroVacPdf.success, false, 'Zero extracted jobs must report success=false');
+
+      const portalEmpty = await scrapeTargetPortal(
+        {
+          id: 'pdf-zero-vac',
+          name: 'Zero Vacancy PDF Portal',
+          url: 'https://[2607:f8b0:4005:805::200e]/circular.pdf?id=7',
+          keywords: '',
+          interval: '24h',
+          autoApprove: false,
+          status: 'Active Scheduled',
+          scrapedCount: 0
+        },
+        {},
+        undefined,
+        (async () => ({
+          success: false,
+          diagnosticCode: 'PDF_SCANNED_FALLBACK_NO_VACANCIES',
+          formatType: 'pdf',
+          extractedJobs: []
+        })) as any
+      );
+      assert.deepStrictEqual(portalEmpty, [], 'Zero-vacancy PDF/OCR diagnostic must resolve to clean [] instead of Invalid PDF');
+
+      // Real OCR failure must still surface an error
+      await assert.rejects(
+        () =>
+          scrapeTargetPortal(
+            {
+              id: 'ocr-key-fail',
+              name: 'OCR Key Missing Portal',
+              url: 'https://[2607:f8b0:4005:805::200e]/scan.jpg',
+              keywords: '',
+              interval: '24h',
+              autoApprove: false,
+              status: 'Active Scheduled',
+              scrapedCount: 0
+            },
+            {},
+            undefined,
+            (async () => ({
+              success: false,
+              diagnosticCode: 'IMAGE_OCR_KEY_MISSING',
+              message: 'GEMINI_API_KEY missing',
+              formatType: 'image',
+              extractedJobs: []
+            })) as any
+          ),
+        /GEMINI_API_KEY|OCR/i
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      PDFParse.prototype.getText = origGetText;
+      PDFParse.prototype.getTable = origGetTable;
+      PDFParse.prototype.destroy = origDestroy;
+    }
+  });
+
+  await runTest('MASTER-STEP Group A Case 3 [Mocked]: provenExtractionMethods are persisted ONLY on verified persisted jobs, never on rejected or failed runs', async () => {
+    const statUpdates: any[] = [];
+    const baseSource = {
+      id: 'proven-src-1',
+      name: 'Proven Portal',
+      url: 'https://proven.example.pk/jobs',
+      keywords: '',
+      category: 'Government Sector',
+      region: 'Pakistan',
+      depth: 'Standard (25 Jobs)',
+      deduplication: true,
+      interval: '24h',
+      autoApprove: false,
+      status: 'Active Scheduled',
+      scrapedCount: 0,
+      successRate: 100
+    };
+
+    // Case 3a: Persist succeeds -> provenExtractionMethodsToAdd recorded
+    await executeScraperWithWizard(
+      { mode: 'complete', sourceId: 'proven-src-1' },
+      {
+        getConfigsFn: async () => [{ ...baseSource }],
+        scrapePageFn: (async () => [
+          {
+            title: 'Research Associate',
+            company: 'Energy Council',
+            location: 'Islamabad',
+            extractionMethod: 'json_ld',
+            sourceUrl: 'https://proven.example.pk/jobs/1'
+          }
+        ]) as any,
+        enrichJobsFn: async (jobs) => jobs,
+        findDuplicateCandidatesFn: async () => [],
+        addPendingJobFn: async (job) => job,
+        createJobFn: async (job) => job,
+        updateSourceStatsFn: async (_id, stats) => {
+          statUpdates.push(stats);
+        },
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: true }),
+        auditAddFn: async () => {}
+      }
+    );
+
+    const okUpdate = statUpdates[statUpdates.length - 1];
+    assert.deepStrictEqual(okUpdate.provenExtractionMethodsToAdd, ['json_ld']);
+
+    // Case 3b: Persistence fails -> provenExtractionMethodsToAdd must NOT contain the unpersisted method
+    statUpdates.length = 0;
+    await executeScraperWithWizard(
+      { mode: 'complete', sourceId: 'proven-src-1' },
+      {
+        getConfigsFn: async () => [{ ...baseSource }],
+        scrapePageFn: (async () => [
+          {
+            title: 'Survey Engineer',
+            company: 'Energy Council',
+            location: 'Lahore',
+            extractionMethod: 'embedded_state',
+            sourceUrl: 'https://proven.example.pk/jobs/2'
+          }
+        ]) as any,
+        enrichJobsFn: async (jobs) => jobs,
+        findDuplicateCandidatesFn: async () => [],
+        addPendingJobFn: async () => {
+          throw new Error('Write failure');
+        },
+        createJobFn: async () => {
+          throw new Error('Write failure');
+        },
+        updateSourceStatsFn: async (_id, stats) => {
+          statUpdates.push(stats);
+        },
+        addRunFn: async (run) => ({ ...run, isPersistedToMongo: true }),
+        auditAddFn: async () => {}
+      }
+    );
+
+    const failUpdate = statUpdates[statUpdates.length - 1];
+    assert.strictEqual(
+      failUpdate.provenExtractionMethodsToAdd,
+      undefined,
+      'Failed persistence must never mark provenExtractionMethods'
+    );
+  });
+
+  await runTest('MASTER-STEP Group B Case 1 [Mocked]: extractNextPageUrl skips disabled links and nextPageUrl propagates across JSON-LD, Embedded State, HTML Semantic, and Linked Image strategies', async () => {
+    const disabledHtml = `
+      <ul class="pagination">
+        <li class="page-item disabled"><a class="page-link" href="/jobs?page=2" rel="next">Next</a></li>
+        <li class="page-item"><a class="page-link" href="/jobs?page=3" aria-disabled="true">Next Page</a></li>
+        <li class="page-item"><a class="page-link" href="#">›</a></li>
+        <li class="page-item"><a class="page-link" href="/jobs?page=4">Next ›</a></li>
+      </ul>
+    `;
+    const nextUrl = extractNextPageUrl(disabledHtml, 'https://example.pk/jobs?page=1');
+    assert.strictEqual(nextUrl, 'https://example.pk/jobs?page=4', 'extractNextPageUrl must skip disabled and # links and return active Next link');
+
+    const originalFetch = globalThis.fetch;
+    try {
+      const jsonLdHtml = `
+        <html><head>
+        <script type="application/ld+json">
+          {"@type":"JobPosting","title":"Cloud Architect","hiringOrganization":{"name":"NatGrid"},"jobLocation":{"address":{"addressLocality":"Islamabad"}},"url":"https://[2607:f8b0:4005:805::200e]/job/1"}
+        </script>
+        </head><body><a rel="next" href="/careers?page=2">Next</a></body></html>
+      `;
+      globalThis.fetch = (async () => new Response(jsonLdHtml, { status: 200, headers: { 'content-type': 'text/html' } })) as any;
+
+      const jsonLdJobs = await scrapeTargetPortal(
+        {
+          id: 'pag-jsonld',
+          name: 'JSON-LD Portal',
+          url: 'https://[2607:f8b0:4005:805::200e]/careers?page=1',
+          keywords: '',
+          interval: '24h',
+          autoApprove: false,
+          status: 'Active Scheduled',
+          scrapedCount: 0
+        },
+        {}
+      );
+      assert.strictEqual(jsonLdJobs.length, 1);
+      assert.strictEqual(jsonLdJobs[0].nextPageUrl, 'https://[2607:f8b0:4005:805::200e]/careers?page=2');
+
+      const embeddedHtml = `
+        <html><body>
+        <script id="__NEXT_DATA__" type="application/json">
+          {"props":{"pageProps":{"jobs":[{"title":"DevOps Engineer","company":"TechGov","location":"Karachi","url":"https://[2607:f8b0:4005:805::200e]/j/9"}]}}}
+        </script>
+        <a rel="next" href="/board?p=2">Next</a>
+        </body></html>
+      `;
+      globalThis.fetch = (async () => new Response(embeddedHtml, { status: 200, headers: { 'content-type': 'text/html' } })) as any;
+
+      const embeddedJobs = await scrapeTargetPortal(
+        {
+          id: 'pag-embedded',
+          name: 'NextJS Portal',
+          url: 'https://[2607:f8b0:4005:805::200e]/board?p=1',
+          keywords: '',
+          interval: '24h',
+          autoApprove: false,
+          status: 'Active Scheduled',
+          scrapedCount: 0
+        },
+        {}
+      );
+      assert.strictEqual(embeddedJobs.length, 1);
+      assert.strictEqual(embeddedJobs[0].nextPageUrl, 'https://[2607:f8b0:4005:805::200e]/board?p=2');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('MASTER-STEP Group B Case 2 [Mocked]: crawlPortalPages paginates custom_date (inclusive toTimestamp) & keyword_drill while surfacing mid-crawl page errors cleanly', async () => {
+    const visitedPages: string[] = [];
+    const target = {
+      id: 'crawl-mode-src',
+      name: 'Multi-Mode Portal',
+      url: 'https://multi.example.pk/jobs?page=1',
+      keywords: 'Engineer',
+      interval: '24h' as const,
+      autoApprove: false,
+      status: 'Active Scheduled' as const,
+      scrapedCount: 0
+    };
+
+    const customDateCrawl = await crawlPortalPages(
+      target,
+      { mode: 'custom_date', toTimestamp: '2026-11-15' },
+      '2026-11-01',
+      'RUN-GROUPB-1',
+      (async (cfg: any) => {
+        visitedPages.push(cfg.url);
+        if (cfg.url.endsWith('page=1')) {
+          return [
+            {
+              title: 'Civil Engineer',
+              company: 'PWD',
+              location: 'Lahore',
+              datePosted: '2026-11-15T18:30:00Z', // Same UTC day as inclusive toTimestamp
+              sourceUrl: 'https://multi.example.pk/j/1',
+              nextPageUrl: 'https://multi.example.pk/jobs?page=2'
+            }
+          ];
+        }
+        return [
+          {
+            title: 'Mechanical Engineer',
+            company: 'PWD',
+            location: 'Multan',
+            datePosted: '2026-11-10T09:00:00Z',
+            sourceUrl: 'https://multi.example.pk/j/2'
+          }
+        ];
+      }) as any
+    );
+
+    assert.strictEqual(customDateCrawl.sourcePagesAttempted, 2, 'custom_date must follow nextPageUrl pagination');
+    assert.strictEqual(customDateCrawl.rawResults.length, 2);
+
+    // Execute full wizard with toTimestamp inclusive YYYY-MM-DD filtering and keyword_drill check
+    const savedJobs: any[] = [];
+    const customSummary = await executeScraperWithWizard(
+      { mode: 'custom_date', sourceId: 'crawl-mode-src', fromTimestamp: '2026-11-01', toTimestamp: '2026-11-15' },
+      {
+        getConfigsFn: async () => [{ ...target }],
+        scrapePageFn: (async () => [
+          {
+            title: 'Inclusive Day Job',
+            company: 'PWD',
+            location: 'Lahore',
+            datePosted: '2026-11-15T20:00:00Z',
+            sourceUrl: 'https://multi.example.pk/j/inc'
+          },
+          {
+            title: 'Too Late Job',
+            company: 'PWD',
+            location: 'Lahore',
+            datePosted: '2026-11-17T08:00:00Z',
+            sourceUrl: 'https://multi.example.pk/j/late'
+          }
+        ]) as any,
+        enrichJobsFn: async (j) => j,
+        findDuplicateCandidatesFn: async () => [],
+        addPendingJobFn: async (j) => {
+          savedJobs.push(j);
+          return j;
+        },
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (r) => ({ ...r, isPersistedToMongo: true }),
+        auditAddFn: async () => {}
+      }
+    );
+    assert.strictEqual(customSummary.totalFound, 1, 'Inclusive end-of-day toTimestamp keeps Nov 15 and drops Nov 17');
+    assert.strictEqual(savedJobs[0].title, 'Inclusive Day Job');
+
+    // Page-2 timeout yielding 0 valid jobs across crawl must report failure healthStatus instead of clean "No Jobs"
+    const partialErrUpdate = buildSourceCompletionStatsUpdate({
+      sourceCompletedAt: new Date().toISOString(),
+      previousLastSuccessfulScrapeAt: '2026-11-01T00:00:00.000Z',
+      runId: 'RUN-PAGE-ERR',
+      isCheckpointEligible: false,
+      isDetectionSuccessful: false,
+      isAllPersistAttemptsFailed: false,
+      hasUnsavedRequiredVacancies: false,
+      sourceSaveFailures: 0,
+      sourceUniqueSaveFailures: 0,
+      sourceDupSaveFailures: 0,
+      sourcePagesAttempted: 2,
+      lastPageError: new Error('Connection timeout on page 2'),
+      hitSafetyLimit: false,
+      maxSafetyPages: 25,
+      isCompleteMode: true,
+      sourceValid: 0,
+      sourceFound: 0,
+      sourcePersisted: 0,
+      sourceIntentionalSkips: 0
+    });
+    assert.strictEqual(partialErrUpdate.statsUpdate.healthStatus, 'Timeout');
+    assert.ok(partialErrUpdate.lastErrorNotice?.includes('Crawling interrupted'));
+  });
+
+  await runTest('MASTER-STEP Group C Case 1 [Unit/Mocked]: Database Error classification, stale schedule recovery to Active Scheduled, persisted counter integrity, and scheduler error tracking', async () => {
+    // 1. Unverified source with Database Error must classify as Partial (not Configured / Not Yet Verified)
+    const dbErrClass = deriveSourceClassification({
+      id: 'unv-db-err',
+      name: 'Unverified DB Err Source',
+      status: 'Active Scheduled',
+      scrapedCount: 0,
+      healthStatus: 'Database Error',
+      lastErrorMessage: 'Duplicate lookup failed'
+    });
+    assert.strictEqual(dbErrClass.overallStatus, 'Partial');
+
+    // 2. resetStaleSchedules restores Running/Processing sources to Active Scheduled (not Idle)
+    const repoAny = ScraperRepository as any;
+    const prevCached = Array.isArray(repoAny.cachedSources) ? [...repoAny.cachedSources] : [];
+    const origGetConfigs = ScraperRepository.getConfigs;
+    const origSaveConfigs = ScraperRepository.saveConfigs;
+    let savedConfigsSnapshot: any[] = [];
+    try {
+      ScraperRepository.getConfigs = async () => [
+        { id: 'r1', name: 'Running One', status: 'Running' },
+        { id: 'r2', name: 'Processing Two', status: 'Processing' },
+        { id: 'p3', name: 'Paused Three', status: 'Paused' }
+      ];
+      ScraperRepository.saveConfigs = async (cfgs: any[]) => {
+        savedConfigsSnapshot = cfgs;
+      };
+      const resetRes = await ScraperRepository.resetStaleSchedules();
+      assert.strictEqual(resetRes.resetCount, 2);
+      assert.strictEqual(savedConfigsSnapshot.find(c => c.id === 'r1')?.status, 'Active Scheduled');
+      assert.strictEqual(savedConfigsSnapshot.find(c => c.id === 'r2')?.status, 'Active Scheduled');
+      assert.strictEqual(savedConfigsSnapshot.find(c => c.id === 'p3')?.status, 'Paused');
+    } finally {
+      ScraperRepository.getConfigs = origGetConfigs;
+      ScraperRepository.saveConfigs = origSaveConfigs;
+      repoAny.cachedSources = prevCached;
+    }
+
+    // 3. Failed DB persistence must NOT increment totalNew / jobsAccepted / sourceStats.newCount
+    let recordedRunPayload: any = null;
+    const failedPersistSummary = await executeScraperWithWizard(
+      { mode: 'complete', sourceId: 'fail-count-src' },
+      {
+        getConfigsFn: async () => [
+          {
+            id: 'fail-count-src',
+            name: 'Counter Integrity Portal',
+            url: 'https://integrity.example.pk/jobs',
+            keywords: '',
+            category: 'Government Sector',
+            region: 'Pakistan',
+            depth: 'Standard (25 Jobs)',
+            deduplication: true,
+            interval: '24h',
+            autoApprove: false,
+            status: 'Active Scheduled',
+            scrapedCount: 0,
+            successRate: 100
+          }
+        ],
+        scrapePageFn: (async () => [
+          {
+            title: 'Valid Role One',
+            company: 'Integrity Dept',
+            location: 'Islamabad',
+            sourceUrl: 'https://integrity.example.pk/1'
+          },
+          {
+            title: 'Valid Role Two',
+            company: 'Integrity Dept',
+            location: 'Islamabad',
+            sourceUrl: 'https://integrity.example.pk/2'
+          },
+          {
+            title: 'X', // Rejected due to short title < 3
+            company: 'Integrity Dept',
+            location: 'Islamabad',
+            sourceUrl: 'https://integrity.example.pk/3'
+          }
+        ]) as any,
+        enrichJobsFn: async (j) => j,
+        findDuplicateCandidatesFn: async () => [],
+        addPendingJobFn: async (job) => {
+          if (job.title === 'Valid Role Two') {
+            throw new Error('DB timeout saving second role');
+          }
+          return job;
+        },
+        updateSourceStatsFn: async () => {},
+        addRunFn: async (run) => {
+          recordedRunPayload = run;
+          return { ...run, isPersistedToMongo: true };
+        },
+        auditAddFn: async () => {}
+      }
+    );
+
+    assert.strictEqual(failedPersistSummary.totalFound, 2);
+    assert.strictEqual(failedPersistSummary.totalNew, 1, 'Failed save must NOT increment totalNew');
+    assert.strictEqual(failedPersistSummary.jobsAccepted, 1, 'Failed save must NOT increment jobsAccepted');
+    assert.strictEqual(failedPersistSummary.totalFailedToSave, 1);
+    assert.strictEqual(failedPersistSummary.jobsRejected, 1);
+    assert.strictEqual(failedPersistSummary.sourcesStats[0].newCount, 1);
+    assert.strictEqual(failedPersistSummary.sourcesStats[0].persistedCount, 1);
+    assert.strictEqual(failedPersistSummary.sourcesStats[0].failedToSaveCount, 1);
+    assert.strictEqual(failedPersistSummary.sourcesStats[0].rejectedCount, 1);
+    assert.strictEqual(recordedRunPayload.totalNew, 1);
+    assert.strictEqual(recordedRunPayload.totalFailedToSave, 1);
+
+    // 4. runSchedulerTick separates threw-error source into failedSources and records tick failure run
+    let schedRecordedRun: any = null;
+    const dueSrc1 = {
+      id: 'sched-err-src',
+      name: 'Errored Source',
+      url: 'https://err.example.pk',
+      status: 'Active Scheduled',
+      interval: '1h',
+      nextRunAt: new Date(Date.now() - 60_000).toISOString()
+    };
+    const dueSrc2 = {
+      id: 'sched-ok-src',
+      name: 'OK Source',
+      url: 'https://ok.example.pk',
+      status: 'Active Scheduled',
+      interval: '1h',
+      nextRunAt: new Date(Date.now() - 60_000).toISOString()
+    };
+    const schedTickRes = await runSchedulerTick({
+      isScraperEnabledFn: () => true,
+      getSchedulerSettingsFn: async () => ({ ...getDefaultSchedulerSettings(), enabled: true, scope: 'all' }),
+      getConfigsFn: async () => [dueSrc1, dueSrc2],
+      updateSourceScheduleFn: async () => true,
+      executeScraperFn: (async (opts: any) => {
+        if (opts.sourceId === 'sched-err-src') {
+          throw new Error('Unexpected uncaught source crash');
+        }
+        return { totalFound: 2, totalDuplicates: 0 };
+      }) as any,
+      addRunFn: async (run) => {
+        schedRecordedRun = run;
+        return { ...run, isPersistedToMongo: true };
+      }
+    });
+
+    assert.deepStrictEqual(schedTickRes.triggeredSources, ['sched-ok-src'], 'Errored source must NOT appear in triggeredSources');
+    assert.deepStrictEqual(schedTickRes.failedSources, ['sched-err-src']);
+    assert.ok(schedRecordedRun, 'Scheduler tick with uncaught execution error must record run history');
+    assert.strictEqual(schedRecordedRun.status, 'Partial');
+    assert.strictEqual(schedRecordedRun.failedSources, 1);
   });
 
   console.log('------------------------------------------------------------------');

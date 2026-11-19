@@ -325,6 +325,7 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
     healthLower === 'no jobs' &&
     !errorMsg.includes('fail') &&
     !errorMsg.includes('error') &&
+    !errorMsg.includes('rejected') &&
     !hasIncompletePagination &&
     httpStatus !== 404 &&
     httpStatus !== 403;
@@ -346,8 +347,8 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
   // 3. Partial / Needs Attention Classification
   // Scenarios:
   // A) Historically proven source with incomplete pagination crawl (diagnostic present alongside Jobs Found)
-  // B) Historically proven source currently encountering a transient error (404, 403, Timeout, Invalid PDF, Fetch Error)
-  // C) Source with health status "warning"
+  // B) Historically proven source currently encountering a transient error (404, 403, Timeout, Invalid PDF, Fetch Error, Database Error)
+  // C) Source with health status "warning" or "error"
   // D) Paused source that is historically proven
   const isTransientFailure =
     health === '404' ||
@@ -356,6 +357,8 @@ export function deriveSourceClassification(source: ClassifiableSourceInput): Sou
     health === 'Invalid PDF' ||
     health === 'HTML' ||
     health === 'Fetch Error' ||
+    health === 'Database Error' ||
+    healthLower === 'error' ||
     healthLower === 'warning' ||
     httpStatus === 404 ||
     httpStatus === 403 ||

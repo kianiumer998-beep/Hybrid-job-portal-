@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Job, ConsolidatedPdfGazette, ScrapedJobAuditEntry, ScraperBatchRun } from '../types/job';
 import { api } from '../services/api';
 import { 
-  MOCK_CONSOLIDATED_PDF_GAZETTES, 
   ALL_CONSOLIDATED_PDF_GAZETTES,
   generateGazetteFromManualInput,
   OFFICIAL_GOVT_SCRAPER_PORTALS 
@@ -165,19 +164,21 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     return {};
   });
 
-  const updatePortalScrapedTimestamp = (gazetteIds: string[], jobCountPerPortal?: number) => {
+  const updatePortalScrapedTimestamp = (gazetteIds: string[], jobCountPerPortal: number | Record<string, number> = 0) => {
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const getCount = (id: string) =>
+      typeof jobCountPerPortal === 'number' ? jobCountPerPortal : (jobCountPerPortal[id] ?? 0);
     setPortalLastScrapedMap(prev => {
       const updated = { ...prev };
       gazetteIds.forEach(id => {
-        updated[id] = { timestamp: now, jobCount: jobCountPerPortal || 4 };
+        updated[id] = { timestamp: now, jobCount: getCount(id) };
       });
       safeLocalStorageSet('career_pak_portal_last_scraped', updated);
       return updated;
     });
 
     if (onUpdateGazettesLastScraped) {
-      onUpdateGazettesLastScraped(gazetteIds.map(id => ({ id, lastScrapedAt: now, jobCount: jobCountPerPortal || 4 })));
+      onUpdateGazettesLastScraped(gazetteIds.map(id => ({ id, lastScrapedAt: now, jobCount: getCount(id) })));
     }
   };
 
@@ -209,11 +210,12 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     try {
       const d = new Date(entry.timestamp.replace(' ', 'T'));
       const diffMins = Math.floor((Date.now() - d.getTime()) / 60000);
-      if (diffMins < 1) return { text: `Scraped Just now (${entry.jobCount || 4} jobs)`, isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
-      if (diffMins < 60) return { text: `Scraped ${diffMins}m ago (${entry.jobCount || 4} jobs)`, isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
+      const count = entry.jobCount ?? 0;
+      if (diffMins < 1) return { text: `Scraped Just now (${count} jobs)`, isRecent: true, timestamp: entry.timestamp, count };
+      if (diffMins < 60) return { text: `Scraped ${diffMins}m ago (${count} jobs)`, isRecent: true, timestamp: entry.timestamp, count };
       const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) return { text: `Scraped ${diffHours}h ago (${entry.jobCount || 4} jobs)`, isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
-      return { text: `Scraped ${Math.floor(diffHours / 24)}d ago`, isRecent: false, timestamp: entry.timestamp, count: entry.jobCount };
+      if (diffHours < 24) return { text: `Scraped ${diffHours}h ago (${count} jobs)`, isRecent: true, timestamp: entry.timestamp, count };
+      return { text: `Scraped ${Math.floor(diffHours / 24)}d ago`, isRecent: false, timestamp: entry.timestamp, count };
     } catch {
       return { text: 'Scraped Recently', isRecent: true, timestamp: entry.timestamp, count: entry.jobCount };
     }
@@ -512,12 +514,15 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
           title: targetTitle
         });
         setParseProgress(80);
-        if (res && res.success) {
+        const isZeroVacancyClean = Boolean(
+          res && ['PDF_TEXT_ZERO_VACANCIES', 'PDF_SCANNED_FALLBACK_NO_VACANCIES', 'IMAGE_OCR_NO_VACANCIES', 'HTML_TEXT_NO_VACANCIES'].includes(String(res.diagnosticCode || ''))
+        );
+        if (res && (res.success || isZeroVacancyClean)) {
           realJobs = res.jobs || [];
           message = res.message || '';
           rawText = res.rawTextSample || '';
         } else {
-          message = res?.message || 'Failed to parse remote source.';
+          throw new Error(res?.message || 'Failed to parse remote source.');
         }
       } else if (activeGazette?.extractedVacancies && activeGazette.extractedVacancies.length > 0) {
         realJobs = activeGazette.extractedVacancies;
@@ -565,8 +570,8 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
     }
   };
 
-  // Run BULK Multi-PDF Scraping Process across all selected gazettes
-  const handleRunBulkScraping = () => {
+  // Run BULK Multi-PDF Scraping Process across selected gazettes using real backend extraction
+  const handleRunBulkScraping = async () => {
     if (selectedGazetteIdsForBulk.length === 0) {
       alert('Please select at least 1 PDF Gazette / portal to scrape.');
       return;
@@ -578,64 +583,80 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
 
     const targetGazettes = currentGazettes.filter(g => selectedGazetteIdsForBulk.includes(g.id));
     setParseLogs([
-      `[00:00.1] Starting Bulk Batch Scraper for ${targetGazettes.length} selected portals...`,
-      `[00:00.3] Queueing: ${targetGazettes.map(g => g.organization).join(', ')}...`
+      `[Live Bulk Scrape] Starting live extraction for ${targetGazettes.length} selected portals...`,
+      `[Live Bulk Scrape] Queueing: ${targetGazettes.map(g => g.organization).join(', ')}`
     ]);
 
-    let step = 0;
-    const totalSteps = 10;
-    const chunkSize = Math.max(1, Math.ceil(targetGazettes.length / totalSteps));
+    const allAggregatedJobs: Job[] = [];
+    const perPortalCounts: Record<string, number> = {};
+    let failureCount = 0;
 
-    const interval = setInterval(() => {
-      step++;
-      const percent = Math.min(95, Math.round((step / totalSteps) * 90));
-      setParseProgress(percent);
+    try {
+      for (let i = 0; i < targetGazettes.length; i++) {
+        const g = targetGazettes[i];
+        setParseProgress(Math.min(95, Math.round(((i + 1) / targetGazettes.length) * 90)));
+        if (!g.pdfUrl || (!g.pdfUrl.startsWith('http://') && !g.pdfUrl.startsWith('https://'))) {
+          perPortalCounts[g.id] = 0;
+          setParseLogs(prev => [...prev.slice(-15), `[Skipped] ${g.organization}: No valid remote http(s) URL configured.`]);
+          continue;
+        }
 
-      const startIndex = (step - 1) * chunkSize;
-      const currentChunk = targetGazettes.slice(startIndex, startIndex + chunkSize);
-      const sampleOrg = currentChunk[0]?.organization || targetGazettes[0]?.organization || 'Portal';
-
-      setParseLogs(prev => [
-        ...prev.slice(-15),
-        `[00:0${step}.${step * 2}] Batch segment [${step}/${totalSteps}]: Processing "${sampleOrg}" + ${Math.max(0, currentChunk.length - 1)} portals...`
-      ]);
-
-      if (step >= totalSteps) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setParseProgress(100);
-          setIsBulkParsing(false);
-
-          try {
-            // Aggregate all vacancies safely
-            const allAggregatedJobs: Job[] = [];
-            targetGazettes.forEach((g) => {
-              (g.extractedVacancies || []).forEach((job) => {
-                const dup = checkJobDuplicate(job, existingJobs);
-                allAggregatedJobs.push({
-                  ...job,
-                  extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
-                  isDuplicate: dup.isDuplicate,
-                  duplicateScore: dup.duplicateScore,
-                  duplicateOfJobTitle: dup.matchedJob?.title,
-                  duplicateOfJobId: dup.matchedJob?.id
-                });
+        try {
+          const res = await api.scraper.parseUrl({
+            url: g.pdfUrl,
+            organization: g.organization,
+            title: g.title
+          });
+          const isZeroVacancyClean = Boolean(
+            res && ['PDF_TEXT_ZERO_VACANCIES', 'PDF_SCANNED_FALLBACK_NO_VACANCIES', 'IMAGE_OCR_NO_VACANCIES', 'HTML_TEXT_NO_VACANCIES'].includes(String(res.diagnosticCode || ''))
+          );
+          if (res && (res.success || isZeroVacancyClean)) {
+            const rawJobs: Job[] = res.jobs || [];
+            perPortalCounts[g.id] = rawJobs.length;
+            rawJobs.forEach((job) => {
+              const dup = checkJobDuplicate(job, existingJobs);
+              allAggregatedJobs.push({
+                ...job,
+                extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
+                isDuplicate: dup.isDuplicate,
+                duplicateScore: dup.duplicateScore,
+                duplicateOfJobTitle: dup.matchedJob?.title,
+                duplicateOfJobId: dup.matchedJob?.id
               });
             });
-
-            setExtractedVacancies(allAggregatedJobs);
-            setSelectedJobIds(allAggregatedJobs.map(j => j.id));
-            updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
             setParseLogs(prev => [
               ...prev.slice(-15),
-              `[00:03.4] Bulk Batch Finished! Total ${allAggregatedJobs.length} vacancies consolidated across ${targetGazettes.length} sources.`
+              `[${i + 1}/${targetGazettes.length}] ${g.organization}: Extracted ${rawJobs.length} genuine vacancies.`
             ]);
-          } catch (aggErr) {
-            console.error('[BulkScraper] Aggregation safety error:', aggErr);
+          } else {
+            failureCount++;
+            perPortalCounts[g.id] = 0;
+            setParseLogs(prev => [
+              ...prev.slice(-15),
+              `[Error] ${g.organization}: ${res?.message || 'Remote extraction failed.'}`
+            ]);
           }
-        }, 300);
+        } catch (portalErr: any) {
+          failureCount++;
+          perPortalCounts[g.id] = 0;
+          setParseLogs(prev => [
+            ...prev.slice(-15),
+            `[Error] ${g.organization}: ${portalErr?.message || 'Network/parser failure'}`
+          ]);
+        }
       }
-    }, 250);
+
+      setExtractedVacancies(allAggregatedJobs);
+      setSelectedJobIds(allAggregatedJobs.map(j => j.id));
+      updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), perPortalCounts);
+      setParseProgress(100);
+      setParseLogs(prev => [
+        ...prev.slice(-15),
+        `[Complete] Live bulk extraction finished: ${allAggregatedJobs.length} authentic vacancies across ${targetGazettes.length} sources (${failureCount} source error(s)).`
+      ]);
+    } finally {
+      setIsBulkParsing(false);
+    }
   };
 
   // ONE-CLICK INSTANT SCRAPE & DIRECT INGESTION
@@ -783,12 +804,13 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       setTimeout(() => setToastNotification(null), 5000);
   };
 
-  // FULL AUTOMATED INTERVAL TIMER CRAWLER EXECUTION
+  // FULL AUTOMATED INTERVAL TIMER CRAWLER EXECUTION (Real backend scraper run)
   const [isAutoCrawling, setIsAutoCrawling] = useState(false);
 
-  const handleTriggerAutoScrapeRun = () => {
+  const handleTriggerAutoScrapeRun = async () => {
     setIsAutoCrawling(true);
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const runStartedAt = Date.now();
+    const now = new Date(runStartedAt).toISOString().replace('T', ' ').substring(0, 19);
     setLastAutoRunTimestamp(now);
     safeLocalStorageSet('career_pak_pdf_autoscrape_last_run', now);
 
@@ -796,29 +818,20 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       ? currentGazettes.filter(g => selectedGazetteIdsForBulk.includes(g.id))
       : currentGazettes.slice(0, 20);
 
-    const aggregatedJobs: Job[] = [];
-    let duplicateCount = 0;
-
-    targets.forEach(g => {
-      (g.extractedVacancies || []).forEach(job => {
-        const dup = checkJobDuplicate(job, existingJobs);
-        if (autoScrapeConfig.preventDuplicates && dup.isDuplicate) {
-          duplicateCount++;
-        } else {
-          aggregatedJobs.push({
-            ...job,
-            extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
-            isDuplicate: dup.isDuplicate,
-            duplicateScore: dup.duplicateScore,
-            duplicateOfJobTitle: dup.matchedJob?.title,
-            duplicateOfJobId: dup.matchedJob?.id
-          });
-        }
+    try {
+      const res = await api.scraper.run({
+        mode: 'since_last',
+        sourceIds: targets.map(t => t.id),
+        autoPublishTrusted: autoScrapeConfig.autoApprove,
+        duplicateMode: autoScrapeConfig.preventDuplicates ? 'without' : 'with'
       });
-    });
 
-    setTimeout(() => {
-      setIsAutoCrawling(false);
+      const published: Job[] = res?.publishedJobs || [];
+      const pending: Job[] = res?.pendingJobs || [];
+      const aggregatedJobs: Job[] = [...published, ...pending];
+      const duplicateCount = res?.totalDuplicates ?? (res?.duplicateJobs?.length || 0);
+      const totalExtractedCount = res?.totalFound ?? (aggregatedJobs.length + duplicateCount);
+      const failedSourcesCount = res?.totalFailedSources ?? 0;
 
       if (aggregatedJobs.length > 0) {
         onBatchImportJobs(
@@ -828,9 +841,15 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
         );
       }
 
-      updatePortalScrapedTimestamp(targets.map(t => t.id), 4);
+      const countsBySource: Record<string, number> = {};
+      if (Array.isArray(res?.sourcesStats)) {
+        res.sourcesStats.forEach((st: any) => {
+          if (st?.sourceId) countsBySource[st.sourceId] = st.found || 0;
+        });
+      }
+      updatePortalScrapedTimestamp(targets.map(t => t.id), countsBySource);
 
-      const batchId = 'AUTO-TIMER-' + Date.now().toString().substring(6);
+      const batchId = res?.runId || ('AUTO-TIMER-' + Date.now().toString().substring(6));
       const auditEntries: ScrapedJobAuditEntry[] = aggregatedJobs.slice(0, 15).map((job, jIdx) => ({
         id: `audit-${job.id}-${Date.now().toString(36)}-${jIdx}`,
         jobId: job.id,
@@ -839,26 +858,26 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
         company: job.company,
         scrapedAt: now,
         scrapedTimezone: 'PKT (UTC+5)',
-        sourcePortalName: job.company,
-        sourceUrl: job.sourceUrl || 'https://jobs.gov.pk',
-        sourceDomain: 'jobs.gov.pk',
-        category: 'Government Sector',
-        region: 'Pakistan',
+        sourcePortalName: job.scraperSourceName || job.company,
+        sourceUrl: job.sourceUrl || '',
+        sourceDomain: (job as any).scrapedSourceDomain || '',
+        category: (job as any).jobCategory || 'Government Sector',
+        region: job.region || 'Pakistan',
         currency: 'PKR',
         salaryText: job.salary,
-        status: autoScrapeConfig.autoApprove ? 'Auto-Approved' : 'Pending Review',
-        deduplicationScore: 99.4,
-        crawlLatencyMs: 380,
+        status: job.status === 'Approved' ? 'Auto-Approved' : 'Pending Review',
+        deduplicationScore: job.duplicateScore || 0,
+        crawlLatencyMs: res?.executionDurationMs || 0,
         extractedTags: job.tags || [],
         requirementsCount: job.requirements?.length || 0,
-        isGovtJob: true,
+        isGovtJob: Boolean(job.isGovtJob),
         govtScale: job.govtScale,
         govtDepartment: job.govtDepartment,
-        isPdfScraped: true,
-        pdfFileName: job.pdfFileName || 'Gazette.pdf',
-        pdfParserEngine: 'pdfplumber',
-        extractionSourceType: 'pdf_gazette',
-        isDuplicate: false,
+        isPdfScraped: Boolean(job.isPdfScraped),
+        pdfFileName: job.pdfFileName,
+        pdfParserEngine: job.pdfParserEngine || 'pdfplumber',
+        extractionSourceType: job.isPdfScraped ? 'pdf_gazette' : 'web_html',
+        isDuplicate: Boolean(job.isDuplicate),
         reviewTimeline: [
           {
             id: 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
@@ -880,106 +899,105 @@ export const PdfConsolidatedScraperModal: React.FC<PdfConsolidatedScraperModalPr
       const batchRun: ScraperBatchRun = {
         batchId,
         startTime: now,
-        endTime: now,
+        endTime: new Date().toISOString().replace('T', ' ').substring(0, 19),
         sourceId: 'auto-timer',
         sourceName: `Automated Scheduled Crawler (${autoScrapeConfig.intervalMinutes}m Interval)`,
-        sourceUrl: 'https://jobs.gov.pk',
+        sourceUrl: 'backend://api/scraper/run',
         region: 'Pakistan',
         category: 'Government Sector',
-        status: 'Completed',
-        totalExtracted: aggregatedJobs.length + duplicateCount,
-        approvedCount: autoScrapeConfig.autoApprove ? aggregatedJobs.length : 0,
-        pendingCount: autoScrapeConfig.autoApprove ? 0 : aggregatedJobs.length,
+        status: failedSourcesCount > 0 && aggregatedJobs.length === 0 ? 'Failed' : failedSourcesCount > 0 ? 'Partial' : 'Completed',
+        totalExtracted: totalExtractedCount,
+        approvedCount: published.length,
+        pendingCount: pending.length,
         duplicatesSkipped: duplicateCount,
-        rejectionCount: 0,
-        executionDurationMs: 1250,
-        httpStatusCode: 200,
+        rejectionCount: res?.jobsRejected || 0,
+        executionDurationMs: res?.executionDurationMs || (Date.now() - runStartedAt),
+        httpStatusCode: res?.success ? 200 : 500,
         triggerType: 'Scheduled Cron',
         logTrace: [
-          `[${now}] 🤖 Automated Interval Crawler executed (${autoScrapeConfig.intervalMinutes}m cycle)`,
-          `[${now}] Scraped ${targets.length} official portals | Imported ${aggregatedJobs.length} vacancies | Skipped ${duplicateCount} duplicates`
+          `[${now}] Automated Interval Crawler executed (${autoScrapeConfig.intervalMinutes}m cycle)`,
+          `[${now}] Found: ${totalExtractedCount} | New: ${aggregatedJobs.length} | Duplicates: ${duplicateCount} | Failed sources: ${failedSourcesCount}`
         ]
       };
 
       onLogBatchRun(batchRun, auditEntries);
 
       setToastNotification({
-        message: `🤖 Auto-Crawler Cycle Complete: Ingested ${aggregatedJobs.length} new vacancies across ${targets.length} portals, skipped ${duplicateCount} duplicates.`,
-        type: 'success'
+        message: `Auto-Crawler Cycle Complete: Harvested ${aggregatedJobs.length} new vacancies, skipped ${duplicateCount} duplicates (${failedSourcesCount} failed source(s)).`,
+        type: failedSourcesCount > 0 ? 'warn' : 'success'
       });
       setTimeout(() => setToastNotification(null), 5000);
-    }, 800);
+    } catch (err: any) {
+      setToastNotification({
+        message: `Auto-Crawler Error: ${err?.message || 'Unable to execute scheduled backend scrape.'}`,
+        type: 'warn'
+      });
+      setTimeout(() => setToastNotification(null), 5000);
+    } finally {
+      setIsAutoCrawling(false);
+    }
   };
 
-  // SCRAPE ALL 447 PORTALS INSTANTLY
-  const handleScrapeAllPortals = () => {
-    setSelectedGazetteIdsForBulk(currentGazettes.map(g => g.id));
+  // SCRAPE ALL SELECTED PORTALS VIA LIVE BACKEND ENGINE
+  const handleScrapeAllPortals = async () => {
+    const targetGazettes = currentGazettes;
+    setSelectedGazetteIdsForBulk(targetGazettes.map(g => g.id));
     setIsBulkParsing(true);
-    setParseProgress(10);
+    setParseProgress(15);
     setImportedSuccessfully(false);
 
-    const targetGazettes = currentGazettes;
     setParseLogs([
-      `[00:00.1] Starting Full System Bulk Scraper across all ${targetGazettes.length} official government portals...`,
-      `[00:00.4] Consolidating FPSC, WAPDA, PPSC, SPSC, KPPSC, BPSC, NJP, MES, Defence & Autonomous bodies...`
+      `[Live Full Scrape] Dispatching backend crawl across configured portals (${targetGazettes.length} in gazette list)...`
     ]);
 
-    let step = 0;
-    const totalSteps = 10;
+    try {
+      const res = await api.scraper.run({
+        mode: 'complete',
+        sourceIds: targetGazettes.map(g => g.id)
+      });
+      setParseProgress(90);
 
-    const interval = setInterval(() => {
-      step++;
-      const percent = Math.min(95, Math.round((step / totalSteps) * 90));
-      setParseProgress(percent);
+      const published: Job[] = res?.publishedJobs || [];
+      const pending: Job[] = res?.pendingJobs || [];
+      const duplicateJobs: Job[] = res?.duplicateJobs || [];
+      const allJobs: Job[] = [...published, ...pending, ...duplicateJobs];
+
+      const countsBySource: Record<string, number> = {};
+      if (Array.isArray(res?.sourcesStats)) {
+        res.sourcesStats.forEach((st: any) => {
+          if (st?.sourceId) countsBySource[st.sourceId] = st.found || 0;
+        });
+      }
+
+      setExtractedVacancies(allJobs);
+      const uniqueOnes = allJobs.filter(j => !j.isDuplicate);
+      setSelectedJobIds(uniqueOnes.map(j => j.id));
+      updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), countsBySource);
+      setParseProgress(100);
 
       setParseLogs(prev => [
         ...prev.slice(-15),
-        `[00:0${step}.${step * 2}] Batch cluster ${step}/${totalSteps}: Processing gazettes & verifying duplicate signatures...`
+        `[Live Full Scrape] Finished: Extracted ${res?.totalFound ?? allJobs.length} vacancies (${uniqueOnes.length} unique, ${res?.totalDuplicates ?? duplicateJobs.length} duplicates, ${res?.totalFailedSources ?? 0} failed source(s)).`
       ]);
 
-      if (step >= totalSteps) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setParseProgress(100);
-          setIsBulkParsing(false);
-
-          try {
-            const allJobs: Job[] = [];
-            targetGazettes.forEach(g => {
-              (g.extractedVacancies || []).forEach(job => {
-                const dup = checkJobDuplicate(job, existingJobs);
-                allJobs.push({
-                  ...job,
-                  extractionSourceType: (job.isPdfScraped ? 'pdf_gazette' : 'web_html') as any,
-                  isDuplicate: dup.isDuplicate,
-                  duplicateScore: dup.duplicateScore,
-                  duplicateOfJobTitle: dup.matchedJob?.title,
-                  duplicateOfJobId: dup.matchedJob?.id
-                });
-              });
-            });
-
-            setExtractedVacancies(allJobs);
-            const uniqueOnes = allJobs.filter(j => !j.isDuplicate);
-            setSelectedJobIds(uniqueOnes.map(j => j.id));
-            updatePortalScrapedTimestamp(targetGazettes.map(g => g.id), 4);
-
-            setParseLogs(prev => [
-              ...prev.slice(-15),
-              `[00:03.8] Full Consolidated Scrape Finished! Extracted ${allJobs.length} vacancies across ${targetGazettes.length} portals. (${uniqueOnes.length} unique, ${allJobs.length - uniqueOnes.length} duplicates flagged)`
-            ]);
-
-            setToastNotification({
-              message: `⚡ Full Scrape Complete: Extracted ${allJobs.length} vacancies across all ${targetGazettes.length} portals (${uniqueOnes.length} unique ready to import).`,
-              type: 'info'
-            });
-            setTimeout(() => setToastNotification(null), 5000);
-          } catch (scrapeAllErr) {
-            console.error('[ScrapeAllPortals] Aggregation safety error:', scrapeAllErr);
-          }
-        }, 300);
-      }
-    }, 250);
+      setToastNotification({
+        message: `Full Scrape Complete: Extracted ${res?.totalFound ?? allJobs.length} vacancies (${uniqueOnes.length} unique ready to inspect).`,
+        type: 'info'
+      });
+      setTimeout(() => setToastNotification(null), 5000);
+    } catch (scrapeAllErr: any) {
+      setParseLogs(prev => [
+        ...prev.slice(-15),
+        `[Error] Full scrape failed: ${scrapeAllErr?.message || 'Backend crawler error'}`
+      ]);
+      setToastNotification({
+        message: `Full Scrape failed: ${scrapeAllErr?.message || 'Backend crawler error'}`,
+        type: 'warn'
+      });
+      setTimeout(() => setToastNotification(null), 5000);
+    } finally {
+      setIsBulkParsing(false);
+    }
   };
 
   // Toggle Selection of All Filtered Gazettes

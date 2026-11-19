@@ -878,26 +878,27 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
     liveRuns.forEach(r => {
       totalFound += r.totalFound || 0;
-      totalApproved += r.approvedCount || r.jobsAccepted || 0;
-      totalDuplicates += r.totalDuplicates || 0;
-      if (r.status === 'Failed' || (r.totalFailedSources && r.totalFailedSources > 0)) {
-        totalErrors += (r.totalFailedSources || 1);
+      totalApproved += r.newPublished ?? r.approvedCount ?? r.jobsAccepted ?? 0;
+      totalDuplicates += r.duplicatesFlagged ?? r.totalDuplicates ?? 0;
+      const runFailedSources = r.failedSources ?? r.totalFailedSources ?? (r.sourcesStats ? r.sourcesStats.filter(s => s.failed).length : 0);
+      if (runFailedSources > 0) {
+        totalErrors += runFailedSources;
+      } else if (r.status === 'Failed') {
+        totalErrors += 1;
       }
     });
 
-    // Also include live jobs and pending count
-    const approvedJobsCount = jobs.filter(j => j.status === 'Approved').length;
     const pendingJobsCount = pendingTotal !== undefined ? pendingTotal : pendingJobs.length;
 
     return {
-      totalFound: totalFound > 0 ? totalFound : (approvedJobsCount + pendingJobsCount),
-      approvedCount: totalApproved > 0 ? totalApproved : approvedJobsCount,
+      totalFound,
+      approvedCount: totalApproved,
       pendingCount: pendingJobsCount,
       duplicatesCount: totalDuplicates,
       errorsCount: totalErrors,
       hasRuns: liveRuns.length > 0
     };
-  }, [liveRuns, jobs, pendingJobs]);
+  }, [liveRuns, pendingJobs, pendingTotal]);
 
   const [isTriggeringTick, setIsTriggeringTick] = useState(false);
 
@@ -997,10 +998,17 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
       // Granular Health filter
       if (healthFilter !== 'all') {
         const isPaused = source.status === 'Paused' || source.status === 'Disabled';
-        const actualHealth = source.healthStatus || (isPaused ? 'Disabled' : (source.scrapedCount && source.scrapedCount > 0 ? 'Jobs Found' : 'Healthy'));
+        const rowClass = classificationsMap.get(source.id);
+        const rawHealth = (source.healthStatus || '').trim();
+        const isUnverifiedDefault = (!rawHealth || rawHealth.toLowerCase() === 'healthy') && !rowClass?.historicallyProven;
+        const actualHealth = isPaused
+          ? 'Disabled'
+          : isUnverifiedDefault
+          ? 'Unverified'
+          : (rawHealth || (source.scrapedCount && source.scrapedCount > 0 ? 'Jobs Found' : 'Unverified'));
         if (healthFilter === 'Failed') {
           if (!['404', '403', 'Timeout', 'Invalid PDF', 'HTML', 'Fetch Error', 'Database Error', 'error'].includes(actualHealth)) return false;
-        } else if (actualHealth !== healthFilter) {
+        } else if (actualHealth.toLowerCase() !== healthFilter.toLowerCase()) {
           return false;
         }
       }
@@ -1267,8 +1275,8 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
 
       const res = await api.scraper.run(payload);
       const found = res?.totalFound || 0;
-      const approved = res?.jobsAccepted || res?.approvedCount || 0;
-      const duplicates = res?.totalDuplicates || 0;
+      const approved = res?.jobsAccepted ?? res?.totalNew ?? res?.approvedCount ?? 0;
+      const duplicates = res?.totalDuplicates ?? res?.duplicatesFlagged ?? 0;
       const feedback = buildScraperRunFeedback(res, {
         actionLabel: 'Run',
         successText: `Scraper finished! Discovered ${found} jobs (${approved} approved, ${duplicates} duplicates).`,
@@ -1384,7 +1392,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         title: directTitle.trim() || undefined
       });
 
-      if (res?.success && Array.isArray(res.jobs)) {
+      if (res?.success && Array.isArray(res.jobs) && res.jobs.length > 0) {
         if (onBulkAddJobs) {
           onBulkAddJobs(res.jobs);
         } else {
@@ -1399,8 +1407,12 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         setDirectUrl('');
         if (onReloadJobs) await onReloadJobs();
       } else {
-        logMessage(`Direct URL warning: ${res?.message || 'No jobs found on link'}`);
-        setStatusMessage({ text: res?.message || 'No active jobs could be identified on that web page.', type: 'error' });
+        const isZeroVacancies = ['PDF_TEXT_ZERO_VACANCIES', 'PDF_SCANNED_FALLBACK_NO_VACANCIES', 'IMAGE_OCR_NO_VACANCIES', 'HTML_TEXT_NO_VACANCIES'].includes(String(res?.diagnosticCode || ''));
+        logMessage(`Direct URL notice: ${res?.message || 'No jobs found on link'}`);
+        setStatusMessage({
+          text: res?.message || 'No active jobs could be identified on that web page.',
+          type: isZeroVacancies ? 'info' : 'error'
+        });
       }
     } catch (err: any) {
       logMessage(`Direct URL error: ${err.message}`);
@@ -1472,7 +1484,7 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
     logMessage(`Parsing PDF circular: ${target}`);
     try {
       const res = await api.scraper.parseUrl({ url: target.trim() });
-      if (res?.success && Array.isArray(res.jobs)) {
+      if (res?.success && Array.isArray(res.jobs) && res.jobs.length > 0) {
         if (onBulkAddJobs) {
           onBulkAddJobs(res.jobs);
         } else {
@@ -1483,7 +1495,11 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
         setDirectPdfUrl('');
         if (onReloadJobs) await onReloadJobs();
       } else {
-        setStatusMessage({ text: res?.message || 'Could not extract jobs from this PDF.', type: 'error' });
+        const isZeroVacancies = ['PDF_TEXT_ZERO_VACANCIES', 'PDF_SCANNED_FALLBACK_NO_VACANCIES', 'IMAGE_OCR_NO_VACANCIES', 'HTML_TEXT_NO_VACANCIES'].includes(String(res?.diagnosticCode || ''));
+        setStatusMessage({
+          text: res?.message || 'Could not extract jobs from this PDF.',
+          type: isZeroVacancies ? 'info' : 'error'
+        });
       }
     } catch (err: any) {
       setStatusMessage({ text: `PDF extraction error: ${err.message}`, type: 'error' });
@@ -2843,10 +2859,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           {r.totalFound || 0}
                         </td>
                         <td className="p-3 text-center text-emerald-400 font-bold">
-                          {r.approvedCount || r.jobsAccepted || 0}
+                          {r.newPublished ?? r.approvedCount ?? r.jobsAccepted ?? 0}
                         </td>
                         <td className="p-3 text-center text-purple-400 font-bold">
-                          {r.totalDuplicates || 0}
+                          {r.duplicatesFlagged ?? r.totalDuplicates ?? 0}
                         </td>
                         <td className="p-3 text-right">
                           {(() => {
@@ -3240,6 +3256,21 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                     {filteredSources.map(source => {
                       const isSelected = selectedSourceIds.includes(source.id);
                       const isActive = source.status === 'Active Scheduled';
+                      const rowClassification = classificationsMap.get(source.id);
+                      const rawHealth = (source.healthStatus || '').trim();
+                      const isUnverifiedDefault =
+                        source.status !== 'Paused' &&
+                        source.status !== 'Disabled' &&
+                        (!rawHealth || rawHealth.toLowerCase() === 'healthy') &&
+                        !rowClassification?.historicallyProven;
+                      const displayHealthLabel =
+                        source.status === 'Disabled'
+                          ? 'Disabled'
+                          : isUnverifiedDefault
+                          ? 'Unverified'
+                          : rawHealth.toLowerCase() === 'healthy'
+                          ? 'Healthy'
+                          : rawHealth || 'Unverified';
 
                       return (
                         <tr key={source.id} className={`hover:bg-slate-800/40 transition-all ${isSelected ? 'bg-indigo-950/20' : ''}`}>
@@ -3283,27 +3314,27 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           <td className="p-4">
                             <div className="flex flex-col space-y-1">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold w-fit ${
-                                source.healthStatus === 'Healthy' || source.healthStatus === 'Jobs Found'
+                                displayHealthLabel === 'Healthy' || displayHealthLabel === 'Jobs Found'
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : source.healthStatus === '404'
+                                  : displayHealthLabel === '404'
                                   ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                                  : source.healthStatus === '403'
+                                  : displayHealthLabel === '403'
                                   ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                  : source.healthStatus === 'Timeout'
+                                  : displayHealthLabel === 'Timeout'
                                   ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
-                                  : source.healthStatus === 'Invalid PDF'
+                                  : displayHealthLabel === 'Invalid PDF'
                                   ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-                                  : source.healthStatus === 'HTML'
+                                  : displayHealthLabel === 'HTML'
                                   ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
-                                  : source.healthStatus === 'No Jobs'
+                                  : displayHealthLabel === 'No Jobs'
                                   ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  : source.healthStatus === 'Database Error'
+                                  : displayHealthLabel === 'Database Error'
                                   ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                                  : source.healthStatus === 'Fetch Error'
+                                  : displayHealthLabel === 'Fetch Error' || displayHealthLabel.toLowerCase() === 'error'
                                   ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                                   : 'bg-slate-800 text-slate-400 border border-slate-700'
                               }`}>
-                                {source.healthStatus || 'Healthy'}
+                                {displayHealthLabel}
                               </span>
                               {source.lastHttpStatus && (
                                 <span className="text-[10px] text-slate-500 font-mono">
@@ -4618,10 +4649,10 @@ export const AutomatedScraperHub: React.FC<AutomatedScraperHubProps> = ({
                           {run.totalFound || 0}
                         </td>
                         <td className="p-4 text-center font-bold text-emerald-400">
-                          {run.approvedCount || run.jobsAccepted || 0}
+                          {run.newPublished ?? run.approvedCount ?? run.jobsAccepted ?? 0}
                         </td>
                         <td className="p-4 text-center text-purple-400">
-                          {run.totalDuplicates || 0}
+                          {run.duplicatesFlagged ?? run.totalDuplicates ?? 0}
                         </td>
                         <td className="p-4 text-center">
                           {(() => {

@@ -463,9 +463,9 @@ STRICT FACTUAL INTEGRITY MANDATE:
           govtScale: scale,
           govtCategory,
           jobCategory: isGovtJob ? 'Government Sector' : undefined,
-          isPdfScraped: sourceUrl.toLowerCase().endsWith('.pdf') || (fileName && fileName.endsWith('.pdf')),
+          isPdfScraped: sourceUrl.toLowerCase().split('?')[0].endsWith('.pdf') || Boolean(fileName && fileName.toLowerCase().endsWith('.pdf')),
           pdfFileName: fileName || (sourceUrl.split('/').pop()?.split('?')[0] || 'scanned_document.pdf'),
-          pdfSourceUrl: sourceUrl.toLowerCase().endsWith('.pdf') ? sourceUrl : undefined,
+          pdfSourceUrl: sourceUrl.toLowerCase().split('?')[0].endsWith('.pdf') ? sourceUrl : undefined,
           clippingImageUrl: sourceUrl,
           mediaUrl: sourceUrl,
           pdfParserEngine: 'gemini-ocr-vision',
@@ -816,8 +816,29 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
     const headerSnippet = buffer.subarray(0, Math.min(1024, buffer.length));
     const isPdfBinary = detected.format === 'pdf' || headerSnippet.includes(Buffer.from('%PDF-'));
 
+    // Reject explicitly unsupported image formats by extension or Content-Type (GIF, SVG, TIFF, ICO)
+    const cleanContentType = contentType.split(';')[0].trim();
+    const isUnsupportedImage =
+      /\.(gif|tiff|tif|svg|ico)$/i.test(cleanUrl.split('?')[0]) ||
+      ['image/gif', 'image/svg+xml', 'image/tiff', 'image/x-icon', 'image/vnd.microsoft.icon'].includes(cleanContentType);
+    if (isUnsupportedImage) {
+      return {
+        success: false,
+        totalPages: 0,
+        extractedJobs: [],
+        rawTextSample: '',
+        sourceUrl: cleanUrl,
+        fileName,
+        formatType: 'image',
+        diagnosticCode: 'INVALID_MEDIA_TYPE',
+        diagnosticDetails: `Unsupported image type (${cleanContentType || fileName})`,
+        message: 'Unsupported image type. Only JPG, JPEG, PNG, WEBP, and BMP are supported for recruitment document extraction.'
+      };
+    }
+
     // Check if the requested document URL was expected to be an image
-    const isExpectedImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test(cleanUrl.split('?')[0]);
+    const isExpectedImage = /\.(jpg|jpeg|png|webp|bmp)$/i.test(cleanUrl.split('?')[0]) ||
+      ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(cleanContentType);
     if (isExpectedImage && !['jpeg', 'png', 'webp', 'bmp'].includes(detected.format)) {
       // Remote server returned an HTML error page, JSON, or corrupt binary for an image URL
       return {
@@ -970,7 +991,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       if (!pdfParseFailed && fullCombinedText.length >= 50) {
         const jobs = extractJobsFromPdfText(fullCombinedText, cleanUrl, orgName, fileName);
         return {
-          success: true,
+          success: jobs.length > 0,
           totalPages,
           extractedJobs: jobs,
           rawTextSample: fullCombinedText,
@@ -1025,7 +1046,7 @@ export async function parsePdfFromUrl(url: string, orgName?: string): Promise<Ex
       const extractedJobs = ocrRes.jobs.length > 0 ? ocrRes.jobs : extractJobsFromPdfText(combinedOcrText, cleanUrl, orgName, fileName);
 
       return {
-        success: extractedJobs.length > 0 || combinedOcrText.length > 0,
+        success: extractedJobs.length > 0,
         totalPages,
         extractedJobs,
         rawTextSample: combinedOcrText,

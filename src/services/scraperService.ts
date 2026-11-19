@@ -93,6 +93,7 @@ export interface ScrapedJobResult {
   isNewspaperAd?: boolean;
   newspaperName?: string;
   clippingImageUrl?: string;
+  mediaUrl?: string;
   newspaperDate?: string;
 
   // Next page pagination discovery
@@ -104,6 +105,8 @@ export interface ScrapeOptions {
   startPage?: number;
   endPage?: number;
   sinceTimestamp?: string;
+  toTimestamp?: string;
+  keywords?: string;
   runId?: string;
   targetPageUrl?: string;
 }
@@ -285,6 +288,124 @@ export function mapLinkedImageOcrJobs(
   }));
 }
 
+const ZERO_VACANCY_MEDIA_DIAGNOSTICS = new Set([
+  'PDF_TEXT_ZERO_VACANCIES',
+  'PDF_SCANNED_FALLBACK_NO_VACANCIES',
+  'IMAGE_OCR_NO_VACANCIES',
+  'HTML_TEXT_NO_VACANCIES'
+]);
+
+const SUPPORTED_IMAGE_EXTENSION_REGEX = /\.(jpg|jpeg|png|webp|bmp)$/i;
+const UNSUPPORTED_IMAGE_EXTENSION_REGEX = /\.(gif|tiff|tif|svg|ico)$/i;
+const SUPPORTED_IMAGE_CONTENT_TYPES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/bmp',
+  'image/x-ms-bmp'
+]);
+const UNSUPPORTED_IMAGE_CONTENT_TYPES = new Set([
+  'image/gif',
+  'image/svg+xml',
+  'image/tiff',
+  'image/x-icon',
+  'image/vnd.microsoft.icon'
+]);
+
+function mapMediaResultError(mediaResult: { diagnosticCode?: string; message?: string; errorMessage?: string }): Error {
+  const rawMsg =
+    mediaResult.message ||
+    mediaResult.errorMessage ||
+    (mediaResult.diagnosticCode ? `Media extraction error (${mediaResult.diagnosticCode})` : 'Invalid media response: extraction failed');
+  const statusMatch = rawMsg.match(/HTTP\s+(\d{3})/i);
+  const parsedStatus = statusMatch ? parseInt(statusMatch[1], 10) : undefined;
+  const msgLower = rawMsg.toLowerCase();
+  const hasKnownClassificationKeyword =
+    Boolean(parsedStatus) ||
+    msgLower.includes('403') ||
+    msgLower.includes('404') ||
+    msgLower.includes('forbidden') ||
+    msgLower.includes('not found') ||
+    msgLower.includes('timeout') ||
+    msgLower.includes('timed out') ||
+    msgLower.includes('etimedout') ||
+    msgLower.includes('abort') ||
+    msgLower.includes('invalid pdf') ||
+    msgLower.includes('html instead of pdf') ||
+    msgLower.includes('ocr') ||
+    msgLower.includes('unsupported');
+  const err: any = new Error(hasKnownClassificationKeyword ? rawMsg : `Media extraction failed: ${rawMsg}`);
+  if (parsedStatus) {
+    err.status = parsedStatus;
+    err.statusCode = parsedStatus;
+    err.httpStatus = parsedStatus;
+  }
+  if (mediaResult.diagnosticCode) {
+    err.diagnosticCode = mediaResult.diagnosticCode;
+  }
+  return err;
+}
+
+/**
+ * Maps raw extracted OCR jobs from a direct image advertisement URL to ScrapedJobResult records.
+ * Strictly enforces status: 'Pending' and extractionMethod: 'image_ocr' regardless of config.autoApprove.
+ */
+export function mapDirectImageOcrJobs(
+  extractedJobs: any[],
+  config: Pick<ScraperTargetConfig, 'name' | 'autoApprove' | 'isNewspaperClippingPortal'>,
+  imageUrl: string,
+  imgContext: { fullExtractedText?: string; rawTextSample?: string; fileName?: string } = {},
+  options: Pick<ScrapeOptions, 'runId'> = {}
+): ScrapedJobResult[] {
+  return (extractedJobs || []).map(j => ({
+    id: j.id,
+    title: j.title,
+    company: j.company || config.name,
+    jobType: j.jobType || 'On-site',
+    region: (j.region || 'Pakistan') as Region,
+    province: j.province,
+    city: j.city,
+    salary: j.salary || 'Per Advertisement',
+    currency: 'PKR' as Currency,
+    experienceLevel: (j.experienceLevel || 'Mid') as any,
+    department: j.department || config.name,
+    tags: j.tags || [config.name, 'Image OCR Ad'],
+    description: j.description || `Vacancy extracted via vision OCR from advertisement image.`,
+    extractedText: j.extractedText || imgContext.fullExtractedText || imgContext.rawTextSample,
+    requirements: j.requirements || [],
+    benefits: j.benefits || [],
+    postedAt: j.postedAt || 'Recent',
+    deadlineDate: j.deadlineDate,
+    applicationsCount: 0,
+    status: 'Pending',
+    sourceUrl: imageUrl,
+    clippingImageUrl: imageUrl,
+    mediaUrl: imageUrl,
+    isNewspaperAd: Boolean(config.isNewspaperClippingPortal || j.isNewspaperAd),
+    newspaperName: config.isNewspaperClippingPortal ? config.name : j.newspaperName,
+    sourcePortal: config.name,
+    extractionMethod: 'image_ocr',
+    scrapeRunId: options.runId,
+    scrapedAt: new Date().toISOString(),
+    isGovtJob: j.isGovtJob,
+    govtDepartment: j.govtDepartment,
+    govtScale: j.govtScale,
+    govtCategory: j.govtCategory,
+    advertisedPositions: j.advertisedPositions,
+    totalVacancies: j.totalVacancies,
+    employmentType: j.employmentType,
+    ageLimit: j.ageLimit,
+    minimumAge: typeof j.minimumAge === 'number' ? j.minimumAge : (j.minimumAge ? Number(j.minimumAge) : undefined),
+    maximumAge: typeof j.maximumAge === 'number' ? j.maximumAge : (j.maximumAge ? Number(j.maximumAge) : undefined),
+    qualificationSummary: j.qualificationSummary,
+    domicile: j.domicile,
+    contactEmail: j.contactEmail,
+    responsibilitiesList: j.responsibilitiesList,
+    relatedSourceUrls: [imageUrl]
+  }));
+}
+
 /**
  * Conservative recruitment image candidate discovery from HTML.
  * STRICT SAFETY RULES:
@@ -375,38 +496,86 @@ export function findCandidateRecruitmentImages(html: string, baseUrl: string): s
 
 /**
  * Detects next-page pagination URL from HTML with semantic selectors.
+ * Skips disabled controls (.disabled, [disabled], [aria-disabled="true"]) and non-navigational hrefs.
  */
 export function extractNextPageUrl(html: string, currentUrl: string): string | null {
   try {
     const $ = cheerio.load(html);
 
-    // 1. Check standard HTML link rel="next"
-    const relNext = $('link[rel="next"]').attr('href') || $('a[rel="next"]').attr('href');
-    if (relNext) {
-      return resolveUrl(relNext, currentUrl);
+    const isUsableHref = (el: any, rawHref: string | undefined): rawHref is string => {
+      if (!rawHref) return false;
+      const trimmed = rawHref.trim();
+      if (!trimmed || trimmed === '#' || trimmed.startsWith('#') || /^javascript:/i.test(trimmed)) {
+        return false;
+      }
+      const node = $(el);
+      if (
+        node.is('.disabled, [disabled], [aria-disabled="true"]') ||
+        node.closest('.disabled, .page-item.disabled, li.disabled, [aria-disabled="true"]').length > 0
+      ) {
+        return false;
+      }
+      return true;
+    };
+
+    // 1. Check standard HTML link rel="next" or anchor rel="next"
+    const relLink = $('link[rel="next"]').first();
+    const relLinkHref = relLink.attr('href');
+    if (relLink.length > 0 && relLinkHref && !relLinkHref.trim().startsWith('#') && !/^javascript:/i.test(relLinkHref.trim())) {
+      return resolveUrl(relLinkHref.trim(), currentUrl);
     }
+
+    let anchorRelHref: string | null = null;
+    $('a[rel="next"]').each((_, el) => {
+      if (anchorRelHref) return;
+      const href = $(el).attr('href');
+      if (isUsableHref(el, href)) {
+        anchorRelHref = resolveUrl(href.trim(), currentUrl);
+      }
+    });
+    if (anchorRelHref) return anchorRelHref;
 
     // 2. Check aria-label="Next" or title="Next"
-    const ariaNext = $('a[aria-label*="Next" i], a[aria-label*="اگلا" i], a[title*="Next" i]').attr('href');
-    if (ariaNext && !ariaNext.startsWith('#') && !ariaNext.startsWith('javascript:')) {
-      return resolveUrl(ariaNext, currentUrl);
-    }
+    let ariaNextHref: string | null = null;
+    $('a[aria-label*="Next" i], a[aria-label*="اگلا" i], a[title*="Next" i]').each((_, el) => {
+      if (ariaNextHref) return;
+      const href = $(el).attr('href');
+      if (isUsableHref(el, href)) {
+        ariaNextHref = resolveUrl(href.trim(), currentUrl);
+      }
+    });
+    if (ariaNextHref) return ariaNextHref;
 
     // 3. Check pagination next button classes
-    const classNext = $('.pagination .next a, .pager .next a, li.next a, li.pagination-next a, a.next-page, a.page-next').attr('href');
-    if (classNext && !classNext.startsWith('#') && !classNext.startsWith('javascript:')) {
-      return resolveUrl(classNext, currentUrl);
-    }
+    let classNextHref: string | null = null;
+    $('.pagination .next a, .pager .next a, li.next a, li.pagination-next a, a.next-page, a.page-next').each((_, el) => {
+      if (classNextHref) return;
+      const href = $(el).attr('href');
+      if (isUsableHref(el, href)) {
+        classNextHref = resolveUrl(href.trim(), currentUrl);
+      }
+    });
+    if (classNextHref) return classNextHref;
 
     // 4. Look for anchor containing text "Next" or "اگلا"
     let textNextHref: string | null = null;
     $('a').each((_, el) => {
       if (textNextHref) return;
-      const text = $(el).text().trim().toLowerCase();
-      if (text === 'next' || text === 'next >' || text === 'next »' || text === 'اگلا' || text === 'اگلا صفحہ') {
+      const text = $(el).text().trim().toLowerCase().replace(/\s+/g, ' ');
+      if (
+        text === 'next' ||
+        text === 'next >' ||
+        text === 'next ›' ||
+        text === 'next »' ||
+        text === 'next →' ||
+        text === '›' ||
+        text === '»' ||
+        text === 'اگلا' ||
+        text === 'اگلا صفحہ'
+      ) {
         const href = $(el).attr('href');
-        if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-          textNextHref = resolveUrl(href, currentUrl);
+        if (isUsableHref(el, href)) {
+          textNextHref = resolveUrl(href.trim(), currentUrl);
         }
       }
     });
@@ -1036,7 +1205,11 @@ export async function scrapeRestJobApis(
  * ADAPTER 4: Government PDF Parser (Connected to pdfParserEngine)
  * Handles FPSC, PPSC, WAPDA, KPPSC, SPSC, BPSC, or any PDF recruitment gazette.
  */
-async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: ScrapeOptions): Promise<ScrapeExecutionResult | null> {
+async function scrapeGovernmentPdfPortal(
+  config: ScraperTargetConfig,
+  options: ScrapeOptions,
+  parseMediaFn: typeof parsePdfFromUrl = parsePdfFromUrl
+): Promise<ScrapeExecutionResult | null> {
   const effectiveUrl = config.url || config.portalUrl || config.pdfUrl || '';
   const isExplicitPdf =
     (config.formatType && config.formatType.includes('PDF')) ||
@@ -1049,31 +1222,16 @@ async function scrapeGovernmentPdfPortal(config: ScraperTargetConfig, options: S
   if (!targetPdfUrl || !targetPdfUrl.startsWith('http')) return null;
 
   try {
-    const pdfResult = await parsePdfFromUrl(targetPdfUrl, config.name);
+    const pdfResult = await parseMediaFn(targetPdfUrl, config.name);
+    if (ZERO_VACANCY_MEDIA_DIAGNOSTICS.has(pdfResult.diagnosticCode || '') && (!pdfResult.extractedJobs || pdfResult.extractedJobs.length === 0)) {
+      return {
+        jobs: [],
+        extractionMethod: 'government_pdf_engine',
+        totalFoundOnPage: 0
+      };
+    }
     if (!pdfResult.success) {
-      const rawMsg = pdfResult.message || 'Invalid PDF: PDF extraction failed';
-      const statusMatch = rawMsg.match(/HTTP\s+(\d{3})/i);
-      const parsedStatus = statusMatch ? parseInt(statusMatch[1], 10) : undefined;
-      const msgLower = rawMsg.toLowerCase();
-      const hasKnownClassificationKeyword =
-        Boolean(parsedStatus) ||
-        msgLower.includes('403') ||
-        msgLower.includes('404') ||
-        msgLower.includes('forbidden') ||
-        msgLower.includes('not found') ||
-        msgLower.includes('timeout') ||
-        msgLower.includes('timed out') ||
-        msgLower.includes('etimedout') ||
-        msgLower.includes('abort') ||
-        msgLower.includes('invalid pdf') ||
-        msgLower.includes('html instead of pdf');
-      const pdfErr: any = new Error(hasKnownClassificationKeyword ? rawMsg : `Invalid PDF: ${rawMsg}`);
-      if (parsedStatus) {
-        pdfErr.status = parsedStatus;
-        pdfErr.statusCode = parsedStatus;
-        pdfErr.httpStatus = parsedStatus;
-      }
-      throw pdfErr;
+      throw mapMediaResultError(pdfResult);
     }
     if (pdfResult.formatType === 'html') {
       throw new Error(`HTML instead of PDF: Expected PDF document from ${targetPdfUrl} but server returned an HTML response`);
@@ -1563,6 +1721,50 @@ function isEligibleForPortalFallback(
   return false;
 }
 
+async function scrapeDirectImagePortal(
+  config: ScraperTargetConfig,
+  options: ScrapeOptions,
+  parseMediaFn: typeof parsePdfFromUrl = parsePdfFromUrl
+): Promise<ScrapeExecutionResult | null> {
+  const effectiveUrl = (config.url || config.portalUrl || config.pdfUrl || '').trim();
+  if (!effectiveUrl || !effectiveUrl.startsWith('http')) return null;
+
+  const pathWithoutQuery = effectiveUrl.toLowerCase().split('?')[0];
+  if (UNSUPPORTED_IMAGE_EXTENSION_REGEX.test(pathWithoutQuery)) {
+    throw new Error('Unsupported image type. Only JPG, JPEG, PNG, WEBP, and BMP are supported for recruitment document extraction.');
+  }
+
+  if (!SUPPORTED_IMAGE_EXTENSION_REGEX.test(pathWithoutQuery)) {
+    return null;
+  }
+
+  const imgResult = await parseMediaFn(effectiveUrl, config.name);
+  if (ZERO_VACANCY_MEDIA_DIAGNOSTICS.has(imgResult.diagnosticCode || '') && (!imgResult.extractedJobs || imgResult.extractedJobs.length === 0)) {
+    return {
+      jobs: [],
+      extractionMethod: 'image_ocr',
+      totalFoundOnPage: 0
+    };
+  }
+  if (!imgResult.success) {
+    throw mapMediaResultError(imgResult);
+  }
+  if (!imgResult.extractedJobs || imgResult.extractedJobs.length === 0) {
+    return {
+      jobs: [],
+      extractionMethod: 'image_ocr',
+      totalFoundOnPage: 0
+    };
+  }
+
+  const jobs = mapDirectImageOcrJobs(imgResult.extractedJobs, config, effectiveUrl, imgResult, options);
+  return {
+    jobs,
+    extractionMethod: 'image_ocr',
+    totalFoundOnPage: jobs.length
+  };
+}
+
 /**
  * Universal scraper pipeline for an individual target portal.
  * STRICT POLICY: NEVER invent or synthesize fake jobs.
@@ -1571,7 +1773,8 @@ function isEligibleForPortalFallback(
 export async function scrapeTargetPortal(
   config: ScraperTargetConfig,
   options: ScrapeOptions = {},
-  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry
+  fetchFn: typeof safeFetchWithRetry = safeFetchWithRetry,
+  parseMediaFn: typeof parsePdfFromUrl = parsePdfFromUrl
 ): Promise<ScrapedJobResult[]> {
   const effectiveUrl = config.url || config.portalUrl || config.pdfUrl || '';
   if (!config.url && effectiveUrl) {
@@ -1592,7 +1795,7 @@ export async function scrapeTargetPortal(
     // 1. Check Government PDF Adapter
     let pdfResult: ScrapeExecutionResult | null = null;
     try {
-      pdfResult = await scrapeGovernmentPdfPortal(config, options);
+      pdfResult = await scrapeGovernmentPdfPortal(config, options, parseMediaFn);
     } catch (pdfErr: any) {
       const targetPdfUrl = (config.pdfUrl && config.pdfUrl.startsWith('http')) ? config.pdfUrl : effectiveUrl;
       if (targetPdfUrl) {
@@ -1617,6 +1820,14 @@ export async function scrapeTargetPortal(
 
     if (pdfResult) {
       return filterByOptions(pdfResult.jobs, options);
+    }
+
+    // 1b. Check Direct Image Advertisement URL Adapter (JPG, PNG, WEBP, BMP; never send images to HTML parser)
+    if (!options.targetPageUrl) {
+      const directImageResult = await scrapeDirectImagePortal(config, options, parseMediaFn);
+      if (directImageResult) {
+        return filterByOptions(directImageResult.jobs, options);
+      }
     }
 
     // 2. Check Greenhouse ATS Adapter (skip API re-check when fetching subsequent HTML paginated pages)
@@ -1708,15 +1919,22 @@ export async function scrapeTargetPortal(
       throw new Error(`PDF Loop Prevented: Target URL or redirect destination is already known to be a failed PDF (${finalResponseUrl || targetUrl})`);
     }
 
-    // Check if Content-Type is PDF (e.g. redirected or served without .pdf extension)
-    const contentType = (response?.headers && typeof response.headers.get === 'function' ? response.headers.get('content-type') : response?.headers?.['content-type']) || '';
-    if (contentType.includes('application/pdf') || finalResponseUrl.toLowerCase().split('?')[0].endsWith('.pdf')) {
+    // Check Content-Type / final URL extension before reading as HTML text
+    const rawContentType = (response?.headers && typeof response.headers.get === 'function' ? response.headers.get('content-type') : response?.headers?.['content-type']) || '';
+    const contentType = String(rawContentType).toLowerCase();
+    const cleanContentType = contentType.split(';')[0].trim();
+    const finalPathLower = finalResponseUrl.toLowerCase().split('?')[0];
+
+    if (contentType.includes('application/pdf') || finalPathLower.endsWith('.pdf')) {
       if (!response.bodyUsed) {
         await cancelStream(response.body, undefined, 'Redirected to PDF parser engine');
       }
-      const pdfRes = await parsePdfFromUrl(finalResponseUrl, config.name);
+      const pdfRes = await parseMediaFn(finalResponseUrl, config.name);
+      if (ZERO_VACANCY_MEDIA_DIAGNOSTICS.has(pdfRes.diagnosticCode || '') && (!pdfRes.extractedJobs || pdfRes.extractedJobs.length === 0)) {
+        return [];
+      }
       if (!pdfRes.success) {
-        throw new Error(pdfRes.message ? `Invalid PDF: ${pdfRes.message}` : 'Invalid PDF: Failed to parse PDF response');
+        throw mapMediaResultError(pdfRes);
       }
       if (pdfRes.formatType === 'html') {
         throw new Error(`HTML instead of PDF: Expected PDF response from ${finalResponseUrl} but received HTML content`);
@@ -1728,6 +1946,36 @@ export async function scrapeTargetPortal(
           extractionMethod: 'government_pdf_engine',
           scrapeRunId: options.runId
         })) as any, options);
+      }
+      return [];
+    }
+
+    // Check for unsupported or supported image responses (never route binary images into HTML Cheerio parser)
+    if (UNSUPPORTED_IMAGE_CONTENT_TYPES.has(cleanContentType) || UNSUPPORTED_IMAGE_EXTENSION_REGEX.test(finalPathLower)) {
+      if (!response.bodyUsed) {
+        await cancelStream(response.body, undefined, 'Unsupported image type rejected');
+      }
+      throw new Error('Unsupported image type. Only JPG, JPEG, PNG, WEBP, and BMP are supported for recruitment document extraction.');
+    }
+
+    if (
+      cleanContentType.startsWith('image/') ||
+      SUPPORTED_IMAGE_CONTENT_TYPES.has(cleanContentType) ||
+      SUPPORTED_IMAGE_EXTENSION_REGEX.test(finalPathLower)
+    ) {
+      if (!response.bodyUsed) {
+        await cancelStream(response.body, undefined, 'Routed image/* response to OCR parser');
+      }
+      const imgRes = await parseMediaFn(finalResponseUrl, config.name);
+      if (ZERO_VACANCY_MEDIA_DIAGNOSTICS.has(imgRes.diagnosticCode || '') && (!imgRes.extractedJobs || imgRes.extractedJobs.length === 0)) {
+        return [];
+      }
+      if (!imgRes.success) {
+        throw mapMediaResultError(imgRes);
+      }
+      if (imgRes.extractedJobs && imgRes.extractedJobs.length > 0) {
+        const mappedImgJobs = mapDirectImageOcrJobs(imgRes.extractedJobs, config, finalResponseUrl, imgRes, options);
+        return filterByOptions(mappedImgJobs, options);
       }
       return [];
     }
@@ -1756,7 +2004,7 @@ export async function scrapeTargetPortal(
       });
 
       if (linkedPdfUrl) {
-        const pdfRes = await parsePdfFromUrl(linkedPdfUrl, config.name);
+        const pdfRes = await parseMediaFn(linkedPdfUrl, config.name);
         if (pdfRes.success && pdfRes.extractedJobs.length > 0) {
           return filterByOptions(pdfRes.extractedJobs.map(j => ({
             ...j,
@@ -1768,38 +2016,48 @@ export async function scrapeTargetPortal(
       }
     }
 
+    const effectiveHtmlBaseUrl = finalResponseUrl || targetUrl;
+    const discoveredNextPageUrl = extractNextPageUrl(html, effectiveHtmlBaseUrl);
+    const attachNextPageUrl = (items: ScrapedJobResult[]) => {
+      if (discoveredNextPageUrl && items.length > 0) {
+        items.forEach(j => {
+          if (!j.nextPageUrl) {
+            j.nextPageUrl = discoveredNextPageUrl;
+          }
+        });
+      }
+      return items;
+    };
+
     // 7. Extract JSON-LD Schema.org structured data (highest fidelity)
-    const jsonLdJobs = extractJsonLdJobs(html, targetUrl, config, options);
+    const jsonLdJobs = extractJsonLdJobs(html, effectiveHtmlBaseUrl, config, options);
     if (jsonLdJobs.length > 0) {
+      attachNextPageUrl(jsonLdJobs);
       if (pdfFallbackAttempted && originalPdfFailureNotice) {
-        console.log(`[Scraper Pipeline] Successfully recovered ${jsonLdJobs.length} vacancies for "${config.name}" via official portal JSON-LD (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+        console.log(`[Scraper Pipeline] Successfully recovered ${jsonLdJobs.length} vacancies for "${config.name}" via official portal JSON-LD (${effectiveHtmlBaseUrl}) after PDF failure (${originalPdfFailureNotice}).`);
       }
       return filterByOptions(jsonLdJobs, options);
     }
 
     // 8. Extract JavaScript embedded state (__NEXT_DATA__, etc.)
-    const jsJobs = extractEmbeddedStateJobs(html, targetUrl, config, options);
+    const jsJobs = extractEmbeddedStateJobs(html, effectiveHtmlBaseUrl, config, options);
     if (jsJobs.length > 0) {
+      attachNextPageUrl(jsJobs);
       if (pdfFallbackAttempted && originalPdfFailureNotice) {
-        console.log(`[Scraper Pipeline] Successfully recovered ${jsJobs.length} vacancies for "${config.name}" via official portal embedded state (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+        console.log(`[Scraper Pipeline] Successfully recovered ${jsJobs.length} vacancies for "${config.name}" via official portal embedded state (${effectiveHtmlBaseUrl}) after PDF failure (${originalPdfFailureNotice}).`);
       }
       return filterByOptions(jsJobs, options);
     }
 
     // 9. Semantic HTML Tables and Job Cards
-    const htmlJobs = extractHtmlSemanticJobs(html, targetUrl, config, options);
-
-    // Detect next page link if available and attach to jobs
-    const nextPageUrl = extractNextPageUrl(html, targetUrl);
-    if (nextPageUrl && htmlJobs.length > 0) {
-      htmlJobs.forEach(j => { j.nextPageUrl = nextPageUrl; });
-    }
+    const htmlJobs = extractHtmlSemanticJobs(html, effectiveHtmlBaseUrl, config, options);
+    attachNextPageUrl(htmlJobs);
 
     // 10. Linked Image OCR (Bounded, conservative extraction for recruitment ads embedded as images)
     if (htmlJobs.length === 0 || config.isNewspaperClippingPortal) {
-      const candidateImages = findCandidateRecruitmentImages(html, targetUrl);
+      const candidateImages = findCandidateRecruitmentImages(html, effectiveHtmlBaseUrl);
       if (candidateImages.length > 0) {
-        console.log(`[Scraper Pipeline] Found ${candidateImages.length} recruitment image candidate(s) on ${targetUrl}. Invoking bounded linked image OCR...`);
+        console.log(`[Scraper Pipeline] Found ${candidateImages.length} recruitment image candidate(s) on ${effectiveHtmlBaseUrl}. Invoking bounded linked image OCR...`);
 
         const linkedImageJobs: ScrapedJobResult[] = [];
         for (const imgUrl of candidateImages) {
@@ -1810,12 +2068,12 @@ export async function scrapeTargetPortal(
           }
 
           try {
-            const imgResult = await parsePdfFromUrl(imgUrl, config.name);
+            const imgResult = await parseMediaFn(imgUrl, config.name);
             if (imgResult.success && imgResult.extractedJobs && imgResult.extractedJobs.length > 0) {
               const mapped = mapLinkedImageOcrJobs(
                 imgResult.extractedJobs,
                 config,
-                targetUrl,
+                effectiveHtmlBaseUrl,
                 imgUrl,
                 imgResult,
                 options
@@ -1828,9 +2086,9 @@ export async function scrapeTargetPortal(
         }
 
         if (linkedImageJobs.length > 0) {
-          const deduplicated = deduplicateJobs(htmlJobs, linkedImageJobs);
+          const deduplicated = attachNextPageUrl(deduplicateJobs(htmlJobs, linkedImageJobs));
           if (pdfFallbackAttempted && originalPdfFailureNotice) {
-            console.log(`[Scraper Pipeline] Successfully recovered ${deduplicated.length} vacancies for "${config.name}" via linked image OCR (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+            console.log(`[Scraper Pipeline] Successfully recovered ${deduplicated.length} vacancies for "${config.name}" via linked image OCR (${effectiveHtmlBaseUrl}) after PDF failure (${originalPdfFailureNotice}).`);
           }
           return filterByOptions(deduplicated, options);
         }
@@ -1839,9 +2097,9 @@ export async function scrapeTargetPortal(
 
     if (pdfFallbackAttempted && originalPdfFailureNotice) {
       if (htmlJobs.length > 0) {
-        console.log(`[Scraper Pipeline] Successfully recovered ${htmlJobs.length} vacancies for "${config.name}" via official portal semantic HTML (${targetUrl}) after PDF failure (${originalPdfFailureNotice}).`);
+        console.log(`[Scraper Pipeline] Successfully recovered ${htmlJobs.length} vacancies for "${config.name}" via official portal semantic HTML (${effectiveHtmlBaseUrl}) after PDF failure (${originalPdfFailureNotice}).`);
       } else {
-        console.log(`[Scraper Pipeline] Note for "${config.name}": Official portal fallback (${targetUrl}) loaded successfully, but no structured vacancies were detected on page.`);
+        console.log(`[Scraper Pipeline] Note for "${config.name}": Official portal fallback (${effectiveHtmlBaseUrl}) loaded successfully, but no structured vacancies were detected on page.`);
       }
     }
 
@@ -1897,7 +2155,7 @@ export async function scrapeTargetPortal(
 }
 
 /**
- * Filter results by scrape options (sinceTimestamp, datePosted, etc.)
+ * Filter results by scrape options (sinceTimestamp, toTimestamp, keywords, etc.)
  */
 function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): ScrapedJobResult[] {
   let filtered = jobs;
@@ -1909,6 +2167,42 @@ function filterByOptions(jobs: ScrapedJobResult[], options: ScrapeOptions): Scra
         if (!j.datePosted) return true;
         const postTime = new Date(j.datePosted).getTime();
         return isNaN(postTime) || postTime >= cutoff;
+      });
+    }
+  }
+
+  if (options.toTimestamp) {
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(options.toTimestamp.trim());
+    const parsedTo = new Date(options.toTimestamp).getTime();
+    const toCutoff = !isNaN(parsedTo) ? (isDateOnly ? parsedTo + 24 * 60 * 60 * 1000 - 1 : parsedTo) : NaN;
+    if (!isNaN(toCutoff)) {
+      filtered = filtered.filter(j => {
+        if (!j.datePosted) return true;
+        const postTime = new Date(j.datePosted).getTime();
+        return isNaN(postTime) || postTime <= toCutoff;
+      });
+    }
+  }
+
+  if (options.keywords && options.keywords.trim()) {
+    const keywordList = options.keywords
+      .split(',')
+      .map(k => k.trim().toLowerCase())
+      .filter(k => k.length >= 2);
+    if (keywordList.length > 0) {
+      filtered = filtered.filter(j => {
+        const haystack = [
+          j.title,
+          j.description,
+          j.department,
+          j.company,
+          ...(Array.isArray(j.tags) ? j.tags : []),
+          ...(Array.isArray(j.requirements) ? j.requirements : [])
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return keywordList.some(kw => haystack.includes(kw));
       });
     }
   }

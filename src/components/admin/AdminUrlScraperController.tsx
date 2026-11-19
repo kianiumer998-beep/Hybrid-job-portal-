@@ -114,7 +114,17 @@ export const AdminUrlScraperController: React.FC<AdminUrlScraperControllerProps>
 
       setCrawlProgress(85);
 
-      if (!response || !response.success) {
+      const ZERO_VACANCY_DIAGNOSTICS = new Set([
+        'PDF_TEXT_ZERO_VACANCIES',
+        'PDF_SCANNED_FALLBACK_NO_VACANCIES',
+        'IMAGE_OCR_NO_VACANCIES',
+        'HTML_TEXT_NO_VACANCIES'
+      ]);
+      const isZeroVacancyClean = Boolean(
+        response && ZERO_VACANCY_DIAGNOSTICS.has(String(response.diagnosticCode || ''))
+      );
+
+      if (!response || (!response.success && !isZeroVacancyClean)) {
         throw new Error(response?.message || 'Scraper execution failed on target URL.');
       }
 
@@ -129,7 +139,7 @@ export const AdminUrlScraperController: React.FC<AdminUrlScraperControllerProps>
       }));
 
       if (extractedBatch.length === 0) {
-        setStatusMessage(`ℹ️ Scraped ${hostname} successfully, but 0 vacancies were found. Strict policy: No fake or synthetic jobs are generated.`);
+        setStatusMessage(`ℹ️ Scraped ${hostname} cleanly, but 0 vacancies were found. Strict policy: No fake or synthetic jobs are generated.`);
       } else {
         setStagedScrapedJobs((prev) => [...extractedBatch, ...prev]);
         setSelectedJobIds(extractedBatch.map((j) => j.id));

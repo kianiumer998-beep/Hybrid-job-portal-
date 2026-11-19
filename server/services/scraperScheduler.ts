@@ -133,6 +133,7 @@ export interface SchedulerRuntimeDeps {
     schedule: { lastRunAt?: string; lastCompletedAt?: string; nextRunAt?: string }
   ) => Promise<boolean>;
   executeScraperFn?: typeof executeScraperWithWizard;
+  addRunFn?: (run: any) => Promise<any>;
   isScraperEnabledFn?: () => boolean;
   isAutoApproveEnabledFn?: () => boolean;
   scheduleCronFn?: typeof cron.schedule;
@@ -146,15 +147,25 @@ export interface SchedulerRuntimeDeps {
  */
 export async function runSchedulerTick(
   _deps?: SchedulerRuntimeDeps
-): Promise<{ triggeredSources: string[]; aborted?: boolean; skippedDueToConflict?: boolean; error?: string; summary: any }> {
+): Promise<{
+  triggeredSources: string[];
+  failedSources?: string[];
+  aborted?: boolean;
+  skippedDueToConflict?: boolean;
+  error?: string;
+  summary: any;
+}> {
   if (isTickExecuting) {
     console.log('[Scheduler Engine] Previous tick still executing. Skipping tick.');
     return { triggeredSources: [], summary: 'Concurrent tick avoided' };
   }
 
   isTickExecuting = true;
-  lastTickTime = new Date().toISOString();
+  const tickStartedAt = new Date();
+  lastTickTime = tickStartedAt.toISOString();
   const triggered: string[] = [];
+  const failed: string[] = [];
+  const failedErrors: Array<{ sourceId: string; sourceName: string; sourceUrl: string; error: string }> = [];
 
   const isScraperEnabled = _deps?.isScraperEnabledFn ? _deps.isScraperEnabledFn() : featureFlags.enableWebScraper;
   const isAutoApproveEnabled = _deps?.isAutoApproveEnabledFn
@@ -167,6 +178,7 @@ export async function runSchedulerTick(
     _deps?.updateSourceScheduleFn ||
     ((sourceId, schedule) => ScraperRepository.updateSourceSchedule(sourceId, schedule));
   const executeFn = _deps?.executeScraperFn || executeScraperWithWizard;
+  const addRunFn = _deps?.addRunFn || ((run: any) => ScraperRepository.addRun(run));
 
   try {
     if (!isScraperEnabled) {
@@ -260,14 +272,22 @@ export async function runSchedulerTick(
               console.warn(`[Scheduler Engine] Skipped due source "${src.name}" (${src.id}) and aborted tick cleanly without advancing schedule: ${conflictMsg}`);
               return {
                 triggeredSources: triggered,
+                failedSources: failed.length > 0 ? failed : undefined,
                 aborted: true,
                 skippedDueToConflict: true,
                 error: conflictMsg,
                 summary: `Scheduler tick skipped due source "${src.id}" and aborted cleanly (${conflictMsg}).`
               };
             }
-            triggered.push(src.id);
-            console.log(`[Scheduler Engine] Source "${src.name}" execution notice: ${srcErr?.message || srcErr}. Scheduler continuing with other due sources.`);
+            const errMsg = srcErr?.message || String(srcErr);
+            failed.push(src.id);
+            failedErrors.push({
+              sourceId: src.id,
+              sourceName: src.name || src.id,
+              sourceUrl: src.url || '',
+              error: errMsg
+            });
+            console.error(`[Scheduler Engine] Source "${src.name}" execution error: ${errMsg}. Scheduler continuing with other due sources.`);
           }
 
           // Schedule next run regardless of single source outcome, mutating source runtime object only if persisted
@@ -288,13 +308,67 @@ export async function runSchedulerTick(
           }
         }
       } catch (sourceLoopErr: any) {
-        console.warn(`[Scheduler Engine] Notice processing source "${src.name}" during tick:`, sourceLoopErr?.message || sourceLoopErr);
+        const loopErrMsg = sourceLoopErr?.message || String(sourceLoopErr);
+        failed.push(src.id);
+        failedErrors.push({
+          sourceId: src.id,
+          sourceName: src.name || src.id,
+          sourceUrl: src.url || '',
+          error: loopErrMsg
+        });
+        console.warn(`[Scheduler Engine] Notice processing source "${src.name}" during tick:`, loopErrMsg);
+      }
+    }
+
+    // Persist scheduler failure/execution record when an unexpected execution error threw before executeScraperWithWizard recorded a run
+    if (failed.length > 0) {
+      const tickEnd = new Date();
+      try {
+        await addRunFn({
+          id: `SCHED-${tickEnd.getTime().toString(36).toUpperCase()}`,
+          batchId: `SCHED-${tickEnd.getTime().toString(36).toUpperCase()}`,
+          startedAt: tickStartedAt.toISOString(),
+          completedAt: tickEnd.toISOString(),
+          mode: settings.scanMode || 'since_last',
+          triggerType: 'Scheduled Cron',
+          targetsScraped: triggered.length + failed.length,
+          totalTargetsPlanned: triggered.length + failed.length,
+          status: triggered.length > 0 ? 'Partial' : 'Failed',
+          totalFound: 0,
+          totalNew: 0,
+          totalDuplicates: 0,
+          newPublished: 0,
+          newPending: 0,
+          duplicatesFlagged: 0,
+          failedSources: failed.length,
+          executionTimeMs: tickEnd.getTime() - tickStartedAt.getTime(),
+          message: `Scheduler tick encountered ${failed.length} source execution error(s): ${failedErrors.map(e => `${e.sourceName}: ${e.error}`).join('; ')}`,
+          sourcesStats: failedErrors.map(e => ({
+            sourceId: e.sourceId,
+            sourceName: e.sourceName,
+            sourceUrl: e.sourceUrl,
+            startedAt: tickStartedAt.toISOString(),
+            completedAt: tickEnd.toISOString(),
+            found: 0,
+            newCount: 0,
+            dupCount: 0,
+            pagesAttempted: 1,
+            pagesSuccessful: 0,
+            failed: true,
+            error: e.error
+          }))
+        });
+      } catch (runPersistErr: any) {
+        console.warn('[Scheduler Engine] Unable to record failed tick run summary:', runPersistErr?.message || runPersistErr);
       }
     }
 
     return {
       triggeredSources: triggered,
-      summary: `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources.`
+      failedSources: failed.length > 0 ? failed : undefined,
+      summary: failed.length > 0
+        ? `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources, ${failed.length} failed.`
+        : `Tick completed (Scope: ${settings.scope}). Triggered ${triggered.length} sources.`
     };
   } finally {
     isTickExecuting = false;

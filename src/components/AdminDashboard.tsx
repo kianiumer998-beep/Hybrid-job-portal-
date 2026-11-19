@@ -93,15 +93,12 @@ import { AutomatedScraperHub } from './admin/AutomatedScraperHub';
 import { JobSeoPreviewModal } from './common/JobSeoPreviewModal';
 import { injectJobJsonLd } from '../utils/seoHelper';
 import { 
-  MOCK_CONSOLIDATED_PDF_GAZETTES, 
   ALL_CONSOLIDATED_PDF_GAZETTES,
   getUnifiedAllGazettes,
   generateGazetteFromManualInput,
   OFFICIAL_GOVT_SCRAPER_PORTALS,
-  OfficialGovtPdfPortal,
-  generateScrapedJobsForPortal
+  OfficialGovtPdfPortal
 } from '../data/mockPdfConsolidatedAds';
-import { INITIAL_SCRAPED_AUDIT_LOGS, INITIAL_SCRAPER_BATCH_RUNS } from '../data/mockScraperHistory';
 
 // Advanced International Admin Suite Modules
 import { AdminAnalyticsOverview } from './admin/AdminAnalyticsOverview';
@@ -1745,7 +1742,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (e) {
       console.error('Error loading scraped audit logs from storage', e);
     }
-    return INITIAL_SCRAPED_AUDIT_LOGS;
+    return [];
   });
 
   const [scraperBatchRuns, setScraperBatchRuns] = useState<ScraperBatchRun[]>(() => {
@@ -1770,7 +1767,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (e) {
       console.error('Error loading scraper batch runs from storage', e);
     }
-    return INITIAL_SCRAPER_BATCH_RUNS;
+    return [];
   });
 
   useEffect(() => {
@@ -2269,12 +2266,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeProgress, setScrapeProgress] = useState(0);
-  const [scraperLogs, setScraperLogs] = useState<string[]>([
-    '[2026-08-11 12:30:00] Scheduler triggered: Rozee.pk Pakistan Tech Jobs. Harvested 4 jobs (Sent to Pending Approval Queue).',
-    '[2026-08-11 08:00:00] Scheduler triggered: FPSC & PPSC Federal Govt Jobs. Harvested 3 jobs (Auto-Approved to Live Board).',
-    '[2026-08-11 06:00:00] Scheduler triggered: LinkedIn Global Remote Developer Feed. Harvested 6 jobs (Auto-Approved to Live Board).',
-    '[2026-08-10 20:15:00] Scheduler triggered: Daily Jang Newspaper Classified Ads. Extracted 2 newspaper clippings.'
-  ]);
+  const [scraperLogs, setScraperLogs] = useState<string[]>([]);
 
   // Handle Quick Pre-Filling from Official Portal Cards
   const handleFillPortalPreset = (portal: OfficialGovtPdfPortal) => {

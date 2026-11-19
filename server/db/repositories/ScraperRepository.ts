@@ -433,6 +433,7 @@ export class ScraperRepository {
     healthStatus?: 'Healthy' | 'Jobs Found' | 'No Jobs' | '404' | '403' | 'Timeout' | 'Invalid PDF' | 'HTML' | 'Fetch Error' | 'Database Error' | 'Disabled' | string;
     lastErrorMessage?: string;
     lastHttpStatus?: number;
+    provenExtractionMethodsToAdd?: string[];
   }, _deps?: {
     isMongoConfiguredFn?: () => boolean;
     getCollectionFn?: () => Promise<any>;
@@ -441,6 +442,9 @@ export class ScraperRepository {
     const isMongoCfgFn = _deps?.isMongoConfiguredFn || isMongoConfigured;
     const getCollFn = _deps?.getCollectionFn || getScraperSourcesCollection;
     const mongoConfigured = isMongoCfgFn();
+    const cleanProvenMethods = Array.isArray(stats.provenExtractionMethodsToAdd)
+      ? Array.from(new Set(stats.provenExtractionMethodsToAdd.map(m => String(m || '').trim()).filter(Boolean)))
+      : [];
 
     if (mongoConfigured) {
       try {
@@ -457,6 +461,9 @@ export class ScraperRepository {
         const updateOps: any = {};
         if (Object.keys($set).length > 0) updateOps.$set = $set;
         if (stats.scrapedCountIncrement) updateOps.$inc = { scrapedCount: stats.scrapedCountIncrement };
+        if (cleanProvenMethods.length > 0) {
+          updateOps.$addToSet = { provenExtractionMethods: { $each: cleanProvenMethods } };
+        }
 
         if (Object.keys(updateOps).length > 0) {
           const updateResult: any = await withMongoTimeout<any>(coll.updateOne({ id: sourceId }, updateOps), 10000, 'updateSourceStats');
@@ -498,6 +505,12 @@ export class ScraperRepository {
       if (stats.healthStatus) this.cachedSources[idx].healthStatus = stats.healthStatus;
       if (stats.lastErrorMessage !== undefined) this.cachedSources[idx].lastErrorMessage = stats.lastErrorMessage;
       if (stats.lastHttpStatus !== undefined) this.cachedSources[idx].lastHttpStatus = stats.lastHttpStatus;
+      if (cleanProvenMethods.length > 0) {
+        const existingMethods = Array.isArray(this.cachedSources[idx].provenExtractionMethods)
+          ? this.cachedSources[idx].provenExtractionMethods
+          : [];
+        this.cachedSources[idx].provenExtractionMethods = Array.from(new Set([...existingMethods, ...cleanProvenMethods]));
+      }
     }
   }
 
@@ -932,7 +945,7 @@ export class ScraperRepository {
 
       for (const cfg of configs) {
         if (cfg.status === 'Running' || cfg.status === 'Processing') {
-          cfg.status = 'Idle';
+          cfg.status = 'Active Scheduled';
           cfg.updatedAt = now;
           resetCount++;
         }

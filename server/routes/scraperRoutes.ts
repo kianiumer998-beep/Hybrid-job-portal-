@@ -258,7 +258,15 @@ export function mapScrapedResultToRouteJob(
     govtScale: r.govtScale,
     deadlineDate: r.deadlineDate,
     pdfTotalVacanciesInCase: r.pdfTotalVacanciesInCase,
+    domicileQuota: r.domicileQuota,
     ageRelaxationNote: r.ageRelaxationNote,
+    isPdfScraped: r.isPdfScraped,
+    pdfFileName: r.pdfFileName,
+    pdfSourceUrl: r.pdfSourceUrl,
+    pdfCaseNumber: r.pdfCaseNumber,
+    pdfParserEngine: r.pdfParserEngine,
+    clippingImageUrl: r.clippingImageUrl,
+    mediaUrl: r.mediaUrl,
     scrapedSourceDomain: domain,
     scraperSourceName: `${organization || domain || 'Target'} Scraper`,
     sourcePortal: organization || domain,
@@ -322,10 +330,11 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
 
     if (isPdf || isSupportedImage) {
       const mediaResult = await parsePdfFromUrl(cleanUrl, organization);
+      const extractedCount = Array.isArray(mediaResult.extractedJobs) ? mediaResult.extractedJobs.length : 0;
       return res.json({
-        success: mediaResult.success,
+        success: Boolean(mediaResult.success && extractedCount > 0),
         jobs: mediaResult.extractedJobs,
-        totalExtracted: mediaResult.extractedJobs.length,
+        totalExtracted: extractedCount,
         totalPages: mediaResult.totalPages,
         rawTextSample: mediaResult.rawTextSample,
         fileName: mediaResult.fileName,
@@ -359,10 +368,11 @@ scraperRouter.post('/parse-url', requireAdminPermission('scraper.manage'), async
     const jobs: Job[] = (enrichedScraped || []).map((r, idx) => mapScrapedResultToRouteJob(r, idx, organization, domain, cleanUrl, now));
 
     return res.json({
-      success: true,
+      success: jobs.length > 0,
       jobs,
       totalExtracted: jobs.length,
       totalPages: 1,
+      diagnosticCode: jobs.length > 0 ? 'HTML_TEXT_SUCCESS' : 'HTML_TEXT_NO_VACANCIES',
       rawTextSample: `Extracted from live web portal: ${cleanUrl}`,
       message: jobs.length > 0
         ? `Successfully harvested ${jobs.length} authentic vacancies directly from ${domain}.`
@@ -389,6 +399,7 @@ scraperRouter.post('/run', requireAdminPermission('scraper.manage'), async (req,
       sinceTimestamp: req.body.sinceTimestamp,
       fromTimestamp: req.body.fromTimestamp,
       toTimestamp: req.body.toTimestamp,
+      keywords: typeof req.body.keywords === 'string' ? req.body.keywords : undefined,
       autoPublishTrusted: req.body.autoPublishTrusted,
       duplicateMode
     };

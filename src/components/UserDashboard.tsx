@@ -50,7 +50,6 @@ interface UserDashboardProps {
   }) => Promise<{ success: boolean; transaction?: any; message?: string } | boolean | void> | void;
   onDeleteAd?: (adId: string) => void;
   onDuplicateAd?: (ad: Advertisement) => void;
-  onToggleAutoRenew: () => void;
   onRenewSubscription: () => void;
   onSubmitJobForApproval: (
     job: Job,

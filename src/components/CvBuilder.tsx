@@ -211,17 +211,29 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                   <div className="flex-1">
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/png,image/jpeg,image/webp"
                       id="cv-photo-input"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setCvData({ ...cvData, photoBase64: reader.result as string });
-                          };
-                          reader.readAsDataURL(file);
+                        if (!file) return;
+                        if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+                          setCvSaveMessage({ type: 'error', text: 'Please select a PNG, JPEG, or WebP image.' });
+                          e.target.value = '';
+                          return;
                         }
+                        if (file.size > 250 * 1024) {
+                          setCvSaveMessage({ type: 'error', text: 'Profile photo must be 250 KB or smaller to save with your CV.' });
+                          e.target.value = '';
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          if (typeof reader.result === 'string') {
+                            setCvData({ ...cvData, photoBase64: reader.result });
+                            setCvSaveMessage(null);
+                          }
+                        };
+                        reader.readAsDataURL(file);
                       }}
                       className="hidden"
                     />
@@ -231,7 +243,7 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                     >
                       Upload Headshot Photo
                     </label>
-                    <p className="text-[10px] text-slate-500 mt-1">PNG or JPG, auto-converted to Base64 preview</p>
+                    <p className="text-[10px] text-slate-500 mt-1">PNG, JPG, or WebP · maximum 250 KB</p>
                   </div>
                 </div>
               </div>

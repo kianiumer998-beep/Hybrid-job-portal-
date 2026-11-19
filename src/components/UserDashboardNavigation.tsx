@@ -107,7 +107,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       { id: 'emp-listings', label: 'My Job Listings', tab: 'my-jobs', icon: Building2 },
     ]},
     { id: 'membership-payments', label: 'MEMBERSHIP & PAYMENTS', icon: CreditCard, subItems: [
-      { id: 'mem-plans', label: 'Plans & Subscription', tab: 'overview', subView: 'metrics', icon: ShieldCheck },
       { id: 'mem-history', label: 'Payment History', tab: 'overview', subView: 'history', icon: History },
       { id: 'mem-wallet', label: 'Wallet & Deposits', tab: 'campaigns', subTab: 'wallet', icon: Wallet },
       { id: 'mem-whatsapp', label: 'WhatsApp Alerts', isGlobal: true, globalTab: 'alerts', icon: Zap },
@@ -138,7 +137,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
       'career-apps': 'jobs-applications',
       'career-saved': 'jobs-saved',
       'career-alerts': 'jobs-alerts',
-      'mem-status': 'mem-plans',
+      'mem-status': 'dash-overview',
       'ads-wallet': 'mem-wallet',
     };
     const effectiveActiveNavId = activeNavId ? (legacyNavIdMap[activeNavId] || activeNavId) : null;
@@ -160,9 +159,6 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
         if (activeTab === 'campaigns' && campaignSubTab !== item.subTab) return false;
     }
     
-    // For duplicates (like Payment History), without an activeNavId, 
-    // the first one encountered in the tree that matches state will be active.
-    // This is resolved once the user clicks an item.
     return true;
   };
 

@@ -3196,56 +3196,11 @@ export default function App() {
   };
 
   // User Manual Subscription Renewal (+30 Days)
-  const handleRenewSubscription = async () => {
-    if (!currentUser) return;
-
-    const rawTier = (currentUser as any).membershipTier;
-    const targetPackage = subscriptionPackages.find(p => p.enabled && (p.id === rawTier || p.name === rawTier));
-    
-    if (!targetPackage) {
-      alert('Subscription renewal is currently unavailable for your current plan tier. Please contact support or upgrade via the Subscription menu.');
-      return;
-    }
-
-    const selectedPlan = targetPackage.id;
-    const renewalAmount = Number(targetPackage.pricePkr);
-
-    try {
-      const txRes = await api.transactions.submit({
-        amount: renewalAmount,
-        currency: 'PKR',
-        type: 'Subscription',
-        plan: selectedPlan,
-        paymentMethod: 'JazzCash',
-        senderName: currentUser.name,
-        userName: currentUser.name,
-        userEmail: currentUser.email,
-        idempotencyKey: `renew-${currentUser.id}-${Date.now()}`
-      });
-
-      if (txRes && txRes.success && txRes.transaction) {
-        const normalizedTx = normalizeBackendTransaction(txRes.transaction);
-        setPaymentTransactions((prev) => [
-          normalizedTx,
-          ...prev.filter((t) => t.id !== normalizedTx.id)
-        ]);
-        await loadBackendTransactions(currentUser.id);
-
-        if (normalizedTx.status === 'Success') {
-          alert('Subscription renewed and activated!');
-        } else {
-          alert(
-            txRes.message ||
-              'Subscription renewal submitted! Administrator verification is pending.'
-          );
-        }
-      } else {
-        alert(txRes?.message || 'Failed to submit subscription renewal.');
-      }
-    } catch (err: any) {
-      console.error('Error renewing subscription:', err);
-      alert(err?.message || 'Error processing subscription renewal.');
-    }
+  const handleRenewSubscription = () => {
+    // Renewal must use the existing SubscriptionModal so users submit the configured payment method,
+    // transaction reference/receipt, sender details, and any administrator-required custom proof fields.
+    setSelectedJobTitleForSub('');
+    setSubscriptionModalOpen(true);
   };
 
   // Admin Approves Job
@@ -4475,7 +4430,10 @@ export default function App() {
                   setShowAdminView(false);
                   setActiveTab('jobs');
                 }}
-                onOpenSubscriptionModal={() => setSubscriptionModalOpen(true)}
+                onOpenSubscriptionModal={() => {
+                  setSelectedJobTitleForSub('');
+                  setSubscriptionModalOpen(true);
+                }}
                 onNavigateGlobalTab={setActiveTab}
               />
             )}

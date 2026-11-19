@@ -4075,6 +4075,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             }
           }}
           onNavigateGlobalTab={onNavigateGlobalTab}
+          onCampaignSubTabChange={(subTab) => {
+            setCampaignSubTab(subTab);
+            if (navigationMode === 'professional') {
+              setActiveNavId(subTab === 'my-campaigns' ? 'ads-list' : subTab === 'create' ? 'ads-create' : 'mem-wallet');
+            }
+          }}
           showInternalNavigation={navigationMode === 'classic'}
         />
       )}

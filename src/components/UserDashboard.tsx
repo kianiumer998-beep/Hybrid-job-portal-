@@ -145,6 +145,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [accountSubTab, setAccountSubTab] = useState<'profile' | 'security'>(() =>
     safeLocalStorageGet<string | null>(`dashboard_active_nav_id_${currentUser.id}`, null) === 'acc-security' ? 'security' : 'profile'
   );
+  const [selectedPaymentTransaction, setSelectedPaymentTransaction] = useState<PaymentTransaction | null>(null);
   const [openDepositModalTrigger, setOpenDepositModalTrigger] = useState<boolean>(false);
   const [navigationMode, setNavigationMode] = useState<'classic' | 'professional'>(() => 
     safeLocalStorageGet<'classic' | 'professional'>(`dashboard_nav_mode_${currentUser.id}`, 'classic')
@@ -2017,11 +2018,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       <th className="py-3 px-4">Amount</th>
                       <th className="py-3 px-4">Payment Method</th>
                       <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Details</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {userTransactions.length === 0 ? (
-                      <tr><td colSpan={6} className="py-8 px-4 text-center text-slate-400">No payment records yet.</td></tr>
+                      <tr><td colSpan={7} className="py-8 px-4 text-center text-slate-400">No payment records yet.</td></tr>
                     ) : userTransactions.map((tx) => (
                       <tr key={tx.id} className="hover:bg-slate-800/50 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-semibold text-white">{tx.dateTime}</td>
@@ -2030,15 +2032,62 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                         <td className="py-3.5 px-4 font-black text-white font-mono">{tx.currency} {tx.amount.toLocaleString()}</td>
                         <td className="py-3.5 px-4 font-medium text-slate-300">{tx.paymentMethod}</td>
                         <td className="py-3.5 px-4">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                            {tx.status}
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${tx.status === 'Success' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : tx.status === 'Pending' ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'}`}>
+                            {tx.status === 'Success' ? 'Approved' : tx.status === 'Pending' ? 'Pending Review' : 'Failed / Rejected'}
                           </span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <button type="button" onClick={() => setSelectedPaymentTransaction(tx)} className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-bold text-[10px]">View details</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {selectedPaymentTransaction && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Payment transaction details">
+                  <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl p-4 sm:p-6 space-y-4 shadow-2xl">
+                    <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+                      <div>
+                        <h3 className="text-base sm:text-lg font-black text-white">Payment Transaction Details</h3>
+                        <p className="text-[11px] text-slate-400 mt-1">Reference: {selectedPaymentTransaction.transactionId || selectedPaymentTransaction.id}</p>
+                      </div>
+                      <button type="button" onClick={() => setSelectedPaymentTransaction(null)} className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white" aria-label="Close details"><X className="w-4 h-4" /></button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      {[
+                        ['Date & Time', selectedPaymentTransaction.dateTime],
+                        ['Transaction Type', selectedPaymentTransaction.type],
+                        ['Amount', `${selectedPaymentTransaction.currency || 'PKR'} ${Number(selectedPaymentTransaction.amount || 0).toLocaleString()}`],
+                        ['Payment Method', selectedPaymentTransaction.paymentMethod],
+                        ['Status', selectedPaymentTransaction.status],
+                        ['Item / Campaign', selectedPaymentTransaction.jobTitleRef || selectedPaymentTransaction.adTitleRef || '—'],
+                        ['Sender Name', selectedPaymentTransaction.senderName],
+                        ['Sender Account / Phone', selectedPaymentTransaction.senderPhoneOrAccount],
+                        ['Bank / Wallet', selectedPaymentTransaction.depositBankOrWalletName],
+                        ['Verified At', selectedPaymentTransaction.verifiedAt],
+                        ['Verified By', selectedPaymentTransaction.verifiedBy],
+                        ['Admin Note', selectedPaymentTransaction.adminNote],
+                        ['Rejection Reason', selectedPaymentTransaction.rejectionReason],
+                        ['Proof Note', selectedPaymentTransaction.proofNote]
+                      ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '').map(([label, value]) => (
+                        <div key={label} className="p-3 bg-slate-950 border border-slate-800 rounded-xl min-w-0">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold mb-1">{label}</div>
+                          <div className="text-slate-200 break-words">{String(value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedPaymentTransaction.proofScreenshotUrl && (
+                      <a href={selectedPaymentTransaction.proofScreenshotUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+                        <FileText className="w-4 h-4" /> View submitted payment proof
+                      </a>
+                    )}
+                    <div className="flex justify-end pt-2 border-t border-slate-800">
+                      <button type="button" onClick={() => setSelectedPaymentTransaction(null)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold">Close</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

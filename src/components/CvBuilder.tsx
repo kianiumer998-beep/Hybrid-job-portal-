@@ -475,6 +475,38 @@ export const CvBuilder: React.FC<CvBuilderProps> = ({ isSubscribed, initialCvDat
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className="block text-[11px] font-semibold text-slate-400">Work Location
+                      <input type="text" value={exp.location} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], location: e.target.value };
+                        setCvData({ ...cvData, experience: updated });
+                      }} className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs" />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-slate-400">Start Date
+                      <input type="text" value={exp.startDate} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], startDate: e.target.value };
+                        setCvData({ ...cvData, experience: updated });
+                      }} placeholder="e.g. Jan 2022" className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs" />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-slate-400">End Date
+                      <input type="text" value={exp.endDate} disabled={exp.current} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], endDate: e.target.value };
+                        setCvData({ ...cvData, experience: updated });
+                      }} placeholder="e.g. Dec 2024" className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded text-white text-xs disabled:opacity-50" />
+                    </label>
+                    <label className="flex items-center gap-2 self-end pb-2 text-xs text-slate-300">
+                      <input type="checkbox" checked={exp.current} onChange={(e) => {
+                        const updated = [...cvData.experience];
+                        updated[idx] = { ...updated[idx], current: e.target.checked, endDate: e.target.checked ? 'Present' : '' };
+                        setCvData({ ...cvData, experience: updated });
+                      }} />
+                      I currently work here
+                    </label>
+                  </div>
+
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-[11px] font-semibold text-slate-400">Key Achievements / Bullets</label>

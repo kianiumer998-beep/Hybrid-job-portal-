@@ -30,7 +30,7 @@ import { InlineFeedAd } from './ads/InlineFeedAd';
 import { JobCardDesignConfig } from '../types/landing';
 
 
-const parseJobCardDate = (value?: string): Date | null => {
+const parseJobCardDate = (value?: string, endOfDay = false): Date | null => {
   if (!value || typeof value !== 'string') return null;
   const clean = value.trim();
   if (!clean) return null;
@@ -39,9 +39,18 @@ const parseJobCardDate = (value?: string): Date | null => {
     const day = Number(dmy[1]);
     const month = Number(dmy[2]) - 1;
     const year = Number(dmy[3]);
-    const parsed = new Date(year, month, day, 23, 59, 59);
+    const parsed = new Date(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0);
     if (parsed.getFullYear() === year && parsed.getMonth() === month && parsed.getDate() === day) return parsed;
     return null;
+  }
+  const dateOnly = clean.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]) - 1;
+    const day = Number(dateOnly[3]);
+    const parsed = new Date(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0);
+    if (parsed.getFullYear() !== year || parsed.getMonth() !== month || parsed.getDate() !== day) return null;
+    return parsed;
   }
   const parsed = new Date(clean);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -70,7 +79,7 @@ const getRelativeJobTime = (value: string | undefined, now: number): string => {
 };
 
 const getDeadlineRemaining = (value: string | undefined, now: number): string => {
-  const date = parseJobCardDate(value);
+  const date = parseJobCardDate(value, true);
   if (!date) return '';
   const remaining = date.getTime() - now;
   if (remaining <= 0) return 'Deadline passed';
@@ -229,7 +238,7 @@ export const JobListings: React.FC<JobListingsProps> = ({
     const cleanCompany = sanitizeJobCompanyName(job.company);
     const cleanTags = sanitizeJobTags(job.tags);
 
-    const postedTimeSource = job.postedAt || job.createdAt || '';
+    const postedTimeSource = (job.postedAt && parseJobCardDate(job.postedAt) ? job.postedAt : job.createdAt) || '';
     const relativePostedTime = getRelativeJobTime(postedTimeSource, clockNow);
     const exactPostedDate = formatJobCardDate(postedTimeSource);
     const deadlineDisplayDate = formatJobCardDate(job.deadlineDate);
@@ -357,6 +366,9 @@ export const JobListings: React.FC<JobListingsProps> = ({
                         )}
                         {(design.visibility.pinnedBadge !== false) && (activeTier === 'pinned' || job.isPinnedTop || job.priorityTier === 'featured_top') && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">Pinned</span>
+                        )}
+                        {design.visibility.duplicateOverrideBadge !== false && job.isDuplicateOverride && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40">Override</span>
                         )}
                         {design.visibility.govtBadge && job.isGovtJob && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">Govt</span>

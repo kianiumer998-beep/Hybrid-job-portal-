@@ -89,7 +89,7 @@ export const UserDashboardNavigation: React.FC<UserDashboardNavigationProps> = (
 
   const menuStructure: NavItem[] = [
     { id: 'dashboard', label: 'DASHBOARD', icon: LayoutDashboard, subItems: [
-      { id: 'dash-overview', label: 'Overview', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
+      { id: 'dash-overview', label: 'Overview & Subscription', tab: 'overview', subView: 'metrics', icon: LayoutDashboard },
     ]},
     { id: 'jobs', label: 'JOBS', icon: Search, subItems: [
       { id: 'jobs-explore', label: 'Explore Jobs', isGlobal: true, globalTab: 'jobs', icon: Search },

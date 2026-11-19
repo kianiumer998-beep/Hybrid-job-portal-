@@ -711,7 +711,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
           }`}
         >
           <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span>Wallet Ledger</span>
+          <span>Wallet & Rates</span>
         </button>
       </div>
 
@@ -1553,7 +1553,7 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* SUB-TAB 3: WALLET LEDGER & RATE CARD */}
+      {/* SUB-TAB 3: WALLET OVERVIEW & RATE CARD */}
       {/* ========================================================================= */}
       {activeSubTab === 'wallet' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -2148,6 +2148,8 @@ export const UserCampaignHub: React.FC<UserCampaignHubProps> = ({
                 <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold mb-2">Campaign controls</div>
                 <div className="text-xs text-slate-300 space-y-1">
                   <div>Theme: {detailsAd.theme || 'Default'}</div>
+                  <div>Background color: {detailsAd.customBgColor || 'Theme default'}</div>
+                  <div>Text color: {detailsAd.customTextColor || 'Theme default'}</div>
                   <div>Dismissable: {detailsAd.dismissable ? 'Yes' : 'No'}</div>
                   <div>Priority: {detailsAd.priority || 'Normal'}</div>
                   <div>Auto-close: {typeof detailsAd.autoCloseDelay === 'number' ? `${detailsAd.autoCloseDelay} seconds` : 'Not set'}</div>

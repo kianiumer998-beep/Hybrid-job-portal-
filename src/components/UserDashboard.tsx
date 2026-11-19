@@ -1456,6 +1456,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [allJobs, currentUser, userApplications, savedJobIds]);
 
   // Derived Billing Dates & Times
+  const planDisplayName = currentUser.plan || 'Not recorded';
   const activationTimeStr = currentUser.activationDate || 'Not recorded';
   const expiryTimeStr = currentUser.expiryDate || 'Not set';
   const renewalCount =
@@ -1726,7 +1727,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <div className="flex items-center space-x-2">
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] sm:text-xs font-black tracking-wider uppercase flex items-center space-x-1">
                       <Sparkles className="w-3 h-3" />
-                      <span>{currentUser.plan || 'Premium'} Pro Pass</span>
+                      <span>{planDisplayName}</span>
                     </span>
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border ${membershipStatusClass}`}>
                       {membershipStatusLabel === 'Active & Verified' ? '✓ Active & Verified' : membershipStatusLabel}
@@ -1734,11 +1735,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   </div>
 
                   <h3 className="text-base sm:text-2xl font-black text-white tracking-tight flex items-center space-x-2">
-                    <span>{currentUser.plan || 'Premium'} Pro Membership</span>
+                    <span>{planDisplayName} Membership</span>
                     <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 fill-amber-400/20 shrink-0" />
                   </h3>
                   <p className="text-[11px] sm:text-xs text-slate-400">
-                    Unlimited job submissions, automated CV builder access & verified applicant tier.
+                    Plan features and access depend on your recorded subscription status.
                   </p>
                 </div>
 
@@ -1790,7 +1791,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <Sparkles className="w-3 h-3 text-emerald-400" />
                   </div>
                   <div className="text-xs sm:text-base font-black text-emerald-400 mt-1 truncate">
-                    {currentUser.plan || 'Premium'} Pro
+                    {planDisplayName}
                   </div>
                   <div className="text-[9px] text-slate-400 mt-0.5 truncate">Job Portal & CV Engine</div>
                 </div>
@@ -1803,7 +1804,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <div className="text-xs sm:text-sm font-black text-white font-mono mt-1 truncate">
                     {activationTimeStr}
                   </div>
-                  <div className="text-[9px] text-teal-400 mt-0.5 truncate">Verified on Record</div>
+                  <div className="text-[9px] text-teal-400 mt-0.5 truncate">{currentUser.activationDate ? 'Activation recorded' : 'Activation not recorded'}</div>
                 </div>
 
                 <div className="p-2.5 sm:p-3.5 bg-slate-950/70 border border-slate-800 rounded-lg sm:rounded-xl">

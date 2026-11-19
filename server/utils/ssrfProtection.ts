@@ -483,11 +483,104 @@ async function cancelResponseBody(res: any): Promise<void> {
   }
 }
 
+const DEFAULT_SAFE_SCRAPE_HEADERS: Record<string, string> = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept':
+    'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,application/pdf;q=0.8,*/*;q=0.7',
+  'Accept-Language': 'en-US,en;q=0.9,ur;q=0.8'
+};
+
+// Conservative explicit allowlist of non-sensitive headers permitted across cross-origin redirects.
+// Any credential, authorization, cookie, proxy-authorization, API-key, token, secret, or password
+// header is automatically excluded on origin transitions regardless of casing.
+const CROSS_ORIGIN_SAFE_HEADER_NAMES = new Set<string>([
+  'accept',
+  'accept-language',
+  'accept-encoding',
+  'user-agent',
+  'cache-control',
+  'pragma'
+]);
+
+function isSameOrigin(urlA: URL, urlB: URL): boolean {
+  const defaultPort = (protocol: string) => (protocol === 'https:' ? '443' : '80');
+  const portA = urlA.port || defaultPort(urlA.protocol);
+  const portB = urlB.port || defaultPort(urlB.protocol);
+  return (
+    urlA.protocol.toLowerCase() === urlB.protocol.toLowerCase() &&
+    urlA.hostname.toLowerCase() === urlB.hostname.toLowerCase() &&
+    portA === portB
+  );
+}
+
+function normalizeHeadersInput(headersInit?: HeadersInit): Record<string, string> {
+  const merged: Record<string, string> = { ...DEFAULT_SAFE_SCRAPE_HEADERS };
+
+  const setHeaderCaseInsensitive = (rawKey: string, rawVal: unknown) => {
+    const key = String(rawKey || '').trim();
+    if (!key || rawVal === undefined || rawVal === null) return;
+    const lower = key.toLowerCase();
+    for (const existingKey of Object.keys(merged)) {
+      if (existingKey.toLowerCase() === lower) {
+        delete merged[existingKey];
+      }
+    }
+    merged[key] = String(rawVal);
+  };
+
+  if (!headersInit) {
+    return merged;
+  }
+
+  if (
+    headersInit instanceof Headers ||
+    (typeof (headersInit as any).forEach === 'function' && typeof (headersInit as any).get === 'function')
+  ) {
+    (headersInit as Headers).forEach((value, key) => {
+      setHeaderCaseInsensitive(key, value);
+    });
+    return merged;
+  }
+
+  if (Array.isArray(headersInit)) {
+    for (const entry of headersInit) {
+      if (Array.isArray(entry) && entry.length >= 2) {
+        setHeaderCaseInsensitive(entry[0], entry[1]);
+      }
+    }
+    return merged;
+  }
+
+  if (typeof headersInit === 'object') {
+    for (const [key, value] of Object.entries(headersInit as Record<string, unknown>)) {
+      if (Array.isArray(value)) {
+        setHeaderCaseInsensitive(key, value.join(', '));
+      } else {
+        setHeaderCaseInsensitive(key, value);
+      }
+    }
+  }
+
+  return merged;
+}
+
+function filterHeadersForCrossOrigin(headers: Record<string, string>): Record<string, string> {
+  const filtered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (CROSS_ORIGIN_SAFE_HEADER_NAMES.has(key.toLowerCase())) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
+
 /**
  * Fetches a URL with SSRF protection, timeout, automatic retry with exponential backoff,
  * safe DNS resolution checks, and safe manual redirect validation to prevent redirect-based SSRF bypass.
  * Enforces use of the internal DNS-validated scraperTlsDispatcher (caller dispatcher cannot override).
  * Performs safe resource cleanup of intermediate 429 and redirect response bodies and attempt timers.
+ * Strips sensitive headers and rejects body-preserving 307/308 redirects across origin boundaries.
  */
 export async function safeFetchWithRetry(
   url: string,
@@ -544,21 +637,19 @@ export async function safeFetchWithRetry(
       let currentUrl = url;
       let currentMethod = (options.method || 'GET').toUpperCase();
       let currentBody = options.body;
+      let currentHeaders = normalizeHeadersInput(options.headers);
       let redirectHops = 0;
       const visitedUrls = new Set<string>([currentUrl]);
 
-      const mergedHeaders = {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept':
-          'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,application/pdf;q=0.8,*/*;q=0.7',
-        'Accept-Language': 'en-US,en;q=0.9,ur;q=0.8',
-        ...(options.headers || {})
-      };
-
       // FIX 2: Caller-supplied options.dispatcher must NEVER replace scraperTlsDispatcher.
       // Every protected request must use the internal scraperTlsDispatcher.
-      const { dispatcher: _ignoredCallerDispatcher, ...safeOptions } = (options as any) || {};
+      const {
+        dispatcher: _ignoredCallerDispatcher,
+        headers: _ignoredHeaders,
+        method: _ignoredMethod,
+        body: _ignoredBody,
+        ...safeOptions
+      } = (options as any) || {};
 
       while (true) {
         // Enforce manual redirect handling to intercept and validate every redirect target
@@ -568,7 +659,7 @@ export async function safeFetchWithRetry(
           body: currentBody,
           redirect: 'manual',
           signal: controller.signal,
-          headers: mergedHeaders,
+          headers: currentHeaders,
           // @ts-ignore - dispatcher is supported by undici in Node.js
           dispatcher: scraperTlsDispatcher
         });
@@ -636,16 +727,34 @@ export async function safeFetchWithRetry(
 
           // Reject HTTPS-to-HTTP protocol downgrade redirects while preserving HTTP-to-HTTPS upgrades
           const currentParsed = new URL(currentUrl);
-          if (currentParsed.protocol === 'https:' && redirectCheck.parsedUrl!.protocol === 'http:') {
+          const nextParsed = redirectCheck.parsedUrl!;
+          if (currentParsed.protocol === 'https:' && nextParsed.protocol === 'http:') {
             await cancelResponseBody(res);
             throw new Error(`SSRF Blocked: HTTPS-to-HTTP redirect downgrade rejected (${nextUrl})`);
+          }
+
+          const crossOriginRedirect = !isSameOrigin(currentParsed, nextParsed);
+
+          // Prevent cross-origin request-body and non-idempotent method leakage via 307/308
+          if (
+            crossOriginRedirect &&
+            (res.status === 307 || res.status === 308) &&
+            ((currentBody !== undefined && currentBody !== null) ||
+              currentMethod === 'POST' ||
+              currentMethod === 'PUT' ||
+              currentMethod === 'PATCH')
+          ) {
+            await cancelResponseBody(res);
+            throw new Error(
+              `SSRF Blocked: Cross-origin ${res.status} redirect preserving ${currentMethod} method/body rejected (${nextUrl})`
+            );
           }
 
           // FIX 3: Cancel intermediate redirect response body before redirect DNS preflight or next hop
           await cancelResponseBody(res);
 
           // Resolve and validate redirect target DNS under the active attempt AbortController signal
-          const redirectDnsCheck = await resolveAndValidateDns(redirectCheck.parsedUrl!, controller.signal);
+          const redirectDnsCheck = await resolveAndValidateDns(nextParsed, controller.signal);
           if (!redirectDnsCheck.safe) {
             throw new Error(`SSRF Blocked on redirect: ${redirectDnsCheck.error}`);
           }
@@ -664,6 +773,14 @@ export async function safeFetchWithRetry(
           ) {
             currentMethod = 'GET';
             currentBody = undefined;
+          }
+
+          // Apply conservative safe-header filtering across origin changes
+          if (crossOriginRedirect) {
+            currentHeaders = filterHeadersForCrossOrigin(currentHeaders);
+            if (currentMethod === 'GET' || currentMethod === 'HEAD') {
+              currentBody = undefined;
+            }
           }
 
           currentUrl = nextUrl;

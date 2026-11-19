@@ -12849,6 +12849,417 @@ async function runSuite() {
     assert.strictEqual(res.id, 'explicit-injected-reg-1');
   });
 
+  // =========================================================================
+  // STEP-8.6-C.1 — CROSS-ORIGIN REDIRECT HEADER & REQUEST-BODY LEAKAGE TESTS
+  // =========================================================================
+
+  await runTest('STEP-8.6-C.1 Case 1 [Mocked]: Same-origin redirects (including explicit default port equivalence) preserve existing headers, while subdomain/port/scheme origin changes filter headers', async () => {
+    const originalLookup = dns.promises.lookup;
+    const originalFetch = globalThis.fetch;
+
+    try {
+      (dns.promises as any).lookup = async () => [{ address: '93.184.216.34', family: 4 }];
+
+      // 1. Same-origin redirect with default HTTPS port equivalence (:443 == omitted port)
+      const sameOriginCalls: Array<{ url: string; headers: Record<string, string> }> = [];
+      globalThis.fetch = (async (input: any, init: any) => {
+        const u = String(input);
+        sameOriginCalls.push({ url: u, headers: { ...(init?.headers || {}) } });
+        if (sameOriginCalls.length === 1) {
+          return new Response('', {
+            status: 302,
+            headers: { Location: 'https://portal.example.pk:443/v2/jobs' }
+          });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }) as any;
+
+      const sameRes = await safeFetchWithRetry(
+        'https://portal.example.pk/v1/jobs',
+        {
+          headers: {
+            'Authorization': 'Bearer same-origin-secret',
+            'Cookie': 'session=same-origin-cookie',
+            'X-Custom-Client': 'JobPortalClient',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-GB'
+          }
+        },
+        5000,
+        0
+      );
+      assert.strictEqual(sameRes.status, 200);
+      assert.strictEqual(sameOriginCalls.length, 2);
+      assert.strictEqual(sameOriginCalls[1].headers['Authorization'], 'Bearer same-origin-secret');
+      assert.strictEqual(sameOriginCalls[1].headers['Cookie'], 'session=same-origin-cookie');
+      assert.strictEqual(sameOriginCalls[1].headers['X-Custom-Client'], 'JobPortalClient');
+      assert.strictEqual(sameOriginCalls[1].headers['Accept'], 'application/json');
+      assert.strictEqual(sameOriginCalls[1].headers['Accept-Language'], 'en-GB');
+
+      // 2. Subdomain change (jobs.example.pk -> cdn.example.pk) MUST be treated as cross-origin (no substring trust)
+      const subdomainCalls: Array<{ url: string; headers: Record<string, string> }> = [];
+      globalThis.fetch = (async (input: any, init: any) => {
+        subdomainCalls.push({ url: String(input), headers: { ...(init?.headers || {}) } });
+        if (subdomainCalls.length === 1) {
+          return new Response('', {
+            status: 302,
+            headers: { Location: 'https://cdn.example.pk/feed.json' }
+          });
+        }
+        return new Response('[]', { status: 200 });
+      }) as any;
+
+      await safeFetchWithRetry(
+        'https://jobs.example.pk/feed',
+        {
+          headers: {
+            'Authorization': 'Bearer sub-secret',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US'
+          }
+        },
+        5000,
+        0
+      );
+      assert.strictEqual(subdomainCalls.length, 2);
+      assert.strictEqual(subdomainCalls[0].headers['Authorization'], 'Bearer sub-secret');
+      assert.strictEqual(subdomainCalls[1].headers['Authorization'], undefined, 'Subdomain change must strip Authorization');
+      assert.strictEqual(subdomainCalls[1].headers['Accept'], 'application/json');
+
+      // 3. Non-default port change (https://example.pk/start -> https://example.pk:8443/next) MUST be cross-origin
+      const portCalls: Array<{ url: string; headers: Record<string, string> }> = [];
+      globalThis.fetch = (async (input: any, init: any) => {
+        portCalls.push({ url: String(input), headers: { ...(init?.headers || {}) } });
+        if (portCalls.length === 1) {
+          return new Response('', {
+            status: 301,
+            headers: { Location: 'https://example.pk:8443/next' }
+          });
+        }
+        return new Response('ok', { status: 200 });
+      }) as any;
+
+      await safeFetchWithRetry(
+        'https://example.pk/start',
+        {
+          headers: {
+            'Authorization': 'Bearer port-secret',
+            'Accept': 'application/json'
+          }
+        },
+        5000,
+        0
+      );
+      assert.strictEqual(portCalls.length, 2);
+      assert.strictEqual(portCalls[1].headers['Authorization'], undefined, 'Port change must strip Authorization');
+      assert.strictEqual(portCalls[1].headers['Accept'], 'application/json');
+    } finally {
+      (dns.promises as any).lookup = originalLookup;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-C.1 Case 2 [Mocked]: Cross-origin redirects strip Authorization, Cookie, Proxy-Authorization, API keys/tokens/secrets across plain objects, Headers, tuple arrays, and case variations while preserving Accept & Accept-Language', async () => {
+    const originalLookup = dns.promises.lookup;
+    const originalFetch = globalThis.fetch;
+
+    try {
+      (dns.promises as any).lookup = async () => [{ address: '93.184.216.34', family: 4 }];
+
+      const runCrossOriginHeaderScenario = async (headersInput: HeadersInit) => {
+        const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+        globalThis.fetch = (async (input: any, init: any) => {
+          calls.push({ url: String(input), headers: { ...(init?.headers || {}) } });
+          if (calls.length === 1) {
+            return new Response('', {
+              status: 302,
+              headers: { Location: 'https://external-ats.example.com/v1/jobs' }
+            });
+          }
+          return new Response(JSON.stringify({ jobs: [] }), { status: 200 });
+        }) as any;
+
+        const res = await safeFetchWithRetry(
+          'https://origin-portal.example.pk/apply-redirect',
+          { headers: headersInput },
+          5000,
+          0
+        );
+        assert.strictEqual(res.status, 200);
+        assert.strictEqual(calls.length, 2);
+        return calls;
+      };
+
+      const assertNoSensitiveHeaders = (headersObj: Record<string, string>, label: string) => {
+        const lowerMap = new Map<string, string>();
+        for (const [k, v] of Object.entries(headersObj)) {
+          lowerMap.set(k.toLowerCase(), v);
+        }
+        const forbidden = [
+          'authorization',
+          'proxy-authorization',
+          'cookie',
+          'x-api-key',
+          'x-access-token',
+          'x-auth-token',
+          'x-secret',
+          'x-client-secret',
+          'x-password',
+          'x-csrf-token',
+          'private-token'
+        ];
+        for (const key of forbidden) {
+          assert.strictEqual(lowerMap.has(key), false, `[${label}] Forbidden header "${key}" leaked across origin`);
+        }
+        assert.strictEqual(lowerMap.get('accept'), 'application/json', `[${label}] Safe Accept header must be preserved`);
+        assert.strictEqual(lowerMap.get('accept-language'), 'en-GB,ur;q=0.8', `[${label}] Safe Accept-Language header must be preserved`);
+        assert.ok(lowerMap.get('user-agent'), `[${label}] Default User-Agent must remain available`);
+      };
+
+      // A. Plain object with mixed/upper/lower case variations
+      const plainCalls = await runCrossOriginHeaderScenario({
+        'AuThOrIzAtIoN': 'Bearer case-secret-1',
+        'pRoXy-AuThOrIzAtIoN': 'Basic proxy-creds',
+        'COOKIE': 'sid=secret-cookie',
+        'x-api-key': 'ak_live_12345',
+        'X-ACCESS-TOKEN': 'tok_access_999',
+        'X-Auth-Token': 'tok_auth_888',
+        'x-secret': 'shhh',
+        'X-Client-Secret': 'cs_111',
+        'X-Password': 'pw_222',
+        'X-CSRF-Token': 'csrf_333',
+        'Private-Token': 'pt_444',
+        'aCcEpT': 'application/json',
+        'AcCePt-LaNgUaGe': 'en-GB,ur;q=0.8'
+      });
+      assert.strictEqual(plainCalls[0].headers['AuThOrIzAtIoN'], 'Bearer case-secret-1');
+      assertNoSensitiveHeaders(plainCalls[1].headers, 'PlainObjectCaseVariations');
+
+      // B. Web Headers instance
+      const headersInstance = new Headers([
+        ['Authorization', 'Bearer headers-instance-secret'],
+        ['Cookie', 'auth=headers-cookie'],
+        ['Proxy-Authorization', 'Basic headers-proxy'],
+        ['X-Api-Key', 'headers-api-key'],
+        ['X-Auth-Token', 'headers-auth-token'],
+        ['Accept', 'application/json'],
+        ['Accept-Language', 'en-GB,ur;q=0.8']
+      ]);
+      const headersCalls = await runCrossOriginHeaderScenario(headersInstance);
+      const hop1Lower = Object.fromEntries(Object.entries(headersCalls[0].headers).map(([k, v]) => [k.toLowerCase(), v]));
+      assert.strictEqual(hop1Lower['authorization'], 'Bearer headers-instance-secret');
+      assertNoSensitiveHeaders(headersCalls[1].headers, 'HeadersInstance');
+
+      // C. Tuple-array HeadersInit ([string, string][])
+      const tupleHeaders: [string, string][] = [
+        ['AUTHORIZATION', 'Bearer tuple-secret'],
+        ['cookie', 'tuple=cookie'],
+        ['Proxy-Authorization', 'Basic tuple-proxy'],
+        ['X-Secret', 'tuple-secret-val'],
+        ['X-API-Key', 'tuple-key'],
+        ['Accept', 'application/json'],
+        ['Accept-Language', 'en-GB,ur;q=0.8']
+      ];
+      const tupleCalls = await runCrossOriginHeaderScenario(tupleHeaders);
+      assert.strictEqual(tupleCalls[0].headers['AUTHORIZATION'], 'Bearer tuple-secret');
+      assertNoSensitiveHeaders(tupleCalls[1].headers, 'TupleArray');
+    } finally {
+      (dns.promises as any).lookup = originalLookup;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await runTest('STEP-8.6-C.1 Case 3 [Mocked]: Cross-origin 307/308 with POST/PUT/PATCH body rejects before second fetch and cancels intermediate body, while same-origin 307/308 and 301/302/303 method conversions behave safely', async () => {
+    const originalLookup = dns.promises.lookup;
+    const originalFetch = globalThis.fetch;
+
+    try {
+      (dns.promises as any).lookup = async () => [{ address: '93.184.216.34', family: 4 }];
+
+      // 1. Cross-origin 307 and 308 with POST body MUST reject BEFORE second fetch (and without retries)
+      for (const statusCode of [307, 308]) {
+        let fetchCount = 0;
+        let redirectBodyCancelled = false;
+        const requestedUrls: string[] = [];
+
+        globalThis.fetch = (async (input: any) => {
+          fetchCount++;
+          requestedUrls.push(String(input));
+          return {
+            status: statusCode,
+            ok: false,
+            headers: new Headers({ location: 'https://third-party-collector.example.com/steal' }),
+            bodyUsed: false,
+            body: {
+              cancel: async () => {
+                redirectBodyCancelled = true;
+              }
+            }
+          } as any;
+        }) as any;
+
+        await assert.rejects(
+          () =>
+            safeFetchWithRetry(
+              'https://origin-portal.example.pk/submit',
+              {
+                method: 'POST',
+                body: JSON.stringify({ candidateSecret: 'top-secret-payload' }),
+                headers: { Authorization: 'Bearer post-secret', 'Content-Type': 'application/json' }
+              },
+              5000,
+              2 // Ensure SSRF Blocked error fails closed immediately with 0 retries
+            ),
+          new RegExp(`SSRF Blocked: Cross-origin ${statusCode} redirect preserving POST method/body rejected`)
+        );
+
+        assert.strictEqual(fetchCount, 1, `Cross-origin ${statusCode} MUST NOT issue second fetch or retry`);
+        assert.deepStrictEqual(requestedUrls, ['https://origin-portal.example.pk/submit']);
+        assert.strictEqual(redirectBodyCancelled, true, `Cross-origin ${statusCode} intermediate response body must be cancelled`);
+      }
+
+      // 2. Cross-origin 307 with PUT/PATCH body also rejected cleanly
+      for (const method of ['PUT', 'PATCH']) {
+        let fetchCount = 0;
+        globalThis.fetch = (async () => {
+          fetchCount++;
+          return new Response('', {
+            status: 307,
+            headers: { Location: 'https://other-origin.example.com/ingest' }
+          });
+        }) as any;
+
+        await assert.rejects(
+          () =>
+            safeFetchWithRetry(
+              'https://origin-portal.example.pk/update',
+              { method, body: 'sensitive-update' },
+              5000,
+              0
+            ),
+          new RegExp(`SSRF Blocked: Cross-origin 307 redirect preserving ${method} method/body rejected`)
+        );
+        assert.strictEqual(fetchCount, 1, `Cross-origin 307 ${method} must reject before second request`);
+      }
+
+      // 3. Same-origin 307 & 308 retain method, body, and headers
+      for (const statusCode of [307, 308]) {
+        const calls: Array<{ url: string; method: string; body: any; headers: Record<string, string> }> = [];
+        globalThis.fetch = (async (input: any, init: any) => {
+          calls.push({
+            url: String(input),
+            method: init?.method,
+            body: init?.body,
+            headers: { ...(init?.headers || {}) }
+          });
+          if (calls.length === 1) {
+            return new Response('', {
+              status: statusCode,
+              headers: { Location: 'https://origin-portal.example.pk/v2/submit' }
+            });
+          }
+          return new Response(JSON.stringify({ saved: true }), { status: 200 });
+        }) as any;
+
+        const sameBodyRes = await safeFetchWithRetry(
+          'https://origin-portal.example.pk/v1/submit',
+          {
+            method: 'POST',
+            body: JSON.stringify({ query: 'engineer' }),
+            headers: {
+              'Authorization': 'Bearer same-origin-post-token',
+              'Content-Type': 'application/json'
+            }
+          },
+          5000,
+          0
+        );
+        assert.strictEqual(sameBodyRes.status, 200);
+        assert.strictEqual(calls.length, 2);
+        assert.strictEqual(calls[1].method, 'POST', `Same-origin ${statusCode} must preserve POST method`);
+        assert.strictEqual(calls[1].body, JSON.stringify({ query: 'engineer' }), `Same-origin ${statusCode} must preserve body`);
+        assert.strictEqual(calls[1].headers['Authorization'], 'Bearer same-origin-post-token');
+      }
+
+      // 4. Existing 301/302/303 POST->GET conversion works cross-origin WITHOUT forwarding body or sensitive headers
+      for (const statusCode of [301, 302, 303]) {
+        const calls: Array<{ url: string; method: string; body: any; headers: Record<string, string> }> = [];
+        globalThis.fetch = (async (input: any, init: any) => {
+          calls.push({
+            url: String(input),
+            method: init?.method,
+            body: init?.body,
+            headers: { ...(init?.headers || {}) }
+          });
+          if (calls.length === 1) {
+            return new Response('', {
+              status: statusCode,
+              headers: { Location: 'https://cdn-jobs.example.com/public-list' }
+            });
+          }
+          return new Response('<html>Public</html>', { status: 200 });
+        }) as any;
+
+        const convRes = await safeFetchWithRetry(
+          'https://origin-portal.example.pk/search',
+          {
+            method: 'POST',
+            body: JSON.stringify({ secretQuery: 'internal' }),
+            headers: {
+              'Authorization': 'Bearer strip-on-301-302-303',
+              'Cookie': 'sid=strip-cookie',
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US'
+            }
+          },
+          5000,
+          0
+        );
+        assert.strictEqual(convRes.status, 200);
+        assert.strictEqual(calls.length, 2);
+        assert.strictEqual(calls[1].method, 'GET', `${statusCode} must convert POST to GET`);
+        assert.strictEqual(calls[1].body, undefined, `No request body may reach redirected origin on ${statusCode}`);
+        assert.strictEqual(calls[1].headers['Authorization'], undefined);
+        assert.strictEqual(calls[1].headers['Cookie'], undefined);
+        assert.strictEqual(calls[1].headers['Accept'], 'application/json');
+        assert.strictEqual(calls[1].headers['Accept-Language'], 'en-US');
+      }
+
+      // 5. Existing HTTP -> HTTPS upgrade succeeds while stripping sensitive headers across scheme change
+      const upgradeCalls: Array<{ url: string; headers: Record<string, string> }> = [];
+      globalThis.fetch = (async (input: any, init: any) => {
+        upgradeCalls.push({ url: String(input), headers: { ...(init?.headers || {}) } });
+        if (upgradeCalls.length === 1) {
+          return new Response('', {
+            status: 301,
+            headers: { Location: 'https://portal.example.pk/jobs' }
+          });
+        }
+        return new Response('<html>Upgraded</html>', { status: 200 });
+      }) as any;
+
+      const upgradeRes = await safeFetchWithRetry(
+        'http://portal.example.pk/jobs',
+        {
+          headers: {
+            'Authorization': 'Bearer http-only-token',
+            'Accept': 'text/html'
+          }
+        },
+        5000,
+        0
+      );
+      assert.strictEqual(upgradeRes.status, 200);
+      assert.strictEqual(upgradeCalls.length, 2);
+      assert.strictEqual(upgradeCalls[1].url, 'https://portal.example.pk/jobs');
+      assert.strictEqual(upgradeCalls[1].headers['Authorization'], undefined, 'HTTP->HTTPS scheme transition must not forward Authorization');
+      assert.strictEqual(upgradeCalls[1].headers['Accept'], 'text/html');
+    } finally {
+      (dns.promises as any).lookup = originalLookup;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   console.log('------------------------------------------------------------------');
   console.log(`Summary: Passed=${counts.passed}, Failed=${counts.failed}, Skipped=${counts.skipped}`);
   console.log('==================================================================');

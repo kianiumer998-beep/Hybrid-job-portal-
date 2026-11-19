@@ -2138,7 +2138,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       <tr key={tx.id} className="hover:bg-slate-800/50 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-semibold text-white">{tx.dateTime}</td>
                         <td className="py-3.5 px-4 font-bold text-emerald-400">{tx.type}</td>
-                        <td className="py-3.5 px-4 text-slate-300">{tx.jobTitleRef || 'Monthly Pro Subscription'}</td>
+                        <td className="py-3.5 px-4 text-slate-300">{tx.jobTitleRef || tx.adTitleRef || (tx.type === 'Subscription' ? 'Subscription' : tx.type === 'Wallet Deposit' ? 'Wallet Deposit' : '—')}</td>
                         <td className="py-3.5 px-4 font-black text-white font-mono">{tx.currency} {tx.amount.toLocaleString()}</td>
                         <td className="py-3.5 px-4 font-medium text-slate-300">{tx.paymentMethod}</td>
                         <td className="py-3.5 px-4">

@@ -588,7 +588,7 @@ export default function App() {
       impressions: typeof rawAd?.impressions === 'number' ? rawAd.impressions : 0,
       clicks: typeof rawAd?.clicks === 'number' ? rawAd.clicks : 0,
       createdAt:
-        rawAd?.createdAt || new Date().toISOString().replace('T', ' ').substring(0, 16)
+        rawAd?.createdAt || 'Not recorded'
     };
   }, []);
 
@@ -1187,7 +1187,7 @@ export default function App() {
   const normalizeBackendTransaction = useCallback((rawTx: any): PaymentTransaction => {
     const fallbackDate = rawTx?.createdAt
       ? String(rawTx.createdAt).replace('T', ' ').substring(0, 16)
-      : new Date().toISOString().replace('T', ' ').substring(0, 16);
+      : 'Not recorded';
     const mappedType: PaymentTransaction['type'] =
       rawTx?.type === 'Job Posting'
         ? 'Job Posting Fee'
